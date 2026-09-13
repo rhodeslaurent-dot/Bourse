@@ -1,0 +1,12 @@
+.env
+config/params.yaml
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+data/
+backups/
+*.log
+tests/fixtures/qualification/*.private.*
