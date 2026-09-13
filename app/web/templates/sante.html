@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Santé — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="text-xl font-bold">Santé du système</h1>
+  <p class="text-sm">{{ now_reunion.strftime('%d/%m/%Y %H:%M') }} Réunion ({{ now_paris.strftime('%H:%M') }} Paris) · paramètres v{{ config.params.version }} · sha {{ config.sha256[:8] }}</p>
+  <ul class="text-sm mt-2 space-y-1">
+    <li>Cloudflare Access : {% if cf_access %}<span class="text-green-700">activé</span>{% else %}<span class="text-red-700">DÉSACTIVÉ (CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD absents)</span>{% endif %}</li>
+    <li>Telegram : {% if telegram %}configuré{% else %}<span class="text-amber-700">non configuré</span>{% endif %} · E-mail : {% if email %}configuré{% else %}<span class="text-amber-700">non configuré</span>{% endif %}</li>
+    <li>Base : {{ db_url_kind }} · Calendriers : v{{ calendars.version }} ({{ calendars.venues|length }} places, P0 {{ calendars.p0_mics|join(', ') }})</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2 class="font-semibold">Mode de disponibilité</h2>
+  <p class="text-lg">« {{ mode.mode }} » <span class="text-sm text-slate-500">(source : {{ mode.source }}{% if mode.until %}, jusqu'à {{ mode.until }}{% endif %})</span></p>
+  <form method="post" action="/mode" class="mt-2 flex flex-wrap gap-2 text-sm">
+    <select name="mode" class="border rounded px-2 py-1">
+      <option value="disponible">disponible</option><option value="reunion">reunion</option><option value="absent">absent</option>
+    </select>
+    <input name="duration_minutes" type="number" min="1" placeholder="durée (min)" class="border rounded px-2 py-1 w-32">
+    <button class="bg-slate-800 text-white rounded px-3 py-1">Changer</button>
+  </form>
+  {% if unconfirmed_slots %}
+  <p class="mt-2 text-sm text-amber-700">⚠ {{ unconfirmed_slots|length }} créneau(x) du planning non confirmé(s) (ex. créneau relatif à l'ouverture : 11:00 été / 12:00 hiver) → ignoré(s) ; les scans D1 d'ouverture seraient hors créneau en été. À confirmer dans params.yaml (`confirmed: true`).</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2 class="font-semibold">Fonctionnalités (validation de configuration)</h2>
+  <ul class="text-sm space-y-1">
+    {% for f in features %}
+    <li>{% if f.enabled %}✅{% else %}⛔{% endif %} <b>{{ f.label }}</b> <span class="text-slate-500">({{ f.key }})</span>{% if not f.enabled %} — {{ f.reason }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="card overflow-x-auto">
+  <h2 class="font-semibold">Jobs</h2>
+  <table class="text-sm w-full">
+    <thead><tr class="text-left"><th>Job</th><th>État</th><th>Prochain</th><th>Dernier run</th></tr></thead>
+    <tbody>
+    {% for j in jobs %}
+      <tr class="border-t">
+        <td>{{ j.name }}{% if j.market_days_only %} <span title="calendrier par place">📅</span>{% endif %}</td>
+        <td>{% if not j.enabled %}désactivé{% elif not j.implemented %}<span class="text-slate-500">non implémenté (phase suivante)</span>{% else %}planifié{% endif %}</td>
+        <td>{% if j.next %}{{ j.next|dual }}{% else %}—{% endif %}</td>
+        <td>{% if j.last %}{{ j.last.status }} · {{ j.last.started_at|dual }}{% if j.last.note %} · {{ j.last.note }}{% endif %}{% if j.last.error %} · <span class="text-red-700">{{ j.last.error[:120] }}</span>{% endif %}{% else %}—{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2 class="font-semibold">Fraîcheur des sources</h2>
+  {% if freshness %}
+  <ul class="text-sm">{% for f in freshness %}<li>{{ f.source }} : {% if f.last_ok_at %}{{ f.last_ok_at|dual }}{% else %}jamais{% endif %}{% if f.last_error %} — <span class="text-red-700">{{ f.last_error[:80] }}</span>{% endif %}</li>{% endfor %}</ul>
+  {% else %}<p class="text-sm text-slate-500">Aucune source de données encore qualifiée (phase 0 b).</p>{% endif %}
+</section>
+{% endblock %}

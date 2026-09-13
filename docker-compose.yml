@@ -1,0 +1,40 @@
+# BOURSE-PILOT — un seul `docker compose up -d --build` (docs/03 A10).
+# Postgres est l'instance EXISTANTE (réseau externe `POSTGRES_NETWORK`, hôte `POSTGRES_HOST`).
+# Aucun port publié sur l'hôte : l'accès passe par cloudflared (tunnel sortant) uniquement.
+services:
+  app:
+    build: .
+    container_name: bourse-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PARAMS_PATH: /srv/app/config/params.yaml
+      MARKET_CALENDARS_PATH: /srv/app/config/market_calendars.yaml
+      BACKUP_DIR: /backups
+    volumes:
+      - ./config/params.yaml:/srv/app/config/params.yaml:ro
+      - ./config/market_calendars.yaml:/srv/app/config/market_calendars.yaml:ro
+      - ${BACKUP_HOST_DIR:-./backups}:/backups
+    networks: [internal, postgres]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: bourse-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on: [app]
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
+  postgres:
+    external: true
+    name: ${POSTGRES_NETWORK:-postgres_default}
