@@ -280,6 +280,12 @@ data:
   silent_source_switch_allowed: false
   stale_after_minutes: {realtime: 3, delayed: 20}
   eodhd: {plan: "eod_intraday", daily_quota: 100000, ws_symbols_per_connection: 50}
+  declared_delay_minutes:                  # délai DÉCLARÉ par source (le statut en découle, jamais de l'heure de téléchargement) ; à confirmer par A0.7
+    eodhd_ws: 0
+    eodhd_rest: 15
+    saxo: 0                                # si abonnement L1 ; sinon le champ DelayedByMinutes fait foi
+    tradingview_screener: 15
+    yfinance: 15
   tradingview_screener: {min_interval_seconds: 60, max_requests_per_scan: 6, limit_per_request: 1500, fallback: "eodhd_rest_delayed"}
   rss_feeds:
     - {name: "actusnews", url: "https://www.actusnews.com/fr/rss", user_agent: "browser"}

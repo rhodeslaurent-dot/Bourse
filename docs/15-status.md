@@ -10,7 +10,7 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 | A0.4 | en cours | 2026-09-13 | | Bot codé (boutons, clic en base, autre user_id ignoré et journalisé, `/mode reunion 2h` → `/sante`) et testé hors réseau ; à vérifier avec le vrai bot (token + user_id dans `.env`) |
 | A0.5 | en cours | 2026-09-13 | | Ping healthchecks.io par job, job `backup` (pg_dump -Fc + rotation), `restore_test.ps1` ; compte healthchecks et test de restauration à faire |
 | A0.6 | fait | 2026-09-13 | | `tests/test_no_trading_endpoints.py` ; refus de démarrage si groupe requis manquant ; désactivation par fonctionnalité si groupe optionnel manquant ; pytest (60), ruff, mypy verts |
-| A0.7 | à faire | | | Session suivante (Prompt 2) : pré-qualification documentaire puis prototype sur 10 valeurs FR/DE/NL, fiches `docs/providers/*.md`, ADR-002 |
+| A0.7 | en cours | 2026-09-13 | | **Pré-qualification documentaire faite** (`docs/providers/*.md`), interface `MarketDataProvider` + DTO (source, horodatage de marché, périmètre, statut), providers EODHD (EOD, bulk, intraday, REST différé, WebSocket → barres 1 min avec `complete_bar`), tradingview-screener (≤ 6 req., ≥ 60 s), yfinance (secours EOD), Saxo lecture seule (garde `ReadOnlyViolation`), `scripts/qualify_providers.py` + analyse testée, ADR-002 **proposé**. **Reste** : clés EODHD/Saxo, 10 valeurs (`tests/fixtures/qualification/symbols.yaml`), 3 séances de mesures + relevés Saxo, fiches complétées, ADR-002 accepté |
 | A1.1 – A1.8 | à faire | | | Portefeuille, protections, risque |
 | A2.1 – A2.7 | à faire | | | MVP : entrées préparées, 3 décisions, mode de disponibilité |
 | A3.1 – A3.4 | à faire | | | Détection d'ouverture, après ADR-002 |
@@ -27,7 +27,9 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 ## Décisions en attente de l'utilisateur
 
 - **Valider ADR-000** (hypothèses H1–H12) et ADR-001 (stack) avant la session « qualification des données ».
-- Renseigner `.env` (Telegram token + user_id, SMTP, ping key healthchecks) et `config/params.yaml` ; confirmer le créneau `ref: market_open`.
+- Renseigner `.env` (Telegram token + user_id, SMTP, ping key healthchecks, `EODHD_API_TOKEN`, `SAXO_*`) et `config/params.yaml` ; confirmer le créneau `ref: market_open`.
+- Remplacer les 10 valeurs d'exemple de `tests/fixtures/qualification/symbols.yaml` par votre liste (avec les Uic Saxo), puis lancer `scripts/qualify_providers.py` sur 3 séances et saisir les relevés Saxo (`reference_saxo_<date>.csv`).
+- Valider ADR-002 après les mesures (source temps réel, périmètre RVOL, rattrapage des ticks).
 
 - Domaine personnel à acheter (nom) — phase 0.
 - Demande de clé live Saxo OpenAPI (usage personnel) — à lancer **dès la phase 0** (la simulation n'a pas de données de marché ; délai d'approbation inconnu).
@@ -46,4 +48,5 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 
 | Date | Phase | Fait | Non fait | À décider |
 |---|---|---|---|---|
+| 2026-09-13 | 0 (b) qualification | DTO + interface provider ; EODHD REST/WS + agrégateur de barres ; tradingview-screener ; yfinance ; Saxo lecture seule + OAuth (`saxo-auth`, jeton chiffré) ; script et analyse de qualification (rapport Markdown) ; fiches de pré-qualification ; ADR-002 proposé ; 83 tests | Mesures réelles sur 3 séances (clés API et compte Saxo live requis) | ADR-002 (après mesures) |
 | 2026-09-13 | 0 (a) socle | Dépôt + docs éclatés ; config validée par fonctionnalité ; fuseaux ; calendriers par place + SRD ; mode de disponibilité ; tables système + migration ; planificateur (gating par place, demi-séances, jobs_runs, watchdog) ; `/health`, `/sante`, `/api/mode` ; Cloudflare Access ; Telegram + e-mail ; compose + scripts + RUNBOOK ; 60 tests verts | Tests réels A0.1/A0.2/A0.4/A0.5 (nécessitent domaine, Cloudflare, bot, healthchecks) ; qualification A0.7 | ADR-000 H1–H12 ; ADR-001 |

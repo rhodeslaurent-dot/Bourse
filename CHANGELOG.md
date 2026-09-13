@@ -2,6 +2,14 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Phase 0 (b) qualification des données — 2026-09-13
+
+- `app/data` : DTO (`Quote`, `EodBar`, `IntradayBar`, `ScreenerRow`) avec source, `market_timestamp`, `received_at`, `processed_at`, `price_type`, `market_perimeter`, `data_status` ; `classify_status` fondé sur le délai déclaré et l'âge de l'horodatage de marché ; interface `MarketDataProvider`.
+- Providers : EODHD (EOD, bulk, intraday 5 min, REST différé, WebSocket `ws/eu` → barres 1 min, `complete_bar`, reconnexion), tradingview-screener (≤ 6 requêtes, ≥ 60 s, désactivable), yfinance (secours EOD), Saxo OpenAPI lecture seule (`ReadOnlyViolation` avant tout appel, refresh token chiffré Fernet, `saxo-auth`).
+- `scripts/qualify_providers.py` + `app/data/qualification.py` : enregistrement des observations, délai mesuré, écarts vs interface Saxo, ratio de volume (périmètre), trous du flux, rapport Markdown.
+- `docs/providers/*.md` (pré-qualification documentaire), ADR-002 proposé, `data.declared_delay_minutes` dans `params.example.yaml`.
+- Tests : 83.
+
 ## [Unreleased] — Phase 0 (a) socle — 2026-09-13
 
 - Dépôt initialisé à partir du CDC v1.1.1 : `CLAUDE.md`, `docs/00`→`16`, `config/params.example.yaml`, `prompts/`.

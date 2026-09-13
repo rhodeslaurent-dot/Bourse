@@ -21,6 +21,10 @@ dependencies = [
     "pyjwt[crypto]>=2.9",
     "structlog>=24.1",
     "tzdata>=2024.1",
+    "yfinance>=1.7.0",
+    "pandas>=3.0.5",
+    "websockets>=17.1",
+    "cryptography>=50.0.1",
 ]
 
 [project.optional-dependencies]

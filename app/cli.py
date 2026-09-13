@@ -81,6 +81,42 @@ def cmd_test_email(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_saxo_auth(args: argparse.Namespace) -> int:
+    """OAuth Authorization Code (read-only app): print the URL, paste the code, store the refresh token encrypted."""
+    import os
+    import urllib.parse
+
+    import httpx
+
+    from app.data.providers.saxo import LIVE_AUTH, SIM_AUTH, TokenStore
+
+    app_key = os.environ.get("SAXO_APP_KEY")
+    secret = os.environ.get("SAXO_APP_SECRET")
+    redirect = os.environ.get("SAXO_REDIRECT_URI", "http://localhost/callback")
+    if not (app_key and secret and os.environ.get("SAXO_TOKEN_KEY")):
+        print("SAXO_APP_KEY / SAXO_APP_SECRET / SAXO_TOKEN_KEY requis dans .env")
+        return 2
+    base = SIM_AUTH if args.sim else LIVE_AUTH
+    url = f"{base}/authorize?" + urllib.parse.urlencode(
+        {"response_type": "code", "client_id": app_key, "redirect_uri": redirect, "state": "bourse-pilot"}
+    )
+    print("1) Ouvrir dans le navigateur :\n" + url)
+    code = input("2) Coller le paramètre `code` de l'URL de retour : ").strip()
+    r = httpx.post(
+        f"{base}/token",
+        data={"grant_type": "authorization_code", "code": code, "redirect_uri": redirect},
+        auth=(app_key, secret),
+        timeout=30,
+    )
+    if r.status_code >= 400:
+        print(f"échec : {r.status_code} {r.text[:200]}")
+        return 1
+    data = r.json()
+    TokenStore().save(data["refresh_token"])
+    print("refresh token chiffré et enregistré ; accès en lecture seule uniquement.")
+    return 0
+
+
 def cmd_migrate(args: argparse.Namespace) -> int:
     from alembic.config import Config
 
@@ -108,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("test-telegram").set_defaults(fn=cmd_test_telegram)
     sub.add_parser("test-email").set_defaults(fn=cmd_test_email)
     sub.add_parser("migrate").set_defaults(fn=cmd_migrate)
+    sa = sub.add_parser("saxo-auth")
+    sa.add_argument("--sim", action="store_true", help="environnement de simulation (aucune donnée de marché)")
+    sa.set_defaults(fn=cmd_saxo_auth)
     args = p.parse_args(argv)
     return args.fn(args)
 

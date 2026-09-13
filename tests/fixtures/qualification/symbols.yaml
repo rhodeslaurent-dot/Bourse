@@ -1,0 +1,14 @@
+# 10 valeurs de référence FR/DE/NL pour la qualification (A0.7). À REMPLACER par votre liste.
+# eodhd = ticker REST EODHD ; eodhd_ws = symbole du flux ws/eu (à confirmer : même code chez EODHD) ;
+# saxo_uic = identifiant Saxo (ref/v1/instruments, à relever dans l'interface) ; tv = ticker TradingView.
+symbols:
+  - {isin: FR0000121014, name: "LVMH",          eodhd: "MC.PA",     eodhd_ws: "MC.PA",     tv: "EURONEXT:MC",   saxo_uic: null}
+  - {isin: NL0000235190, name: "Airbus",        eodhd: "AIR.PA",    eodhd_ws: "AIR.PA",    tv: "EURONEXT:AIR",  saxo_uic: null}
+  - {isin: FR0000120578, name: "Sanofi",        eodhd: "SAN.PA",    eodhd_ws: "SAN.PA",    tv: "EURONEXT:SAN",  saxo_uic: null}
+  - {isin: FR0000120271, name: "TotalEnergies", eodhd: "TTE.PA",    eodhd_ws: "TTE.PA",    tv: "EURONEXT:TTE",  saxo_uic: null}
+  - {isin: FR0000131104, name: "BNP Paribas",   eodhd: "BNP.PA",    eodhd_ws: "BNP.PA",    tv: "EURONEXT:BNP",  saxo_uic: null}
+  - {isin: DE0007164600, name: "SAP",           eodhd: "SAP.XETRA", eodhd_ws: "SAP.XETRA", tv: "XETR:SAP",      saxo_uic: null}
+  - {isin: DE0007236101, name: "Siemens",       eodhd: "SIE.XETRA", eodhd_ws: "SIE.XETRA", tv: "XETR:SIE",      saxo_uic: null}
+  - {isin: DE0008404005, name: "Allianz",       eodhd: "ALV.XETRA", eodhd_ws: "ALV.XETRA", tv: "XETR:ALV",      saxo_uic: null}
+  - {isin: NL0010273215, name: "ASML",          eodhd: "ASML.AS",   eodhd_ws: "ASML.AS",   tv: "EURONEXT:ASML", saxo_uic: null}
+  - {isin: NL0000009538, name: "Philips",       eodhd: "PHIA.AS",   eodhd_ws: "PHIA.AS",   tv: "EURONEXT:PHIA", saxo_uic: null}
