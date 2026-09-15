@@ -342,6 +342,11 @@ llm:
   write_model: "claude-sonnet-4-6"
   temperature: 0
   monthly_budget_usd: 15
+  daily_budget_usd: 1.0                # plafond journalier (CLAUDE.md règle 3) ; au-delà : repli par règles, confiance réduite
+  prices_usd_per_mtok:                 # tarifs publics relevés le 24/06/2026 (à revalider) ; servent au suivi de coût, jamais à un calcul métier
+    claude-haiku-4-5: {input: 1.0, output: 5.0}
+    claude-sonnet-4-6: {input: 3.0, output: 15.0}
+    claude-sonnet-5: {input: 2.0, output: 10.0}
   cache: true
   prompt_versions_dir: "app/llm/prompts"
 

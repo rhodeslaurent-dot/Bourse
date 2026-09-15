@@ -1,6 +1,6 @@
 """FastAPI application factory. Startup refuses to run if a required config group is missing."""
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import asyncio
 import logging
@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from fastapi import FastAPI
 
 from app.api.portfolio_routes import router as portfolio_api_router
+from app.api.ingest_routes import router as ingest_router
 from app.api.routes import router as api_router
 from app.api.security import AccessMiddleware
 from app.config import LoadedConfig, load_params
@@ -23,6 +24,7 @@ from app.notify.base import Notifier
 from app.notify.email import send_event_email, smtp_settings
 from app.notify.telegram import ModeStore, TelegramBot, telegram_settings
 from app.scheduler.service import create_scheduler
+from app.llm import ClaudeGateway, settings_from  # noqa: F401
 from app.services.alerts import AlertService
 from app.web.portfolio_routes import router as portfolio_web_router
 from app.web.routes import router as web_router
@@ -160,8 +162,10 @@ def create_app(
     app.state.db_kind = database_url().split(":", 1)[0]
     app.add_middleware(AccessMiddleware)
     app.state.alerts = None
+    app.state.llm = None
     app.include_router(api_router)
     app.include_router(portfolio_api_router)
+    app.include_router(ingest_router)
     app.include_router(web_router)
     app.include_router(portfolio_web_router)
     app.include_router(watchlist_router)

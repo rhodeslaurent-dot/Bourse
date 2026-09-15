@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>ActusNews (fixture anonymisée)</title>
+<item><title>SOCIÉTÉ ALPHA : chiffre d'affaires du premier semestre en hausse de 18 %, relèvement des objectifs annuels</title>
+<link>https://example.invalid/actusnews/1001</link><guid>an-1001</guid><pubDate>Tue, 15 Sep 2026 05:32:00 GMT</pubDate>
+<description><![CDATA[<p>Société Alpha (ISIN FR0000120271) publie un chiffre d'affaires semestriel de 1 250 M€, supérieur aux attentes, et relève sa guidance de marge opérationnelle.</p>]]></description></item>
+<item><title>SOCIÉTÉ BÊTA : avertissement sur résultats et suspension du dividende</title>
+<link>https://example.invalid/actusnews/1002</link><guid>an-1002</guid><pubDate>Tue, 15 Sep 2026 05:45:00 GMT</pubDate>
+<description><![CDATA[Société Bêta annonce un profit warning : la marge sera inférieure aux prévisions.]]></description></item>
+<item><title>Nomination d'un nouveau directeur financier chez Gamma</title>
+<link>https://example.invalid/actusnews/1003</link><guid>an-1003</guid><pubDate>Tue, 15 Sep 2026 06:10:00 GMT</pubDate>
+<description>Gamma annonce la nomination de son directeur financier.</description></item>
+</channel></rss>

@@ -28,7 +28,16 @@ def _job_entry(name: str, variant: str) -> None:
     alerts = _state.get("alerts")
     mode_fn = _state.get("mode_fn")
     mode = mode_fn() if callable(mode_fn) else "reunion"
-    execute_job(name, config, calendars, variant=variant, scheduled_for=datetime.now(UTC), alerts=alerts, mode=mode)
+    execute_job(
+        name,
+        config,
+        calendars,
+        variant=variant,
+        scheduled_for=datetime.now(UTC),
+        alerts=alerts,
+        mode=mode,
+        llm=_state.get("llm"),
+    )
 
 
 def create_scheduler(

@@ -2,6 +2,14 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Phase 1 (D) ingestion et enregistrement — 2026-09-15
+
+- `app/data/providers/rss` (feedparser, UA navigateur, dédup GUID/URL, flux illisible → erreur), `imap_gmail` (parseur `.eml` pur, extraction ISIN/alias/niveaux/sens, client IMAP).
+- `app/llm` : passerelle Claude (`messages.parse` + Pydantic, température 0, cache par hash, plafonds journalier/mensuel, coût paramétré), prompts versionnés, repli par règles.
+- Tables `news_items`, `newsletter_items`, `newsletter_values`, `premarket_watch`, `signals`, `proposals`, `decisions`, `decision_snapshots`, `llm_cache` (migration 0004).
+- Services `news` (classification, `premarket_watch`), `newsletters` (`p_open`, `p_recv`, `gap_open`, `drift_since_open`, signal externe + proposition WATCH + instantané, porte drift), `decisions`.
+- Jobs `news_scan`, `imap_poll` ; API `/api/ingest/rss`, `/api/ingest/newsletter`, `/api/decisions`, `/api/opportunities`, `/api/proposals/{id}` ; coût LLM sur `/sante`. Total : 169 tests.
+
 ## [Unreleased] — Phase 1 (C) univers et données — 2026-09-15
 
 - `app/domain/indicators` (ATR14 Wilder, ADR20, RVOL, RS Minervini + rang percentile, MM, TI65, pivot 60, plus haut 52 s, consolidation, RSI14, gap, distribution days, breadth, percentile de volatilité), `domain/regime` (feu tricolore, composantes manquantes signalées), `domain/universe` (éligibilité PEA à trois sources avec préfixes pièges, statut SRD par règles, filtres de liquidité, watchlist momentum).

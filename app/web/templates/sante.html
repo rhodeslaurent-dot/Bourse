@@ -7,6 +7,7 @@
   <ul class="text-sm mt-2 space-y-1">
     <li>Cloudflare Access : {% if cf_access %}<span class="text-green-700">activé</span>{% else %}<span class="text-red-700">DÉSACTIVÉ (CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD absents)</span>{% endif %}</li>
     <li>Telegram : {% if telegram %}configuré{% else %}<span class="text-amber-700">non configuré</span>{% endif %} · E-mail : {% if email %}configuré{% else %}<span class="text-amber-700">non configuré</span>{% endif %}</li>
+    <li>LLM : {% if llm_enabled %}API Claude active{% else %}<span class="text-amber-700">repli par règles (ANTHROPIC_API_KEY absent ou groupe llm désactivé)</span>{% endif %} · coût du mois {{ '%.2f'|format(llm_cost) }} $ / {{ llm_budget or '—' }} $ ({{ llm_calls }} appels)</li>
     <li>Base : {{ db_url_kind }} · Calendriers : v{{ calendars.version }} ({{ calendars.venues|length }} places, P0 {{ calendars.p0_mics|join(', ') }})</li>
   </ul>
 </section>

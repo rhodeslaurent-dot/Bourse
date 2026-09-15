@@ -484,3 +484,153 @@ class EarningsCalendarRow(Base):
     source: Mapped[str] = mapped_column(String(32))
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     __table_args__ = (UniqueConstraint("isin", "day", "source", name="uq_earnings_isin_day_source"),)
+
+
+# ---------------------------------------------------------------------------------------------
+# Phase 1 (D) — news, newsletters, signaux externes, propositions, décisions, instantanés
+# ---------------------------------------------------------------------------------------------
+
+
+class LlmCache(Base):
+    __tablename__ = "llm_cache"
+    prompt_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    response: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class NewsItem(Base):
+    __tablename__ = "news_items"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    guid: Mapped[str] = mapped_column(String(255))
+    dedup_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    title: Mapped[str] = mapped_column(Text)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    isins: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    classification: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    classified_by: Mapped[str | None] = mapped_column(String(16), nullable=True)  # llm | rules
+    llm_prompt_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    llm_cost_usd: Mapped[float] = mapped_column(default=0.0)
+    classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class NewsletterItem(Base):
+    __tablename__ = "newsletter_items"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    message_id: Mapped[str] = mapped_column(String(255))
+    dedup_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    subject: Mapped[str] = mapped_column(Text)
+    body_text: Mapped[str] = mapped_column(Text)  # kept private, never shown in full in the UI
+    parsed: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    parsed_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    llm_prompt_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+
+class NewsletterValue(Base):
+    __tablename__ = "newsletter_values"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    item_id: Mapped[int] = mapped_column(Integer, index=True)
+    isin: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    direction: Mapped[str] = mapped_column(String(8))
+    levels: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    p_open: Mapped[float | None] = mapped_column(nullable=True)
+    p_recv: Mapped[float | None] = mapped_column(nullable=True)
+    p_recv_market_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    p_recv_status: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    close_prev: Mapped[float | None] = mapped_column(nullable=True)
+    gap_open: Mapped[float | None] = mapped_column(nullable=True)
+    drift_since_open: Mapped[float | None] = mapped_column(nullable=True)
+    signal_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class PremarketWatch(Base):
+    __tablename__ = "premarket_watch"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    isin: Mapped[str] = mapped_column(String(12))
+    news_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    expected_direction: Mapped[str] = mapped_column(String(8))
+    magnitude: Mapped[str] = mapped_column(String(8))
+    source: Mapped[str] = mapped_column(String(32))
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("day", "isin", "source", name="uq_premarket_day_isin_source"),)
+
+
+class Signal(Base):
+    __tablename__ = "signals"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    detector: Mapped[str] = mapped_column(String(16), index=True)  # d1..d6 | external
+    source: Mapped[str] = mapped_column(String(32))
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    timeframe: Mapped[str] = mapped_column(String(10))
+    direction: Mapped[str] = mapped_column(String(8), default="long")
+    entry_low: Mapped[float | None] = mapped_column(nullable=True)
+    entry_high: Mapped[float | None] = mapped_column(nullable=True)
+    stop_initial: Mapped[float | None] = mapped_column(nullable=True)
+    targets: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    horizon: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    evidence: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    data_status: Mapped[str] = mapped_column(String(12))
+    catalyst_news_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    universe_snapshot_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    params_version: Mapped[str] = mapped_column(String(32))
+    external_refs: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Proposal(Base):
+    __tablename__ = "proposals"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    signal_id: Mapped[int] = mapped_column(Integer, index=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    action: Mapped[str] = mapped_column(String(10))  # BUY | WATCH | HOLD | SELL | REDUCE | NO_TRADE
+    account_recommended: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    account_alt: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    entry_zone: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    stop: Mapped[float | None] = mapped_column(nullable=True)
+    targets: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    horizon: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    size_eur: Mapped[float | None] = mapped_column(nullable=True)
+    shares: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    risk_eur: Mapped[float | None] = mapped_column(nullable=True)
+    cost_estimate: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    gates: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(10), default="open")  # open | expired | taken | watch | ignored
+    to_verify: Mapped[bool] = mapped_column(Boolean, default=False)  # stale portfolio state / delayed data
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    channels: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Decision(Base):
+    __tablename__ = "decisions"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    proposal_id: Mapped[int] = mapped_column(Integer, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    decision: Mapped[str] = mapped_column(String(16))  # seen | watch | order_entered | ignored | snoozed
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    via: Mapped[str] = mapped_column(String(10))  # telegram | web | api
+
+
+class DecisionSnapshot(Base):
+    """Frozen data used for a proposal (CLAUDE.md rule 10) — never updated."""
+
+    __tablename__ = "decision_snapshots"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    proposal_id: Mapped[int] = mapped_column(Integer, unique=True)
+    taken_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    quotes: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    features: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    regime: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    portfolio_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    params_version: Mapped[str] = mapped_column(String(32))

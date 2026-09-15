@@ -34,6 +34,7 @@ class JobContext:
     notify: Callable[..., Any] | None = None
     alerts: Any | None = None  # AlertService (set by the scheduler service)
     mode: str = "reunion"  # availability mode at run time
+    llm: Any | None = None  # ClaudeGateway (None → rules fallback)
 
 
 JobFn = Callable[[JobContext], int]
@@ -69,6 +70,7 @@ def execute_job(
     fn: JobFn | None = None,
     alerts: Any | None = None,
     mode: str = "reunion",
+    llm: Any | None = None,
 ) -> JobRun:
     spec = config.params.jobs.specs()[name]
     run_date = run_date or datetime.now(PARIS).date()
@@ -94,6 +96,7 @@ def execute_job(
         ctx = JobContext(config, calendars, run_date, decision.open_mics, variant)
         ctx.alerts = alerts
         ctx.mode = mode
+        ctx.llm = llm
         try:
             job_fn = fn or resolve_job(name)
             rows = job_fn(ctx)

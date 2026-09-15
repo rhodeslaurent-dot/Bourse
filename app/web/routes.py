@@ -62,9 +62,18 @@ def sante(request: Request) -> HTMLResponse:
     st = request.app.state
     cfg = st.config
     now = datetime.now(UTC)
+    from sqlalchemy import func, select
+
+    from app.db.models import LlmCall
+
     with db_session() as s:
         runs = last_runs(s)
         fresh = freshness(s)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        llm_cost = float(
+            s.scalar(select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(LlmCall.ts >= month_start)) or 0.0
+        )
+        llm_calls = int(s.scalar(select(func.count(LlmCall.id)).where(LlmCall.ts >= month_start)) or 0)
     sched = getattr(st, "scheduler", None)
     scheduled = {j.id: j.next_run_time for j in (sched.get_jobs() if sched else [])}
     jobs_view = []
@@ -98,6 +107,10 @@ def sante(request: Request) -> HTMLResponse:
         "telegram": st.telegram_enabled,
         "email": st.email_enabled,
         "db_url_kind": st.db_kind,
+        "llm_cost": llm_cost,
+        "llm_calls": llm_calls,
+        "llm_budget": cfg.params.llm.monthly_budget_usd if cfg.params.llm else None,
+        "llm_enabled": bool(getattr(st, "llm", None) and st.llm.enabled),
     }
     return templates.TemplateResponse(request, "sante.html", ctx)
 

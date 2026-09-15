@@ -25,6 +25,8 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "universe_refresh": "app.scheduler.jobs.universe_refresh:run",
     "eod_backfill_check": "app.scheduler.jobs.eod_backfill_check:run",
     "daily_regime": "app.scheduler.jobs.daily_regime:run",
+    "news_scan": "app.scheduler.jobs.news_scan:run",
+    "imap_poll": "app.scheduler.jobs.imap_poll:run",
 }
 
 
