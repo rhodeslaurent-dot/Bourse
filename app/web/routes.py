@@ -23,9 +23,38 @@ templates.env.filters["dual"] = lambda dt: format_dual(from_store(dt))
 
 
 @router.get("/", response_class=HTMLResponse)
-def home() -> RedirectResponse:
-    # Phase 0: the "3 décisions du jour" page arrives in phase 1; /sante is the landing page.
-    return RedirectResponse("/sante", status_code=307)
+def home(request: Request) -> HTMLResponse:
+    """« Trois décisions du jour » — phase 1: positions / protections / risques (docs/09 §9.5)."""
+    from app.services.risk_view import build_risk_view
+
+    cfg = request.app.state.config
+    with db_session() as s:
+        view = build_risk_view(s, cfg)
+    decisions = []
+    for p in view["unprotected"]:
+        decisions.append(
+            {
+                "level": "P1",
+                "text": f"Saisir un stop chez le courtier pour {p.isin} ({p.qty - p.qty_protected} titres non protégés)",  # noqa: E501
+                "href": "/positions",
+            }
+        )
+    r = view["risk"]
+    if r.open_risk_pct > view["max_open_risk_pct"]:
+        decisions.append(
+            {
+                "level": "P2",
+                "text": "Réduire le risque ouvert (plafond dépassé) : alléger une position ou annuler un ordre en attente",  # noqa: E501
+                "href": "/positions",
+            }
+        )
+    for a in r.alerts:
+        decisions.append({"level": "P2", "text": a, "href": None})
+    return templates.TemplateResponse(
+        request,
+        "home.html",
+        {"request": request, "view": view, "decisions": decisions[:3], "mode": current_mode_payload(request)},
+    )
 
 
 @router.get("/sante", response_class=HTMLResponse)

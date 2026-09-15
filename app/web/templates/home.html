@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Trois décisions — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="text-xl font-bold">Trois décisions du jour</h1>
+  <ol class="list-decimal ml-5 text-sm mt-1">
+    {% for d in decisions %}<li class="{{ 'text-red-700 font-semibold' if d.level == 'P1' else '' }}">{{ d.text }} {% if d.href %}<a class="underline" href="{{ d.href }}">→</a>{% endif %}</li>{% else %}<li class="text-slate-500">Aucune décision urgente : absence de proposition = résultat normal.</li>{% endfor %}
+  </ol>
+  <p class="text-xs text-slate-500 mt-2">Mode : <b>{{ mode.mode }}</b> ({{ mode.source }}) · <a class="underline" href="/sante">changer</a></p>
+</section>
+<section class="card">
+  <h2 class="font-semibold">Risques (docs/07 §7.8)</h2>
+  {% set r = view.risk %}
+  <ul class="text-sm space-y-1 mt-1">
+    <li>Risque courant + réservé : <b>{{ '%.0f'|format(r.open_risk_total_eur) }} €</b> ({{ '%.1f'|format(r.open_risk_pct * 100) }} % du capital pilote {{ '%.0f'|format(view.capital) }} €) — plafond {{ '%.0f'|format(view.max_open_risk_pct * 100) }} % {% if r.open_risk_pct > view.max_open_risk_pct %}<span class="text-red-700 font-bold">BLOQUÉ : plafond dépassé (risk.max_open_risk_pct)</span>{% endif %}<br><span class="text-slate-500">courant {{ '%.0f'|format(r.open_risk_current_eur) }} € · réservé (ordres en attente) {{ '%.0f'|format(r.open_risk_reserved_eur) }} €</span></li>
+    <li>Scénario de gap (−10 % sous le stop) : {{ '%.0f'|format(r.gap_scenario_loss_eur) }} €</li>
+    <li>Exposition : {{ '%.0f'|format(r.exposure_pct * 100) }} % ({{ r.positions_count }} positions) — repères {{ view.hints.positions|int }} positions / {{ (view.hints.exposure * 100)|int }} % (jamais des objectifs)</li>
+    <li>Par secteur : {% for k, v in r.by_sector_risk_eur.items() %}{{ k }} {{ '%.0f'|format(v) }} € ({{ r.by_sector_count.get(k, 0) }}) · {% else %}—{% endfor %}</li>
+    <li>SRD : engagements {{ '%.0f'|format(r.srd_notional_eur) }} € · levier {{ '%.2f'|format(r.srd_leverage) if r.srd_leverage is not none else '—' }} · couverture {{ '%.2f ×'|format(view.coverage_ratio) if view.coverage_ratio is not none else '—' }}</li>
+    <li>Hors EUR : {{ '%.0f'|format(r.fx_exposure_pct * 100) }} % · par place : {% for m, v in r.by_mic_exposure_pct.items() %}{{ m }} {{ '%.0f'|format(v * 100) }} % · {% endfor %}</li>
+    {% for a in r.alerts %}<li class="text-amber-700">⚠ {{ a }}</li>{% endfor %}
+    {% if view.missing_price %}<li class="text-slate-500">Cours indisponible (PMP utilisé) : {{ view.missing_price|join(', ') }}</li>{% endif %}
+  </ul>
+</section>
+<section class="card">
+  <h2 class="font-semibold">Comptes</h2>
+  <ul class="text-sm mt-1">
+    <li>CTO Saxo : équité {{ '%.0f'|format(view.cto.equity) }} € = cash {{ '%.0f'|format(view.cto.cash) }} + comptant {{ '%.0f'|format(view.cto.cash_positions_value) }} + P&L latent SRD {{ '%.0f'|format(view.cto.srd_unrealized_pnl) }} − CRD {{ '%.0f'|format(view.cto.crd_accrued) }} · état {% if view.freshness.get('cto_cash', {}).get('fresh') %}frais{% else %}<span class="text-amber-700">périmé ou jamais synchronisé → propositions « à vérifier »</span>{% endif %}</li>
+    <li>PEA BoursoBank : équité {{ '%.0f'|format(view.pea.equity) }} € (cash {{ '%.0f'|format(view.pea.cash) }}) · état {% if view.freshness.get('pea', {}).get('declarative', True) %}déclaratif{% else %}importé{% endif %}</li>
+  </ul>
+</section>
+<section class="card">
+  <h2 class="font-semibold">Protections</h2>
+  {% if view.unprotected %}<ul class="text-sm text-red-700">{% for p in view.unprotected %}<li>⛔ {{ p.isin }} : {{ p.qty - p.qty_protected }} titres sans stop</li>{% endfor %}</ul>{% else %}<p class="text-sm">Toutes les quantités détenues sont couvertes par un stop.</p>{% endif %}
+  <p class="text-sm mt-1"><a class="underline" href="/positions">Positions</a> · <a class="underline" href="/import">Import BoursoBank</a></p>
+</section>
+{% endblock %}

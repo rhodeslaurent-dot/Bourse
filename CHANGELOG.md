@@ -2,6 +2,13 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Phase 1 (B) moteur de risque — 2026-09-15
+
+- `app/domain/risk` : `size_position` (prix max selon le type d'ordre, stop glissé, frais courtage A/R + TTF itérés jusqu'au point fixe, marge de change réduisant la quantité, plafonds capital/ADV, multiplicateurs) ; `risk_if_filled` et tolérance post-exécution ; risque initial / courant (borné à zéro, quantité non couverte = perte totale) / réservé ; `portfolio_risk` (cumulé, secteur, facteur, gap, exposition, devises, places, levier, couverture) ; `check_candidate` → `BLOQUÉ : <règle> (clé params)` ; coupe-circuit en R ; drawdown TWR.
+- `app/domain/accounts` : coût d'un trade SRD (exemple docs/08 §8.3 ≈ 44 €), applicabilité TTF.
+- `services/risk_view` + page `/` « Trois décisions du jour » (phase 1 : protections, risques, comptes, fraîcheur de l'état).
+- Tests de référence : 114 actions, R 2,381 €, 214 € ; portefeuille synthétique multi-comptes SEK. Total : 136 tests.
+
 ## [Unreleased] — Phase 1 (A) comptes et états — 2026-09-15
 
 - `app/domain/orders` : machine à états exécution (`order_entered` → `filled_partial` → `filled` → `closed`) et protection (`unprotected` → `partially_protected` → `protected`) par quantité ; `declared_uid` idempotent ; rapprochement déclaré/confirmé (± 0,5 %, ± 10 min) ; stop jamais abaissé.
