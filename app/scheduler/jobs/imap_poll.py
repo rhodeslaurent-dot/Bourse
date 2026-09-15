@@ -29,6 +29,8 @@ def run(ctx: JobContext) -> int:
             from app.services.news import alias_index
 
             isins = [v.isin for v in extract_values(mail.body_text, alias_index(s)) if v.isin]
-            rep = ingest_mail(s, mail, ctx.config, ctx.llm, quotes_for(isins) if isins else {})
+            rep = ingest_mail(
+                s, mail, ctx.config, ctx.llm, quotes_for(isins, ctx.config) if isins else {}, calendars=ctx.calendars
+            )
             n += rep.signals
     return n

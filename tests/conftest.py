@@ -44,3 +44,9 @@ def db_engine():
     configure_engine(engine)
     yield engine
     engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _dev_writes(monkeypatch):
+    """M19: writes are refused without Cloudflare Access unless explicitly allowed (dev/tests)."""
+    monkeypatch.setenv("ALLOW_UNAUTHENTICATED_WRITES", "1")

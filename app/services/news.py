@@ -98,7 +98,10 @@ def ingest_rss_items(
         rep.new += 1
         rep.attached += bool(row.isins)
         cls, by, version, cost = classify_item(s, row, gateway)
-        row.classification = cls.model_dump()
+        row.classification = {
+            **cls.model_dump(),
+            "surprise": None,
+        }  # surprise only with a dated consensus (docs/06 D6), never from the LLM
         row.classified_by, row.llm_prompt_version, row.llm_cost_usd, row.classified_at = by, version, cost, now
         rep.llm_cost_usd += cost
         if by == "llm":

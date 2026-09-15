@@ -72,6 +72,16 @@ class AccessMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         settings = cf_settings()
         if settings is None:
+            if app_token_ok(request.headers.get("X-App-Token")):
+                request.state.auth = "app_token"
+                return await call_next(request)
+            if request.method != "GET" and os.environ.get("ALLOW_UNAUTHENTICATED_WRITES") != "1":
+                return JSONResponse(
+                    {
+                        "detail": "accès non protégé : définir CF_ACCESS_TEAM_DOMAIN/CF_ACCESS_AUD (ou ALLOW_UNAUTHENTICATED_WRITES=1 en développement local) avant toute écriture"  # noqa: E501
+                    },
+                    status_code=503,
+                )
             request.state.auth = "disabled"
             return await call_next(request)
         if app_token_ok(request.headers.get("X-App-Token")):

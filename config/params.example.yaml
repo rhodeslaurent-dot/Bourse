@@ -102,6 +102,9 @@ regime:
   distribution_days_red: 6
   vol_pct_orange: 60
   vol_pct_red: 85
+  distribution_days_sessions: 25       # fenêtre (séances) pour compter les distribution days
+  distribution_day_drop: 0.002         # clôture ≤ −0,2 % avec volume > veille
+  index_isins: {cac40: "FR0003500008", stoxx600: "EU0009658202"}   # pseudo-instruments d'indice (EODHD .INDX)
 
 detectors:
   d1_gap_catalyst:
@@ -205,7 +208,7 @@ accounts:
     import: "openapi_readonly"
     sync_intraday_minutes: 5          # en séance, + immédiat après déclaration et avant toute proposition
     sync_time_local: "19:00"          # rapprochement complet
-    match_tolerance: {price_pct: 0.005, minutes: 10}
+    match_tolerance: {price_pct: 0.005, minutes: 10, unmatched_alert_hours: 24}   # déclaration non retrouvée → alerte après 24 h
 
 srd:
   effective_from: "2026-01-01"

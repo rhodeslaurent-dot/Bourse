@@ -98,9 +98,11 @@ class ClaudeGateway:
         )
 
     def budget_ok(self, s: Session, now: datetime | None = None) -> tuple[bool, str]:
-        now = now or datetime.now(UTC)
-        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        month_start = day_start.replace(day=1)
+        from app.domain.timeutil import PARIS
+
+        now = (now or datetime.now(UTC)).astimezone(PARIS)  # budgets follow the market day, not UTC
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
         day = self.spent_usd(s, day_start)
         month = self.spent_usd(s, month_start)
         if month >= self.settings.monthly_budget_usd:
@@ -112,8 +114,9 @@ class ClaudeGateway:
     def cost(self, model: str, input_tokens: int, output_tokens: int) -> float:
         p = self.settings.prices.get(model)
         if not p:
-            log.warning("prix inconnu pour %s : coût compté 0 (renseigner llm.prices_usd_per_mtok)", model)
-            return 0.0
+            raise LlmUnavailable(
+                f"prix inconnu pour {model} (llm.prices_usd_per_mtok) : appel refusé, repli par règles"
+            )
         return input_tokens * p["input"] / 1e6 + output_tokens * p["output"] / 1e6
 
     # --- call with cache ------------------------------------------------------------------
@@ -149,6 +152,10 @@ class ClaudeGateway:
         ok, why = self.budget_ok(s)
         if not ok:
             raise LlmUnavailable(why)
+        if model not in self.settings.prices:
+            raise LlmUnavailable(
+                f"prix inconnu pour {model} (llm.prices_usd_per_mtok) : appel refusé, repli par règles"
+            )
         try:
             parsed, tin, tout = self._call(model, system, user_text, schema, self.settings.temperature, max_tokens)
         except LlmUnavailable:

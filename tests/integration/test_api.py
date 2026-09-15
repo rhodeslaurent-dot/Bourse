@@ -84,3 +84,20 @@ def test_watchdog_ping_called(config, calendars, db_engine, monkeypatch):
     execute_job("test_job", config, calendars, run_date=date(2026, 9, 14))
     assert calls == ["https://hc-ping.com/abc/test_job?create=1"]
     assert os.environ.get("HEALTHCHECKS_PING_KEY") == "abc"
+
+
+def test_writes_refused_without_access_unless_allowed(config, calendars, db_engine, monkeypatch):
+    for var in ("CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "ALLOW_UNAUTHENTICATED_WRITES", "APP_API_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    app = create_app(config=config, calendars=calendars, start_scheduler=False, start_telegram=False)
+    with TestClient(app) as c:
+        assert c.get("/sante").status_code == 200  # read-only pages still visible (they show the red warning)
+        assert c.post("/api/mode", json={"mode": "absent"}).status_code == 503
+        assert (
+            c.post(
+                "/api/executions", json={"account": "pea", "isin": "FR0000120271", "side": "buy", "qty": 1, "price": 1}
+            ).status_code
+            == 503
+        )
+        monkeypatch.setenv("APP_API_TOKEN", "tok")
+        assert c.post("/api/mode", json={"mode": "absent"}, headers={"X-App-Token": "tok"}).status_code == 200

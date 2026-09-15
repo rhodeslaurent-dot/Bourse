@@ -25,7 +25,7 @@ def test_parse_positions_fixture():
 def test_parse_operations_fixture_skips_non_trades():
     ops = parse_operations((FX / "boursobank_operations_anonymised.csv").read_text(encoding="utf-8"))
     assert len(ops) == 3 and ops[2].side == "sell" and ops[0].fees == 3.90 and ops[0].reference == "OP-000123"
-    assert ops[0].date.isoformat().startswith("2026-09-12T09:31:07")
+    assert ops[0].date.isoformat() == "2026-09-12T07:31:07+00:00"  # export en heure de Paris (été) → UTC
 
 
 def test_format_change_raises_instead_of_importing_garbage():

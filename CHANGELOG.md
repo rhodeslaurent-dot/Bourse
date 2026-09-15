@@ -2,6 +2,10 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Revue adversariale phase 0–1 — 2026-09-15
+
+- 24 constats traités (ADR-005) : double comptage déclaration/import, horodatage BoursoBank en heure de Paris, ventes Saxo importées, devises et FX réels, calendrier par place dans le moniteur, Pentecôte Xetra, statuts Saxo tolérants, idempotence sur 2 min, ventes orphelines conservées, risque incomplet affiché (jamais estimé), risque réservé au stop de la proposition, IMAP en UTC, séance en date de Paris, niveaux LLM vérifiés dans le texte, prix de modèle inconnu → repli, écritures refusées sans authentification, régime paramétré, screener par place, jobs interrompus, secrets rédigés. Total : 184 tests.
+
 ## [Unreleased] — Phase 1 (D) ingestion et enregistrement — 2026-09-15
 
 - `app/data/providers/rss` (feedparser, UA navigateur, dédup GUID/URL, flux illisible → erreur), `imap_gmail` (parseur `.eml` pur, extraction ISIN/alias/niveaux/sens, client IMAP).

@@ -105,7 +105,9 @@ def execute_job(
             run.note = decision.reason
         except Exception as exc:  # noqa: BLE001 — recorded, then reported
             run.status = "error"
-            run.error = f"{exc}\n{traceback.format_exc()[-2000:]}"
+            from app.logging_setup import redact
+
+            run.error = redact(f"{exc}\n{traceback.format_exc()[-2000:]}")
             log.exception("job %s failed", name)
         finally:
             run.ended_at = datetime.now(UTC)

@@ -68,7 +68,7 @@ def _domain_position(s: Session, row: PositionRow) -> Position:
         select(Trade).where(Trade.position_id == row.id, Trade.deleted_at.is_(None)).order_by(Trade.ts, Trade.id)
     ).all()
     for t in trades:
-        if t.kind == "declared" and t.matched_trade_id is not None:
+        if t.kind == "declared" and (t.matched_trade_id is not None or "superseded?" in (t.tags or [])):
             continue  # the confirmed line carries the quantity
         p.apply_execution(_to_exec(t))
     for st in s.scalars(select(StopRow).where(StopRow.position_id == row.id).order_by(StopRow.ts, StopRow.id)):
@@ -126,6 +126,8 @@ def refresh_position_row(s: Session, row: PositionRow) -> Position:
     row.closed_at = p.closed_at
     row.protected_at = row.protected_at or p.protected_at
     row.mode = p.mode
+    if p.executions:
+        row.currency = p.executions[-1].currency
     return p
 
 
@@ -207,6 +209,21 @@ def declare_execution(
     """« Exécuté » → provisional execution (idempotent by ``declared_uid``) + position (unprotected)."""
     uid = declared_uid(account_id, isin, ts, qty, price)
     existing = s.scalar(select(Trade).where(Trade.declared_uid == uid))
+    if existing is None:
+        # M10: double click across a minute boundary — same account/isin/side/qty/price within 2 min
+        for cand in s.scalars(
+            select(Trade).where(
+                Trade.kind == "declared",
+                Trade.account_id == account_id,
+                Trade.isin == isin,
+                Trade.side == side,
+                Trade.qty == qty,
+                Trade.price == price,
+            )
+        ):
+            if abs((_utc(cand.ts) - ts.astimezone(UTC)).total_seconds()) <= 120:
+                existing = cand
+                break
     if existing is not None:
         return DeclarationResult(
             False, existing.id, existing.position_id, "déclaration déjà enregistrée (double clic ignoré)"
@@ -291,6 +308,8 @@ class ReconcileReport:
     unmatched_declared: int = 0
     duplicates_ignored: int = 0
     positions_touched: int = 0
+    suspected_duplicates: int = 0  # declaration same day/side not matched → superseded, alert
+    unassigned_sales: int = 0  # sale without open position → kept « à rapprocher », never dropped
 
 
 def import_confirmed_fills(s: Session, fills: list[Execution], tol: MatchTolerance) -> ReconcileReport:
@@ -345,29 +364,47 @@ def import_confirmed_fills(s: Session, fills: list[Execution], tol: MatchToleran
         rep.matched += 1
     for c in left_c:
         row = open_position_for(s, c.account_id, c.isin, create=c.side == Side.BUY)
-        if row is None:
-            log.warning("vente importée sans position ouverte : %s %s", c.isin, c.qty)
-            continue
-        s.add(
-            Trade(
-                account_id=c.account_id,
-                isin=c.isin,
-                side=c.side.value,
-                qty=c.qty,
-                price=c.price,
-                ts=c.ts,
-                kind="confirmed",
-                broker_fill_id=c.broker_fill_id,
-                source=c.source,
-                mode=c.mode,
-                fees=c.fees,
-                ttf=c.ttf,
-                currency=c.currency,
-                fx_rate=c.fx_rate,
-                position_id=row.id,
-                tags=["discretionary?"],
-            )
+        common = dict(
+            account_id=c.account_id,
+            isin=c.isin,
+            side=c.side.value,
+            qty=c.qty,
+            price=c.price,
+            ts=c.ts,
+            kind="confirmed",
+            broker_fill_id=c.broker_fill_id,
+            source=c.source,
+            mode=c.mode,
+            fees=c.fees,
+            ttf=c.ttf,
+            currency=c.currency,
+            fx_rate=c.fx_rate,
         )
+        if row is None:
+            # M11: a sale without an open position is kept, unassigned, for reconciliation — never lost
+            s.add(Trade(position_id=None, tags=["sans_position?"], **common))
+            rep.unassigned_sales += 1
+            log.warning("vente importée sans position ouverte : %s %s (conservée « à rapprocher »)", c.isin, c.qty)
+            continue
+        tags = ["discretionary?"]
+        # C1: an unmatched declaration of the same side on the same position within 24 h is most likely
+        # the same fill outside the tolerances → it stops counting (superseded) and both lines are flagged.
+        for d in s.scalars(
+            select(Trade).where(
+                Trade.position_id == row.id,
+                Trade.kind == "declared",
+                Trade.matched_trade_id.is_(None),
+                Trade.side == c.side.value,
+            )
+        ):
+            if "superseded?" in (d.tags or []):
+                continue
+            if abs((_utc(d.ts) - c.ts).total_seconds()) <= 24 * 3600:
+                d.tags = [*(d.tags or []), "superseded?"]
+                tags = ["suspected_duplicate?"]
+                rep.suspected_duplicates += 1
+                break
+        s.add(Trade(position_id=row.id, tags=tags, **common))
         touched.add(row.id)
         rep.discretionary += 1
     rep.unmatched_declared = len(left_d)

@@ -61,11 +61,11 @@ class SizingInput:
     order_kind: EntryOrderKind
     slippage_pct: float  # risk.slippage_pct
     fees: FeeSchedule
+    max_position_pct_of_capital: float  # risk.max_position_pct_of_capital (no default: params only)
+    max_position_pct_of_adv: float  # risk.max_position_pct_of_adv
     ttf_rate: float = 0.0  # 0 si TTF non due
     fx_rate: float = 1.0  # devise → EUR
     fx_haircut: float = 0.0  # risk.fx_haircut si devise ≠ EUR, sinon 0
-    max_position_pct_of_capital: float = 0.20
-    max_position_pct_of_adv: float = 0.05
     adv20_eur: float | None = None
     size_multiplier: float = 1.0  # régime orange × 0,5, risque élevé × 0,5 (cumulables)
 

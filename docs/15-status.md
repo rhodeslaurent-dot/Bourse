@@ -34,7 +34,8 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 
 ## Décisions en attente de l'utilisateur
 
-- ADR-000 et ADR-001 : **acceptés** le 15/09/2026 (« ok allons y ») ; ADR-003 (sous-lot 1A) à relire.
+- ADR-000 et ADR-001 : **acceptés** le 15/09/2026 (« ok allons y ») ; ADR-003, ADR-004, ADR-005 à relire.
+- **Fin de phase 1** : les critères A1.1, A1.5, A1.6 attendent les accès réels (Saxo live, EODHD, Gmail, Anthropic) ; tag `v0.2` à poser après le contrôle réel de 5 jours.
 - Renseigner `.env` (Telegram token + user_id, SMTP, ping key healthchecks, `EODHD_API_TOKEN`, `SAXO_*`) et `config/params.yaml` ; confirmer le créneau `ref: market_open`.
 - Remplacer les 10 valeurs d'exemple de `tests/fixtures/qualification/symbols.yaml` par votre liste (avec les Uic Saxo), puis lancer `scripts/qualify_providers.py` sur 3 séances et saisir les relevés Saxo (`reference_saxo_<date>.csv`).
 - Valider ADR-002 après les mesures (source temps réel, périmètre RVOL, rattrapage des ticks).
@@ -56,6 +57,7 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 
 | Date | Phase | Fait | Non fait | À décider |
 |---|---|---|---|---|
+| 2026-09-15 | 1 — revue adversariale | 24 constats (ADR-005) ; 5 critiques et 17 majeurs corrigés ou tranchés, tests de non-régression ; 184 tests | Calendriers P1/P2, tests d'incident restants | Tag `v0.2` après le contrôle réel A1.1 (5 jours) |
 | 2026-09-15 | 1 (D) ingestion et enregistrement | RSS (`feedparser`, dédup, rattachement par alias, `premarket_watch`), IMAP (`.eml`, extraction règles + LLM, `p_open/p_recv/gap/drift`), passerelle Claude (`messages.parse`, cache, plafonds, repli), signaux externes → WATCH + instantané, décisions API, jobs `news_scan`/`imap_poll`, `/sante` coût LLM ; 169 tests | Lettres réelles, clés | ADR-004 |
 | 2026-09-15 | 1 (C) univers et données | `domain/indicators` (annexe docs/06 testée sur fixtures OHLC figées), `domain/regime`, `domain/universe` ; tables référentiel/EOD/features/régime/watchlist (migration 0003) ; services `market_data` et `universe` ; jobs `universe_refresh`, `eod_backfill_check`, `daily_regime` ; alerte liquidation SRD J−3 (S7) ; calendriers 2025 ajoutés ; 157 tests | Exécution réelle avec EODHD | — |
 | 2026-09-15 | 1 (B) moteur de risque | `domain/risk` (dimensionnement prix max + stop glissé, frais itérés, marge de change, plafonds, risque initial/courant/réservé, gap, coupe-circuit, drawdown TWR), `domain/accounts` (coût SRD, TTF), `services/risk_view`, page `/` ; 136 tests | — | Divergence prose/formule §7.3 signalée |

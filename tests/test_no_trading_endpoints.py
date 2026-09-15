@@ -28,6 +28,10 @@ def _source_files():
     for p in (ROOT / "scripts").glob("*"):
         if p.is_file():
             yield p
+    for p in (ROOT / "alembic").rglob("*.py"):
+        yield p
+    for p in (ROOT / "config").glob("*.yaml"):
+        yield p
 
 
 def test_no_trading_endpoint_strings():

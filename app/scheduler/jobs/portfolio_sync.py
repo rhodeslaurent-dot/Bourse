@@ -19,6 +19,19 @@ from app.services.portfolio import account_by_type, import_confirmed_fills, upda
 log = logging.getLogger("bourse.jobs.portfolio_sync")
 
 STOP_TYPES = ("Stop", "StopLimit", "TrailingStop", "StopIfTraded")
+# Saxo order statuses → BrokerStopStatus (M8): never crash on an unknown value
+STATUS_MAP = {
+    "working": "active",
+    "placed": "active",
+    "parked": "active",
+    "pending": "active",
+    "filled": "executed",
+    "cancelled": "expired",
+    "expired": "expired",
+    "rejected": "rejected",
+    "notworking": "rejected",
+    "unknown": "unknown",
+}
 
 
 def fills_from_positions(positions: list[BrokerPositionDto], account_id: int) -> list[Execution]:
@@ -45,16 +58,47 @@ def fills_from_positions(positions: list[BrokerPositionDto], account_id: int) ->
     return out
 
 
-def sync_saxo(portfolio: SaxoPortfolio, tolerance: MatchTolerance) -> dict[str, object]:
+def sell_fills_from_closed(closed: list[dict], cash_id: int, srd_id: int) -> list[Execution]:
+    out = []
+    for c in closed:
+        if not c["isin"] or c["qty"] <= 0:
+            continue
+        out.append(
+            Execution(
+                srd_id if c["srd"] else cash_id,
+                c["isin"],
+                Side.SELL,
+                c["qty"],
+                c["price"],
+                c["ts"],
+                TradeKind.CONFIRMED,
+                broker_fill_id=f"saxo-close-{c['fill_id']}",
+                currency=c["currency"],
+                mode="srd" if c["srd"] else "comptant",
+                source="saxo_api",
+            )
+        )
+    return out
+
+
+def sync_saxo(
+    portfolio: SaxoPortfolio, tolerance: MatchTolerance, alerts=None, mode: str = "reunion"
+) -> dict[str, object]:  # type: ignore[no-untyped-def]
     positions = portfolio.positions()
     orders = portfolio.orders()
     cash = portfolio.cash()
+    try:
+        closed = portfolio.closed_fills()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("closedpositions indisponible : %s", exc)
+        closed = []
     with db_session() as s:
         cash_acc = account_by_type(s, "cto_cash")
         srd_acc = account_by_type(s, "cto_srd")
         fills = fills_from_positions([p for p in positions if not p.srd], cash_acc.id) + fills_from_positions(
             [p for p in positions if p.srd], srd_acc.id
         )
+        fills += sell_fills_from_closed(closed, cash_acc.id, srd_acc.id)  # C3: sales are imported too
         rep = import_confirmed_fills(s, fills, tolerance)
         stops_updated = _apply_broker_stops(s, orders, [cash_acc.id, srd_acc.id])
         for acc in (cash_acc, srd_acc):
@@ -67,12 +111,62 @@ def sync_saxo(portfolio: SaxoPortfolio, tolerance: MatchTolerance) -> dict[str, 
                 "saxo_api",
                 declarative=False,
             )
+        # C3: positions held in the tool but absent at the broker without a closing fill → discrepancy
+        broker_isins = {p.isin for p in positions if p.isin}
+        missing = [
+            r.isin
+            for r in s.scalars(
+                select(PositionRow).where(
+                    PositionRow.account_id.in_([cash_acc.id, srd_acc.id]),
+                    PositionRow.closed_at.is_(None),
+                    PositionRow.qty_held > 0,
+                )
+            )
+            if r.isin not in broker_isins
+        ]
+        if alerts is not None:
+            from app.notify.base import Event
+
+            if missing:
+                alerts.emit(
+                    s,
+                    Event(
+                        "P3",
+                        "broker_discrepancy",
+                        f"{len(missing)} position(s) absente(s) chez Saxo",
+                        [
+                            f"{i} : détenue dans l'outil, absente chez le courtier — vente non importée ?"
+                            for i in missing
+                        ][:8],
+                    ),
+                    mode,
+                    False,
+                )
+            if rep.suspected_duplicates or rep.unassigned_sales:
+                alerts.emit(
+                    s,
+                    Event(
+                        "P3",
+                        "reconciliation",
+                        "Rapprochement Saxo : écarts à documenter",
+                        [
+                            f"{rep.suspected_duplicates} exécution(s) probablement en double (déclaration hors tolérance)",  # noqa: E501
+                            f"{rep.unassigned_sales} vente(s) sans position ouverte",
+                        ],
+                    ),
+                    mode,
+                    False,
+                )
         diffs = {
             "matched": rep.matched,
             "discretionary": rep.discretionary,
             "unmatched_declared": rep.unmatched_declared,
+            "suspected_duplicates": rep.suspected_duplicates,
+            "unassigned_sales": rep.unassigned_sales,
             "stops_updated": stops_updated,
             "orders_open": len(orders),
+            "closed_fills": len(closed),
+            "missing_at_broker": missing,
         }
         s.add(
             BrokerSyncRun(broker="saxo", ts=datetime.now(UTC), status="ok", positions_count=len(positions), diffs=diffs)
@@ -179,6 +273,9 @@ def run(ctx: JobContext) -> int:
         return 0
     tol = ctx.config.params.accounts.cto.match_tolerance
     diffs = sync_saxo(
-        SaxoPortfolio(SaxoClient()), MatchTolerance(float(tol.get("price_pct", 0.005)), int(tol.get("minutes", 10)))
+        SaxoPortfolio(SaxoClient()),
+        MatchTolerance(float(tol.get("price_pct", 0.005)), int(tol.get("minutes", 10))),
+        alerts=ctx.alerts,
+        mode=ctx.mode,
     )
     return int(diffs["matched"]) + int(diffs["discretionary"])

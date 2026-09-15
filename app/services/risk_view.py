@@ -14,6 +14,7 @@ from app.domain.portfolio import PositionValue, account_equity, srd_coverage
 from app.domain.risk import FeeSchedule, OpenPosition, PendingEntry, PortfolioRisk, RiskParams, portfolio_risk
 from app.domain.timeutil import from_store
 from app.services.instruments import _load as instruments_map
+from app.services.market_data import fx_to_eur  # noqa: F401
 
 
 def risk_params_from(config: LoadedConfig) -> RiskParams:
@@ -51,6 +52,12 @@ def fee_schedule_for(config: LoadedConfig, broker: str) -> FeeSchedule:
     )
 
 
+def _stub(r: PositionRow) -> OpenPosition:
+    return OpenPosition(
+        r.isin, "", r.qty_held, r.qty_protected, r.avg_price, r.avg_price, r.stop_current, r.stop_initial
+    )
+
+
 def build_risk_view(s: Session, config: LoadedConfig, now: datetime | None = None) -> dict[str, object]:
     now = now or datetime.now(UTC)
     accounts = {a.id: a for a in s.scalars(select(Account))}
@@ -58,15 +65,26 @@ def build_risk_view(s: Session, config: LoadedConfig, now: datetime | None = Non
     imap = instruments_map()
     positions: list[OpenPosition] = []
     values_by_account: dict[str, list[PositionValue]] = {"pea": [], "cto_cash": [], "cto_srd": []}
-    missing_price: list[str] = []
+    missing_price: list[str] = []  # M12: no price → excluded from the aggregates, view marked incomplete
+    missing_fx: list[str] = []  # C4: FX unknown → excluded, never 1.0
+    price_status: dict[str, tuple[str, datetime | None]] = {}
     for r in s.scalars(select(PositionRow).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0)):
         acc = accounts[r.account_id]
         meta = imap.get(r.isin, {})
-        price = r.last_price if r.last_price is not None else r.avg_price
         if r.last_price is None:
             missing_price.append(r.isin)
+            continue
+        fx = fx_to_eur(s, r.currency or "EUR")
+        if fx is None:
+            missing_fx.append(f"{r.isin} ({r.currency})")
+            continue
+        price = r.last_price
+        price_status[r.isin] = (
+            r.last_price_status or "indisponible",
+            from_store(r.last_price_at) if r.last_price_at else None,
+        )
         fees = fee_schedule_for(config, acc.broker)
-        exit_fees = fees.commission(r.qty_held * price)
+        exit_fees = fees.commission(r.qty_held * price * fx)
         positions.append(
             OpenPosition(
                 r.isin,
@@ -77,8 +95,8 @@ def build_risk_view(s: Session, config: LoadedConfig, now: datetime | None = Non
                 price,
                 r.stop_current,
                 r.stop_initial,
-                1.0,
-                r.currency,
+                fx,
+                r.currency or "EUR",
                 str(meta.get("sector", "inconnu")),
                 str(meta.get("mic", "XPAR")),
                 r.mode,
@@ -88,22 +106,28 @@ def build_risk_view(s: Session, config: LoadedConfig, now: datetime | None = Non
             )
         )
         values_by_account.setdefault(acc.type, []).append(
-            PositionValue(r.isin, r.qty_held, r.avg_price, price, 1.0, r.mode, 0.0, r.currency)
+            PositionValue(r.isin, r.qty_held, r.avg_price, price, fx, r.mode, 0.0, r.currency or "EUR")
         )
     pending: list[PendingEntry] = []
+    reserved_unknown: list[str] = []  # M13: no known stop → reserved at the full per-trade budget, flagged
+    budget = config.params.capital.capital_pilote_eur * config.params.risk.max_risk_per_trade_pct
     for o in s.scalars(select(Order).where(Order.side == "buy", Order.state.in_(("entered", "partially_filled")))):
+        from app.db.models import Proposal
+
         price_max = o.limit_price or o.trigger_price or 0.0
-        stop = o.trigger_price or price_max
         acc = accounts[o.account_id]
+        qty = o.qty - o.qty_filled
+        fees_eur = fee_schedule_for(config, acc.broker).commission(qty * price_max)
+        sector = str(imap.get(o.isin, {}).get("sector", "inconnu"))
+        prop = s.get(Proposal, o.proposal_id) if o.proposal_id else None
+        stop = prop.stop if prop and prop.stop else None
+        if stop is None or price_max <= 0:
+            reserved_unknown.append(o.isin)
+            pending.append(PendingEntry(o.isin, acc.type, 1, budget, 0.0, fees_eur, sector=sector))
+            continue
         pending.append(
             PendingEntry(
-                o.isin,
-                acc.type,
-                o.qty - o.qty_filled,
-                price_max,
-                stop * (1 - config.params.risk.slippage_pct) if stop else 0.0,
-                fee_schedule_for(config, acc.broker).commission((o.qty - o.qty_filled) * price_max),
-                sector=str(imap.get(o.isin, {}).get("sector", "inconnu")),
+                o.isin, acc.type, qty, price_max, stop * (1 - config.params.risk.slippage_pct), fees_eur, sector=sector
             )
         )
     cto_cash = sum((a.cash or 0.0) for a in accounts.values() if a.broker == "saxo") / max(
@@ -148,8 +172,21 @@ def build_risk_view(s: Session, config: LoadedConfig, now: datetime | None = Non
         "cto": cto_eq,
         "pea": pea_eq,
         "coverage_ratio": coverage,
-        "unprotected": [p for p in positions if p.qty > p.qty_protected],
+        "unprotected": [p for p in positions if p.qty > p.qty_protected]
+        + [
+            _stub(r)
+            for r in s.scalars(
+                select(PositionRow).where(
+                    PositionRow.closed_at.is_(None), PositionRow.qty_held > PositionRow.qty_protected
+                )
+            )
+            if r.isin in missing_price
+        ],
         "missing_price": missing_price,
+        "missing_fx": missing_fx,  # noqa: F821
+        "reserved_unknown": reserved_unknown,  # noqa: F821
+        "incomplete": bool(missing_price or missing_fx or reserved_unknown),  # noqa: F821
+        "price_status": price_status,  # noqa: F821
         "freshness": freshness,
         "hints": config.params.risk.diversification_hints,
         "max_open_risk_pct": config.params.risk.max_open_risk_pct,

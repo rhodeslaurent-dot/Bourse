@@ -25,7 +25,6 @@ class NewsClassification(BaseModel):
     ampleur_annoncee: float = Field(ge=0, le=1)
     resume: str = Field(max_length=300)
     confiance: float = Field(ge=0, le=1)
-    surprise: float | None = None  # only with a dated consensus (docs/06 D6) — never set by the LLM
 
 
 class NewsletterValue(BaseModel):

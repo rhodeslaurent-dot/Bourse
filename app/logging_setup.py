@@ -1,6 +1,6 @@
 """JSON logs, no secrets (docs/14 §14.2)."""
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import json
 import logging
@@ -8,15 +8,22 @@ import os
 import sys
 from datetime import UTC, datetime
 
+import re
+
 _SECRET_MARKERS = ("token", "password", "secret", "api_key", "apikey")
+_SECRET_RE = re.compile(
+    r"((?:api_token|token|password|secret|api_key|apikey|authorization)[=:\s]+(?:bearer\s+)?)([^&\s\"']{4,})", re.I
+)
+
+
+def redact(text: str) -> str:
+    """Mask secret-like values in any free text (logs, tracebacks, job errors)."""
+    return _SECRET_RE.sub(lambda m: m.group(1) + "[redacted]", text or "")
 
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        msg = record.getMessage()
-        low = msg.lower()
-        if any(m in low for m in _SECRET_MARKERS) and "=" in msg:
-            msg = "[redacted: message contained a secret-like key]"
+        msg = redact(record.getMessage())
         payload = {
             "ts": datetime.now(UTC).isoformat(),
             "level": record.levelname,
@@ -24,7 +31,7 @@ class JsonFormatter(logging.Formatter):
             "msg": msg,
         }
         if record.exc_info:
-            payload["exc"] = self.formatException(record.exc_info)[-2000:]
+            payload["exc"] = redact(self.formatException(record.exc_info)[-2000:])
         return json.dumps(payload, ensure_ascii=False)
 
 

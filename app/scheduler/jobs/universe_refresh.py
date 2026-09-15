@@ -79,13 +79,26 @@ def enrich_with_screener(rows: list[SymbolRow], config) -> list[SymbolRow]:  # t
         scan = tv.scan(markets[: tv.max_requests])
     except Exception as exc:  # noqa: BLE001
         log.warning("screener indisponible, univers sans capitalisation/secteur : %s", exc)
+        for r in rows:
+            r.extra["screener_error"] = exc.__class__.__name__
         return rows
-    by_symbol = {r.ticker.split(":")[-1]: r for r in scan}
+    tv_exchange = {
+        "france": "EURONEXT",
+        "netherlands": "EURONEXT",
+        "belgium": "EURONEXT",
+        "germany": "XETR",
+        "italy": "MIL",
+        "spain": "BME",
+    }
+    by_key = {r.ticker: r for r in scan}  # EXCHANGE:SYMBOL — never merged across venues (M21)
     for r in rows:
-        sr = by_symbol.get(r.code)
+        market = MARKETS_BY_EODHD.get(r.exchange)
+        sr = by_key.get(f"{tv_exchange.get(market or '', '')}:{r.code}") if market else None
         if sr is None:
             continue
-        r.market_cap_eur = sr.market_cap
+        # market_cap_basic is expressed in the instrument's quote currency (to be confirmed in
+        # qualification, docs/providers/tradingview_screener.md); non-EUR caps are left unset.
+        r.market_cap_eur = sr.market_cap if r.currency == "EUR" else None
         r.sector = sr.sector
         r.earnings_next_date = sr.earnings_release_next_date
         r.tv_ticker = sr.ticker
@@ -98,9 +111,28 @@ def run(ctx: JobContext) -> int:
         return 0
     u = ctx.config.params.universe or {}
     exchanges = list(u.get("markets_p0", [])) + list(u.get("markets_p1", []))
-    rows = enrich_with_screener(symbol_rows_from_eodhd(EodhdProvider(), exchanges), ctx.config)
+    from app.data.providers.eodhd import eodhd_from
+
+    rows = enrich_with_screener(symbol_rows_from_eodhd(eodhd_from(ctx.config), exchanges), ctx.config)
     with db_session() as s:
         rep: RefreshReport = refresh_universe(s, ctx.config, ctx.calendars, rows, date.today())
+        if rows and rows[0].extra.get("screener_error") and ctx.alerts is not None:
+            from app.notify.base import Event
+
+            ctx.alerts.emit(
+                s,
+                Event(
+                    "P4",
+                    "screener_unavailable",
+                    "Univers rafraîchi sans le screener",
+                    [
+                        "capitalisations et secteurs de la semaine précédente conservés (périmés)",
+                        rows[0].extra["screener_error"],
+                    ],
+                ),
+                ctx.mode,
+                False,
+            )
     log.info(
         "univers : %s inclus / %s ; +%s −%s ; watchlist %s",
         rep.included,

@@ -121,6 +121,16 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         with db_session() as s:
+            from sqlalchemy import select
+
+            from app.db.models import JobRun
+
+            for run in s.scalars(select(JobRun).where(JobRun.status == "running")):
+                run.status, run.ended_at, run.note = (
+                    "interrupted",
+                    datetime.now(UTC),
+                    "processus redémarré pendant le job (rejeu selon misfire_grace)",
+                )
             record_params_version(
                 s,
                 config.params.version,

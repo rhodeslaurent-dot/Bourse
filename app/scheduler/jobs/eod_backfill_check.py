@@ -38,7 +38,9 @@ def backfill_history(provider: EodhdProvider, start: date, end: date, isins: lis
 def run(ctx: JobContext) -> int:
     if not os.environ.get("EODHD_API_TOKEN"):
         return 0
-    provider = EodhdProvider()
+    from app.data.providers.eodhd import eodhd_from
+
+    provider = eodhd_from(ctx.config)
     n = 0
     gaps: dict[str, bool] = {}
     alerts = []

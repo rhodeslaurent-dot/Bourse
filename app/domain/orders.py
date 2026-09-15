@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 
@@ -99,7 +99,7 @@ class Execution:
 
 def declared_uid(account_id: int, isin: str, ts: datetime, qty: int, price: float) -> str:
     """Idempotency key for manual declarations (docs/10 §10.1): same minute + qty + price → same uid."""
-    key = f"{account_id}|{isin}|{ts.astimezone().strftime('%Y-%m-%dT%H:%M')}|{qty}|{price:.4f}"
+    key = f"{account_id}|{isin}|{ts.astimezone(UTC).strftime('%Y-%m-%dT%H:%M')}|{qty}|{price:.4f}"
     return hashlib.sha256(key.encode()).hexdigest()[:32]
 
 

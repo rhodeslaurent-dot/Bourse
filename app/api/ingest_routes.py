@@ -82,7 +82,7 @@ def ingest_newsletter(body: NewsletterIn, request: Request) -> dict[str, object]
             hashlib.sha256(f"{body.source}|{mid}".encode()).hexdigest(),
         )
     with db_session() as s:
-        rep = ingest_mail(s, mail, cfg, request.app.state.llm)
+        rep = ingest_mail(s, mail, cfg, request.app.state.llm, calendars=request.app.state.calendars)
     return rep.__dict__
 
 

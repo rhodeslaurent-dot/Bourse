@@ -25,24 +25,36 @@ log = logging.getLogger("bourse.jobs.position_monitor")
 BTN_EXEC = [Button("Exécuté", "execute"), Button("Stop saisi", "stop_saisi"), Button("Vu", "vu")]
 
 
-def quotes_for(isins: list[str]) -> dict[str, Quote]:
+def quotes_for(isins: list[str], config=None) -> dict[str, Quote]:  # type: ignore[no-untyped-def]
     """Phase 1: EODHD REST (delayed) unless Saxo prices are configured. Empty dict if none."""
     if not isins:
         return {}
     out: dict[str, Quote] = {}
     if os.environ.get("EODHD_API_TOKEN"):
-        from app.data.providers.eodhd import EodhdProvider
+        from app.data.providers.eodhd import EodhdProvider, eodhd_from
         from app.services.instruments import eodhd_symbols_for
 
         symbols = eodhd_symbols_for(isins)
         try:
-            for q in EodhdProvider().fetch_quotes(list(symbols)):
+            provider = eodhd_from(config) if config is not None else EodhdProvider()
+            for q in provider.fetch_quotes(list(symbols)):
                 isin = symbols.get(q.symbol)
                 if isin:
                     out[isin] = q
         except Exception as exc:  # noqa: BLE001
             log.warning("quotes indisponibles : %s", exc)
     return out
+
+
+def venue_of(s, isin: str) -> str | None:  # type: ignore[no-untyped-def]
+    """MIC from the referential (or the YAML map); ``None`` when unknown — never Paris by default."""
+    from app.db.models import Instrument
+    from app.services.instruments import _load as instruments_map
+
+    inst = s.get(Instrument, isin)
+    if inst is not None and inst.mic:
+        return inst.mic
+    return instruments_map().get(isin, {}).get("mic")
 
 
 def monitor_once(ctx: JobContext, quotes: dict[str, Quote], now: datetime | None = None) -> int:
@@ -82,7 +94,12 @@ def monitor_once(ctx: JobContext, quotes: dict[str, Quote], now: datetime | None
                     n += 1
             elif alerts:
                 alerts.close_incident(s, f"unprotected:{row.id}")
-            session_open = ctx.calendars.get("XPAR").is_open_at(now)
+            mic = venue_of(s, row.isin)
+            if mic is None or mic not in ctx.calendars.venues:
+                session_open = False  # unknown venue: threshold alert only, never a SELL-at-market proposal
+                log.warning("place inconnue pour %s : pas de proposition SELL au marché", row.isin)
+            else:
+                session_open = ctx.calendars.get(mic).is_open_at(now)
             crossed = from_store(row.crossed_since) if row.crossed_since else None
             chk = check_stop(p, row.id, price, now, crossed, False, unconfirmed, session_open)
             if chk.event == StopEvent.NONE:
@@ -114,7 +131,8 @@ def monitor_once(ctx: JobContext, quotes: dict[str, Quote], now: datetime | None
             )
             if alerts and alerts.emit(s, ev, mode, True, now, row.account_id, row.id):
                 n += 1
-        for t in unmatched_declarations_older_than(s, 24, now):
+        hours = int(ctx.config.params.accounts.cto.match_tolerance.get("unmatched_alert_hours", 24))
+        for t in unmatched_declarations_older_than(s, hours, now):
             ev = Event(
                 "P3",
                 "declaration_unmatched",
@@ -136,4 +154,4 @@ def run(ctx: JobContext) -> int:
             r.isin
             for r in s.scalars(select(PositionRow).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0))
         ]
-    return monitor_once(ctx, quotes_for(isins))
+    return monitor_once(ctx, quotes_for(isins, ctx.config))

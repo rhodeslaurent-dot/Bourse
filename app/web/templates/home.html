@@ -11,6 +11,8 @@
 <section class="card">
   <h2 class="font-semibold">Risques (docs/07 §7.8)</h2>
   {% set r = view.risk %}
+  {% if view.incomplete %}<p class="text-red-700 font-bold text-sm">⚠ RISQUE INCOMPLET : {% if view.missing_price %}cours indisponible pour {{ view.missing_price|join(', ') }} (exclu des totaux, jamais estimé){% endif %}{% if view.missing_fx %} · taux de change indisponible pour {{ view.missing_fx|join(', ') }}{% endif %}{% if view.reserved_unknown %} · stop inconnu pour les ordres en attente {{ view.reserved_unknown|join(', ') }} (réservé au budget maximal par trade){% endif %}</p>{% endif %}
+  {% if view.price_status %}<p class="text-xs text-slate-500">Cours utilisés : {% for isin, st in view.price_status.items() %}{{ isin }} [{{ st[0]|upper }}{% if st[1] %} · marché {{ st[1]|dual }}{% endif %}] · {% endfor %}</p>{% endif %}
   <ul class="text-sm space-y-1 mt-1">
     <li>Risque courant + réservé : <b>{{ '%.0f'|format(r.open_risk_total_eur) }} €</b> ({{ '%.1f'|format(r.open_risk_pct * 100) }} % du capital pilote {{ '%.0f'|format(view.capital) }} €) — plafond {{ '%.0f'|format(view.max_open_risk_pct * 100) }} % {% if r.open_risk_pct > view.max_open_risk_pct %}<span class="text-red-700 font-bold">BLOQUÉ : plafond dépassé (risk.max_open_risk_pct)</span>{% endif %}<br><span class="text-slate-500">courant {{ '%.0f'|format(r.open_risk_current_eur) }} € · réservé (ordres en attente) {{ '%.0f'|format(r.open_risk_reserved_eur) }} €</span></li>
     <li>Scénario de gap (−10 % sous le stop) : {{ '%.0f'|format(r.gap_scenario_loss_eur) }} €</li>
@@ -19,7 +21,7 @@
     <li>SRD : engagements {{ '%.0f'|format(r.srd_notional_eur) }} € · levier {{ '%.2f'|format(r.srd_leverage) if r.srd_leverage is not none else '—' }} · couverture {{ '%.2f ×'|format(view.coverage_ratio) if view.coverage_ratio is not none else '—' }}</li>
     <li>Hors EUR : {{ '%.0f'|format(r.fx_exposure_pct * 100) }} % · par place : {% for m, v in r.by_mic_exposure_pct.items() %}{{ m }} {{ '%.0f'|format(v * 100) }} % · {% endfor %}</li>
     {% for a in r.alerts %}<li class="text-amber-700">⚠ {{ a }}</li>{% endfor %}
-    {% if view.missing_price %}<li class="text-slate-500">Cours indisponible (PMP utilisé) : {{ view.missing_price|join(', ') }}</li>{% endif %}
+
   </ul>
 </section>
 <section class="card">

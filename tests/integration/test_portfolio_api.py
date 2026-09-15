@@ -110,7 +110,7 @@ def test_import_boursobank_operations(client):
         files={"file": ("ops.csv", text, "text/csv")},
         follow_redirects=False,
     )
-    assert "2 doublons ignorés" in unquote(r2.headers["location"])
+    assert "3 doublons ignorés" in unquote(r2.headers["location"])  # the sale without position is kept too (M11)
     bad = client.post(
         "/import/boursobank",
         data={"kind": "positions"},

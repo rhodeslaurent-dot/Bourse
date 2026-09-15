@@ -43,12 +43,37 @@ def _prev_close(s: Session, isin: str, day) -> float | None:  # type: ignore[no-
     return row.close if row else None
 
 
+def _number_in_text(value: float, text: str) -> bool:
+    """A level is accepted only if it appears literally in the letter (rule 3: the LLM never
+    produces a price). Accepts 60 / 60,00 / 60.0 / 52,5 / 52.50 forms."""
+    import re
+
+    forms = {f"{value:g}", f"{value:.1f}", f"{value:.2f}"}
+    forms |= {f.replace(".", ",") for f in list(forms)}
+    return any(re.search(rf"(?<![\d,.]){re.escape(f)}(?![\d])", text) for f in forms)
+
+
+def session_day_for(received_at: datetime, calendars=None, mic: str = "XPAR"):  # type: ignore[no-untyped-def]
+    """Trading day of the letter: Paris local date, moved to the next open session of the venue (M15)."""
+    from app.domain.timeutil import PARIS
+
+    d = received_at.astimezone(PARIS).date()
+    if calendars is None:
+        return d
+    venue = calendars.get(mic)
+    try:
+        return d if venue.is_open(d) else venue.next_session(d)
+    except ValueError:
+        return d
+
+
 def ingest_mail(
     s: Session,
     mail: NewsletterMail,
     config: LoadedConfig,
     gateway: ClaudeGateway | None,
     quotes: dict[str, Quote] | None = None,
+    calendars=None,  # type: ignore[no-untyped-def]
 ) -> NewsletterReport:
     rep = NewsletterReport(received=1)
     if s.scalar(select(NewsletterItem).where(NewsletterItem.dedup_hash == mail.dedup_hash)) is not None:
@@ -67,6 +92,7 @@ def ingest_mail(
     rep.new = 1
     aliases = alias_index(s)
     values = extract_values(mail.body_text, aliases)
+    rejected_levels: list[str] = []
     parsed_by = "rules"
     version = None
     if gateway is not None:
@@ -86,25 +112,31 @@ def ingest_mail(
             for lv in ext.values:
                 isin = lv.isin or aliases.get(lv.name.lower())
                 key = isin or lv.name.lower()
+                # M16: keep only levels written in the letter; rule-extracted levels take precedence
+                verified = {k: v for k, v in lv.levels.items() if _number_in_text(v, mail.body_text)}  # noqa: F821
+                rejected_levels += [f"{lv.name}:{k}={v}" for k, v in lv.levels.items() if k not in verified]
                 base = merged.get(key)
                 if base is None:
                     from app.data.providers.imap_gmail import ExtractedValue
 
-                    merged[key] = ExtractedValue(isin, lv.name, lv.direction, dict(lv.levels), lv.snippet)
+                    merged[key] = ExtractedValue(isin, lv.name, lv.direction, verified, lv.snippet)
                 else:
                     base.direction = lv.direction if lv.direction != "neutral" else base.direction
-                    for k, v in lv.levels.items():
+                    for k, v in verified.items():
                         base.levels.setdefault(k, v)
+            if rejected_levels:
+                log.warning("niveaux LLM absents du texte, rejetés : %s", rejected_levels)
             values = list(merged.values())
             parsed_by = "llm"
             rep.parsed_by_llm = 1
         except LlmUnavailable as exc:
             log.warning("LLM indisponible (%s) : extraction par règles", exc)
     item.parsed = {
-        "values": [{"isin": v.isin, "name": v.name, "direction": v.direction, "levels": v.levels} for v in values]
+        "values": [{"isin": v.isin, "name": v.name, "direction": v.direction, "levels": v.levels} for v in values],
+        "rejected_llm_levels": rejected_levels,
     }
     item.parsed_by, item.llm_prompt_version = parsed_by, version
-    day = mail.received_at.astimezone(UTC).date()
+    day = session_day_for(mail.received_at, calendars)  # noqa: F821
     max_drift = float(
         ((config.params.detectors or {}).get("d5_external") or {}).get("drift_since_open_max_for_buy", 0.02)
     )

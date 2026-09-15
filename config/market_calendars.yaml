@@ -2,7 +2,7 @@
 # Heures locales de la place (Europe/Paris pour Euronext et Xetra). Chargé dans `market_calendar`
 # par `python -m app.cli seed-calendar`. Les week-ends sont toujours fermés.
 # "à confirmer" : demi-séances Euronext (clôture 14:00 fixing / 14:05 TAL) selon l'appendice Euronext.
-version: "2026.09.2"
+version: "2026.09.3"
 markets:
   XPAR:
     name: "Euronext Paris"
@@ -52,9 +52,9 @@ markets:
     open: "09:00"
     close: "17:30"
     holidays:
-      2025: ["2025-01-01", "2025-04-18", "2025-04-21", "2025-05-01", "2025-12-24", "2025-12-25", "2025-12-26", "2025-12-31"]   # encodé rétrospectivement, à vérifier
-      2026: ["2026-01-01", "2026-04-03", "2026-04-06", "2026-05-01", "2026-12-24", "2026-12-25", "2026-12-31"]
-      2027: ["2027-01-01", "2027-03-26", "2027-03-29", "2027-05-01", "2027-12-24", "2027-12-25", "2027-12-31"]
+      2025: ["2025-01-01", "2025-04-18", "2025-04-21", "2025-05-01", "2025-06-09", "2025-12-24", "2025-12-25", "2025-12-26", "2025-12-31"]   # encodé rétrospectivement, à vérifier ; 09/06 = lundi de Pentecôte
+      2026: ["2026-01-01", "2026-04-03", "2026-04-06", "2026-05-01", "2026-05-25", "2026-12-24", "2026-12-25", "2026-12-31"]   # 25/05 = lundi de Pentecôte (Xetra fermé, Euronext ouvert)
+      2027: ["2027-01-01", "2027-03-26", "2027-03-29", "2027-05-01", "2027-05-17", "2027-12-24", "2027-12-25", "2027-12-31"]
     half_days: {}
     source: "Deutsche Börse Cash Market trading calendar (consulté 09/09/2026)"
 # Correspondance code EODHD -> MIC (docs/05 §5.1)
