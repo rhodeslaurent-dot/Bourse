@@ -1,0 +1,5 @@
+# Correspondance ISIN -> symboles providers (phase 1 a). Remplacé par le référentiel `instruments` (sous-lot C).
+instruments:
+  FR0000120271: {name: "TotalEnergies", eodhd: "TTE.PA", tv: "EURONEXT:TTE", mic: XPAR}
+  FR0000120073: {name: "Air Liquide", eodhd: "AI.PA", tv: "EURONEXT:AI", mic: XPAR}
+  NL0010273215: {name: "ASML", eodhd: "ASML.AS", tv: "EURONEXT:ASML", mic: XAMS}

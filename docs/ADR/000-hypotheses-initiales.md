@@ -1,6 +1,6 @@
 # ADR-000 — Hypothèses initiales et points ambigus de la spécification
 
-Statut : **proposé** (à valider par l'utilisateur) · Date : 2026-09-13 · Session 1 (Prompt 0 + Prompt 1 socle)
+Statut : **accepté** (validation utilisateur du 2026-09-15) · Date : 2026-09-13 · Session 1 (Prompt 0 + Prompt 1 socle)
 
 Référence : `docs/00` → `docs/16`, `config/params.example.yaml` (v1.1.1). Ordre de priorité en cas de divergence :
 `config/params.yaml` > `docs/07` > `docs/06` > autres (CLAUDE.md règle 8). Rien n'est résolu en silence : chaque point ci-dessous

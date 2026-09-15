@@ -10,3 +10,4 @@ data/
 backups/
 *.log
 tests/fixtures/qualification/*.private.*
+config/instruments_map.yaml

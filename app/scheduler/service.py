@@ -25,12 +25,19 @@ def _job_entry(name: str, variant: str) -> None:
     """Picklable entry point used by the jobstore."""
     config: LoadedConfig = _state["config"]  # type: ignore[assignment]
     calendars: MarketCalendars = _state["calendars"]  # type: ignore[assignment]
-    execute_job(name, config, calendars, variant=variant, scheduled_for=datetime.now(UTC))
+    alerts = _state.get("alerts")
+    mode_fn = _state.get("mode_fn")
+    mode = mode_fn() if callable(mode_fn) else "reunion"
+    execute_job(name, config, calendars, variant=variant, scheduled_for=datetime.now(UTC), alerts=alerts, mode=mode)
 
 
-def create_scheduler(config: LoadedConfig, calendars: MarketCalendars) -> BackgroundScheduler:
+def create_scheduler(
+    config: LoadedConfig, calendars: MarketCalendars, alerts: object | None = None, mode_fn: object | None = None
+) -> BackgroundScheduler:
     _state["config"] = config
     _state["calendars"] = calendars
+    _state["alerts"] = alerts
+    _state["mode_fn"] = mode_fn
     url = database_url()
     jobstore = (
         SQLAlchemyJobStore(engine=get_engine(), tablename="apscheduler_jobs")

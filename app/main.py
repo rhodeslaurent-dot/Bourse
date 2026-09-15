@@ -6,10 +6,11 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
+from app.api.portfolio_routes import router as portfolio_api_router
 from app.api.routes import router as api_router
 from app.api.security import AccessMiddleware
 from app.config import LoadedConfig, load_params
@@ -18,9 +19,12 @@ from app.db.session import database_url, db_session
 from app.domain.availability import resolve_mode
 from app.domain.calendar import MarketCalendars, load_market_calendars
 from app.logging_setup import setup_logging
-from app.notify.email import smtp_settings
+from app.notify.base import Notifier
+from app.notify.email import send_event_email, smtp_settings
 from app.notify.telegram import ModeStore, TelegramBot, telegram_settings
 from app.scheduler.service import create_scheduler
+from app.services.alerts import AlertService
+from app.web.portfolio_routes import router as portfolio_web_router
 from app.web.routes import router as web_router
 
 log = logging.getLogger("bourse")
@@ -36,14 +40,66 @@ def _mode_store(config: LoadedConfig) -> ModeStore:
         schedule = av.schedule if av and config.feature_enabled("availability.schedule") else []
         with db_session() as s:
             ov = current_override(s)
-        from datetime import UTC
-
         return resolve_mode(datetime.now(UTC), schedule, av.default_mode if av else "reunion", ov).mode
 
     def log_event(uid: int, auth: bool, kind: str, text: str | None, data: str | None, handled: bool) -> None:
         with db_session() as s:
             log_telegram_event(s, uid, auth, kind, text, data, handled)
 
+    from app.notify import telegram as tg_mod
+
+    def declare(kind: str, payload: dict) -> str:
+        from app.services.portfolio import account_by_type, declare_execution, declare_order, declare_stop
+
+        with db_session() as s:
+            try:
+                if kind == "execution":
+                    acc = account_by_type(s, payload["account"])
+                    r = declare_execution(
+                        s,
+                        acc.id,
+                        payload["isin"],
+                        "buy",
+                        payload["qty"],
+                        payload["price"],
+                        datetime.now(UTC),
+                        "telegram",
+                        mode="srd" if payload["account"] == "cto_srd" else "comptant",
+                    )
+                    return r.message + (
+                        f" (position #{r.position_id}, NON PROTÉGÉE : /stop {r.position_id} <niveau> {payload['qty']})"
+                        if r.created
+                        else ""
+                    )
+                if kind == "protection":
+                    p = declare_stop(
+                        s,
+                        payload["position_id"],
+                        payload["level"],
+                        payload["order_type"],
+                        payload["qty_covered"],
+                        "initial",
+                        "telegram",
+                    )
+                    return f"stop enregistré : {p.protection_state.value} ({p.qty_protected} couverts sur {p.qty_held})"
+                acc = account_by_type(s, payload["account"])
+                o = declare_order(
+                    s,
+                    acc.id,
+                    payload["isin"],
+                    "buy",
+                    payload["qty"],
+                    payload["order_type"],
+                    payload.get("limit_price"),
+                    None,
+                    "day",
+                    "telegram",
+                )
+                return f"ordre saisi #{o.id} enregistré (aucune position créée)"
+            except (ValueError, KeyError) as exc:
+                return f"refusé : {exc}"
+
+    tg_mod.DECLARE_HOOK["fn"] = declare
     return ModeStore(set_mode=set_mode, current_mode=current_mode, log_event=log_event)
 
 
@@ -69,13 +125,21 @@ def create_app(
                 config.path.read_text() if config.path.exists() else "",
                 config.params.capital.effective_from,
             )
-        if start_scheduler:
-            app.state.scheduler = create_scheduler(config, calendars)
-            app.state.scheduler.start()
         tg = telegram_settings()
+        store = _mode_store(config)
         if start_telegram and tg:
-            app.state.telegram = TelegramBot(tg[0], tg[1], _mode_store(config))
+            app.state.telegram = TelegramBot(tg[0], tg[1], store)
             await app.state.telegram.start()
+        notifier = Notifier(
+            telegram_send=app.state.telegram.send_event_sync if app.state.telegram else None,
+            email_send=send_event_email if smtp_settings() else None,
+        )
+        app.state.alerts = AlertService(notifier, config.params.notifications.p1_repeat_minutes)
+        if start_scheduler:
+            app.state.scheduler = create_scheduler(
+                config, calendars, alerts=app.state.alerts, mode_fn=store.current_mode
+            )
+            app.state.scheduler.start()
         for f in config.disabled_features:
             log.warning("fonctionnalité désactivée : %s — %s", f.label, f.reason)
         yield
@@ -94,8 +158,11 @@ def create_app(
     app.state.email_enabled = smtp_settings() is not None
     app.state.db_kind = database_url().split(":", 1)[0]
     app.add_middleware(AccessMiddleware)
+    app.state.alerts = None
     app.include_router(api_router)
+    app.include_router(portfolio_api_router)
     app.include_router(web_router)
+    app.include_router(portfolio_web_router)
     return app
 
 

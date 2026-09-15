@@ -17,7 +17,9 @@ FORBIDDEN_SUBSTRINGS = [
     "place_order",
     "placeOrder",
 ]
-MUTATING_ORDERS_RE = re.compile(r"(post|put|delete|patch)\s*\([^)]*/orders", re.I)
+# Outbound HTTP calls only: FastAPI route decorators (``@router.post("/orders")``) declare *our*
+# inbound « ordre saisi » endpoint (docs/09 §9.6) and never reach a broker.
+MUTATING_ORDERS_RE = re.compile(r"(?<!@router\.)(?<!@app\.)\b(post|put|delete|patch)\s*\([^)]*/orders", re.I)
 
 
 def _source_files():
@@ -45,6 +47,12 @@ def test_no_mutating_call_on_orders_url():
         for m in MUTATING_ORDERS_RE.finditer(text):
             hits.append(f"{p.relative_to(ROOT)}: {m.group(0)[:60]}")
     assert not hits, "mutating HTTP call on an /orders URL:\n" + "\n".join(hits)
+
+
+def test_guard_catches_outbound_but_not_inbound_routes():
+    assert MUTATING_ORDERS_RE.search('client.post("/trade/v2/orders", json=x)')
+    assert MUTATING_ORDERS_RE.search('httpx.delete(f"{base}/port/v1/orders/{oid}")')
+    assert not MUTATING_ORDERS_RE.search('@router.post("/orders")')
 
 
 def test_no_trading_permission_requested():

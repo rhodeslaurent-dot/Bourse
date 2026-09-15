@@ -2,6 +2,15 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Phase 1 (A) comptes et états — 2026-09-15
+
+- `app/domain/orders` : machine à états exécution (`order_entered` → `filled_partial` → `filled` → `closed`) et protection (`unprotected` → `partially_protected` → `protected`) par quantité ; `declared_uid` idempotent ; rapprochement déclaré/confirmé (± 0,5 %, ± 10 min) ; stop jamais abaissé.
+- `app/domain/monitor`, `alerts`, `portfolio` : S1 (seuil franchi → SELL au marché après 5 min, même incident), quantité non protégée → P1 tous modes, dédup P2/P3, équité avec engagements SRD, levier et couverture.
+- Tables `accounts`, `orders`, `trades`, `positions`, `stops`, `portfolio_state`, `broker_sync_runs`, `cash_snapshots` (migration 0002) ; `services/portfolio` (déclarations, import de fills, état daté) ; `services/alerts`.
+- Saxo lecture : positions/ordres/cash → DTO, jobs `portfolio_sync` et `portfolio_sync_intraday` ; import CSV BoursoBank (parseur tolérant + assertions, fixtures anonymisées).
+- Job `position_monitor` ; API `/api/orders`, `/api/executions`, `/api/protections`, `/api/positions` ; pages `/positions`, `/import` ; Telegram `/exec`, `/stop`, `/ordre`.
+- Tests : 117.
+
 ## [Unreleased] — Phase 0 (b) qualification des données — 2026-09-13
 
 - `app/data` : DTO (`Quote`, `EodBar`, `IntradayBar`, `ScreenerRow`) avec source, `market_timestamp`, `received_at`, `processed_at`, `price_type`, `market_perimeter`, `data_status` ; `classify_status` fondé sur le délai déclaré et l'âge de l'horodatage de marché ; interface `MarketDataProvider`.

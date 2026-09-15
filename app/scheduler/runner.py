@@ -32,6 +32,8 @@ class JobContext:
     open_mics: tuple[str, ...]
     variant: str
     notify: Callable[..., Any] | None = None
+    alerts: Any | None = None  # AlertService (set by the scheduler service)
+    mode: str = "reunion"  # availability mode at run time
 
 
 JobFn = Callable[[JobContext], int]
@@ -65,6 +67,8 @@ def execute_job(
     mics: list[str] | None = None,
     scheduled_for: datetime | None = None,
     fn: JobFn | None = None,
+    alerts: Any | None = None,
+    mode: str = "reunion",
 ) -> JobRun:
     spec = config.params.jobs.specs()[name]
     run_date = run_date or datetime.now(PARIS).date()
@@ -88,6 +92,8 @@ def execute_job(
             watchdog_ping(name, True)
             return run
         ctx = JobContext(config, calendars, run_date, decision.open_mics, variant)
+        ctx.alerts = alerts
+        ctx.mode = mode
         try:
             job_fn = fn or resolve_job(name)
             rows = job_fn(ctx)

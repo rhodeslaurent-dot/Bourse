@@ -19,6 +19,9 @@ DEFAULT_MISFIRE_MIN = 10
 IMPLEMENTED_JOBS: dict[str, str] = {
     "test_job": "app.scheduler.jobs.test_job:run",
     "backup": "app.scheduler.jobs.backup:run",
+    "portfolio_sync": "app.scheduler.jobs.portfolio_sync:run",
+    "portfolio_sync_intraday": "app.scheduler.jobs.portfolio_sync:run",
+    "position_monitor": "app.scheduler.jobs.position_monitor:run",
 }
 
 
@@ -62,6 +65,15 @@ def _iso_days_to_cron(days: str) -> str:
     return ",".join(out)
 
 
+def _resolve_path(params: Params, dotted: str) -> object:
+    cur: object = params
+    for part in dotted.split("."):
+        cur = getattr(cur, part, None) if not isinstance(cur, dict) else cur.get(part)
+        if cur is None:
+            return None
+    return cur
+
+
 def build_schedule(params: Params, only_implemented: bool = True) -> list[ScheduledJob]:
     jobs: list[ScheduledJob] = []
     specs = params.jobs.specs()
@@ -80,6 +92,10 @@ def build_schedule(params: Params, only_implemented: bool = True) -> list[Schedu
                 hh, mm = spec.half_day.split(":")
                 half_expr = " ".join([mm, hh, *fields[2:]])
                 jobs.append(ScheduledJob(name, "half_day", _cron(half_expr, tz), grace, spec))
+        elif spec.every_minutes_from and not spec.every_minutes:
+            minutes = int(_resolve_path(params, spec.every_minutes_from) or 5)
+            spec2 = spec.model_copy(update={"every_minutes": minutes})
+            jobs.append(ScheduledJob(name, "normal", _window_interval(spec2, tz), grace, spec2))
         elif spec.every_minutes or spec.every_seconds:
             jobs.append(ScheduledJob(name, "normal", _window_interval(spec, tz), grace, spec))
         elif spec.premarket and spec.day:

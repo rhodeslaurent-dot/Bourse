@@ -1,6 +1,6 @@
 # ADR-001 — Choix de stack et d'organisation retenus en phase 0
 
-Statut : **accepté (provisoire, révisable)** · Date : 2026-09-13
+Statut : **accepté** (validation utilisateur du 2026-09-15) · Date : 2026-09-13
 
 ## Contexte
 

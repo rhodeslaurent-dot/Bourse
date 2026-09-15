@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Positions — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="text-xl font-bold">Positions</h1>
+  {% if request.query_params.get('error') %}<p class="text-red-700 text-sm">⛔ {{ request.query_params.get('error') }}</p>{% endif %}
+  <p class="text-sm text-slate-500">Cash : {% for k, v in cash.items() %}{{ k }} {{ v.cash if v.cash is not none else '—' }} € ({{ v.source or 'non renseigné' }}) · {% endfor %}</p>
+</section>
+{% for p in positions %}
+<section class="card">
+  <div class="flex justify-between items-baseline">
+    <h2 class="font-semibold">{{ p.name }} <span class="text-slate-500 text-sm">{{ p.isin }} · {{ p.account }} · {{ p.mode }}</span></h2>
+    <span class="text-sm">{% if p.last_price %}{{ p.last_price }} <span class="text-slate-500">[{{ p.last_price_status|upper }}]</span>{% else %}<span class="text-slate-500">cours indisponible</span>{% endif %}</span>
+  </div>
+  <ul class="text-sm mt-1">
+    <li>Exécution : <b>{{ p.execution_state }}</b> · {{ p.qty_held }} titres à {{ '%.3f'|format(p.avg_price) }} € (PMP frais inclus)</li>
+    <li>Protection : <b class="{% if p.protection_state != 'protected' %}text-red-700{% endif %}">{{ p.protection_state }}</b> · couverts {{ p.qty_protected }}/{{ p.qty_held }}{% if p.qty_unprotected > 0 %} · <span class="text-red-700 font-bold">{{ p.qty_unprotected }} NON PROTÉGÉS</span>{% endif %} · stop courant {{ p.stop_current or '—' }} (initial {{ p.stop_initial or '—' }})</li>
+    <li>État du portefeuille : {% if p.state_declarative %}déclaratif{% else %}synchronisé{% endif %}{% if p.state_age_minutes is not none %} · {{ p.state_age_minutes }} min{% if not p.state_fresh %} <span class="text-amber-700">(périmé → propositions « à vérifier »)</span>{% endif %}{% else %} · jamais synchronisé{% endif %}</li>
+  </ul>
+  <form method="post" action="/positions/stop" class="mt-2 flex flex-wrap gap-2 text-sm">
+    <input type="hidden" name="position_id" value="{{ p.position_id }}">
+    <input name="level" type="number" step="0.001" placeholder="niveau du stop" class="border rounded px-2 py-1 w-36" required>
+    <select name="order_type" class="border rounded px-2 py-1"><option value="seuil">à seuil</option><option value="plage">à plage</option></select>
+    <input name="qty_covered" type="number" value="{{ p.qty_unprotected or p.qty_held }}" class="border rounded px-2 py-1 w-24" required>
+    <select name="kind" class="border rounded px-2 py-1"><option value="initial">initial</option><option value="trailing">trailing</option><option value="manual">manuel</option></select>
+    <button class="bg-slate-800 text-white rounded px-3 py-1">Stop saisi</button>
+  </form>
+</section>
+{% else %}
+<section class="card"><p class="text-sm">Aucune position ouverte. Une position n'existe qu'après une exécution déclarée ou importée.</p></section>
+{% endfor %}
+{% if open_orders %}
+<section class="card">
+  <h2 class="font-semibold">Ordres saisis non exécutés</h2>
+  <ul class="text-sm">{% for o in open_orders %}<li>#{{ o.order_id }} {{ o.side }} {{ o.qty }} {{ o.isin }} ({{ o.order_type }}) — {{ o.state }}{% if o.qty_filled %} · exécuté {{ o.qty_filled }}{% endif %}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+<section class="card">
+  <h2 class="font-semibold">Déclarer une exécution</h2>
+  <form method="post" action="/positions/execute" class="mt-2 flex flex-wrap gap-2 text-sm">
+    <select name="account" class="border rounded px-2 py-1"><option value="pea">PEA</option><option value="cto_cash">CTO comptant</option><option value="cto_srd">SRD</option></select>
+    <input name="isin" placeholder="ISIN" class="border rounded px-2 py-1 w-36" required>
+    <select name="side" class="border rounded px-2 py-1"><option value="buy">achat</option><option value="sell">vente</option></select>
+    <input name="qty" type="number" placeholder="quantité" class="border rounded px-2 py-1 w-24" required>
+    <input name="price" type="number" step="0.001" placeholder="prix" class="border rounded px-2 py-1 w-28" required>
+    <button class="bg-slate-800 text-white rounded px-3 py-1">Exécuté</button>
+  </form>
+  <p class="text-xs text-slate-500 mt-1">Déclaration provisoire, rapprochée ensuite avec l'import courtier. Toute quantité non protégée déclenche une alerte P1.</p>
+</section>
+{% endblock %}

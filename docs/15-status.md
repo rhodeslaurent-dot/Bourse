@@ -11,7 +11,14 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 | A0.5 | en cours | 2026-09-13 | | Ping healthchecks.io par job, job `backup` (pg_dump -Fc + rotation), `restore_test.ps1` ; compte healthchecks et test de restauration à faire |
 | A0.6 | fait | 2026-09-13 | | `tests/test_no_trading_endpoints.py` ; refus de démarrage si groupe requis manquant ; désactivation par fonctionnalité si groupe optionnel manquant ; pytest (60), ruff, mypy verts |
 | A0.7 | en cours | 2026-09-13 | | **Pré-qualification documentaire faite** (`docs/providers/*.md`), interface `MarketDataProvider` + DTO (source, horodatage de marché, périmètre, statut), providers EODHD (EOD, bulk, intraday, REST différé, WebSocket → barres 1 min avec `complete_bar`), tradingview-screener (≤ 6 req., ≥ 60 s), yfinance (secours EOD), Saxo lecture seule (garde `ReadOnlyViolation`), `scripts/qualify_providers.py` + analyse testée, ADR-002 **proposé**. **Reste** : clés EODHD/Saxo, 10 valeurs (`tests/fixtures/qualification/symbols.yaml`), 3 séances de mesures + relevés Saxo, fiches complétées, ADR-002 accepté |
-| A1.1 – A1.8 | à faire | | | Portefeuille, protections, risque |
+| A1.1 | en cours | 2026-09-15 | | Sync Saxo lecture (positions, ordres dont stops, cash) → rapprochement, `portfolio_state` daté ; jobs `portfolio_sync` 19:00 et `portfolio_sync_intraday` 5 min ; import CSV BoursoBank (fixture anonymisée) ; **5 jours de contrôle réel** à faire avec la clé live |
+| A1.2 | fait (tests) | 2026-09-15 | | Double clic = 1 déclaration ; déclaré + import = 1 ligne avec `declared_uid` + `broker_fill_id` (± 0,5 %, ± 10 min) ; « Ordre saisi » ≠ position ; P1 non protégée dans tous les modes, rappel 15 min ; partiel → `filled_partial` + `partially_protected` |
+| A1.3 | à faire | | | Sous-lot B (équité SRD/SEK déjà testée dans `domain/portfolio`) |
+| A1.4 | à faire | | | Sous-lot B : 114 actions, R 2,381 €, 214 € ; plafonds ; état périmé → « à vérifier » (fraîcheur déjà exposée sur `/positions`) |
+| A1.5 | à faire | | | Sous-lot C |
+| A1.6 | à faire | | | Sous-lot D |
+| A1.7 | fait (tests) | 2026-09-15 | | Seuil franchi → P1 immédiate ; 5 min sans exécution confirmée → SELL au marché dans le même incident ; « stop exécuté » distinct ; hors séance pas de SELL |
+| A1.8 | à faire | | | Sous-lot D |
 | A2.1 – A2.7 | à faire | | | MVP : entrées préparées, 3 décisions, mode de disponibilité |
 | A3.1 – A3.4 | à faire | | | Détection d'ouverture, après ADR-002 |
 | A4.1 – A4.3 | à faire | | | KPI P&L et fiscal |
@@ -26,7 +33,7 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 
 ## Décisions en attente de l'utilisateur
 
-- **Valider ADR-000** (hypothèses H1–H12) et ADR-001 (stack) avant la session « qualification des données ».
+- ADR-000 et ADR-001 : **acceptés** le 15/09/2026 (« ok allons y ») ; ADR-003 (sous-lot 1A) à relire.
 - Renseigner `.env` (Telegram token + user_id, SMTP, ping key healthchecks, `EODHD_API_TOKEN`, `SAXO_*`) et `config/params.yaml` ; confirmer le créneau `ref: market_open`.
 - Remplacer les 10 valeurs d'exemple de `tests/fixtures/qualification/symbols.yaml` par votre liste (avec les Uic Saxo), puis lancer `scripts/qualify_providers.py` sur 3 séances et saisir les relevés Saxo (`reference_saxo_<date>.csv`).
 - Valider ADR-002 après les mesures (source temps réel, périmètre RVOL, rattrapage des ticks).
@@ -48,5 +55,6 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 
 | Date | Phase | Fait | Non fait | À décider |
 |---|---|---|---|---|
+| 2026-09-15 | 1 (A) comptes et états | Domaine ordres/exécutions/protections par quantité, rapprochement déclaré/confirmé, S1, équité SRD ; tables + migration 0002 ; service portefeuille ; sync Saxo lecture ; import CSV BoursoBank ; `position_monitor` avec P1 par incident ; API `/api/orders|executions|protections|positions` ; pages `/positions`, `/import` ; commandes Telegram ; 117 tests | Contrôle réel 5 jours (A1.1) | ADR-003 |
 | 2026-09-13 | 0 (b) qualification | DTO + interface provider ; EODHD REST/WS + agrégateur de barres ; tradingview-screener ; yfinance ; Saxo lecture seule + OAuth (`saxo-auth`, jeton chiffré) ; script et analyse de qualification (rapport Markdown) ; fiches de pré-qualification ; ADR-002 proposé ; 83 tests | Mesures réelles sur 3 séances (clés API et compte Saxo live requis) | ADR-002 (après mesures) |
 | 2026-09-13 | 0 (a) socle | Dépôt + docs éclatés ; config validée par fonctionnalité ; fuseaux ; calendriers par place + SRD ; mode de disponibilité ; tables système + migration ; planificateur (gating par place, demi-séances, jobs_runs, watchdog) ; `/health`, `/sante`, `/api/mode` ; Cloudflare Access ; Telegram + e-mail ; compose + scripts + RUNBOOK ; 60 tests verts | Tests réels A0.1/A0.2/A0.4/A0.5 (nécessitent domaine, Cloudflare, bot, healthchecks) ; qualification A0.7 | ADR-000 H1–H12 ; ADR-001 |

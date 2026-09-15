@@ -80,11 +80,63 @@ def handle_text(text: str, user_id: int, allowed_user_id: int, store: ModeStore,
             f"Mode courant : {store.current_mode()}",
             True,
         )
+    if text.startswith(("/exec", "/stop", "/ordre")):
+        store.log_event(user_id, True, "command", text, None, True)
+        return Reply(_declaration(text), True)
     if text.startswith("/test"):
         store.log_event(user_id, True, "command", text, None, True)
         return Reply("__TEST__", True)
     store.log_event(user_id, True, "message", text, None, False)
     return Reply(f"Commande inconnue. Mode courant : {store.current_mode()} — /help", True)
+
+
+def _declaration(text: str) -> str:
+    """``/exec <pea|cto_cash|cto_srd> <ISIN> <qty> <prix>``, ``/stop <position_id> <niveau> <qty> [seuil|plage]``,
+    ``/ordre <compte> <ISIN> <qty> <limite|plage> [prix]``. Pure parsing; the app's ``declare`` hook writes."""
+    parts = text.split()
+    try:
+        if parts[0] == "/exec":
+            _, account, isin, qty, price = parts[:5]
+            return _DECLARE(
+                "execution",
+                {"account": account, "isin": isin.upper(), "qty": int(qty), "price": float(price.replace(",", "."))},
+            )
+        if parts[0] == "/stop":
+            _, pid, level, qty = parts[:4]
+            otype = parts[4] if len(parts) > 4 else "seuil"
+            return _DECLARE(
+                "protection",
+                {
+                    "position_id": int(pid),
+                    "level": float(level.replace(",", ".")),
+                    "qty_covered": int(qty),
+                    "order_type": otype,
+                },
+            )
+        if parts[0] == "/ordre":
+            _, account, isin, qty, otype = parts[:5]
+            price = float(parts[5].replace(",", ".")) if len(parts) > 5 else None
+            return _DECLARE(
+                "order",
+                {"account": account, "isin": isin.upper(), "qty": int(qty), "order_type": otype, "limit_price": price},
+            )
+    except (ValueError, IndexError):
+        pass
+    return (
+        "Usage :\n/exec <pea|cto_cash|cto_srd> <ISIN> <qté> <prix>\n"
+        "/stop <position_id> <niveau> <qté> [seuil|plage]\n"
+        "/ordre <compte> <ISIN> <qté> <limite|plage> [prix]"
+    )
+
+
+DECLARE_HOOK: dict[str, Callable[[str, dict], str]] = {}
+
+
+def _DECLARE(kind: str, payload: dict) -> str:
+    hook = DECLARE_HOOK.get("fn")
+    if hook is None:
+        return f"déclaration {kind} reçue : {payload} (non enregistrée : application non démarrée)"
+    return hook(kind, payload)
 
 
 def handle_callback(data: str, user_id: int, allowed_user_id: int, store: ModeStore) -> Reply:
