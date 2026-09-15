@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Watchlist — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="text-xl font-bold">Watchlist</h1>
+  <p class="text-sm text-slate-500">Univers : {% if snapshot %}{{ snapshot.count }} valeurs (instantané du {{ snapshot.day }}, +{{ snapshot.added|length }} / −{{ snapshot.removed|length }}){% else %}pas encore construit (job universe_refresh){% endif %} · Régime : {% if regime %}<b>{{ regime.regime }}</b> ({{ regime.day }}){% else %}non calculé{% endif %}</p>
+  <p class="text-sm mt-1"><a class="underline" href="/watchlist/export.txt">Export TradingView</a></p>
+</section>
+{% for it in items %}
+<section class="card">
+  <div class="flex justify-between"><h2 class="font-semibold">{{ it.name }} <span class="text-slate-500 text-sm">{{ it.isin }} · {{ it.mic }}</span></h2><span class="text-sm">{{ it.reason }} · {{ it.source }}</span></div>
+  <ul class="text-sm">
+    <li>Rang RS : {{ '%.0f'|format(it.rs_rank) if it.rs_rank is not none else '—' }}{% if it.feat %} · MM50 {{ '%.2f'|format(it.feat.mm50) if it.feat.mm50 else '—' }} · MM200 {{ '%.2f'|format(it.feat.mm200) if it.feat.mm200 else '—' }} · pivot 60 j {{ '%.2f'|format(it.feat.pivot_60) if it.feat.pivot_60 else '—' }} · ATR14 {{ '%.2f'|format(it.feat.atr14) if it.feat.atr14 else '—' }} (EOD {{ it.feat.day }}){% if it.feat.gap_in_data %} <span class="text-amber-700">trou de données</span>{% endif %}{% endif %}</li>
+    <li>PEA : {% if it.pea is true %}éligible (réglementaire){% elif it.pea is false %}non éligible{% else %}inconnu — jamais proposé pour le PEA{% endif %} · SRD : {{ it.srd }} (à confirmer chez Saxo)</li>
+  </ul>
+  <form method="post" action="/watchlist/remove" class="mt-1"><input type="hidden" name="isin" value="{{ it.isin }}"><button class="text-xs underline">retirer</button></form>
+</section>
+{% else %}
+<section class="card"><p class="text-sm">Watchlist vide.</p></section>
+{% endfor %}
+<section class="card">
+  <h2 class="font-semibold">Ajout manuel</h2>
+  <form method="post" action="/watchlist/add" class="mt-2 flex flex-wrap gap-2 text-sm">
+    <input name="isin" placeholder="ISIN" class="border rounded px-2 py-1 w-36" required>
+    <select name="reason" class="border rounded px-2 py-1"><option value="manual">manuel</option><option value="external">lettre / analyste</option><option value="a_l_affut">à l'affût (pullback)</option></select>
+    <input name="note" placeholder="note (source, niveaux)" class="border rounded px-2 py-1 w-64">
+    <button class="bg-slate-800 text-white rounded px-3 py-1">Ajouter</button>
+  </form>
+</section>
+{% endblock %}

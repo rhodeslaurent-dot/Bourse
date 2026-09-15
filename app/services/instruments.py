@@ -19,10 +19,36 @@ def _load() -> dict[str, dict[str, str]]:
 
 
 def eodhd_symbols_for(isins: list[str]) -> dict[str, str]:
-    """{eodhd_symbol: isin} for the ISINs known in the map."""
+    """{eodhd_symbol: isin}: the ``instruments`` referential first, then the YAML map."""
+    out: dict[str, str] = {}
+    try:
+        from sqlalchemy import select
+
+        from app.db.models import Instrument
+        from app.db.session import db_session
+
+        with db_session() as s:
+            for inst in s.scalars(select(Instrument).where(Instrument.isin.in_(isins))):
+                if inst.ticker_eodhd:
+                    out[inst.ticker_eodhd] = inst.isin
+    except Exception:  # noqa: BLE001 — referential not migrated yet
+        pass
     m = _load()
-    return {m[i]["eodhd"]: i for i in isins if i in m and m[i].get("eodhd")}
+    for i in isins:
+        if i in m and m[i].get("eodhd") and i not in out.values():
+            out[m[i]["eodhd"]] = i
+    return out
 
 
 def name_of(isin: str) -> str:
+    try:
+        from app.db.models import Instrument
+        from app.db.session import db_session
+
+        with db_session() as s:
+            inst = s.get(Instrument, isin)
+            if inst is not None:
+                return inst.name
+    except Exception:  # noqa: BLE001
+        pass
     return _load().get(isin, {}).get("name", isin)

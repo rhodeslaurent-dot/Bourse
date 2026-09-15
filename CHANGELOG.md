@@ -2,6 +2,14 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Phase 1 (C) univers et données — 2026-09-15
+
+- `app/domain/indicators` (ATR14 Wilder, ADR20, RVOL, RS Minervini + rang percentile, MM, TI65, pivot 60, plus haut 52 s, consolidation, RSI14, gap, distribution days, breadth, percentile de volatilité), `domain/regime` (feu tricolore, composantes manquantes signalées), `domain/universe` (éligibilité PEA à trois sources avec préfixes pièges, statut SRD par règles, filtres de liquidité, watchlist momentum).
+- Tables `instruments`, `instrument_aliases`, `universe_snapshots`, `universe_members`, `pea_eligibility`, `srd_eligibility`, `prices_eod`, `features_daily`, `market_regime`, `watchlist`, `fx_rates`, `earnings_calendar` (migration 0003).
+- Services `market_data` (upsert EOD officiel/provisoire, trous par calendrier de place, features + rang RS sur l'univers, FX) et `universe` (rafraîchissement, instantané + diff, watchlist, export TradingView).
+- Jobs `universe_refresh` (listes EODHD + screener), `eod_backfill_check` (bulk 06:45, trous, features), `daily_regime` ; `backfill` CLI ; alerte de liquidation SRD à J−3 dans `portfolio_sync`.
+- Pages `/watchlist` (ajout manuel, export), API `/api/instruments/<isin>` ; calendriers 2025 ajoutés ; fixtures OHLC figées. Total : 157 tests.
+
 ## [Unreleased] — Phase 1 (B) moteur de risque — 2026-09-15
 
 - `app/domain/risk` : `size_position` (prix max selon le type d'ordre, stop glissé, frais courtage A/R + TTF itérés jusqu'au point fixe, marge de change réduisant la quantité, plafonds capital/ADV, multiplicateurs) ; `risk_if_filled` et tolérance post-exécution ; risque initial / courant (borné à zéro, quantité non couverte = perte totale) / réservé ; `portfolio_risk` (cumulé, secteur, facteur, gap, exposition, devises, places, levier, couverture) ; `check_candidate` → `BLOQUÉ : <règle> (clé params)` ; coupe-circuit en R ; drawdown TWR.

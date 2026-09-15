@@ -117,6 +117,21 @@ def cmd_saxo_auth(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backfill(args: argparse.Namespace) -> int:
+    """``backfill --provider eodhd --from 2016-01-01 [--isin FR…]`` : EOD history for the referential."""
+    from app.data.providers.eodhd import EodhdProvider
+    from app.scheduler.jobs.eod_backfill_check import backfill_history
+
+    if args.provider != "eodhd":
+        print("seul le provider eodhd est retenu pour l'EOD (ADR-002)")
+        return 2
+    start = date.fromisoformat(args.from_date)
+    end = date.fromisoformat(args.to) if args.to else date.today()
+    n = backfill_history(EodhdProvider(), start, end, args.isin.split(",") if args.isin else None)
+    print(f"{n} barres EOD insérées/mises à jour")
+    return 0
+
+
 def cmd_migrate(args: argparse.Namespace) -> int:
     from alembic.config import Config
 
@@ -144,6 +159,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("test-telegram").set_defaults(fn=cmd_test_telegram)
     sub.add_parser("test-email").set_defaults(fn=cmd_test_email)
     sub.add_parser("migrate").set_defaults(fn=cmd_migrate)
+    bf = sub.add_parser("backfill")
+    bf.add_argument("--provider", default="eodhd")
+    bf.add_argument("--from", dest="from_date", required=True)
+    bf.add_argument("--to", default=None)
+    bf.add_argument("--isin", default=None, help="liste d'ISIN séparés par des virgules (défaut : tout le référentiel)")
+    bf.set_defaults(fn=cmd_backfill)
     sa = sub.add_parser("saxo-auth")
     sa.add_argument("--sim", action="store_true", help="environnement de simulation (aucune donnée de marché)")
     sa.set_defaults(fn=cmd_saxo_auth)

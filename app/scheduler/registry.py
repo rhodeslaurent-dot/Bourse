@@ -22,6 +22,9 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "portfolio_sync": "app.scheduler.jobs.portfolio_sync:run",
     "portfolio_sync_intraday": "app.scheduler.jobs.portfolio_sync:run",
     "position_monitor": "app.scheduler.jobs.position_monitor:run",
+    "universe_refresh": "app.scheduler.jobs.universe_refresh:run",
+    "eod_backfill_check": "app.scheduler.jobs.eod_backfill_check:run",
+    "daily_regime": "app.scheduler.jobs.daily_regime:run",
 }
 
 

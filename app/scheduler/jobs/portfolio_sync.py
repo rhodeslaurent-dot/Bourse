@@ -125,8 +125,54 @@ def _apply_broker_stops(s, orders: list[BrokerOrderDto], account_ids: list[int])
     return n
 
 
+def srd_liquidation_alerts(ctx: JobContext) -> int:
+    """S7 (docs/06 §6.4): SRD positions at J−3 of the liquidation → P2 « décision de liquidation »."""
+    srd = ctx.config.params.srd
+    if srd is None or ctx.alerts is None:
+        return 0
+    from app.domain.calendar import SrdCalendar
+    from app.notify.base import Button, Event
+
+    cal = SrdCalendar.from_params(srd.calendar_2026, srd.calendar_2027_provisional)
+    days_before = int((ctx.config.params.detectors or {}).get("exits", {}).get("srd_liquidation_alert_days_before", 3))
+    venue = ctx.calendars.get("XPAR")
+    n = 0
+    with db_session() as s:
+        for row in s.scalars(
+            select(PositionRow).where(
+                PositionRow.closed_at.is_(None), PositionRow.qty_held > 0, PositionRow.mode == "srd"
+            )
+        ):
+            left = cal.sessions_until_liquidation(ctx.run_date, venue)
+            if left > days_before:
+                continue
+            nxt = cal.next_liquidation(ctx.run_date)
+            lines = [
+                f"Liquidation le {nxt.liquidation_date:%d/%m} (règlement {nxt.settlement_date:%d/%m})"
+                if nxt.settlement_date
+                else f"Liquidation le {nxt.liquidation_date:%d/%m} (provisoire)",
+                f"{row.qty_held} titres, PMP {row.avg_price:.2f}, stop {row.stop_current or '—'}",
+                "Décider : solder / proroger (coût affiché à la proposition) / passer au comptant si cash",
+                "Par défaut : ne pas proroger une position sous 1 R de gain",
+            ]
+            ev = Event(
+                "P2",
+                "srd_liquidation",
+                f"{row.isin} : décision de liquidation SRD à J−{left}",
+                lines,
+                [Button("Vu", "vu")],
+                isin=row.isin,
+            )
+            if ctx.alerts.emit(s, ev, ctx.mode, False, account_id=row.account_id, position_id=row.id):
+                n += 1
+    return n
+
+
 def run(ctx: JobContext) -> int:
     import os
+
+    if ctx.variant == "normal" and ctx.config.params.jobs.specs().get("portfolio_sync") is not None:
+        srd_liquidation_alerts(ctx)
 
     if not (os.environ.get("SAXO_TOKEN_KEY") or os.environ.get("SAXO_ACCESS_TOKEN")):
         log.info("Saxo non configuré : synchronisation ignorée (état déclaratif)")

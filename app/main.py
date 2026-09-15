@@ -26,6 +26,7 @@ from app.scheduler.service import create_scheduler
 from app.services.alerts import AlertService
 from app.web.portfolio_routes import router as portfolio_web_router
 from app.web.routes import router as web_router
+from app.web.watchlist_routes import router as watchlist_router
 
 log = logging.getLogger("bourse")
 
@@ -163,6 +164,7 @@ def create_app(
     app.include_router(portfolio_api_router)
     app.include_router(web_router)
     app.include_router(portfolio_web_router)
+    app.include_router(watchlist_router)
     return app
 
 

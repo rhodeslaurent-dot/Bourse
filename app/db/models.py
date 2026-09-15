@@ -297,3 +297,190 @@ class CashSnapshot(Base):
     cash: Mapped[float] = mapped_column()
     source: Mapped[str] = mapped_column(String(16))
     __table_args__ = (UniqueConstraint("account_id", "day", name="uq_cash_snapshots_account_day"),)
+
+
+# ---------------------------------------------------------------------------------------------
+# Phase 1 (C) — référentiel, univers, données de marché, régime, watchlist (docs/13 §13.1–13.2)
+# ---------------------------------------------------------------------------------------------
+
+
+class Instrument(Base):
+    __tablename__ = "instruments"
+    isin: Mapped[str] = mapped_column(String(12), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    ticker_local: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    ticker_eodhd: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    ticker_saxo: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    ticker_tv: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    exchange: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    mic: Mapped[str] = mapped_column(String(8), index=True)
+    currency: Mapped[str] = mapped_column(String(3), default="EUR")
+    country_of_domicile: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    sector: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    industry: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    index_memberships: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    market_cap_eur: Mapped[float | None] = mapped_column(nullable=True)
+    adv_eur_20: Mapped[float | None] = mapped_column(nullable=True)
+    pea_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    pea_confidence: Mapped[float | None] = mapped_column(nullable=True)
+    pea_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    pea_available_boursobank: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    pea_order_types_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    srd_status: Mapped[str] = mapped_column(String(10), default="unknown")
+    srd_confirmed_by_user: Mapped[bool] = mapped_column(Boolean, default=False)
+    earnings_next_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    earnings_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    in_universe: Mapped[bool] = mapped_column(Boolean, default=False)
+    universe_reasons: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    small_cap: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InstrumentAlias(Base):
+    __tablename__ = "instrument_aliases"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    provider: Mapped[str] = mapped_column(String(32))
+    alias: Mapped[str] = mapped_column(String(128), index=True)
+    __table_args__ = (UniqueConstraint("provider", "alias", name="uq_instrument_aliases_provider_alias"),)
+
+
+class UniverseSnapshot(Base):
+    __tablename__ = "universe_snapshots"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    version: Mapped[str] = mapped_column(String(32))
+    filters: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    sha256: Mapped[str] = mapped_column(String(64))
+    added: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    removed: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UniverseMember(Base):
+    __tablename__ = "universe_members"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(Integer, index=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    adv_eur: Mapped[float | None] = mapped_column(nullable=True)
+    market_cap: Mapped[float | None] = mapped_column(nullable=True)
+    rs_rank: Mapped[float | None] = mapped_column(nullable=True)
+    flags: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class PeaEligibilityRow(Base):
+    __tablename__ = "pea_eligibility"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    confidence: Mapped[float] = mapped_column(default=0.0)
+    source: Mapped[str] = mapped_column(String(32))
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SrdEligibilityRow(Base):
+    __tablename__ = "srd_eligibility"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    status: Mapped[str] = mapped_column(String(10))
+    source: Mapped[str] = mapped_column(String(32))
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    confirmed_by_user_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PriceEod(Base):
+    __tablename__ = "prices_eod"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12))
+    day: Mapped[date] = mapped_column(Date)
+    open: Mapped[float] = mapped_column()
+    high: Mapped[float] = mapped_column()
+    low: Mapped[float] = mapped_column()
+    close: Mapped[float] = mapped_column()
+    adj_close: Mapped[float | None] = mapped_column(nullable=True)
+    volume: Mapped[int] = mapped_column(BigInteger)
+    source: Mapped[str] = mapped_column(String(32))
+    market_perimeter: Mapped[str] = mapped_column(String(20), default="primary")
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    data_status: Mapped[str] = mapped_column(String(12), default="eod")
+    official: Mapped[bool] = mapped_column(Boolean, default=True)
+    __table_args__ = (UniqueConstraint("isin", "day", name="uq_prices_eod_isin_day"),)
+
+
+class FeatureDaily(Base):
+    __tablename__ = "features_daily"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12))
+    day: Mapped[date] = mapped_column(Date)
+    atr14: Mapped[float | None] = mapped_column(nullable=True)
+    adr20: Mapped[float | None] = mapped_column(nullable=True)
+    mm10: Mapped[float | None] = mapped_column(nullable=True)
+    mm20: Mapped[float | None] = mapped_column(nullable=True)
+    mm50: Mapped[float | None] = mapped_column(nullable=True)
+    mm200: Mapped[float | None] = mapped_column(nullable=True)
+    rvol: Mapped[float | None] = mapped_column(nullable=True)
+    rs_1m: Mapped[float | None] = mapped_column(nullable=True)
+    rs_3m: Mapped[float | None] = mapped_column(nullable=True)
+    rs_6m: Mapped[float | None] = mapped_column(nullable=True)
+    rs_12m: Mapped[float | None] = mapped_column(nullable=True)
+    rs_score: Mapped[float | None] = mapped_column(nullable=True)
+    rs_rank: Mapped[float | None] = mapped_column(nullable=True)
+    pivot_60: Mapped[float | None] = mapped_column(nullable=True)
+    high_52w: Mapped[float | None] = mapped_column(nullable=True)
+    consolidation_20: Mapped[float | None] = mapped_column(nullable=True)
+    ti65: Mapped[float | None] = mapped_column(nullable=True)
+    rsi14: Mapped[float | None] = mapped_column(nullable=True)
+    sessions: Mapped[int] = mapped_column(Integer, default=0)
+    gap_in_data: Mapped[bool] = mapped_column(Boolean, default=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("isin", "day", name="uq_features_daily_isin_day"),)
+
+
+class MarketRegimeRow(Base):
+    __tablename__ = "market_regime"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    cac_vs_mm50: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    stoxx_vs_mm50: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    breadth_mm50: Mapped[float | None] = mapped_column(nullable=True)
+    distribution_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vol_pct: Mapped[float | None] = mapped_column(nullable=True)
+    regime: Mapped[str] = mapped_column(String(8))
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class WatchlistRow(Base):
+    __tablename__ = "watchlist"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reason: Mapped[str] = mapped_column(String(32))  # momentum | external | manual | a_l_affut
+    source: Mapped[str] = mapped_column(String(32))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    levels: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    rs_rank: Mapped[float | None] = mapped_column(nullable=True)
+
+
+class FxRate(Base):
+    __tablename__ = "fx_rates"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    pair: Mapped[str] = mapped_column(String(7))
+    day: Mapped[date] = mapped_column(Date)
+    rate: Mapped[float] = mapped_column()
+    source: Mapped[str] = mapped_column(String(32))
+    __table_args__ = (UniqueConstraint("pair", "day", name="uq_fx_rates_pair_day"),)
+
+
+class EarningsCalendarRow(Base):
+    __tablename__ = "earnings_calendar"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    day: Mapped[date] = mapped_column(Date)
+    when: Mapped[str] = mapped_column(String(8), default="unknown")  # bmo | amc | unknown
+    source: Mapped[str] = mapped_column(String(32))
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    __table_args__ = (UniqueConstraint("isin", "day", "source", name="uq_earnings_isin_day_source"),)
