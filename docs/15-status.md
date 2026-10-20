@@ -41,7 +41,7 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 - Valider ADR-002 après les mesures (source temps réel, périmètre RVOL, rattrapage des ticks).
 
 - Domaine personnel à acheter (nom) — phase 0.
-- Demande de clé live Saxo OpenAPI (usage personnel) — à lancer **dès la phase 0** (la simulation n'a pas de données de marché ; délai d'approbation inconnu).
+- ~~Demande de clé live Saxo OpenAPI~~ — **approuvée le 20/10/2026** (application sans droit de trading ; simulation validée le même jour : `saxo-auth --sim` OK). Reste : `saxo-auth` + `saxo-check` en live, puis contrôle A1.1 sur 5 jours.
 - Liste de 10 valeurs FR/DE/NL et relevés de référence depuis l'interface Saxo pour la qualification — phase 0 (A0.7).
 - Planning de disponibilité par défaut (heures Réunion) à confirmer dans `availability.schedule` — phase 0.
 - Abonnement EODHD EOD+Intraday — phase 1.
