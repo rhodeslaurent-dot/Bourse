@@ -41,7 +41,7 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 - Valider ADR-002 après les mesures (source temps réel, périmètre RVOL, rattrapage des ticks).
 
 - Domaine personnel à acheter (nom) — phase 0.
-- ~~Demande de clé live Saxo OpenAPI~~ — **approuvée le 20/10/2026** (application sans droit de trading ; simulation validée le même jour : `saxo-auth --sim` OK). Reste : `saxo-auth` + `saxo-check` en live, puis contrôle A1.1 sur 5 jours.
+- ~~Demande de clé live Saxo OpenAPI~~ — **approuvée le 20/10/2026** (application sans droit de trading ; simulation validée le même jour : `saxo-auth --sim` OK). `saxo-auth` + `saxo-check` en live OK le 20/10 (cash, 3 positions, 0 ordre, tout en GET). **Saxo ne renvoie pas l'ISIN** (licence) → correspondance ticker + place via le référentiel ou `config/instruments_map.yaml` (ADR-006) ; `LOCK-12806:xxxx` = instrument sans place, non suivi. Reste : `instruments_map.yaml` pour VK/ALVIO tant que l'univers EODHD n'est pas chargé, puis contrôle A1.1 sur 5 jours.
 - Liste de 10 valeurs FR/DE/NL et relevés de référence depuis l'interface Saxo pour la qualification — phase 0 (A0.7).
 - Planning de disponibilité par défaut (heures Réunion) à confirmer dans `availability.schedule` — phase 0.
 - Abonnement EODHD EOD+Intraday — phase 1.

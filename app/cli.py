@@ -265,11 +265,13 @@ def cmd_saxo_check(args: argparse.Namespace) -> int:
         f"cash : {cash if cash is not None else 'indisponible'} · positions : {len(positions)} · ordres en attente : {len(orders)}"  # noqa: E501
     )
     for p in positions[:10]:
-        print(f"  {p.symbol:12} {p.isin or 'ISIN ?':12} qty {p.qty:>6} @ {p.open_price:<10.4g} {p.currency}")
+        print(f"  {p.symbol:14} {p.isin or 'non suivie':12} qty {p.qty:>6} @ {p.open_price:<10.4g} {p.currency}")
     for o in orders[:10]:
         print(f"  ordre {o.order_id} {o.side} {o.qty} {o.isin or o.uic} {o.order_type} {o.price or ''} {o.status}")
     for uic, why in pf.isin_errors.items():
-        print(f"  ISIN non résolu pour Uic {uic} : {why}")
+        print(f"  non suivie (Uic {uic}) : {why}")
+    if pf.isin_errors:
+        print("  (Saxo ne fournit pas l'ISIN ; correspondance par ticker + place via le référentiel — ADR-006)")
     env = Path(".env")
     if env.exists() and client_key and live:
         text = env.read_text(encoding="utf-8")

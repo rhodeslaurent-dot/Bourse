@@ -25,6 +25,14 @@ from app.services.risk_view import build_risk_view
 T = datetime(2026, 9, 15, 7, 30, tzinfo=UTC)
 
 
+def _referential() -> None:
+    from app.db.models import Instrument
+
+    with db_session() as s:
+        s.add(Instrument(isin="FR0000120271", name="TotalEnergies", ticker_local="TTE", mic="XPAR"))
+        s.add(Instrument(isin="NL0010273215", name="ASML", ticker_local="ASML", mic="XAMS"))
+
+
 def _ctx(config, calendars, mode="reunion"):
     sent: list = []
     c = JobContext(config, calendars, T.date(), ("XPAR",), "normal")
@@ -137,7 +145,7 @@ def test_c3_saxo_closed_positions_become_sales_and_missing_positions_alert(db_en
                             "AssetType": "Stock",
                         },
                         "PositionView": {},
-                        "DisplayAndFormat": {"Currency": "EUR"},
+                        "DisplayAndFormat": {"Symbol": "TTE:xpar", "Currency": "EUR"},
                     },
                 ]
             },
@@ -164,12 +172,7 @@ def test_c3_saxo_closed_positions_become_sales_and_missing_positions_alert(db_en
     )
     respx.get(f"{LIVE_BASE}/port/v1/balances").mock(return_value=httpx.Response(200, json={"CashBalance": 1000}))
     respx.get(f"{LIVE_BASE}/port/v1/closedpositions").mock(return_value=httpx.Response(200, json={"Data": []}))
-    respx.get(f"{LIVE_BASE}/ref/v1/instruments/details/211/Stock").mock(
-        return_value=httpx.Response(200, json={"Isin": "FR0000120271"})
-    )
-    respx.get(f"{LIVE_BASE}/ref/v1/instruments/details/999/Stock").mock(
-        return_value=httpx.Response(200, json={"Isin": "NL0010273215"})
-    )
+    _referential()  # ADR-006: Saxo gives no ISIN — mapped by ticker + MIC through the referential
     client = SaxoClient(client=httpx.Client(), access_token="tok")
     ctx = _ctx(config, calendars)
     with db_session() as s:

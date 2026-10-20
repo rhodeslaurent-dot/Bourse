@@ -1,5 +1,7 @@
 # Correspondance ISIN -> symboles providers (phase 1 a). Remplacé par le référentiel `instruments` (sous-lot C).
+# Saxo ne fournit pas l'ISIN (ADR-006) : une position Saxo est reconnue par `saxo: <TICKER>:<mic>` (symbole affiché
+# par saxo-check) ou `saxo_uic: <Uic>` ; à défaut par le ticker de `eodhd` + `mic`.
 instruments:
-  FR0000120271: {name: "TotalEnergies", eodhd: "TTE.PA", tv: "EURONEXT:TTE", mic: XPAR}
+  FR0000120271: {name: "TotalEnergies", eodhd: "TTE.PA", tv: "EURONEXT:TTE", mic: XPAR, saxo: "TTE:xpar"}
   FR0000120073: {name: "Air Liquide", eodhd: "AI.PA", tv: "EURONEXT:AI", mic: XPAR}
   NL0010273215: {name: "ASML", eodhd: "ASML.AS", tv: "EURONEXT:ASML", mic: XAMS}

@@ -54,6 +54,7 @@ Le fichier `.env` (racine du dossier) est lu automatiquement par les commandes `
 - Sauvegarde manuelle : `scripts/backup.ps1` ; test de restauration mensuel : `scripts/restore_test.ps1`.
 - Rotation des jetons : régénérer le token Telegram (BotFather), le mot de passe d'application Gmail, le token du tunnel ; mettre à jour `.env` ; `docker compose up -d`.
 - Mode de disponibilité : Telegram `/mode disponible|reunion|absent [2h|30m|1j]` ou formulaire sur `/sante`.
+- Position Saxo « non suivie » dans `saxo-check` ou alerte P3 `broker_unmapped` : Saxo ne fournit pas l'ISIN (ADR-006). Si l'univers EODHD n'est pas encore chargé, ajouter l'instrument dans `config/instruments_map.yaml` avec sa clé `saxo: <TICKER>:<mic>` (symbole affiché par `saxo-check`) puis relancer `saxo-check`. Un symbole en `…:xxxx` est un instrument radié ou bloqué : il reste volontairement hors suivi.
 
 ## 7. Restauration
 

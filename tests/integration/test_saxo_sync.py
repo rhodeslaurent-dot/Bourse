@@ -17,6 +17,14 @@ from app.services.portfolio import declare_execution, ensure_accounts
 T = datetime(2026, 9, 15, 7, 30, tzinfo=UTC)
 
 
+def _referential() -> None:
+    from app.db.models import Instrument
+
+    with db_session() as s:
+        s.add(Instrument(isin="FR0000120271", name="TotalEnergies", ticker_local="TTE", mic="XPAR"))
+        s.add(Instrument(isin="NL0010273215", name="ASML", ticker_local="ASML", mic="XAMS"))
+
+
 @respx.mock
 def test_sync_saxo_matches_declaration_and_confirms_stop(db_engine):
     with db_session() as s:
@@ -79,12 +87,7 @@ def test_sync_saxo_matches_declaration_and_confirms_stop(db_engine):
         )
     )
     respx.get(f"{LIVE_BASE}/port/v1/balances").mock(return_value=httpx.Response(200, json={"CashBalance": 4100.5}))
-    respx.get(f"{LIVE_BASE}/ref/v1/instruments/details/211/Stock").mock(
-        return_value=httpx.Response(200, json={"Isin": "FR0000120271"})
-    )
-    respx.get(f"{LIVE_BASE}/ref/v1/instruments/details/999/Stock").mock(
-        return_value=httpx.Response(200, json={"Isin": "NL0010273215"})
-    )
+    _referential()  # ADR-006: Saxo gives no ISIN — mapped by ticker + MIC through the referential
     client = SaxoClient(client=httpx.Client(), access_token="tok")
     diffs = sync_saxo(SaxoPortfolio(client, client_key="ck"), MatchTolerance(0.005, 10))
     assert diffs["matched"] == 1 and diffs["discretionary"] == 1 and diffs["stops_updated"] == 1

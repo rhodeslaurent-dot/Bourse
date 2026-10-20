@@ -87,6 +87,10 @@ def sync_saxo(
     positions = portfolio.positions()
     orders = portfolio.orders()
     cash = portfolio.cash()
+    # ADR-006: Saxo gives no ISIN; a position whose symbol maps to no referential entry is not followed
+    unmapped = [(p.symbol, p.uic, portfolio.isin_errors.get(p.uic, "?")) for p in positions if not p.isin]
+    for symbol, uic, why in unmapped:
+        log.warning("position Saxo non suivie : %s (Uic %s) — %s", symbol, uic, why)
     try:
         closed = portfolio.closed_fills()
     except Exception as exc:  # noqa: BLE001
@@ -142,6 +146,18 @@ def sync_saxo(
                     mode,
                     False,
                 )
+            if unmapped:
+                alerts.emit(
+                    s,
+                    Event(
+                        "P3",
+                        "broker_unmapped",
+                        f"{len(unmapped)} position(s) Saxo non suivie(s) : ISIN inconnu",
+                        [f"{symbol} (Uic {uic}) : {why[:90]}" for symbol, uic, why in unmapped][:8],
+                    ),
+                    mode,
+                    False,
+                )
             if rep.suspected_duplicates or rep.unassigned_sales:
                 alerts.emit(
                     s,
@@ -167,6 +183,7 @@ def sync_saxo(
             "orders_open": len(orders),
             "closed_fills": len(closed),
             "missing_at_broker": missing,
+            "unmapped": [f"{symbol} (Uic {uic})" for symbol, uic, _ in unmapped],
         }
         s.add(
             BrokerSyncRun(broker="saxo", ts=datetime.now(UTC), status="ok", positions_count=len(positions), diffs=diffs)

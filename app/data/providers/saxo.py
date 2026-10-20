@@ -13,7 +13,7 @@ import logging
 import os
 import posixpath
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
@@ -285,35 +285,75 @@ def _iso(ts: str | None) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
-class SaxoPortfolio:
-    """Maps Saxo read endpoints to broker DTOs; ISIN resolved via ``ref/v1/instruments/details``."""
+NO_VENUE = "xxxx"  # Saxo exchange placeholder for instruments without a listing (delisted, locked)
 
-    def __init__(self, client: SaxoClient, client_key: str | None = None) -> None:
+
+def parse_saxo_symbol(symbol: str) -> tuple[str, str] | None:
+    """``"VK:xpar"`` → ``("VK", "XPAR")``: Saxo symbols are ``<ticker>:<mic lowercase>``. ``None`` when the
+    symbol has no venue (``LOCK-12806:xxxx``) or is malformed — never a guess."""
+    if not symbol or ":" not in symbol:
+        return None
+    ticker, _, venue = symbol.rpartition(":")
+    ticker, venue = ticker.strip(), venue.strip().lower()
+    if not ticker or not venue or venue == NO_VENUE or not venue.isalnum():
+        return None
+    return ticker.upper(), venue.upper()
+
+
+# (uic, symbol, asset_type) → isin | None ; the default resolver lives in app.services.instruments
+IsinResolver = Callable[[str, str, str], "str | None"]
+
+
+def _default_resolver(uic: str, symbol: str, asset_type: str) -> str | None:
+    from app.services.instruments import resolve_broker_isin
+
+    return resolve_broker_isin("saxo", uic, symbol)
+
+
+class SaxoPortfolio:
+    """Maps Saxo read endpoints to broker DTOs.
+
+    Saxo OpenAPI **never returns ISINs** (licensing: see ADR-006); instruments are identified by
+    ``Uic`` + ``Symbol`` (``VK:xpar``) and mapped to our ISIN referential by ticker + MIC. An
+    instrument that cannot be mapped yields ``isin=None`` and a reason in ``isin_errors``."""
+
+    def __init__(
+        self, client: SaxoClient, client_key: str | None = None, isin_resolver: IsinResolver | None = None
+    ) -> None:
         self.client = client
         self.client_key = client_key or os.environ.get("SAXO_CLIENT_KEY", "")
+        self.resolver: IsinResolver = isin_resolver or _default_resolver
         self._isin_cache: dict[str, str | None] = {}
         self.isin_errors: dict[str, str] = {}  # uic → reason (diagnostics for saxo-check)
 
-    def isin_of(self, uic: str, asset_type: str = "Stock") -> str | None:
-        """ISIN from ``ref/v1/instruments/details/{Uic}/{AssetType}``; tries the position's asset
-        type first, then the common ones. Never guesses: ``None`` and a recorded reason otherwise."""
+    def isin_of(self, uic: str, asset_type: str = "Stock", symbol: str = "") -> str | None:
+        """ISIN of a Saxo instrument through the referential (``instrument_aliases`` ``saxo_uic``, then
+        ``ticker_saxo``, then ticker + MIC parsed from the symbol, then ``config/instruments_map.yaml``).
+        ``None`` and a recorded reason otherwise — never a guess."""
         if uic in self._isin_cache:
             return self._isin_cache[uic]
-        tried = []
-        for at in dict.fromkeys([asset_type or "Stock", "Stock", "SrdStock", "Etf", "Rights"]):
+        parsed = parse_saxo_symbol(symbol)
+        isin: str | None = None
+        if parsed is None and symbol:
+            self.isin_errors[uic] = (
+                f"symbole « {symbol} » sans place de cotation ({NO_VENUE}) : instrument radié ou bloqué, "
+                "non suivi par l'outil"
+            )
+        else:  # a missing symbol (orders, closed positions) can still resolve through the persisted Uic alias
             try:
-                data = self.client.get(f"/ref/v1/instruments/details/{uic}/{at}")
-            except ProviderError as exc:
-                tried.append(f"{at}: {str(exc)[:80]}")
-                continue
-            isin = data.get("Isin") or data.get("ISIN")
-            if isin:
-                self._isin_cache[uic] = str(isin)
-                return self._isin_cache[uic]
-            tried.append(f"{at}: réponse sans champ Isin (clés : {', '.join(sorted(data)[:12])})")
-        self._isin_cache[uic] = None
-        self.isin_errors[uic] = " | ".join(tried)
-        return None
+                isin = self.resolver(uic, symbol, asset_type)
+            except Exception as exc:  # noqa: BLE001 — a referential error must not break the sync
+                isin = None
+                self.isin_errors[uic] = f"résolution impossible pour {symbol} : {str(exc)[:80]}"
+            if isin is None and uic not in self.isin_errors:
+                what = f"{parsed[0]} ({parsed[1]})" if parsed else f"Uic {uic} sans symbole"
+                hint = f"déclarer `saxo: {symbol}`" if symbol else f"déclarer `saxo_uic: {uic}`"
+                self.isin_errors[uic] = (
+                    f"ISIN non fourni par Saxo (licence) et {what} absent du référentiel — lancer "
+                    f"universe_refresh (clé EODHD) ou {hint} dans config/instruments_map.yaml"
+                )
+        self._isin_cache[uic] = isin
+        return isin
 
     def positions(self) -> list[BrokerPositionDto]:
         out = []
@@ -324,7 +364,7 @@ class SaxoPortfolio:
                 BrokerPositionDto(
                     position_id=str(p.get("PositionId")),
                     uic=uic,
-                    isin=self.isin_of(uic, str(base.get("AssetType") or "Stock")),
+                    isin=self.isin_of(uic, str(base.get("AssetType") or "Stock"), str(disp.get("Symbol") or "")),
                     symbol=disp.get("Symbol", uic),
                     qty=int(base.get("Amount") or 0),
                     open_price=float(base.get("OpenPrice") or 0),
@@ -341,11 +381,12 @@ class SaxoPortfolio:
         out = []
         for o in self.client.open_orders(self.client_key):
             uic = str(o.get("Uic"))
+            symbol = str(o.get("DisplayAndFormat", {}).get("Symbol") or "")
             out.append(
                 BrokerOrderDto(
                     order_id=str(o.get("OrderId")),
                     uic=uic,
-                    isin=self.isin_of(uic, str(o.get("AssetType") or "Stock")),
+                    isin=self.isin_of(uic, str(o.get("AssetType") or "Stock"), symbol),
                     side="buy" if str(o.get("BuySell", "")).lower() == "buy" else "sell",
                     qty=int(o.get("Amount") or 0),
                     filled=int(o.get("FilledAmount") or 0),
@@ -365,6 +406,7 @@ class SaxoPortfolio:
         for c in self.client.closed_positions(self.client_key):
             cp = c.get("ClosedPosition", c)
             uic = str(cp.get("Uic"))
+            symbol = str(c.get("DisplayAndFormat", {}).get("Symbol") or "")
             out.append(
                 {
                     "fill_id": str(
@@ -372,7 +414,7 @@ class SaxoPortfolio:
                         or c.get("ClosedPositionUniqueId")
                         or f"{cp.get('OpeningPositionId')}-close"
                     ),
-                    "isin": self.isin_of(uic, str(cp.get("AssetType") or "Stock")),
+                    "isin": self.isin_of(uic, str(cp.get("AssetType") or "Stock"), symbol),
                     "qty": abs(int(cp.get("Amount") or 0)),
                     "price": float(cp.get("ClosingPrice") or 0),
                     "ts": _iso(cp.get("ExecutionTimeClose")),

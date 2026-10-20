@@ -2,6 +2,11 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Saxo live : instruments sans ISIN — 2026-10-20
+
+- ADR-006 : Saxo OpenAPI ne renvoie pas d'ISIN ; correspondance `Uic` + `Symbol` (`VK:xpar`) → ISIN par alias persistant, `ticker_saxo`, ticker + MIC du référentiel, puis `config/instruments_map.yaml` (`saxo:` / `saxo_uic:`). Symbole `…:xxxx` = radié/bloqué, non suivi. Positions non résolues visibles (`saxo-check`, rapport `unmapped`, P3 `broker_unmapped`). Total : 197 tests.
+- CLI : `env-setup`, `saxo-auth [--sim]` avec capture automatique du code, `saxo-check [--sim]`, `.env` chargé automatiquement ; jetons live/sim séparés.
+
 ## [Unreleased] — Revue adversariale phase 0–1 — 2026-09-15
 
 - 24 constats traités (ADR-005) : double comptage déclaration/import, horodatage BoursoBank en heure de Paris, ventes Saxo importées, devises et FX réels, calendrier par place dans le moniteur, Pentecôte Xetra, statuts Saxo tolérants, idempotence sur 2 min, ventes orphelines conservées, risque incomplet affiché (jamais estimé), risque réservé au stop de la proposition, IMAP en UTC, séance en date de Paris, niveaux LLM vérifiés dans le texte, prix de modèle inconnu → repli, écritures refusées sans authentification, régime paramétré, screener par place, jobs interrompus, secrets rédigés. Total : 184 tests.
