@@ -29,6 +29,11 @@ def test_init_params_fills_user_and_keeps_comments(tmp_path):
     assert data["user"]["work_slots_local"]["brief"] == "08:45"
     assert init_params(str(example), str(target), "999", "x@y.z") is False  # never overwrites
     assert yaml.safe_load(target.read_text(encoding="utf-8"))["user"]["telegram_user_id"] == 123456
+    # --update rewrites only the two user.* lines of the existing file (a typo in the e-mail, for instance)
+    target.write_text(target.read_text(encoding="utf-8").replace('brief: "08:45"', 'brief: "08:50"'), encoding="utf-8")
+    assert init_params(str(example), str(target), "123456", "laurent@example.net", update=True) is True
+    data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert data["user"]["email"] == "laurent@example.net" and data["user"]["work_slots_local"]["brief"] == "08:50"
 
 
 def test_init_params_on_real_example(tmp_path):

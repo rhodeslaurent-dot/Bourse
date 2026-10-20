@@ -241,16 +241,17 @@ def create_database(host: str, db: str, user: str, password: str, superuser: str
     return 0
 
 
-def init_params(example: str, target: str, telegram_user_id: str, email: str) -> bool:
+def init_params(example: str, target: str, telegram_user_id: str, email: str, update: bool = False) -> bool:
     """Create ``config/params.yaml`` from the example and fill ``user.telegram_user_id`` / ``user.email``
-    by line substitution (comments are kept). Returns False when the target already exists."""
+    by line substitution (comments are kept). Returns False when the target already exists, unless
+    ``update`` is set: then only those two ``user.*`` lines are rewritten in the existing file."""
     import re
     from pathlib import Path
 
     src, dst = Path(example), Path(target)
-    if dst.exists():
+    if dst.exists() and not update:
         return False
-    text = src.read_text(encoding="utf-8")
+    text = (dst if dst.exists() else src).read_text(encoding="utf-8")
     text = re.sub(r"^(\s*telegram_user_id:)\s*\S+", rf"\g<1> {int(telegram_user_id)}", text, count=1, flags=re.M)
     text = re.sub(r'^(\s*email:)\s*"[^"]*"', rf'\g<1> "{email}"', text, count=1, flags=re.M)
     dst.write_text(text, encoding="utf-8")
@@ -269,10 +270,13 @@ def cmd_params_init(args: argparse.Namespace) -> int:
     if "@" not in email:
         print("adresse e-mail invalide")
         return 2
-    if not init_params("config/params.example.yaml", "config/params.yaml", uid, email):
-        print("config/params.yaml existe déjà : rien n'est modifié (éditer user.* à la main)")
+    if not init_params("config/params.example.yaml", "config/params.yaml", uid, email, update=args.update):
+        print("config/params.yaml existe déjà : rien n'est modifié (relancer avec --update pour corriger user.*)")
         return 0
-    print("config/params.yaml créé (user.telegram_user_id et user.email renseignés) ; vérifier availability.schedule")
+    verb = "mis à jour" if args.update else "créé"
+    print(
+        f"config/params.yaml {verb} (user.telegram_user_id et user.email renseignés) ; vérifier availability.schedule"
+    )
     return cmd_check_config(argparse.Namespace(params="config/params.yaml"))
 
 
@@ -474,6 +478,9 @@ def main(argv: list[str] | None = None) -> int:
     bf.set_defaults(fn=cmd_backfill)
     pi = sub.add_parser("params-init", help="créer config/params.yaml depuis l'exemple (user.* renseignés)")
     pi.add_argument("--email", default=None)
+    pi.add_argument(
+        "--update", action="store_true", help="réécrire user.telegram_user_id / user.email d'un fichier existant"
+    )
     pi.set_defaults(fn=cmd_params_init)
     es = sub.add_parser("env-setup", help="créer/compléter .env de façon interactive (saisie masquée)")
     es.add_argument("group", help="database | saxo | eodhd | telegram | anthropic | imap | healthchecks")

@@ -1,7 +1,8 @@
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy TZ=UTC
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client curl && rm -rf /var/lib/apt/lists/*
-COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /uvx /bin/
+# uv from PyPI (one registry less than ghcr.io, which some networks block)
+RUN pip install --no-cache-dir "uv>=0.8,<1"
 WORKDIR /srv/app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
