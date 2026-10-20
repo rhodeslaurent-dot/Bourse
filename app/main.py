@@ -3,6 +3,7 @@
 from __future__ import annotations  # noqa: I001
 
 import asyncio
+from pathlib import Path
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -190,6 +191,9 @@ def create_app(
     app.include_router(web_router)
     app.include_router(portfolio_web_router)
     app.include_router(watchlist_router)
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "web" / "static")), name="static")
     return app
 
 

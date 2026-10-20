@@ -1,39 +1,97 @@
 {% extends "base.html" %}
+{% from "_ui.html" import badge, dot, tile, bar, empty %}
 {% block title %}Trois décisions — BOURSE-PILOT{% endblock %}
 {% block content %}
+{% set r = view.risk %}
+{% set over = r.open_risk_pct > view.max_open_risk_pct %}
 <section class="card">
-  <h1 class="text-xl font-bold">Trois décisions du jour</h1>
-  <ol class="list-decimal ml-5 text-sm mt-1">
-    {% for d in decisions %}<li class="{{ 'text-red-700 font-semibold' if d.level == 'P1' else '' }}">{{ d.text }} {% if d.href %}<a class="underline" href="{{ d.href }}">→</a>{% endif %}</li>{% else %}<li class="text-slate-500">Aucune décision urgente : absence de proposition = résultat normal.</li>{% endfor %}
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold">Trois décisions du jour</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Ce qui mérite une action maintenant. Rien ici = situation normale.</p>
+    </div>
+    <a href="/sante" class="flex items-center gap-2 rounded-full border border-slate-200 dark:border-slate-700 px-3 py-1 text-xs hover:bg-slate-50 dark:hover:bg-slate-800">
+      {{ dot('green' if mode.mode == 'disponible' else 'amber' if mode.mode == 'reunion' else 'slate') }} mode <b>{{ mode.mode }}</b> <span class="text-slate-400">· {{ mode.source }}</span>
+    </a>
+  </div>
+  <ol class="mt-4 space-y-2">
+    {% for d in decisions %}
+    <li class="flex items-start gap-3 rounded-xl border p-3 {% if d.level == 'P1' %}border-rose-200 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10{% else %}border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10{% endif %}">
+      <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold {% if d.level == 'P1' %}bg-rose-600 text-white{% else %}bg-amber-500 text-white{% endif %}">{{ loop.index }}</span>
+      <div class="text-sm">
+        <div class="font-medium">{{ d.text }}</div>
+        {% if d.href %}<a class="mt-1 inline-block text-xs underline decoration-dotted" href="{{ d.href }}">ouvrir →</a>{% endif %}
+      </div>
+      <span class="ml-auto">{{ badge(d.level, 'red' if d.level == 'P1' else 'amber') }}</span>
+    </li>
+    {% else %}
+    <li>{{ empty("Aucune décision urgente : absence de proposition = résultat normal.") }}</li>
+    {% endfor %}
   </ol>
-  <p class="text-xs text-slate-500 mt-2">Mode : <b>{{ mode.mode }}</b> ({{ mode.source }}) · <a class="underline" href="/sante">changer</a></p>
 </section>
-<section class="card">
-  <h2 class="font-semibold">Risques (docs/07 §7.8)</h2>
-  {% set r = view.risk %}
-  {% if view.incomplete %}<p class="text-red-700 font-bold text-sm">⚠ RISQUE INCOMPLET : {% if view.missing_price %}cours indisponible pour {{ view.missing_price|join(', ') }} (exclu des totaux, jamais estimé){% endif %}{% if view.missing_fx %} · taux de change indisponible pour {{ view.missing_fx|join(', ') }}{% endif %}{% if view.reserved_unknown %} · stop inconnu pour les ordres en attente {{ view.reserved_unknown|join(', ') }} (réservé au budget maximal par trade){% endif %}</p>{% endif %}
-  {% if view.price_status %}<p class="text-xs text-slate-500">Cours utilisés : {% for isin, st in view.price_status.items() %}{{ isin }} [{{ st[0]|upper }}{% if st[1] %} · marché {{ st[1]|dual }}{% endif %}] · {% endfor %}</p>{% endif %}
-  <ul class="text-sm space-y-1 mt-1">
-    <li>Risque courant + réservé : <b>{{ '%.0f'|format(r.open_risk_total_eur) }} €</b> ({{ '%.1f'|format(r.open_risk_pct * 100) }} % du capital pilote {{ '%.0f'|format(view.capital) }} €) — plafond {{ '%.0f'|format(view.max_open_risk_pct * 100) }} % {% if r.open_risk_pct > view.max_open_risk_pct %}<span class="text-red-700 font-bold">BLOQUÉ : plafond dépassé (risk.max_open_risk_pct)</span>{% endif %}<br><span class="text-slate-500">courant {{ '%.0f'|format(r.open_risk_current_eur) }} € · réservé (ordres en attente) {{ '%.0f'|format(r.open_risk_reserved_eur) }} €</span></li>
-    <li>Scénario de gap (−10 % sous le stop) : {{ '%.0f'|format(r.gap_scenario_loss_eur) }} €</li>
-    <li>Exposition : {{ '%.0f'|format(r.exposure_pct * 100) }} % ({{ r.positions_count }} positions) — repères {{ view.hints.positions|int }} positions / {{ (view.hints.exposure * 100)|int }} % (jamais des objectifs)</li>
-    <li>Par secteur : {% for k, v in r.by_sector_risk_eur.items() %}{{ k }} {{ '%.0f'|format(v) }} € ({{ r.by_sector_count.get(k, 0) }}) · {% else %}—{% endfor %}</li>
-    <li>SRD : engagements {{ '%.0f'|format(r.srd_notional_eur) }} € · levier {{ '%.2f'|format(r.srd_leverage) if r.srd_leverage is not none else '—' }} · couverture {{ '%.2f ×'|format(view.coverage_ratio) if view.coverage_ratio is not none else '—' }}</li>
-    <li>Hors EUR : {{ '%.0f'|format(r.fx_exposure_pct * 100) }} % · par place : {% for m, v in r.by_mic_exposure_pct.items() %}{{ m }} {{ '%.0f'|format(v * 100) }} % · {% endfor %}</li>
-    {% for a in r.alerts %}<li class="text-amber-700">⚠ {{ a }}</li>{% endfor %}
 
-  </ul>
+<section class="space-y-3">
+  <div class="flex items-baseline justify-between">
+    <h2 class="text-lg font-semibold">Risque du portefeuille</h2>
+    <span class="text-xs text-slate-500 dark:text-slate-400">docs/07 §7.8 · capital pilote {{ view.capital|eur }}</span>
+  </div>
+  {% if view.incomplete %}
+  <div class="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+    <b>⚠ RISQUE INCOMPLET</b> :
+    {% if view.missing_price %}cours indisponible pour {{ view.missing_price|join(', ') }} (exclu des totaux, jamais estimé){% endif %}{% if view.missing_fx %} · taux de change indisponible pour {{ view.missing_fx|join(', ') }}{% endif %}{% if view.reserved_unknown %} · stop inconnu pour les ordres en attente {{ view.reserved_unknown|join(', ') }} (réservé au budget maximal par trade){% endif %}
+  </div>
+  {% endif %}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    {{ tile('Risque courant + réservé', r.open_risk_total_eur|eur, r.open_risk_pct|pct ~ ' du capital · plafond ' ~ view.max_open_risk_pct|pct, 'red' if over else 'green') }}
+    {{ tile('Scénario de gap', r.gap_scenario_loss_eur|eur, '−10 % sous le stop', 'slate') }}
+    {{ tile('Exposition', r.exposure_pct|pct(0), r.positions_count ~ ' position(s) · repères ' ~ (view.hints.positions|int) ~ ' / ' ~ ((view.hints.exposure * 100)|int) ~ ' %', 'blue') }}
+    {{ tile('Engagements SRD', r.srd_notional_eur|eur, 'levier ' ~ ('%.2f'|format(r.srd_leverage) if r.srd_leverage is not none else '—') ~ ' · couverture ' ~ ('%.2f ×'|format(view.coverage_ratio) if view.coverage_ratio is not none else '—'), 'slate') }}
+  </div>
+  <div class="card space-y-3 text-sm">
+    <div>
+      <div class="flex justify-between text-xs text-slate-500 dark:text-slate-400"><span>Risque ouvert vs plafond</span><span class="tabular">{{ r.open_risk_pct|pct }} / {{ view.max_open_risk_pct|pct }}</span></div>
+      <div class="mt-1">{{ bar(r.open_risk_pct / view.max_open_risk_pct if view.max_open_risk_pct else 0, 'red' if over else 'green') }}</div>
+      <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">courant {{ r.open_risk_current_eur|eur }} · réservé (ordres en attente) {{ r.open_risk_reserved_eur|eur }}{% if over %} · <b class="text-rose-700 dark:text-rose-300">BLOQUÉ : plafond dépassé (risk.max_open_risk_pct)</b>{% endif %}</div>
+    </div>
+    <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-2">
+      <div><dt class="text-xs text-slate-500 dark:text-slate-400">Par secteur</dt><dd>{% for k, v in r.by_sector_risk_eur.items() %}{{ k }} {{ v|eur }} ({{ r.by_sector_count.get(k, 0) }}){% if not loop.last %} · {% endif %}{% else %}—{% endfor %}</dd></div>
+      <div><dt class="text-xs text-slate-500 dark:text-slate-400">Hors EUR · par place</dt><dd>{{ r.fx_exposure_pct|pct(0) }}{% for m, v in r.by_mic_exposure_pct.items() %} · {{ m }} {{ v|pct(0) }}{% endfor %}</dd></div>
+    </dl>
+    {% if view.price_status %}<p class="text-xs text-slate-500 dark:text-slate-400">Cours utilisés : {% for isin, st in view.price_status.items() %}{{ isin }} {{ badge(st[0]|upper, 'green' if st[0] in ('realtime', 'eod') else 'amber') }}{% if st[1] %} <span>marché {{ st[1]|dual }}</span>{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+    {% for a in r.alerts %}<p class="text-amber-700 dark:text-amber-300">⚠ {{ a }}</p>{% endfor %}
+  </div>
 </section>
-<section class="card">
-  <h2 class="font-semibold">Comptes</h2>
-  <ul class="text-sm mt-1">
-    <li>CTO Saxo : équité {{ '%.0f'|format(view.cto.equity) }} € = cash {{ '%.0f'|format(view.cto.cash) }} + comptant {{ '%.0f'|format(view.cto.cash_positions_value) }} + P&L latent SRD {{ '%.0f'|format(view.cto.srd_unrealized_pnl) }} − CRD {{ '%.0f'|format(view.cto.crd_accrued) }} · état {% if view.freshness.get('cto_cash', {}).get('fresh') %}frais{% else %}<span class="text-amber-700">périmé ou jamais synchronisé → propositions « à vérifier »</span>{% endif %}</li>
-    <li>PEA BoursoBank : équité {{ '%.0f'|format(view.pea.equity) }} € (cash {{ '%.0f'|format(view.pea.cash) }}) · état {% if view.freshness.get('pea', {}).get('declarative', True) %}déclaratif{% else %}importé{% endif %}</li>
-  </ul>
+
+<section class="grid md:grid-cols-2 gap-4">
+  <div class="card">
+    <div class="flex flex-wrap items-center justify-between gap-2"><h2 class="font-semibold">CTO Saxo</h2>{% if view.freshness.get('cto_cash', {}).get('fresh') %}{{ badge('synchronisé', 'green') }}{% else %}{{ badge('périmé ou jamais synchronisé → propositions « à vérifier »', 'amber') }}{% endif %}</div>
+    <div class="mt-2 text-2xl font-semibold tabular">{{ view.cto.equity|eur }}</div>
+    <dl class="mt-2 grid grid-cols-2 gap-y-1 text-sm">
+      <dt class="text-slate-500 dark:text-slate-400">Cash</dt><dd class="text-right tabular">{{ view.cto.cash|eur }}</dd>
+      <dt class="text-slate-500 dark:text-slate-400">Comptant</dt><dd class="text-right tabular">{{ view.cto.cash_positions_value|eur }}</dd>
+      <dt class="text-slate-500 dark:text-slate-400">P&amp;L latent SRD</dt><dd class="text-right tabular">{{ view.cto.srd_unrealized_pnl|eur }}</dd>
+      <dt class="text-slate-500 dark:text-slate-400">CRD</dt><dd class="text-right tabular">− {{ view.cto.crd_accrued|eur }}</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <div class="flex flex-wrap items-center justify-between gap-2"><h2 class="font-semibold">PEA BoursoBank</h2>{% if view.freshness.get('pea', {}).get('declarative', True) %}{{ badge('déclaratif', 'slate') }}{% else %}{{ badge('importé', 'green') }}{% endif %}</div>
+    <div class="mt-2 text-2xl font-semibold tabular">{{ view.pea.equity|eur }}</div>
+    <dl class="mt-2 grid grid-cols-2 gap-y-1 text-sm">
+      <dt class="text-slate-500 dark:text-slate-400">Cash</dt><dd class="text-right tabular">{{ view.pea.cash|eur }}</dd>
+    </dl>
+    <a class="mt-3 inline-block text-xs underline decoration-dotted" href="/import">Import BoursoBank</a>
+  </div>
 </section>
+
 <section class="card">
-  <h2 class="font-semibold">Protections</h2>
-  {% if view.unprotected %}<ul class="text-sm text-red-700">{% for p in view.unprotected %}<li>⛔ {{ p.isin }} : {{ p.qty - p.qty_protected }} titres sans stop</li>{% endfor %}</ul>{% else %}<p class="text-sm">Toutes les quantités détenues sont couvertes par un stop.</p>{% endif %}
-  <p class="text-sm mt-1"><a class="underline" href="/positions">Positions</a> · <a class="underline" href="/import">Import BoursoBank</a></p>
+  <div class="flex items-center justify-between">
+    <h2 class="font-semibold">Protections</h2>
+    <a class="text-xs underline decoration-dotted" href="/positions">Positions</a>
+  </div>
+  {% if view.unprotected %}
+  <ul class="mt-2 space-y-1 text-sm">{% for p in view.unprotected %}<li class="flex items-center gap-2 text-rose-700 dark:text-rose-300">{{ dot('red') }}<span><b>{{ p.isin }}</b> : {{ p.qty - p.qty_protected }} titres sans stop</span></li>{% endfor %}</ul>
+  {% else %}
+  <div class="mt-2">{{ empty("Toutes les quantités détenues sont couvertes par un stop.") }}</div>
+  {% endif %}
 </section>
 {% endblock %}

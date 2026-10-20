@@ -1,0 +1,57 @@
+{# Composants d'interface partagés (Jinja). Aucune logique métier ici. #}
+
+{% macro badge(text, tone='slate', title='') -%}
+{%- set tones = {
+  'green': 'bg-emerald-50 text-emerald-800 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30',
+  'amber': 'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30',
+  'red':   'bg-rose-50 text-rose-800 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30',
+  'blue':  'bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30',
+  'slate': 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700'
+} -%}
+<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset whitespace-nowrap {{ tones.get(tone, tones['slate']) }}"{% if title %} title="{{ title }}"{% endif %}>{{ text }}</span>
+{%- endmacro %}
+
+{% macro dot(tone='slate') -%}
+{%- set tones = {'green': 'bg-emerald-500', 'amber': 'bg-amber-500', 'red': 'bg-rose-500', 'blue': 'bg-sky-500', 'slate': 'bg-slate-400'} -%}
+<span class="inline-block h-2.5 w-2.5 rounded-full {{ tones.get(tone, tones['slate']) }}"></span>
+{%- endmacro %}
+
+{% macro tile(label, value, sub='', tone='slate') -%}
+{%- set accents = {'green': 'border-l-emerald-500', 'amber': 'border-l-amber-500', 'red': 'border-l-rose-500', 'blue': 'border-l-sky-500', 'slate': 'border-l-slate-300 dark:border-l-slate-600'} -%}
+<div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 sm:p-4 border-l-4 {{ accents.get(tone, accents['slate']) }}">
+  <div class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ label }}</div>
+  <div class="mt-1 text-xl font-semibold tabular-nums text-slate-900 dark:text-slate-50">{{ value }}</div>
+  {% if sub %}<div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{{ sub }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro bar(ratio, tone='blue') -%}
+{%- set tones = {'green': 'bg-emerald-500', 'amber': 'bg-amber-500', 'red': 'bg-rose-500', 'blue': 'bg-sky-500'} -%}
+{%- set pct = [([ratio * 100, 0]|max), 100]|min -%}
+<div class="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"><div class="h-2 rounded-full {{ tones.get(tone, tones['blue']) }}" style="width: {{ '%.0f'|format(pct) }}%"></div></div>
+{%- endmacro %}
+
+{% macro empty(text, tone='green') -%}
+<div class="flex items-start gap-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-4 text-sm text-slate-600 dark:text-slate-300">
+  {{ dot(tone) }}<span>{{ text }}</span>
+</div>
+{%- endmacro %}
+
+{% macro field(name, placeholder='', type='text', value='', extra='') -%}
+<input name="{{ name }}" type="{{ type }}" placeholder="{{ placeholder }}"{% if value != '' %} value="{{ value }}"{% endif %} {{ extra|safe }} class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500">
+{%- endmacro %}
+
+{% macro select(name, options, selected='') -%}
+<select name="{{ name }}" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
+{% for value, label in options %}<option value="{{ value }}"{% if value == selected %} selected{% endif %}>{{ label }}</option>{% endfor %}
+</select>
+{%- endmacro %}
+
+{% macro button(text, tone='primary') -%}
+{%- set tones = {
+  'primary': 'bg-sky-700 hover:bg-sky-800 text-white',
+  'danger': 'bg-rose-600 hover:bg-rose-700 text-white',
+  'ghost': 'bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 ring-1 ring-inset ring-slate-300 dark:ring-slate-700'
+} -%}
+<button class="rounded-lg px-3 py-1.5 text-sm font-medium transition {{ tones.get(tone, tones['primary']) }}">{{ text }}</button>
+{%- endmacro %}

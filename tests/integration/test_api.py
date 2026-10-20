@@ -101,3 +101,10 @@ def test_writes_refused_without_access_unless_allowed(config, calendars, db_engi
         )
         monkeypatch.setenv("APP_API_TOKEN", "tok")
         assert c.post("/api/mode", json={"mode": "absent"}, headers={"X-App-Token": "tok"}).status_code == 200
+
+
+def test_static_stylesheet_is_served_and_compiled(client):
+    """The UI ships its compiled Tailwind stylesheet (no CDN at runtime, ADR-008)."""
+    r = client.get("/static/app.css")
+    assert r.status_code == 200 and ".card" in r.text and "prefers-color-scheme" in r.text
+    assert "/static/app.css" in client.get("/sante").text

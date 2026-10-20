@@ -58,6 +58,7 @@ Le fichier `.env` (racine du dossier) est lu automatiquement par les commandes `
 - Rotation des jetons : régénérer le token Telegram (BotFather), le mot de passe d'application Gmail, le token du tunnel ; mettre à jour `.env` ; `docker compose up -d`.
 - Mode de disponibilité : Telegram `/mode disponible|reunion|absent [2h|30m|1j]` ou formulaire sur `/sante`.
 - Saxo « autorisation expirée » (alerte P3 `saxo_auth_expired` ou ligne rouge sur `/sante`) : le refresh token Saxo expire en moins d'une heure sans rafraîchissement (ADR-007) ; après tout arrêt prolongé de l'application, relancer sur le PC `uv run python -m app.cli saxo-auth`. Le jeton est partagé par le volume `./data`.
+- Interface : après toute modification des gabarits `app/web/templates/*.html`, recompiler la feuille de style (`scripts\build_css.ps1` sous Windows, `scripts/build_css.sh` ailleurs ; ADR-008) et committer `app/web/static/app.css`.
 - Position Saxo « non suivie » dans `saxo-check` ou alerte P3 `broker_unmapped` : Saxo ne fournit pas l'ISIN (ADR-006). Si l'univers EODHD n'est pas encore chargé, ajouter l'instrument dans `config/instruments_map.yaml` avec sa clé `saxo: <TICKER>:<mic>` (symbole affiché par `saxo-check`) puis relancer `saxo-check`. Un symbole en `…:xxxx` est un instrument radié ou bloqué : il reste volontairement hors suivi.
 
 ## 7. Restauration

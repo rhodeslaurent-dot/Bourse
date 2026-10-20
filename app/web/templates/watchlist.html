@@ -1,30 +1,54 @@
 {% extends "base.html" %}
+{% from "_ui.html" import badge, dot, empty, field, select, button %}
 {% block title %}Watchlist — BOURSE-PILOT{% endblock %}
 {% block content %}
 <section class="card">
-  <h1 class="text-xl font-bold">Watchlist</h1>
-  <p class="text-sm text-slate-500">Univers : {% if snapshot %}{{ snapshot.count }} valeurs (instantané du {{ snapshot.day }}, +{{ snapshot.added|length }} / −{{ snapshot.removed|length }}){% else %}pas encore construit (job universe_refresh){% endif %} · Régime : {% if regime %}<b>{{ regime.regime }}</b> ({{ regime.day }}){% else %}non calculé{% endif %}</p>
-  <p class="text-sm mt-1"><a class="underline" href="/watchlist/export.txt">Export TradingView</a></p>
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold">Watchlist</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Univers : {% if snapshot %}{{ snapshot.count }} valeurs (instantané du {{ snapshot.day }}, +{{ snapshot.added|length }} / −{{ snapshot.removed|length }}){% else %}pas encore construit (job universe_refresh){% endif %}</p>
+    </div>
+    <div class="flex items-center gap-3">
+      {% if regime %}<span class="flex items-center gap-2 rounded-full border border-slate-200 dark:border-slate-700 px-3 py-1 text-sm">{{ dot('green' if regime.regime == 'green' else 'amber' if regime.regime == 'orange' else 'red') }}régime <b>{{ regime.regime }}</b> <span class="text-xs text-slate-400">{{ regime.day }}</span></span>{% else %}{{ badge('régime non calculé', 'slate') }}{% endif %}
+      <a class="text-xs underline decoration-dotted" href="/watchlist/export.txt">Export TradingView</a>
+    </div>
+  </div>
 </section>
-{% for it in items %}
-<section class="card">
-  <div class="flex justify-between"><h2 class="font-semibold">{{ it.name }} <span class="text-slate-500 text-sm">{{ it.isin }} · {{ it.mic }}</span></h2><span class="text-sm">{{ it.reason }} · {{ it.source }}</span></div>
-  <ul class="text-sm">
-    <li>Rang RS : {{ '%.0f'|format(it.rs_rank) if it.rs_rank is not none else '—' }}{% if it.feat %} · MM50 {{ '%.2f'|format(it.feat.mm50) if it.feat.mm50 else '—' }} · MM200 {{ '%.2f'|format(it.feat.mm200) if it.feat.mm200 else '—' }} · pivot 60 j {{ '%.2f'|format(it.feat.pivot_60) if it.feat.pivot_60 else '—' }} · ATR14 {{ '%.2f'|format(it.feat.atr14) if it.feat.atr14 else '—' }} (EOD {{ it.feat.day }}){% if it.feat.gap_in_data %} <span class="text-amber-700">trou de données</span>{% endif %}{% endif %}</li>
-    <li>PEA : {% if it.pea is true %}éligible (réglementaire){% elif it.pea is false %}non éligible{% else %}inconnu — jamais proposé pour le PEA{% endif %} · SRD : {{ it.srd }} (à confirmer chez Saxo)</li>
-  </ul>
-  <form method="post" action="/watchlist/remove" class="mt-1"><input type="hidden" name="isin" value="{{ it.isin }}"><button class="text-xs underline">retirer</button></form>
+
+{% if items %}
+<section class="card overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <th class="py-1 pr-3 font-medium">Valeur</th><th class="py-1 pr-3 font-medium text-right">Rang RS</th><th class="py-1 pr-3 font-medium text-right">MM50</th><th class="py-1 pr-3 font-medium text-right">MM200</th><th class="py-1 pr-3 font-medium text-right">Pivot 60 j</th><th class="py-1 pr-3 font-medium text-right">ATR14</th><th class="py-1 pr-3 font-medium">Éligibilité</th><th class="py-1 font-medium">Source</th><th></th>
+    </tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+    {% for it in items %}
+      <tr>
+        <td class="py-2 pr-3"><div class="font-medium">{{ it.name }}</div><div class="text-xs text-slate-500 dark:text-slate-400 font-mono">{{ it.isin }} · {{ it.mic }}</div></td>
+        <td class="py-2 pr-3 text-right tabular">{% if it.rs_rank is not none %}<span class="inline-block rounded-md px-1.5 py-0.5 font-semibold {% if it.rs_rank >= 90 %}bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200{% elif it.rs_rank >= 80 %}bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200{% else %}bg-slate-100 dark:bg-slate-800{% endif %}">{{ '%.0f'|format(it.rs_rank) }}</span>{% else %}—{% endif %}</td>
+        <td class="py-2 pr-3 text-right tabular">{{ '%.2f'|format(it.feat.mm50) if it.feat and it.feat.mm50 else '—' }}</td>
+        <td class="py-2 pr-3 text-right tabular">{{ '%.2f'|format(it.feat.mm200) if it.feat and it.feat.mm200 else '—' }}</td>
+        <td class="py-2 pr-3 text-right tabular">{{ '%.2f'|format(it.feat.pivot_60) if it.feat and it.feat.pivot_60 else '—' }}</td>
+        <td class="py-2 pr-3 text-right tabular">{{ '%.2f'|format(it.feat.atr14) if it.feat and it.feat.atr14 else '—' }}{% if it.feat and it.feat.gap_in_data %} <span class="text-amber-600" title="trou de données">⚠</span>{% endif %}</td>
+        <td class="py-2 pr-3"><div class="flex flex-wrap gap-1">{% if it.pea is true %}{{ badge('PEA', 'green', 'éligible (réglementaire)') }}{% elif it.pea is false %}{{ badge('PEA non éligible', 'slate') }}{% else %}{{ badge('PEA inconnu', 'amber', 'jamais proposé pour le PEA') }}{% endif %}{{ badge('SRD ' ~ it.srd, 'blue' if it.srd == 'complet' else 'slate', 'à confirmer chez Saxo') }}</div><div class="text-[11px] text-slate-400">SRD à confirmer chez Saxo</div></td>
+        <td class="py-2 pr-3 text-xs text-slate-500 dark:text-slate-400">{{ it.reason }} · {{ it.source }}{% if it.feat %}<div>EOD {{ it.feat.day }}</div>{% endif %}</td>
+        <td class="py-2 text-right"><form method="post" action="/watchlist/remove"><input type="hidden" name="isin" value="{{ it.isin }}"><button class="text-xs text-slate-400 hover:text-rose-600 underline decoration-dotted">retirer</button></form></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 </section>
 {% else %}
-<section class="card"><p class="text-sm">Watchlist vide.</p></section>
-{% endfor %}
+<section class="card">{{ empty("Watchlist vide.", 'slate') }}</section>
+{% endif %}
+
 <section class="card">
   <h2 class="font-semibold">Ajout manuel</h2>
-  <form method="post" action="/watchlist/add" class="mt-2 flex flex-wrap gap-2 text-sm">
-    <input name="isin" placeholder="ISIN" class="border rounded px-2 py-1 w-36" required>
-    <select name="reason" class="border rounded px-2 py-1"><option value="manual">manuel</option><option value="external">lettre / analyste</option><option value="a_l_affut">à l'affût (pullback)</option></select>
-    <input name="note" placeholder="note (source, niveaux)" class="border rounded px-2 py-1 w-64">
-    <button class="bg-slate-800 text-white rounded px-3 py-1">Ajouter</button>
+  <form method="post" action="/watchlist/add" class="mt-3 flex flex-wrap items-center gap-2">
+    {{ field('isin', 'ISIN', 'text', '', 'required style="width:9rem"') }}
+    {{ select('reason', [('manual', 'manuel'), ('external', 'lettre / analyste'), ('a_l_affut', "à l'affût (pullback)")]) }}
+    {{ field('note', 'note (source, niveaux)', 'text', '', 'style="width:16rem"') }}
+    {{ button('Ajouter') }}
   </form>
 </section>
 {% endblock %}

@@ -22,6 +22,21 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["dual"] = lambda dt: format_dual(from_store(dt))
 
 
+def _eur(value: object, digits: int = 0) -> str:
+    """``12345.6`` → ``12 346 €`` (thin-space thousands); ``None`` → ``—`` (never an estimate)."""
+    if value is None:
+        return "—"
+    return f"{float(value):,.{digits}f}".replace(",", "\u202f") + "\u00a0€"
+
+
+def _pct(value: object, digits: int = 1) -> str:
+    return "—" if value is None else f"{float(value) * 100:.{digits}f}\u00a0%"
+
+
+templates.env.filters["eur"] = _eur
+templates.env.filters["pct"] = _pct
+
+
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
     """« Trois décisions du jour » — phase 1: positions / protections / risques (docs/09 §9.5)."""

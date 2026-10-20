@@ -2,6 +2,10 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Interface refondue — 2026-10-21
+
+- ADR-008 : Tailwind compilé en local (`/static/app.css`, plus de CDN, HTMX retiré), système d'interface partagé (`_ui.html`), navigation haute et barre mobile, mode sombre, cartes et badges d'état, tuiles de risque avec jauge, tableau des jobs et watchlist lisibles, filtres `eur`/`pct`. Captures vérifiées sur ordinateur, mobile et mode sombre.
+
 ## [Unreleased] — Saxo live : instruments sans ISIN — 2026-10-20
 
 - ADR-006 : Saxo OpenAPI ne renvoie pas d'ISIN ; correspondance `Uic` + `Symbol` (`VK:xpar`) → ISIN par alias persistant, `ticker_saxo`, ticker + MIC du référentiel, puis `config/instruments_map.yaml` (`saxo:` / `saxo_uic:`). Symbole `…:xxxx` = radié/bloqué, non suivi. Positions non résolues visibles (`saxo-check`, rapport `unmapped`, P3 `broker_unmapped`). Total : 197 tests.

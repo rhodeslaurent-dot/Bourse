@@ -12,3 +12,5 @@ __pycache__/
 tests/fixtures/qualification/*.private.*
 config/instruments_map.yaml
 docker-compose.override.yml
+scripts/tailwindcss
+scripts/tailwindcss.exe

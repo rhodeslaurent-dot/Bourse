@@ -1,54 +1,69 @@
 {% extends "base.html" %}
+{% from "_ui.html" import badge, dot, field, select, button %}
 {% block title %}Santé — BOURSE-PILOT{% endblock %}
 {% block content %}
 <section class="card">
-  <h1 class="text-xl font-bold">Santé du système</h1>
-  <p class="text-sm">{{ now_reunion.strftime('%d/%m/%Y %H:%M') }} Réunion ({{ now_paris.strftime('%H:%M') }} Paris) · paramètres v{{ config.params.version }} · sha {{ config.sha256[:8] }}</p>
-  <ul class="text-sm mt-2 space-y-1">
-    <li>Cloudflare Access : {% if cf_access %}<span class="text-green-700">activé</span>{% else %}<span class="text-red-700">DÉSACTIVÉ (CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD absents)</span>{% endif %}</li>
-    <li>Telegram : {% if telegram %}configuré{% else %}<span class="text-amber-700">non configuré</span>{% endif %} · E-mail : {% if email %}configuré{% else %}<span class="text-amber-700">non configuré</span>{% endif %}</li>
-    <li>LLM : {% if llm_enabled %}API Claude active{% else %}<span class="text-amber-700">repli par règles (ANTHROPIC_API_KEY absent ou groupe llm désactivé)</span>{% endif %} · coût du mois {{ '%.2f'|format(llm_cost) }} $ / {{ llm_budget or '—' }} $ ({{ llm_calls }} appels)</li>
-    <li>Saxo (lecture seule) : {% if not saxo.configured %}<span class="text-amber-700">non configuré</span>{% elif not saxo.present %}<span class="text-amber-700">aucun jeton — lancer saxo-auth</span>{% elif saxo.expired %}<span class="text-red-700">autorisation expirée — lancer saxo-auth sur le PC</span>{% else %}jeton valide{% if saxo.until %} jusqu'à {{ saxo.until.strftime('%H:%M') }} Réunion{% endif %} (maintenu toutes les 20 min){% endif %}</li>
-    <li>EODHD (univers, EOD) : {% if eodhd %}configuré{% else %}<span class="text-amber-700">non configuré (env-setup eodhd, puis recréer le conteneur)</span>{% endif %}</li>
-    <li>Base : {{ db_url_kind }} · Calendriers : v{{ calendars.version }} ({{ calendars.venues|length }} places, P0 {{ calendars.p0_mics|join(', ') }})</li>
-  </ul>
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold">Santé du système</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ now_reunion.strftime('%d/%m/%Y %H:%M') }} Réunion ({{ now_paris.strftime('%H:%M') }} Paris) · paramètres v{{ config.params.version }} · sha {{ config.sha256[:8] }}</p>
+    </div>
+  </div>
+  <div class="mt-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+    {% macro row(label, state, text, tone) %}
+    <div class="flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-800 p-3">
+      <span class="mt-1">{{ dot(tone) }}</span>
+      <div class="min-w-0">
+        <div class="font-medium">{{ label }}</div>
+        <div class="text-xs text-slate-600 dark:text-slate-300 break-words">{{ text }}</div>
+      </div>
+    </div>
+    {% endmacro %}
+    {% if cf_access %}{{ row('Cloudflare Access', 'ok', 'activé : accès distant protégé', 'green') }}{% else %}{{ row('Cloudflare Access', 'off', 'DÉSACTIVÉ (CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD absents) — accès local seulement', 'red') }}{% endif %}
+    {{ row('Telegram', '', 'configuré' if telegram else 'non configuré', 'green' if telegram else 'amber') }}
+    {{ row('E-mail', '', 'configuré' if email else 'non configuré', 'green' if email else 'amber') }}
+    {% if llm_enabled %}{{ row('LLM', '', 'API Claude active · ' ~ ('%.2f'|format(llm_cost)) ~ ' $ / ' ~ (llm_budget or '—') ~ ' $ coût du mois (' ~ llm_calls ~ ' appels)', 'green') }}{% else %}{{ row('LLM', '', 'repli par règles (ANTHROPIC_API_KEY absent ou groupe llm désactivé) · coût du mois ' ~ ('%.2f'|format(llm_cost)) ~ ' $ / ' ~ (llm_budget or '—') ~ ' $ (' ~ llm_calls ~ ' appels)', 'amber') }}{% endif %}
+    {% if not saxo.configured %}{{ row('Saxo (lecture seule)', '', 'non configuré', 'amber') }}{% elif not saxo.present %}{{ row('Saxo (lecture seule)', '', 'aucun jeton — lancer saxo-auth', 'amber') }}{% elif saxo.expired %}{{ row('Saxo (lecture seule)', '', 'autorisation expirée — lancer saxo-auth sur le PC', 'red') }}{% else %}{{ row('Saxo (lecture seule)', '', 'jeton valide' ~ (" jusqu'à " ~ saxo.until.strftime('%H:%M') ~ ' Réunion' if saxo.until else '') ~ ' · maintenu toutes les 20 min', 'green') }}{% endif %}
+    {{ row('EODHD (univers, EOD)', '', 'configuré' if eodhd else 'non configuré (env-setup eodhd, puis recréer le conteneur)', 'green' if eodhd else 'amber') }}
+    {{ row('Base et calendriers', '', db_url_kind ~ ' · calendriers v' ~ calendars.version ~ ' (' ~ (calendars.venues|length) ~ ' places, P0 ' ~ (calendars.p0_mics|join(', ')) ~ ')', 'green') }}
+  </div>
 </section>
 
-<section class="card">
-  <h2 class="font-semibold">Mode de disponibilité</h2>
-  <p class="text-lg">« {{ mode.mode }} » <span class="text-sm text-slate-500">(source : {{ mode.source }}{% if mode.until %}, jusqu'à {{ mode.until }}{% endif %})</span></p>
-  <form method="post" action="/mode" class="mt-2 flex flex-wrap gap-2 text-sm">
-    <select name="mode" class="border rounded px-2 py-1">
-      <option value="disponible">disponible</option><option value="reunion">reunion</option><option value="absent">absent</option>
-    </select>
-    <input name="duration_minutes" type="number" min="1" placeholder="durée (min)" class="border rounded px-2 py-1 w-32">
-    <button class="bg-slate-800 text-white rounded px-3 py-1">Changer</button>
-  </form>
-  {% if unconfirmed_slots %}
-  <p class="mt-2 text-sm text-amber-700">⚠ {{ unconfirmed_slots|length }} créneau(x) du planning non confirmé(s) (ex. créneau relatif à l'ouverture : 11:00 été / 12:00 hiver) → ignoré(s) ; les scans D1 d'ouverture seraient hors créneau en été. À confirmer dans params.yaml (`confirmed: true`).</p>
-  {% endif %}
-</section>
-
-<section class="card">
-  <h2 class="font-semibold">Fonctionnalités (validation de configuration)</h2>
-  <ul class="text-sm space-y-1">
-    {% for f in features %}
-    <li>{% if f.enabled %}✅{% else %}⛔{% endif %} <b>{{ f.label }}</b> <span class="text-slate-500">({{ f.key }})</span>{% if not f.enabled %} — {{ f.reason }}{% endif %}</li>
-    {% endfor %}
-  </ul>
+<section class="grid md:grid-cols-2 gap-4">
+  <div class="card">
+    <h2 class="font-semibold">Mode de disponibilité</h2>
+    <div class="mt-2 flex items-center gap-2 text-lg">{{ dot('green' if mode.mode == 'disponible' else 'amber' if mode.mode == 'reunion' else 'slate') }}<b>{{ mode.mode }}</b> <span class="text-sm text-slate-500 dark:text-slate-400">· {{ mode.source }}{% if mode.until %} · jusqu'à {{ mode.until }}{% endif %}</span></div>
+    <form method="post" action="/mode" class="mt-3 flex flex-wrap gap-2">
+      {{ select('mode', [('disponible', 'disponible'), ('reunion', 'reunion'), ('absent', 'absent')], mode.mode) }}
+      {{ field('duration_minutes', 'durée (min)', 'number', '', 'min="1" style="width:8rem"') }}
+      {{ button('Changer') }}
+    </form>
+    {% if unconfirmed_slots %}
+    <p class="mt-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-200">⚠ {{ unconfirmed_slots|length }} créneau(x) du planning non confirmé(s) (ex. créneau relatif à l'ouverture : 11:00 été / 12:00 hiver) → ignoré(s) ; les scans D1 d'ouverture seraient hors créneau en été. À confirmer dans params.yaml (`confirmed: true`).</p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2 class="font-semibold">Fonctionnalités</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400">validation de configuration par groupe de paramètres</p>
+    <ul class="mt-2 space-y-1.5 text-sm">
+      {% for f in features %}
+      <li class="flex items-start gap-2">{{ dot('green' if f.enabled else 'red') }}<span><b>{{ f.label }}</b> <span class="text-slate-400 text-xs">{{ f.key }}</span>{% if not f.enabled %} — <span class="text-rose-700 dark:text-rose-300">{{ f.reason }}</span>{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
 </section>
 
 <section class="card overflow-x-auto">
-  <h2 class="font-semibold">Jobs</h2>
-  <table class="text-sm w-full">
-    <thead><tr class="text-left"><th>Job</th><th>État</th><th>Prochain</th><th>Dernier run</th></tr></thead>
-    <tbody>
+  <div class="flex items-baseline justify-between"><h2 class="font-semibold">Jobs</h2><span class="text-xs text-slate-500 dark:text-slate-400">📅 = calendrier par place</span></div>
+  <table class="mt-2 w-full text-sm">
+    <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400"><th class="py-1 pr-3 font-medium">Job</th><th class="py-1 pr-3 font-medium">État</th><th class="py-1 pr-3 font-medium">Prochain</th><th class="py-1 font-medium">Dernier run</th></tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
     {% for j in jobs %}
-      <tr class="border-t">
-        <td>{{ j.name }}{% if j.market_days_only %} <span title="calendrier par place">📅</span>{% endif %}</td>
-        <td>{% if j.missing %}<span class="text-red-700">absent de params.yaml — `params-init --update`</span>{% elif not j.enabled %}désactivé{% elif not j.implemented %}<span class="text-slate-500">non implémenté (phase suivante)</span>{% else %}planifié{% endif %}</td>
-        <td>{% if j.next %}{{ j.next|dual }}{% else %}—{% endif %}</td>
-        <td>{% if j.last %}{{ j.last.status }} · {{ j.last.started_at|dual }}{% if j.last.note %} · {{ j.last.note }}{% endif %}{% if j.last.error %} · <span class="text-red-700">{{ j.last.error[:120] }}</span>{% endif %}{% else %}—{% endif %}</td>
+      <tr class="{% if j.last and j.last.status == 'error' %}bg-rose-50/60 dark:bg-rose-500/5{% elif j.missing %}bg-rose-50/60 dark:bg-rose-500/5{% elif not j.enabled or not j.implemented %}text-slate-400 dark:text-slate-500{% endif %}">
+        <td class="py-1.5 pr-3 font-mono text-xs whitespace-nowrap">{{ j.name }}{% if j.market_days_only %} <span title="calendrier par place">📅</span>{% endif %}</td>
+        <td class="py-1.5 pr-3">{% if j.missing %}{{ badge('absent de params.yaml — params-init --update', 'red') }}{% elif not j.enabled %}{{ badge('désactivé', 'slate') }}{% elif not j.implemented %}{{ badge('non implémenté (phase suivante)', 'slate') }}{% else %}{{ badge('planifié', 'blue') }}{% endif %}</td>
+        <td class="py-1.5 pr-3 whitespace-nowrap tabular">{% if j.next %}{{ j.next|dual }}{% else %}—{% endif %}</td>
+        <td class="py-1.5">{% if j.last %}{{ badge(j.last.status, 'green' if j.last.status == 'ok' else 'red' if j.last.status == 'error' else 'amber') }} <span class="tabular">{{ j.last.started_at|dual }}</span>{% if j.last.note %} <span class="text-slate-500 dark:text-slate-400">· {{ j.last.note }}</span>{% endif %}{% if j.last.error %} <span class="block text-xs text-rose-700 dark:text-rose-300 break-all">{{ j.last.error[:160] }}</span>{% endif %}{% else %}—{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -58,7 +73,7 @@
 <section class="card">
   <h2 class="font-semibold">Fraîcheur des sources</h2>
   {% if freshness %}
-  <ul class="text-sm">{% for f in freshness %}<li>{{ f.source }} : {% if f.last_ok_at %}{{ f.last_ok_at|dual }}{% else %}jamais{% endif %}{% if f.last_error %} — <span class="text-red-700">{{ f.last_error[:80] }}</span>{% endif %}</li>{% endfor %}</ul>
-  {% else %}<p class="text-sm text-slate-500">Aucune source de données encore qualifiée (phase 0 b).</p>{% endif %}
+  <ul class="mt-2 grid sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">{% for f in freshness %}<li class="flex items-center gap-2">{{ dot('red' if f.last_error else 'green' if f.last_ok_at else 'slate') }}<span class="font-mono text-xs">{{ f.source }}</span><span class="text-slate-500 dark:text-slate-400 tabular">{% if f.last_ok_at %}{{ f.last_ok_at|dual }}{% else %}jamais{% endif %}</span>{% if f.last_error %}<span class="text-xs text-rose-700 dark:text-rose-300">{{ f.last_error[:80] }}</span>{% endif %}</li>{% endfor %}</ul>
+  {% else %}<p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Aucune source de données encore qualifiée (phase 0 b).</p>{% endif %}
 </section>
 {% endblock %}
