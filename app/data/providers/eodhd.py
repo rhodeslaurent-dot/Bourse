@@ -82,6 +82,11 @@ class EodhdProvider(MarketDataProvider):
                 )
         return out
 
+    def exchanges(self) -> list[dict[str, str]]:
+        """``exchanges-list``: Code, Name, Country, Currency (to diagnose an unknown exchange code)."""
+        rows = self._get("/exchanges-list/")
+        return list(rows) if isinstance(rows, list) else []
+
     def exchange_symbols(self, exchange: str) -> list[dict[str, str]]:
         """``exchange-symbol-list``: Code, Name, Country, Exchange, Currency, Type, Isin."""
         rows = self._get(f"/exchange-symbol-list/{exchange}")

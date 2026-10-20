@@ -7,6 +7,7 @@ import logging
 import os
 from datetime import date
 
+from app.data.base import ProviderError
 from app.data.providers.eodhd import EodhdProvider
 from app.db.session import db_session
 from app.scheduler.runner import JobContext
@@ -15,10 +16,22 @@ from app.services.universe import RefreshReport, SymbolRow, refresh_universe
 log = logging.getLogger("bourse.jobs.universe_refresh")
 
 
-def symbol_rows_from_eodhd(provider: EodhdProvider, exchanges: list[str]) -> list[SymbolRow]:
+def symbol_rows_from_eodhd(
+    provider: EodhdProvider, exchanges: list[str], errors: dict[str, str] | None = None
+) -> list[SymbolRow]:
+    """Symbol lists of the given EODHD exchange codes. An exchange that fails (unknown code, outage)
+    is recorded in ``errors`` and skipped: one market never blocks the others."""
     out: list[SymbolRow] = []
     for ex in exchanges:
-        for r in provider.exchange_symbols(ex):
+        try:
+            symbols = provider.exchange_symbols(ex)
+        except ProviderError as exc:
+            if errors is None:
+                raise
+            errors[ex] = str(exc)[:160]
+            log.warning("place EODHD %s ignorée : %s", ex, errors[ex])
+            continue
+        for r in symbols:
             isin = str(r.get("Isin") or "").strip().upper()
             if len(isin) != 12:
                 continue
@@ -33,6 +46,21 @@ def symbol_rows_from_eodhd(provider: EodhdProvider, exchanges: list[str]) -> lis
                 )
             )
     return out
+
+
+def _log_exchange_hints(provider: EodhdProvider, errors: dict[str, str]) -> None:
+    """For an unknown exchange code, log the European codes EODHD actually exposes."""
+    if not any("404" in v or "Not Found" in v for v in errors.values()):
+        return
+    try:
+        codes = [
+            f"{e.get('Code')} ({e.get('Name')}, {e.get('Country')})"
+            for e in provider.exchanges()
+            if str(e.get("Currency", "")) in ("EUR", "SEK", "DKK", "NOK", "CHF", "GBP", "PLN")
+        ]
+        log.warning("codes de places EODHD disponibles en Europe : %s", "; ".join(codes[:40]))
+    except ProviderError as exc:  # diagnostics only
+        log.info("liste des places EODHD indisponible : %s", exc)
 
 
 def _country(name: object) -> str | None:
@@ -110,12 +138,41 @@ def run(ctx: JobContext) -> int:
         log.warning("EODHD_API_TOKEN absent : univers non rafraîchi (env-setup eodhd puis recréer le conteneur)")
         return 0
     u = ctx.config.params.universe or {}
-    exchanges = list(u.get("markets_p0", [])) + list(u.get("markets_p1", []))
     from app.data.providers.eodhd import eodhd_from
 
-    rows = enrich_with_screener(symbol_rows_from_eodhd(eodhd_from(ctx.config), exchanges), ctx.config)
+    provider = eodhd_from(ctx.config)
+    exchanges, skipped = [], []
+    for ex in list(u.get("markets_p0", [])) + list(u.get("markets_p1", [])):
+        mic = ctx.calendars.eodhd_to_mic.get(ex)
+        if mic in ctx.calendars.venues:
+            exchanges.append(ex)
+        else:
+            skipped.append(ex)  # ADR-005 M7: a market without a calendar is not followed yet
+    if skipped:
+        log.warning("places sans calendrier, non chargées : %s (encoder market_calendars.yaml)", ", ".join(skipped))
+    errors: dict[str, str] = {}
+    rows = enrich_with_screener(symbol_rows_from_eodhd(provider, exchanges, errors), ctx.config)
+    if errors:
+        _log_exchange_hints(provider, errors)
+    if not rows:
+        raise ProviderError("aucun symbole chargé : " + " ; ".join(f"{k}: {v}" for k, v in errors.items()))
+    log.info("%d symboles chargés depuis EODHD (%s)", len(rows), ", ".join(e for e in exchanges if e not in errors))
     with db_session() as s:
         rep: RefreshReport = refresh_universe(s, ctx.config, ctx.calendars, rows, date.today())
+        if errors and ctx.alerts is not None:
+            from app.notify.base import Event
+
+            ctx.alerts.emit(
+                s,
+                Event(
+                    "P4",
+                    "universe_exchange_unavailable",
+                    f"{len(errors)} place(s) EODHD non chargée(s)",
+                    [f"{k} : {v[:100]}" for k, v in errors.items()][:6],
+                ),
+                ctx.mode,
+                False,
+            )
         if rows and rows[0].extra.get("screener_error") and ctx.alerts is not None:
             from app.notify.base import Event
 
