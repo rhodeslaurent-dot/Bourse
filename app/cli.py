@@ -96,11 +96,9 @@ def cmd_saxo_auth(args: argparse.Namespace) -> int:
     missing = [k for k in ("SAXO_APP_KEY", "SAXO_APP_SECRET", "SAXO_TOKEN_KEY") if not os.environ.get(k)]
     if missing:
         print(f"variables manquantes dans .env : {', '.join(missing)}")
-        print(
         print("→ ouvrir .env à la racine du dossier Bourse et renseigner ces lignes (voir .env.example)")
         print("  SAXO_TOKEN_KEY se génère avec :")
         print('  uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"')
-        )  # noqa: E501
         return 2
     base = SIM_AUTH if args.sim else LIVE_AUTH
     url = f"{base}/authorize?" + urllib.parse.urlencode(
