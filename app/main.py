@@ -107,9 +107,9 @@ def _mode_store(config: LoadedConfig) -> ModeStore:
 
 
 def _load_env() -> None:
-    from dotenv import load_dotenv
+    from app.env import load_env
 
-    load_dotenv()
+    load_env()
 
 
 def create_app(

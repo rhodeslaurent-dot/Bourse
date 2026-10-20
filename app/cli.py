@@ -497,9 +497,9 @@ def cmd_migrate(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from dotenv import load_dotenv
+    from app.env import load_env
 
-    load_dotenv()  # .env at the repo root; never overrides variables already set by Docker/the shell
+    load_env()  # .env at the repo root; never overrides variables already set by Docker/the shell
     p = argparse.ArgumentParser(prog="bourse-pilot")
     p.add_argument("--params", default=None, help="chemin de params.yaml (défaut: $PARAMS_PATH ou config/params.yaml)")
     p.add_argument("--calendars", default="config/market_calendars.yaml")
