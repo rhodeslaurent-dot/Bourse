@@ -131,6 +131,7 @@ def cmd_env_setup(args: argparse.Namespace) -> int:
         network = input("Réseau Docker de ce conteneur (docker network ls) [postgres_default] : ").strip() or (
             "postgres_default"
         )
+        network = docker_network_name(network)  # an id typed instead of the name is translated
         db = input("Nom de la base à utiliser [bourse] : ").strip() or "bourse"
         user = input("Rôle Postgres dédié [bourse] : ").strip() or "bourse"
         password = getpass.getpass("Mot de passe de ce rôle (saisie masquée, Entrée pour en générer un) : ").strip()
@@ -181,7 +182,34 @@ def database_url(host: str, db: str, user: str, password: str, port: int = 5432)
     return f"postgresql+psycopg://{quote(user, safe='')}:{quote(password, safe='')}@{host}:{port}/{db}"
 
 
-def create_database(host: str, db: str, user: str, password: str, superuser: str = "postgres") -> int:
+def _docker(*args: str) -> str | None:
+    """stdout of a ``docker`` command, ``None`` when docker is missing or the command fails."""
+    import shutil
+    import subprocess
+
+    if shutil.which("docker") is None:
+        return None
+    r = subprocess.run(["docker", *args], capture_output=True)  # noqa: S603 — fixed argv
+    return r.stdout.decode("utf-8", "replace").strip() if r.returncode == 0 else None
+
+
+def docker_network_name(value: str) -> str:
+    """Compose needs the network *name*; translate an id (``c8927f481f45``) when docker can resolve it."""
+    out = _docker("network", "inspect", "--format", "{{.Name}}", value)
+    return out.splitlines()[0].strip() if out else value
+
+
+def docker_postgres_superuser(container: str) -> str:
+    """``POSTGRES_USER`` of the container's environment (the official image makes it the superuser),
+    ``postgres`` otherwise."""
+    out = _docker("inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", container) or ""
+    for line in out.splitlines():
+        if line.startswith("POSTGRES_USER=") and line.split("=", 1)[1].strip():
+            return line.split("=", 1)[1].strip()
+    return "postgres"
+
+
+def create_database(host: str, db: str, user: str, password: str, superuser: str | None = None) -> int:
     """Create the dedicated role and database in the existing Postgres container through ``docker exec``;
     the SQL (with the password) goes through stdin, never through the command line or the terminal."""
     import shutil
@@ -190,6 +218,7 @@ def create_database(host: str, db: str, user: str, password: str, superuser: str
     if shutil.which("docker") is None:
         print("docker introuvable dans ce terminal : ouvrir un terminal où `docker ps` fonctionne")
         return 2
+    superuser = superuser or docker_postgres_superuser(host)
     pw = password.replace("'", "''")
     sql = (
         f"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{user}') THEN "
@@ -208,7 +237,7 @@ def create_database(host: str, db: str, user: str, password: str, superuser: str
             f"→ vérifier le nom du conteneur (`docker ps`) et le superutilisateur ({superuser}) ; relancer avec --force"
         )
         return 1
-    print(f"rôle {user} et base {db} prêts dans {host} (idempotent : relançable sans risque)")
+    print(f"rôle {user} et base {db} prêts dans {host} (via le superutilisateur {superuser} ; relançable sans risque)")
     return 0
 
 
