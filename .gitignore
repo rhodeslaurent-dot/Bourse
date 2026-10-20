@@ -6,8 +6,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-data/
-backups/
+/data/
+/backups/
 *.log
 tests/fixtures/qualification/*.private.*
 config/instruments_map.yaml
