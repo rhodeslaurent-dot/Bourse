@@ -292,15 +292,28 @@ class SaxoPortfolio:
         self.client = client
         self.client_key = client_key or os.environ.get("SAXO_CLIENT_KEY", "")
         self._isin_cache: dict[str, str | None] = {}
+        self.isin_errors: dict[str, str] = {}  # uic → reason (diagnostics for saxo-check)
 
-    def isin_of(self, uic: str) -> str | None:
-        if uic not in self._isin_cache:
+    def isin_of(self, uic: str, asset_type: str = "Stock") -> str | None:
+        """ISIN from ``ref/v1/instruments/details/{Uic}/{AssetType}``; tries the position's asset
+        type first, then the common ones. Never guesses: ``None`` and a recorded reason otherwise."""
+        if uic in self._isin_cache:
+            return self._isin_cache[uic]
+        tried = []
+        for at in dict.fromkeys([asset_type or "Stock", "Stock", "SrdStock", "Etf", "Rights"]):
             try:
-                data = self.client.get(f"/ref/v1/instruments/details/{uic}/Stock")
-                self._isin_cache[uic] = data.get("Isin")
-            except ProviderError:
-                self._isin_cache[uic] = None
-        return self._isin_cache[uic]
+                data = self.client.get(f"/ref/v1/instruments/details/{uic}/{at}")
+            except ProviderError as exc:
+                tried.append(f"{at}: {str(exc)[:80]}")
+                continue
+            isin = data.get("Isin") or data.get("ISIN")
+            if isin:
+                self._isin_cache[uic] = str(isin)
+                return self._isin_cache[uic]
+            tried.append(f"{at}: réponse sans champ Isin (clés : {', '.join(sorted(data)[:12])})")
+        self._isin_cache[uic] = None
+        self.isin_errors[uic] = " | ".join(tried)
+        return None
 
     def positions(self) -> list[BrokerPositionDto]:
         out = []
