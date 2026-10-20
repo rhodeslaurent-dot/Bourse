@@ -54,11 +54,18 @@ def _check_read_only(method: str, path: str) -> None:
         raise ReadOnlyViolation("aucune écriture sur un endpoint d'ordres, jamais")
 
 
-class TokenStore:
-    """Encrypted refresh-token persistence (``SAXO_TOKEN_KEY`` = Fernet key)."""
+def is_live() -> bool:
+    """``SAXO_ENV=sim`` selects the simulation gateway; anything else is live (read-only either way)."""
+    return os.environ.get("SAXO_ENV", "live").lower() != "sim"
 
-    def __init__(self, path: str | None = None, key: str | None = None) -> None:
-        self.path = path or os.environ.get("SAXO_TOKEN_PATH", "data/saxo_token.enc")
+
+class TokenStore:
+    """Encrypted refresh-token persistence (``SAXO_TOKEN_KEY`` = Fernet key); one file per environment."""
+
+    def __init__(self, path: str | None = None, key: str | None = None, live: bool | None = None) -> None:
+        live = is_live() if live is None else live
+        default = "data/saxo_token.enc" if live else "data/saxo_token.sim.enc"
+        self.path = path or os.environ.get("SAXO_TOKEN_PATH" if live else "SAXO_SIM_TOKEN_PATH", default)
         self.key = key or os.environ.get("SAXO_TOKEN_KEY", "")
 
     def _fernet(self):  # type: ignore[no-untyped-def]
@@ -84,16 +91,18 @@ class SaxoClient:
     def __init__(
         self,
         client: httpx.Client | None = None,
-        live: bool = True,
+        live: bool | None = None,
         access_token: str | None = None,
         token_store: TokenStore | None = None,
     ) -> None:
+        live = is_live() if live is None else live
+        self.live = live
         self.base = LIVE_BASE if live else SIM_BASE
         self.auth_base = LIVE_AUTH if live else SIM_AUTH
         self.client = client or httpx.Client(timeout=30)
         self.access_token = access_token or os.environ.get("SAXO_ACCESS_TOKEN")
         self.token_expiry = 0.0
-        self.store = token_store or TokenStore()
+        self.store = token_store or TokenStore(live=live)
         self.calls: list[tuple[str, str]] = []
 
     def request(self, method: str, path: str, **kwargs: Any) -> Any:
@@ -148,6 +157,10 @@ class SaxoClient:
         if account_key:
             params["AccountKey"] = account_key
         return self.get("/port/v1/balances", **params)
+
+    def me(self) -> dict[str, Any]:
+        """``port/v1/clients/me`` → ClientKey, DefaultAccountKey, Name (read)."""
+        return self.get("/port/v1/clients/me")
 
     def closed_positions(self, client_key: str) -> list[dict[str, Any]]:
         return self.get("/port/v1/closedpositions", ClientKey=client_key).get("Data", [])

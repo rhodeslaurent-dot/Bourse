@@ -226,9 +226,62 @@ def cmd_saxo_auth(args: argparse.Namespace) -> int:
         print(f"échec : {r.status_code} {r.text[:200]}")
         return 1
     data = r.json()
-    TokenStore().save(data["refresh_token"])
+    TokenStore(live=not args.sim).save(data["refresh_token"])
     print("refresh token chiffré et enregistré ; accès en lecture seule uniquement.")
+    print(f"→ vérifier la lecture du compte : uv run python -m app.cli saxo-check{' --sim' if args.sim else ''}")
     return 0
+
+
+def cmd_saxo_check(args: argparse.Namespace) -> int:
+    """Read-only check: clients/me, balances, positions, open orders. Writes SAXO_CLIENT_KEY into .env (live)."""
+    import os
+    import re
+    from pathlib import Path
+
+    from app.data.base import ProviderError
+    from app.data.providers.saxo import SaxoClient, SaxoPortfolio, TokenStore
+
+    live = not args.sim
+    store = TokenStore(live=live)
+    legacy = Path("data/saxo_token.enc")
+    if not live and not Path(store.path).exists() and legacy.exists():
+        legacy.rename(store.path)  # token saved by an earlier `saxo-auth --sim`
+    client = SaxoClient(live=live, token_store=store)
+    try:
+        me = client.me()
+    except ProviderError as exc:
+        print(f"échec : {exc}")
+        print("→ relancer l'autorisation : uv run python -m app.cli saxo-auth" + (" --sim" if args.sim else ""))
+        return 1
+    client_key = str(me.get("ClientKey", ""))
+    print(
+        f"environnement : {'SIMULATION' if args.sim else 'LIVE'} · client {me.get('Name', '?')} · ClientKey …{client_key[-6:]}"  # noqa: E501
+    )
+    pf = SaxoPortfolio(client, client_key)
+    cash = pf.cash()
+    positions = pf.positions()
+    orders = pf.orders()
+    print(
+        f"cash : {cash if cash is not None else 'indisponible'} · positions : {len(positions)} · ordres en attente : {len(orders)}"  # noqa: E501
+    )
+    for p in positions[:10]:
+        print(f"  {p.symbol:12} {p.isin or 'ISIN ?':12} qty {p.qty:>6} @ {p.open_price:<10.4g} {p.currency}")
+    for o in orders[:10]:
+        print(f"  ordre {o.order_id} {o.side} {o.qty} {o.isin or o.uic} {o.order_type} {o.price or ''} {o.status}")
+    env = Path(".env")
+    if env.exists() and client_key and live:
+        text = env.read_text(encoding="utf-8")
+        line = f"SAXO_CLIENT_KEY={client_key}"
+        if re.search(r"^SAXO_CLIENT_KEY=", text, re.M):
+            text = re.sub(r"^SAXO_CLIENT_KEY=.*$", line, text, flags=re.M)
+        else:
+            text += f"\n{line}\n"
+        env.write_text(text, encoding="utf-8")
+        print("SAXO_CLIENT_KEY enregistré dans .env")
+    else:
+        print("(simulation : SAXO_CLIENT_KEY sera enregistré avec le compte live)")
+    print("appels effectués, tous en GET : " + ", ".join(p for _, p in client.calls))
+    return 0 if os.environ.get("SAXO_TOKEN_KEY") else 2
 
 
 def cmd_backfill(args: argparse.Namespace) -> int:
@@ -286,6 +339,9 @@ def main(argv: list[str] | None = None) -> int:
     es.add_argument("group", help="saxo | eodhd | telegram | anthropic | imap | healthchecks")
     es.add_argument("--force", action="store_true", help="remplacer une valeur déjà renseignée")
     es.set_defaults(fn=cmd_env_setup)
+    sc = sub.add_parser("saxo-check", help="lecture seule : clients/me, cash, positions, ordres")
+    sc.add_argument("--sim", action="store_true")
+    sc.set_defaults(fn=cmd_saxo_check)
     sa = sub.add_parser("saxo-auth")
     sa.add_argument("--sim", action="store_true", help="environnement de simulation (aucune donnée de marché)")
     sa.set_defaults(fn=cmd_saxo_auth)
