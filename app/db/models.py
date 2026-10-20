@@ -502,7 +502,7 @@ class NewsItem(Base):
     __tablename__ = "news_items"
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     source: Mapped[str] = mapped_column(String(32), index=True)
-    guid: Mapped[str] = mapped_column(String(255))
+    guid: Mapped[str] = mapped_column(Text)  # RSS guids are often long URLs (migration 0005)
     dedup_hash: Mapped[str] = mapped_column(String(64), unique=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

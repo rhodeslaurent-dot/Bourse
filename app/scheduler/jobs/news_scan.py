@@ -30,13 +30,15 @@ def run(ctx: JobContext) -> int:
             s.add(fresh)
             try:
                 items = fetch_feed(name, str(f["url"]))
-                rep = ingest_rss_items(s, items, ctx.llm, max_items=max_items)
+                with s.begin_nested():  # savepoint: a refused row of one feed never poisons the session
+                    rep = ingest_rss_items(s, items, ctx.llm, max_items=max_items)
                 total += rep.new
                 fresh.last_ok_at = datetime.now(UTC)
                 fresh.last_error = None
                 if not items:
                     errors.append(f"{name}: flux vide")
             except Exception as exc:  # noqa: BLE001 — one feed failing never stops the others
+                log.warning("flux %s : %s: %s", name, exc.__class__.__name__, str(exc)[:200])
                 fresh.last_error, fresh.last_error_at = f"{exc.__class__.__name__}: {exc}"[:300], datetime.now(UTC)
                 errors.append(f"{name}: {exc.__class__.__name__}")
         if errors and ctx.alerts:
