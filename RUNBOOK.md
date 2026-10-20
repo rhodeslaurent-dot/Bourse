@@ -45,6 +45,8 @@ Consigner le résultat dans `docs/15-status.md` (A0.1).
 
 ## 6. Opérations courantes
 
+Le fichier `.env` (racine du dossier) est lu automatiquement par les commandes `uv run python -m app.cli …` et par Docker Compose. Une variable déjà définie dans le shell ou le conteneur prime sur le `.env`.
+
 - Rejouer un job : `docker compose exec app python -m app.cli run-job <job> --date 2026-09-09 [--mics XPAR,XETR]`.
 - Vérifier la configuration : `python -m app.cli check-config` (refus de démarrer si un groupe requis manque).
 - Recharger les calendriers après mise à jour du YAML : `python -m app.cli seed-calendar --years 2026,2027`.

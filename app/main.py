@@ -106,12 +106,19 @@ def _mode_store(config: LoadedConfig) -> ModeStore:
     return ModeStore(set_mode=set_mode, current_mode=current_mode, log_event=log_event)
 
 
+def _load_env() -> None:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+
 def create_app(
     config: LoadedConfig | None = None,
     calendars: MarketCalendars | None = None,
     start_scheduler: bool = True,
     start_telegram: bool = True,
 ) -> FastAPI:
+    _load_env()
     setup_logging()
     config = config or load_params()  # raises ConfigError → process exits (docs/14 §14.2)
     calendars = calendars or load_market_calendars(

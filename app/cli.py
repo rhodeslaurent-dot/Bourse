@@ -93,8 +93,11 @@ def cmd_saxo_auth(args: argparse.Namespace) -> int:
     app_key = os.environ.get("SAXO_APP_KEY")
     secret = os.environ.get("SAXO_APP_SECRET")
     redirect = os.environ.get("SAXO_REDIRECT_URI", "http://localhost/callback")
-    if not (app_key and secret and os.environ.get("SAXO_TOKEN_KEY")):
-        print("SAXO_APP_KEY / SAXO_APP_SECRET / SAXO_TOKEN_KEY requis dans .env")
+    missing = [k for k in ("SAXO_APP_KEY", "SAXO_APP_SECRET", "SAXO_TOKEN_KEY") if not os.environ.get(k)]
+    if missing:
+        print(f"variables manquantes dans .env : {', '.join(missing)}")
+        print("→ ouvrir .env à la racine du dossier Bourse et renseigner ces lignes (voir .env.example) ; "
+              "SAXO_TOKEN_KEY se génère avec : uv run python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"")
         return 2
     base = SIM_AUTH if args.sim else LIVE_AUTH
     url = f"{base}/authorize?" + urllib.parse.urlencode(
@@ -142,6 +145,9 @@ def cmd_migrate(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # .env at the repo root; never overrides variables already set by Docker/the shell
     p = argparse.ArgumentParser(prog="bourse-pilot")
     p.add_argument("--params", default=None, help="chemin de params.yaml (défaut: $PARAMS_PATH ou config/params.yaml)")
     p.add_argument("--calendars", default="config/market_calendars.yaml")
