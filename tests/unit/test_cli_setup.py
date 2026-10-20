@@ -80,3 +80,22 @@ def test_create_database_uses_detected_superuser_and_keeps_password_off_argv(mon
     assert seen["argv"][:6] == ["docker", "exec", "-i", "pg", "psql", "-U"] and seen["argv"][6] == "n8n"
     assert "s3cr" not in " ".join(seen["argv"]) and "PASSWORD 's3cr''et'" in seen["stdin"]
     assert "superutilisateur n8n" in capsys.readouterr().out
+
+
+def test_set_env_value_replaces_commented_or_missing_lines():
+    text = "A=1\n# BACKUP_HOST_DIR=C:/x   # commentaire\nB=2\n"
+    out = cli.set_env_value(text, "BACKUP_HOST_DIR", "D:/sauvegardes")
+    assert out == "A=1\nBACKUP_HOST_DIR=D:/sauvegardes\nB=2\n"
+    assert cli.set_env_value(out, "BACKUP_HOST_DIR", None) == "A=1\n# BACKUP_HOST_DIR=\nB=2\n"
+    assert cli.set_env_value("A=1", "NEW_VAR", "x") == "A=1\nNEW_VAR=x\n"
+
+
+def test_env_set_refuses_secrets(tmp_path, monkeypatch, capsys):
+    import argparse
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("A=1\n", encoding="utf-8")
+    assert cli.cmd_env_set(argparse.Namespace(key="TELEGRAM_BOT_TOKEN", value="x", unset=False)) == 2
+    assert "secret" in capsys.readouterr().out
+    assert cli.cmd_env_set(argparse.Namespace(key="BACKUP_HOST_DIR", value="D:/s", unset=False)) == 0
+    assert "BACKUP_HOST_DIR=D:/s" in (tmp_path / ".env").read_text(encoding="utf-8")

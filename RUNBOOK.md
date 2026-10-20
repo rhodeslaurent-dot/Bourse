@@ -29,7 +29,7 @@ Tout se fait depuis la racine du dossier (`cd Bourse`), sans éditer de fichier 
 - Alimentation : `powercfg /change standby-timeout-ac 0`, `powercfg /change hibernate-timeout-ac 0`, `powercfg /hibernate off` ; carte réseau : décocher « Autoriser l'ordinateur à éteindre ce périphérique ».
 - Windows Update : heures d'activité 07:00–01:00 (Réunion) ; stratégie `NoAutoRebootWithLoggedOnUsers=1` ; redémarrage planifié samedi 06:00 Réunion (Task Scheduler : `shutdown /r /t 0`).
 - Task Scheduler « BOURSE-PILOT startup » : au démarrage, différé 3 min, `pwsh -File scripts/startup.ps1` (relance la pile, pinge `pc-startup`).
-- Sauvegardes : `BACKUP_HOST_DIR` sur un dossier synchronisé (OneDrive/Drive). Job `backup` 23:00 Réunion ; rétention 30 jours + 12 mensuelles. `.env` sauvegardé à part, chiffré.
+- Sauvegardes : `BACKUP_HOST_DIR` sur un dossier synchronisé (OneDrive/Drive), réglé par `uv run python -m app.cli env-set BACKUP_HOST_DIR <dossier>` (défaut `./backups` tant qu'il n'est pas réglé). Job `backup` 23:00 Réunion ; rétention 30 jours + 12 mensuelles. `.env` sauvegardé à part, chiffré.
 
 ## 4. Watchdog externe (healthchecks.io)
 

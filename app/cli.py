@@ -175,6 +175,46 @@ def cmd_env_setup(args: argparse.Namespace) -> int:
     return 0
 
 
+def set_env_value(text: str, key: str, value: str | None) -> str:
+    """Set ``KEY=value`` in a ``.env`` text (replacing a commented ``# KEY=`` line too); ``None`` comments
+    the line out so the default applies."""
+    import re
+
+    pattern = re.compile(rf"^(#\s*)?{re.escape(key)}=.*$", re.M)
+    line = f"# {key}=" if value is None else f"{key}={value}"
+    if pattern.search(text):
+        return pattern.sub(line, text, count=1)
+    return text + ("" if text.endswith("\n") or not text else "\n") + line + "\n"
+
+
+def cmd_env_set(args: argparse.Namespace) -> int:
+    """Non-secret ``.env`` values without an editor: ``env-set BACKUP_HOST_DIR D:\\sauvegardes`` ;
+    ``env-set BACKUP_HOST_DIR --unset`` restores the default. The value is echoed (use ``env-setup`` for secrets)."""
+    import os
+    from pathlib import Path
+
+    env = Path(".env")
+    if not env.exists():
+        print(".env introuvable : lancer d'abord `env-setup <groupe>` à la racine du dossier")
+        return 2
+    key = args.key.strip().upper()
+    if not key.replace("_", "").isalnum():
+        print("nom de variable invalide")
+        return 2
+    if any(s in key for s in ("TOKEN", "SECRET", "PASSWORD", "KEY", "DATABASE_URL")):
+        print(f"{key} est un secret : utiliser `env-setup` (saisie masquée)")
+        return 2
+    value = None if args.unset else (args.value or "")
+    if value is not None and not value:
+        print("valeur manquante (ou --unset)")
+        return 2
+    text = set_env_value(env.read_text(encoding="utf-8"), key, value)
+    env.write_text(text, encoding="utf-8")
+    os.chmod(env, 0o600) if os.name != "nt" else None
+    print(f"{key} : {'remis par défaut' if value is None else value}")
+    return 0
+
+
 def database_url(host: str, db: str, user: str, password: str, port: int = 5432) -> str:
     """SQLAlchemy URL for the existing Postgres instance; the password is percent-encoded."""
     from urllib.parse import quote
@@ -482,6 +522,11 @@ def main(argv: list[str] | None = None) -> int:
         "--update", action="store_true", help="réécrire user.telegram_user_id / user.email d'un fichier existant"
     )
     pi.set_defaults(fn=cmd_params_init)
+    ev = sub.add_parser("env-set", help="régler une variable non secrète de .env (ex. BACKUP_HOST_DIR)")
+    ev.add_argument("key")
+    ev.add_argument("value", nargs="?", default=None)
+    ev.add_argument("--unset", action="store_true", help="commenter la ligne (valeur par défaut)")
+    ev.set_defaults(fn=cmd_env_set)
     es = sub.add_parser("env-setup", help="créer/compléter .env de façon interactive (saisie masquée)")
     es.add_argument("group", help="database | saxo | eodhd | telegram | anthropic | imap | healthchecks")
     es.add_argument("--force", action="store_true", help="remplacer une valeur déjà renseignée")
