@@ -88,6 +88,8 @@ def test_set_env_value_replaces_commented_or_missing_lines():
     assert out == "A=1\nBACKUP_HOST_DIR=D:/sauvegardes\nB=2\n"
     assert cli.set_env_value(out, "BACKUP_HOST_DIR", None) == "A=1\n# BACKUP_HOST_DIR=\nB=2\n"
     assert cli.set_env_value("A=1", "NEW_VAR", "x") == "A=1\nNEW_VAR=x\n"
+    win = "C:\\Users\\Laurent RHODES\\Documents\\x"  # backslashes must survive the substitution
+    assert cli.set_env_value("# X_DIR=\n", "X_DIR", win) == f"X_DIR={win}\n"
 
 
 def test_env_set_refuses_secrets(tmp_path, monkeypatch, capsys):
@@ -99,3 +101,7 @@ def test_env_set_refuses_secrets(tmp_path, monkeypatch, capsys):
     assert "secret" in capsys.readouterr().out
     assert cli.cmd_env_set(argparse.Namespace(key="BACKUP_HOST_DIR", value="D:/s", unset=False)) == 0
     assert "BACKUP_HOST_DIR=D:/s" in (tmp_path / ".env").read_text(encoding="utf-8")
+    ns = argparse.Namespace(key="BACKUP_HOST_DIR", value="C:\\Users\\Laurent RHODES\\sauvegardes\\", unset=False)
+    assert cli.cmd_env_set(ns) == 0
+    assert "BACKUP_HOST_DIR=C:/Users/Laurent RHODES/sauvegardes\n" in (tmp_path / ".env").read_text(encoding="utf-8")
+    assert cli.cmd_env_set(argparse.Namespace(key="BACKUP_HOST_DIR", value="--C:/x", unset=False)) == 2

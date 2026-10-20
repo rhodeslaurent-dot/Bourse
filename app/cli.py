@@ -183,7 +183,7 @@ def set_env_value(text: str, key: str, value: str | None) -> str:
     pattern = re.compile(rf"^(#\s*)?{re.escape(key)}=.*$", re.M)
     line = f"# {key}=" if value is None else f"{key}={value}"
     if pattern.search(text):
-        return pattern.sub(line, text, count=1)
+        return pattern.sub(lambda _m: line, text, count=1)  # callable: backslashes in value are kept verbatim
     return text + ("" if text.endswith("\n") or not text else "\n") + line + "\n"
 
 
@@ -204,10 +204,17 @@ def cmd_env_set(args: argparse.Namespace) -> int:
     if any(s in key for s in ("TOKEN", "SECRET", "PASSWORD", "KEY", "DATABASE_URL")):
         print(f"{key} est un secret : utiliser `env-setup` (saisie masquée)")
         return 2
-    value = None if args.unset else (args.value or "")
+    value = None if args.unset else (args.value or "").strip()
     if value is not None and not value:
         print("valeur manquante (ou --unset)")
         return 2
+    if value is not None and value.startswith("-"):
+        print('la valeur commence par « - » : vérifier la syntaxe (env-set CLE "valeur" ou env-set CLE --unset)')
+        return 2
+    if value is not None and key.endswith("_DIR"):
+        value = value.replace("\\", "/").rstrip("/")  # Docker accepte C:/Users/... ; évite les échappements
+        if not Path(value).is_dir():
+            print(f"attention : le dossier {value} n'existe pas encore (Docker le créera au démarrage)")
     text = set_env_value(env.read_text(encoding="utf-8"), key, value)
     env.write_text(text, encoding="utf-8")
     os.chmod(env, 0o600) if os.name != "nt" else None
