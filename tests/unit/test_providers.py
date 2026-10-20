@@ -231,3 +231,15 @@ def test_token_store_roundtrip(tmp_path):
     store.save("refresh-abc")
     assert store.load() == "refresh-abc"
     assert b"refresh-abc" not in (tmp_path / "tok.enc").read_bytes()
+
+
+def test_saxo_env_selects_gateway_and_token_file(monkeypatch, tmp_path):
+    from app.data.providers.saxo import SIM_BASE, is_live
+
+    monkeypatch.setenv("SAXO_ENV", "sim")
+    monkeypatch.chdir(tmp_path)
+    assert not is_live()
+    c = SaxoClient(client=httpx.Client(), access_token="tok")
+    assert c.base == SIM_BASE and c.store.path.endswith("saxo_token.sim.enc")
+    monkeypatch.setenv("SAXO_ENV", "live")
+    assert SaxoClient(client=httpx.Client(), access_token="tok").base == LIVE_BASE
