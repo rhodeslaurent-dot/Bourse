@@ -143,6 +143,54 @@ def cmd_env_setup(args: argparse.Namespace) -> int:
     return 0
 
 
+def _wait_for_code(redirect_uri: str, timeout_s: int = 300) -> str | None:
+    """Listen on the redirect URI (localhost only) and capture ``?code=`` automatically.
+    Falls back to manual paste when the port cannot be bound or the host is not localhost."""
+    import urllib.parse
+    import webbrowser
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    u = urllib.parse.urlparse(redirect_uri)
+    if u.hostname not in ("localhost", "127.0.0.1"):
+        return None
+    port = u.port or 80
+    captured: dict[str, str] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if "code" in q:
+                captured["code"] = q["code"][0]
+                body = (
+                    "<h2>Autorisation reçue — vous pouvez fermer cette page et revenir à la fenêtre de commande.</h2>"
+                )
+            else:
+                body = "<h2>Paramètre code absent : recommencer l'autorisation.</h2>"
+            data = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args: object) -> None:  # silence; never log the code
+            return
+
+    try:
+        server = HTTPServer(("127.0.0.1", port), Handler)
+    except OSError:
+        print(f"(port {port} indisponible : collez le code manuellement)")
+        return None
+    server.timeout = timeout_s
+    print(f"2) En attente de la redirection sur {redirect_uri} (≤ {timeout_s // 60} min)…")
+    try:
+        webbrowser.open_new_tab  # noqa: B018 — the user may open the URL from another device
+        server.handle_request()
+    finally:
+        server.server_close()
+    return captured.get("code")
+
+
 def cmd_saxo_auth(args: argparse.Namespace) -> int:
     """OAuth Authorization Code (read-only app): print the URL, paste the code, store the refresh token encrypted."""
     import os
@@ -167,7 +215,7 @@ def cmd_saxo_auth(args: argparse.Namespace) -> int:
         {"response_type": "code", "client_id": app_key, "redirect_uri": redirect, "state": "bourse-pilot"}
     )
     print("1) Ouvrir dans le navigateur :\n" + url)
-    code = input("2) Coller le paramètre `code` de l'URL de retour : ").strip()
+    code = _wait_for_code(redirect) or input("2) Coller le paramètre `code` de l'URL de retour : ").strip()
     r = httpx.post(
         f"{base}/token",
         data={"grant_type": "authorization_code", "code": code, "redirect_uri": redirect},
