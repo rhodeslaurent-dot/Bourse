@@ -65,7 +65,10 @@ def test_unprotected_fill_is_p1_in_absent_mode_and_grouped(ctx):
 
 
 def test_threshold_crossed_then_sell_market_same_incident(ctx):
+    from app.db.models import Instrument
+
     with db_session() as s:
+        s.add(Instrument(isin="FR0000120271", name="TotalEnergies", mic="XPAR"))  # venue known → SELL proposal allowed
         acc = ensure_accounts(s)["cto_cash"]
         r = declare_execution(s, acc.id, "FR0000120271", "buy", 100, 42.4, T, "web")
         declare_stop(s, r.position_id, 40.6, "seuil", 100, "initial", "web")
