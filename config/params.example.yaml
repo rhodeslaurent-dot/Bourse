@@ -373,6 +373,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   eod_pipeline: {cron: "50 17 * * 1-5", half_day: "14:20", misfire_grace_min: 240, market_days_only: true}
   portfolio_sync: {cron: "0 19 * * 1-5", misfire_grace_min: 240, market_days_only: true}
   backup: {cron: "0 23 * * *", tz: "Indian/Reunion", market_days_only: false}
+  saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h
   weekly_review: {cron: "0 8 * * 6", market_days_only: false}
   us_open_scan: {cron: "35 15 * * 1-5", enabled: false, market_days_only: true}          # phase 6
 

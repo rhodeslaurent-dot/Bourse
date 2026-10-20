@@ -410,7 +410,7 @@ def cmd_saxo_auth(args: argparse.Namespace) -> int:
         print(f"échec : {r.status_code} {r.text[:200]}")
         return 1
     data = r.json()
-    TokenStore(live=not args.sim).save(data["refresh_token"])
+    TokenStore(live=not args.sim).save(data["refresh_token"], data.get("refresh_token_expires_in"))
     print("refresh token chiffré et enregistré ; accès en lecture seule uniquement.")
     print(f"→ vérifier la lecture du compte : uv run python -m app.cli saxo-check{' --sim' if args.sim else ''}")
     return 0

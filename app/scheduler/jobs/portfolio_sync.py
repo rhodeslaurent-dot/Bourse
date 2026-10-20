@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 
-from app.data.providers.saxo import BrokerOrderDto, BrokerPositionDto, SaxoClient, SaxoPortfolio
+from app.data.providers.saxo import BrokerOrderDto, BrokerPositionDto, SaxoAuthExpired, SaxoClient, SaxoPortfolio
 from app.db.models import BrokerSyncRun, PositionRow, StopRow
 from app.db.session import db_session
 from app.domain.orders import Execution, MatchTolerance, Side, TradeKind
@@ -289,10 +289,17 @@ def run(ctx: JobContext) -> int:
         log.info("Saxo non configuré : synchronisation ignorée (état déclaratif)")
         return 0
     tol = ctx.config.params.accounts.cto.match_tolerance
-    diffs = sync_saxo(
-        SaxoPortfolio(SaxoClient()),
-        MatchTolerance(float(tol.get("price_pct", 0.005)), int(tol.get("minutes", 10))),
-        alerts=ctx.alerts,
-        mode=ctx.mode,
-    )
+    try:
+        diffs = sync_saxo(
+            SaxoPortfolio(SaxoClient()),
+            MatchTolerance(float(tol.get("price_pct", 0.005)), int(tol.get("minutes", 10))),
+            alerts=ctx.alerts,
+            mode=ctx.mode,
+        )
+    except SaxoAuthExpired as exc:  # ADR-007: reported once a day by P3, not an error every 5 minutes
+        from app.scheduler.jobs.saxo_token_keepalive import notify_auth_expired
+
+        log.warning("%s", exc)
+        notify_auth_expired(ctx, str(exc))
+        return 0
     return int(diffs["matched"]) + int(diffs["discretionary"])

@@ -15,6 +15,7 @@ services:
       - ./config/params.yaml:/srv/app/config/params.yaml:ro
       - ./config/market_calendars.yaml:/srv/app/config/market_calendars.yaml:ro
       - ${BACKUP_HOST_DIR:-./backups}:/backups
+      - ./data:/srv/app/data   # jeton Saxo chiffré, partagé avec la CLI du PC (saxo-auth)
     networks: [internal, postgres]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]

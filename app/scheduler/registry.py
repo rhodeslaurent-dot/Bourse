@@ -27,6 +27,7 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "daily_regime": "app.scheduler.jobs.daily_regime:run",
     "news_scan": "app.scheduler.jobs.news_scan:run",
     "imap_poll": "app.scheduler.jobs.imap_poll:run",
+    "saxo_token_keepalive": "app.scheduler.jobs.saxo_token_keepalive:run",
 }
 
 

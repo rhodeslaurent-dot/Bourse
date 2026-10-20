@@ -111,8 +111,35 @@ def sante(request: Request) -> HTMLResponse:
         "llm_calls": llm_calls,
         "llm_budget": cfg.params.llm.monthly_budget_usd if cfg.params.llm else None,
         "llm_enabled": bool(getattr(st, "llm", None) and st.llm.enabled),
+        "saxo": saxo_status(),
     }
     return templates.TemplateResponse(request, "sante.html", ctx)
+
+
+def saxo_status() -> dict:
+    """Token state without any network call (ADR-007): ``configured``, ``present``, ``expired``, ``until``."""
+    import os
+
+    out: dict = {
+        "configured": bool(os.environ.get("SAXO_TOKEN_KEY")),
+        "present": False,
+        "expired": False,
+        "until": None,
+    }
+    if not out["configured"]:
+        return out
+    try:
+        from app.data.providers.saxo import TokenStore
+
+        info = TokenStore().info()
+    except Exception:  # noqa: BLE001 — unreadable file (wrong key) counts as absent
+        info = None
+    if info:
+        out["present"] = True
+        out["expired"] = bool(info.get("expired"))
+        exp = info.get("refresh_expires_at")
+        out["until"] = datetime.fromtimestamp(float(exp), UTC).astimezone(REUNION) if exp else None
+    return out
 
 
 @router.post("/mode")
