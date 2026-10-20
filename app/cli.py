@@ -111,6 +111,7 @@ def cmd_env_setup(args: argparse.Namespace) -> int:
             text += f"\n{line}\n"
 
     groups = {
+        "database": [],  # composed below (host, network, db, user, password → DATABASE_URL)
         "saxo": ["SAXO_APP_KEY", "SAXO_APP_SECRET"],
         "eodhd": ["EODHD_API_TOKEN"],
         "telegram": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_USER_ID"],
@@ -118,10 +119,40 @@ def cmd_env_setup(args: argparse.Namespace) -> int:
         "imap": ["SMTP_USER", "SMTP_PASSWORD", "EMAIL_TO", "IMAP_USER", "IMAP_PASSWORD"],
         "healthchecks": ["HEALTHCHECKS_PING_KEY"],
     }
-    keys = groups.get(args.group, [])
-    if not keys:
+    if args.group not in groups:
         print("groupes possibles : " + ", ".join(groups))
         return 2
+    keys = groups[args.group]
+    if args.group == "database":
+        if current("DATABASE_URL") and "CHANGE_ME" not in current("DATABASE_URL") and not args.force:
+            print("DATABASE_URL : déjà renseigné (utiliser --force pour remplacer)")
+            return 0
+        host = input("Nom du conteneur Postgres existant (docker ps) [postgres] : ").strip() or "postgres"
+        network = input("Réseau Docker de ce conteneur (docker network ls) [postgres_default] : ").strip() or (
+            "postgres_default"
+        )
+        db = input("Nom de la base à utiliser [bourse] : ").strip() or "bourse"
+        user = input("Rôle Postgres dédié [bourse] : ").strip() or "bourse"
+        password = getpass.getpass("Mot de passe de ce rôle (saisie masquée, Entrée pour en générer un) : ").strip()
+        if not password:
+            import secrets
+
+            password = secrets.token_urlsafe(24)
+            print("mot de passe généré (jamais affiché) ; il sera aussi utilisé dans la commande SQL ci-dessous")
+        put("DATABASE_URL", database_url(host, db, user, password))
+        put("POSTGRES_NETWORK", network)
+        env.write_text(text, encoding="utf-8")
+        os.chmod(env, 0o600) if os.name != "nt" else None
+        print(".env mis à jour (DATABASE_URL, POSTGRES_NETWORK).")
+        answer = input(f"Créer maintenant le rôle et la base dans le conteneur {host} ? [O/n] ").strip() or "o"
+        if answer.lower() == "o":
+            return create_database(host, db, user, password)
+        print("Création reportée : relancer `env-setup database --force`, ou exécuter à la main :")
+        print(
+            f"  docker exec -i {host} psql -U postgres -c \"CREATE ROLE {user} LOGIN PASSWORD '<mot de passe de .env>'\""  # noqa: E501
+        )
+        print(f'  docker exec -i {host} psql -U postgres -c "CREATE DATABASE {db} OWNER {user}"')
+        return 0
     for key in keys:
         if current(key) and not args.force:
             print(f"{key} : déjà renseigné (utiliser --force pour remplacer)")
@@ -141,6 +172,79 @@ def cmd_env_setup(args: argparse.Namespace) -> int:
     os.chmod(env, 0o600) if os.name != "nt" else None
     print(".env mis à jour (aucune valeur affichée).")
     return 0
+
+
+def database_url(host: str, db: str, user: str, password: str, port: int = 5432) -> str:
+    """SQLAlchemy URL for the existing Postgres instance; the password is percent-encoded."""
+    from urllib.parse import quote
+
+    return f"postgresql+psycopg://{quote(user, safe='')}:{quote(password, safe='')}@{host}:{port}/{db}"
+
+
+def create_database(host: str, db: str, user: str, password: str, superuser: str = "postgres") -> int:
+    """Create the dedicated role and database in the existing Postgres container through ``docker exec``;
+    the SQL (with the password) goes through stdin, never through the command line or the terminal."""
+    import shutil
+    import subprocess
+
+    if shutil.which("docker") is None:
+        print("docker introuvable dans ce terminal : ouvrir un terminal où `docker ps` fonctionne")
+        return 2
+    pw = password.replace("'", "''")
+    sql = (
+        f"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{user}') THEN "
+        f"CREATE ROLE {user} LOGIN PASSWORD '{pw}'; ELSE ALTER ROLE {user} WITH LOGIN PASSWORD '{pw}'; END IF; END $$;\n"  # noqa: E501
+        f"SELECT 'CREATE DATABASE {db} OWNER {user}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{db}')\\gexec\n"  # noqa: E501
+    )
+    r = subprocess.run(  # noqa: S603 — fixed argv, SQL on stdin
+        ["docker", "exec", "-i", host, "psql", "-U", superuser, "-v", "ON_ERROR_STOP=1", "-q"],
+        input=sql.encode("utf-8"),
+        capture_output=True,
+    )
+    if r.returncode != 0:
+        err = r.stderr.decode("utf-8", "replace").replace(pw, "******").strip()
+        print(f"échec de la création (code {r.returncode}) : {err[:400]}")
+        print(
+            f"→ vérifier le nom du conteneur (`docker ps`) et le superutilisateur ({superuser}) ; relancer avec --force"
+        )
+        return 1
+    print(f"rôle {user} et base {db} prêts dans {host} (idempotent : relançable sans risque)")
+    return 0
+
+
+def init_params(example: str, target: str, telegram_user_id: str, email: str) -> bool:
+    """Create ``config/params.yaml`` from the example and fill ``user.telegram_user_id`` / ``user.email``
+    by line substitution (comments are kept). Returns False when the target already exists."""
+    import re
+    from pathlib import Path
+
+    src, dst = Path(example), Path(target)
+    if dst.exists():
+        return False
+    text = src.read_text(encoding="utf-8")
+    text = re.sub(r"^(\s*telegram_user_id:)\s*\S+", rf"\g<1> {int(telegram_user_id)}", text, count=1, flags=re.M)
+    text = re.sub(r'^(\s*email:)\s*"[^"]*"', rf'\g<1> "{email}"', text, count=1, flags=re.M)
+    dst.write_text(text, encoding="utf-8")
+    return True
+
+
+def cmd_params_init(args: argparse.Namespace) -> int:
+    """``config/params.yaml`` from ``params.example.yaml`` with the user's Telegram id (from .env) and e-mail."""
+    import os
+
+    uid = os.environ.get("TELEGRAM_USER_ID", "0")
+    if uid in ("", "0"):
+        print("TELEGRAM_USER_ID absent de .env : lancer d'abord `env-setup telegram`")
+        return 2
+    email = args.email or input("Adresse e-mail (rapports, Cloudflare Access) : ").strip()
+    if "@" not in email:
+        print("adresse e-mail invalide")
+        return 2
+    if not init_params("config/params.example.yaml", "config/params.yaml", uid, email):
+        print("config/params.yaml existe déjà : rien n'est modifié (éditer user.* à la main)")
+        return 0
+    print("config/params.yaml créé (user.telegram_user_id et user.email renseignés) ; vérifier availability.schedule")
+    return cmd_check_config(argparse.Namespace(params="config/params.yaml"))
 
 
 def _wait_for_code(redirect_uri: str, timeout_s: int = 300) -> str | None:
@@ -339,8 +443,11 @@ def main(argv: list[str] | None = None) -> int:
     bf.add_argument("--to", default=None)
     bf.add_argument("--isin", default=None, help="liste d'ISIN séparés par des virgules (défaut : tout le référentiel)")
     bf.set_defaults(fn=cmd_backfill)
+    pi = sub.add_parser("params-init", help="créer config/params.yaml depuis l'exemple (user.* renseignés)")
+    pi.add_argument("--email", default=None)
+    pi.set_defaults(fn=cmd_params_init)
     es = sub.add_parser("env-setup", help="créer/compléter .env de façon interactive (saisie masquée)")
-    es.add_argument("group", help="saxo | eodhd | telegram | anthropic | imap | healthchecks")
+    es.add_argument("group", help="database | saxo | eodhd | telegram | anthropic | imap | healthchecks")
     es.add_argument("--force", action="store_true", help="remplacer une valeur déjà renseignée")
     es.set_defaults(fn=cmd_env_setup)
     sc = sub.add_parser("saxo-check", help="lecture seule : clients/me, cash, positions, ordres")

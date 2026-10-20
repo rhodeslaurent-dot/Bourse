@@ -1,0 +1,7 @@
+# Test local uniquement : copier en `docker-compose.override.yml` (ignoré par git) pour atteindre
+# http://localhost:8000/sante depuis le PC. Le port n'est lié qu'à 127.0.0.1 : rien n'est exposé sur le
+# réseau. À supprimer avant l'exploitation (accès par Cloudflare Tunnel seulement, RUNBOOK §2).
+services:
+  app:
+    ports:
+      - "127.0.0.1:8000:8000"

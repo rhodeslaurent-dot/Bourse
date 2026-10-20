@@ -11,3 +11,4 @@ __pycache__/
 *.log
 tests/fixtures/qualification/*.private.*
 config/instruments_map.yaml
+docker-compose.override.yml

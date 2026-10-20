@@ -4,13 +4,16 @@ Rappel : l'outil ne passe jamais d'ordre. En cas de panne, les stops restent che
 
 ## 1. Démarrage initial
 
-0. Remplir `.env` sans éditeur : `uv run python -m app.cli env-setup saxo` (puis `eodhd`, `telegram`, `anthropic`, `imap`, `healthchecks`). La saisie est masquée, rien n'est affiché ni journalisé. L'édition manuelle de `.env` reste possible.
-1. Copier `config/params.example.yaml` → `config/params.yaml` et renseigner `user.telegram_user_id`, `user.email`, le planning `availability.schedule` (confirmer le créneau `ref: market_open`).
-2. Copier `.env.example` → `.env` (secrets uniquement là). `DATABASE_URL` pointe vers l'instance Postgres existante (créer la base `bourse` et un rôle dédié).
-3. `docker compose up -d --build` — le conteneur applique les migrations, charge les calendriers, démarre l'API, le planificateur et le bot Telegram.
-4. Vérifier : `docker compose logs -f app`, puis `https://bourse.<domaine>/sante` (ou `http://localhost:8000/sante` depuis le PC si un port est publié temporairement pour le test — jamais en exploitation).
-5. Telegram : envoyer `/test` au bot → message avec boutons ; cliquer → « Enregistré ». `/mode reunion 2h` → mode affiché sur `/sante`.
-6. E-mail : `docker compose exec app python -m app.cli test-email`.
+Tout se fait depuis la racine du dossier (`cd Bourse`), sans éditer de fichier à la main.
+
+0. Secrets dans `.env` : `uv run python -m app.cli env-setup saxo` (puis `telegram`, `eodhd`, `anthropic`, `imap`, `healthchecks`). Saisie masquée, rien n'est affiché ni journalisé.
+1. Base de données : `uv run python -m app.cli env-setup database` — demande le nom du conteneur Postgres existant (`docker ps`), son réseau (`docker network ls`), compose `DATABASE_URL` (mot de passe généré si vide) et crée le rôle et la base dans ce conteneur (idempotent, via `docker exec`, mot de passe transmis par stdin).
+2. Paramètres : `uv run python -m app.cli params-init --email <adresse>` — crée `config/params.yaml` depuis l'exemple avec `user.telegram_user_id` (lu dans `.env`) et `user.email`, puis affiche `check-config`. Vérifier ensuite `availability.schedule`.
+3. Test local (facultatif, PC seulement) : `copy docker-compose.override.example.yml docker-compose.override.yml` publie le port 8000 sur 127.0.0.1 uniquement. À supprimer avant l'exploitation (accès par le tunnel seulement).
+4. `docker compose up -d --build app` — le conteneur applique les migrations, charge les calendriers, démarre l'API, le planificateur et le bot Telegram. (`cloudflared` démarre à l'étape §2, une fois `CLOUDFLARE_TUNNEL_TOKEN` renseigné.)
+5. Vérifier : `docker compose logs -f app` (attendre « Application startup complete »), puis `http://localhost:8000/sante` (test local) ou `https://bourse.<domaine>/sante`.
+6. Telegram : envoyer `/test` au bot → message avec boutons ; cliquer → « Enregistré ». `/mode reunion 2h` → mode affiché sur `/sante`.
+7. E-mail : `docker compose exec app python -m app.cli test-email`.
 
 ## 2. Cloudflare Tunnel + Access (aucun port ouvert)
 
