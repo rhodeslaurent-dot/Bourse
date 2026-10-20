@@ -97,8 +97,9 @@ def cmd_saxo_auth(args: argparse.Namespace) -> int:
     if missing:
         print(f"variables manquantes dans .env : {', '.join(missing)}")
         print(
-            "→ ouvrir .env à la racine du dossier Bourse et renseigner ces lignes (voir .env.example) ; "
-            'SAXO_TOKEN_KEY se génère avec : uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+        print("→ ouvrir .env à la racine du dossier Bourse et renseigner ces lignes (voir .env.example)")
+        print("  SAXO_TOKEN_KEY se génère avec :")
+        print('  uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"')
         )  # noqa: E501
         return 2
     base = SIM_AUTH if args.sim else LIVE_AUTH
