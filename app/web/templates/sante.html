@@ -9,6 +9,7 @@
     <li>Telegram : {% if telegram %}configuré{% else %}<span class="text-amber-700">non configuré</span>{% endif %} · E-mail : {% if email %}configuré{% else %}<span class="text-amber-700">non configuré</span>{% endif %}</li>
     <li>LLM : {% if llm_enabled %}API Claude active{% else %}<span class="text-amber-700">repli par règles (ANTHROPIC_API_KEY absent ou groupe llm désactivé)</span>{% endif %} · coût du mois {{ '%.2f'|format(llm_cost) }} $ / {{ llm_budget or '—' }} $ ({{ llm_calls }} appels)</li>
     <li>Saxo (lecture seule) : {% if not saxo.configured %}<span class="text-amber-700">non configuré</span>{% elif not saxo.present %}<span class="text-amber-700">aucun jeton — lancer saxo-auth</span>{% elif saxo.expired %}<span class="text-red-700">autorisation expirée — lancer saxo-auth sur le PC</span>{% else %}jeton valide{% if saxo.until %} jusqu'à {{ saxo.until.strftime('%H:%M') }} Réunion{% endif %} (maintenu toutes les 20 min){% endif %}</li>
+    <li>EODHD (univers, EOD) : {% if eodhd %}configuré{% else %}<span class="text-amber-700">non configuré (env-setup eodhd, puis recréer le conteneur)</span>{% endif %}</li>
     <li>Base : {{ db_url_kind }} · Calendriers : v{{ calendars.version }} ({{ calendars.venues|length }} places, P0 {{ calendars.p0_mics|join(', ') }})</li>
   </ul>
 </section>

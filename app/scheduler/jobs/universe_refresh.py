@@ -107,7 +107,7 @@ def enrich_with_screener(rows: list[SymbolRow], config) -> list[SymbolRow]:  # t
 
 def run(ctx: JobContext) -> int:
     if not os.environ.get("EODHD_API_TOKEN"):
-        log.info("EODHD_API_TOKEN absent : univers non rafraîchi")
+        log.warning("EODHD_API_TOKEN absent : univers non rafraîchi (env-setup eodhd puis recréer le conteneur)")
         return 0
     u = ctx.config.params.universe or {}
     exchanges = list(u.get("markets_p0", [])) + list(u.get("markets_p1", []))

@@ -474,11 +474,18 @@ def cmd_saxo_check(args: argparse.Namespace) -> int:
 
 def cmd_backfill(args: argparse.Namespace) -> int:
     """``backfill --provider eodhd --from 2016-01-01 [--isin FR…]`` : EOD history for the referential."""
+    import os
+
     from app.data.providers.eodhd import EodhdProvider
     from app.scheduler.jobs.eod_backfill_check import backfill_history
 
     if args.provider != "eodhd":
         print("seul le provider eodhd est retenu pour l'EOD (ADR-002)")
+        return 2
+    if not os.environ.get("EODHD_API_TOKEN"):
+        print(
+            "EODHD_API_TOKEN absent : lancer `env-setup eodhd` puis recréer le conteneur (docker compose up -d --force-recreate app)"  # noqa: E501
+        )  # noqa: E501
         return 2
     start = date.fromisoformat(args.from_date)
     end = date.fromisoformat(args.to) if args.to else date.today()
@@ -500,6 +507,13 @@ def main(argv: list[str] | None = None) -> int:
     from app.env import load_env
 
     load_env()  # .env at the repo root; never overrides variables already set by Docker/the shell
+    import logging
+    import os
+
+    # human-readable job logs on the console (the app itself logs JSON); a skipped job says why
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(levelname)s %(name)s : %(message)s")
+    for noisy in ("httpx", "httpcore", "apscheduler", "urllib3"):
+        logging.getLogger(noisy).setLevel("WARNING")
     p = argparse.ArgumentParser(prog="bourse-pilot")
     p.add_argument("--params", default=None, help="chemin de params.yaml (défaut: $PARAMS_PATH ou config/params.yaml)")
     p.add_argument("--calendars", default="config/market_calendars.yaml")

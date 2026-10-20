@@ -112,6 +112,7 @@ def sante(request: Request) -> HTMLResponse:
         "llm_budget": cfg.params.llm.monthly_budget_usd if cfg.params.llm else None,
         "llm_enabled": bool(getattr(st, "llm", None) and st.llm.enabled),
         "saxo": saxo_status(),
+        "eodhd": bool(__import__("os").environ.get("EODHD_API_TOKEN")),
     }
     return templates.TemplateResponse(request, "sante.html", ctx)
 
