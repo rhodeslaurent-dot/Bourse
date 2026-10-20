@@ -4,6 +4,7 @@ Rappel : l'outil ne passe jamais d'ordre. En cas de panne, les stops restent che
 
 ## 1. Démarrage initial
 
+0. Remplir `.env` sans éditeur : `uv run python -m app.cli env-setup saxo` (puis `eodhd`, `telegram`, `anthropic`, `imap`, `healthchecks`). La saisie est masquée, rien n'est affiché ni journalisé. L'édition manuelle de `.env` reste possible.
 1. Copier `config/params.example.yaml` → `config/params.yaml` et renseigner `user.telegram_user_id`, `user.email`, le planning `availability.schedule` (confirmer le créneau `ref: market_open`).
 2. Copier `.env.example` → `.env` (secrets uniquement là). `DATABASE_URL` pointe vers l'instance Postgres existante (créer la base `bourse` et un rôle dédié).
 3. `docker compose up -d --build` — le conteneur applique les migrations, charge les calendriers, démarre l'API, le planificateur et le bot Telegram.

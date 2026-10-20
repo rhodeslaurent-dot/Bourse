@@ -81,6 +81,68 @@ def cmd_test_email(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_env_setup(args: argparse.Namespace) -> int:
+    """Create/complete ``.env`` interactively (values are never echoed nor printed)."""
+    import getpass
+    import os
+    import re
+    import shutil
+    from pathlib import Path
+
+    env = Path(".env")
+    if not env.exists():
+        if not Path(".env.example").exists():
+            print("lancer la commande à la racine du dossier Bourse (.env.example introuvable)")
+            return 2
+        shutil.copy(".env.example", env)
+        print(".env créé à partir de .env.example")
+    text = env.read_text(encoding="utf-8")
+
+    def current(key: str) -> str:
+        m = re.search(rf"^{key}=([^\n#]*)", text, re.M)
+        return m.group(1).strip() if m else ""
+
+    def put(key: str, value: str) -> None:
+        nonlocal text
+        line = f"{key}={value}"
+        if re.search(rf"^{key}=.*$", text, re.M):
+            text = re.sub(rf"^{key}=.*$", line, text, count=1, flags=re.M)
+        else:
+            text += f"\n{line}\n"
+
+    groups = {
+        "saxo": ["SAXO_APP_KEY", "SAXO_APP_SECRET"],
+        "eodhd": ["EODHD_API_TOKEN"],
+        "telegram": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_USER_ID"],
+        "anthropic": ["ANTHROPIC_API_KEY"],
+        "imap": ["SMTP_USER", "SMTP_PASSWORD", "EMAIL_TO", "IMAP_USER", "IMAP_PASSWORD"],
+        "healthchecks": ["HEALTHCHECKS_PING_KEY"],
+    }
+    keys = groups.get(args.group, [])
+    if not keys:
+        print("groupes possibles : " + ", ".join(groups))
+        return 2
+    for key in keys:
+        if current(key) and not args.force:
+            print(f"{key} : déjà renseigné (utiliser --force pour remplacer)")
+            continue
+        value = getpass.getpass(f"{key} (saisie masquée, Entrée pour ignorer) : ").strip()
+        if value:
+            put(key, value)
+    if args.group == "saxo":
+        if not current("SAXO_TOKEN_KEY") or args.force:
+            from cryptography.fernet import Fernet
+
+            put("SAXO_TOKEN_KEY", Fernet.generate_key().decode())
+            print("SAXO_TOKEN_KEY : nouvelle clé générée")
+        if not current("SAXO_REDIRECT_URI"):
+            put("SAXO_REDIRECT_URI", "http://localhost/callback")
+    env.write_text(text, encoding="utf-8")
+    os.chmod(env, 0o600) if os.name != "nt" else None
+    print(".env mis à jour (aucune valeur affichée).")
+    return 0
+
+
 def cmd_saxo_auth(args: argparse.Namespace) -> int:
     """OAuth Authorization Code (read-only app): print the URL, paste the code, store the refresh token encrypted."""
     import os
@@ -172,6 +234,10 @@ def main(argv: list[str] | None = None) -> int:
     bf.add_argument("--to", default=None)
     bf.add_argument("--isin", default=None, help="liste d'ISIN séparés par des virgules (défaut : tout le référentiel)")
     bf.set_defaults(fn=cmd_backfill)
+    es = sub.add_parser("env-setup", help="créer/compléter .env de façon interactive (saisie masquée)")
+    es.add_argument("group", help="saxo | eodhd | telegram | anthropic | imap | healthchecks")
+    es.add_argument("--force", action="store_true", help="remplacer une valeur déjà renseignée")
+    es.set_defaults(fn=cmd_env_setup)
     sa = sub.add_parser("saxo-auth")
     sa.add_argument("--sim", action="store_true", help="environnement de simulation (aucune donnée de marché)")
     sa.set_defaults(fn=cmd_saxo_auth)
