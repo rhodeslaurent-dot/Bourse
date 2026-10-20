@@ -10,6 +10,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import select
 
+from app.data.base import ProviderError, QuotaExceeded
 from app.data.providers.eodhd import EodhdProvider
 from app.db.models import Instrument
 from app.db.session import db_session
@@ -21,17 +22,30 @@ log = logging.getLogger("bourse.jobs.eod_backfill")
 
 
 def backfill_history(provider: EodhdProvider, start: date, end: date, isins: list[str] | None = None) -> int:
-    n = 0
+    """EOD history for the referential, one instrument at a time. Progress is logged every 50
+    instruments and committed as it goes; a symbol EODHD refuses is skipped (logged), and a quota
+    exhaustion stops the run cleanly with what was already stored."""
+    n = skipped = 0
     with db_session() as s:
         q = select(Instrument).where(Instrument.active.is_(True))
         if isins:
             q = q.where(Instrument.isin.in_(isins))
-        insts = list(s.scalars(q))
-        for inst in insts:
-            if not inst.ticker_eodhd:
+        insts = [i for i in s.scalars(q) if i.ticker_eodhd]
+        log.info("backfill EOD %s → %s : %d instruments", start, end, len(insts))
+        for k, inst in enumerate(insts, 1):
+            try:
+                bars = provider.fetch_eod([inst.ticker_eodhd], start, end)
+            except QuotaExceeded as exc:
+                log.warning("quota EODHD atteint après %d instruments : %s — reprendre plus tard", k - 1, exc)
+                break
+            except ProviderError as exc:
+                skipped += 1
+                log.warning("%s (%s) ignoré : %s", inst.ticker_eodhd, inst.isin, str(exc)[:120])
                 continue
-            bars = provider.fetch_eod([inst.ticker_eodhd], start, end)
             n += upsert_eod(s, bars, {inst.ticker_eodhd: inst.isin})
+            if k % 50 == 0 or k == len(insts):
+                s.commit()
+                log.info("backfill : %d/%d instruments, %d barres, %d ignorés", k, len(insts), n, skipped)
     return n
 
 
