@@ -45,7 +45,7 @@
     {{ tile('Risque courant + réservé', r.open_risk_total_eur|eur, r.open_risk_pct|pct ~ ' du capital · plafond ' ~ view.max_open_risk_pct|pct, 'red' if over else 'green') }}
     {{ tile('Scénario de gap', r.gap_scenario_loss_eur|eur, '−10 % sous le stop', 'slate') }}
     {{ tile('Exposition', r.exposure_pct|pct(0), r.positions_count ~ ' position(s) · repères ' ~ (view.hints.positions|int) ~ ' / ' ~ ((view.hints.exposure * 100)|int) ~ ' %', 'blue') }}
-    {{ tile('Engagements SRD', r.srd_notional_eur|eur, 'levier ' ~ ('%.2f'|format(r.srd_leverage) if r.srd_leverage is not none else '—') ~ ' · couverture ' ~ ('%.2f ×'|format(view.coverage_ratio) if view.coverage_ratio is not none else '—'), 'slate') }}
+    {{ tile('SRD · engagements', r.srd_notional_eur|eur, 'levier ' ~ ('%.2f'|format(r.srd_leverage) if r.srd_leverage is not none else '—') ~ ' · couverture ' ~ ('%.2f ×'|format(view.coverage_ratio) if view.coverage_ratio is not none else '—'), 'slate') }}
   </div>
   <div class="card space-y-3 text-sm">
     <div>
