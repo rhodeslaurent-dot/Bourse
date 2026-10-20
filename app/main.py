@@ -138,6 +138,10 @@ def create_app(
                     datetime.now(UTC),
                     "processus redémarré pendant le job (rejeu selon misfire_grace)",
                 )
+            from app.logging_setup import redact
+
+            for run in s.scalars(select(JobRun).where(JobRun.error.is_not(None), JobRun.error.like("%://%"))):
+                run.error = redact(run.error or "")  # rule 6: scrub errors stored by an earlier version
             record_params_version(
                 s,
                 config.params.version,

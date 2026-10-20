@@ -5,6 +5,8 @@ Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 ## [Unreleased] — Saxo live : instruments sans ISIN — 2026-10-20
 
 - ADR-006 : Saxo OpenAPI ne renvoie pas d'ISIN ; correspondance `Uic` + `Symbol` (`VK:xpar`) → ISIN par alias persistant, `ticker_saxo`, ticker + MIC du référentiel, puis `config/instruments_map.yaml` (`saxo:` / `saxo_uic:`). Symbole `…:xxxx` = radié/bloqué, non suivi. Positions non résolues visibles (`saxo-check`, rapport `unmapped`, P3 `broker_unmapped`). Total : 197 tests.
+- Secrets : le mot de passe d'une URL (`scheme://user:mot_de_passe@hôte`) est masqué dans les logs et les erreurs de jobs (y compris celles déjà stockées, au démarrage) ; `backup` passe le mot de passe par `PGPASSWORD` et n'inclut jamais la commande dans son erreur ; URL libpq sans suffixe `+psycopg`.
+- `params-init --update` ajoute les jobs manquants depuis l'exemple ; `/sante` liste les jobs implémentés absents de `params.yaml`.
 - `universe_refresh` : seules les places ayant un calendrier sont chargées (M7) ; une place refusée par EODHD est ignorée avec sa raison (P4) et les codes disponibles sont journalisés ; `run-job` affiche les logs en console.
 - `news_scan` : `news_items.guid` en `Text` (migration 0005, les guid RSS dépassent 255 caractères sous Postgres) ; un flux refusé au flush est isolé par savepoint et ne casse plus les suivants.
 - ADR-007 : jeton Saxo stocké avec son expiration, job `saxo_token_keepalive` (20 min, tous les jours), volume `./data` partagé CLI/conteneur, P3 `saxo_auth_expired` une fois par jour, état sur `/sante`. Valeurs factices de `.env` ignorées ; `.dockerignore`.

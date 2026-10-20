@@ -16,9 +16,14 @@ _SECRET_RE = re.compile(
 )
 
 
+_URL_CRED_RE = re.compile(r"(://[^/\s:@\"']+:)([^@\s\"']+)(@)")  # scheme://user:password@host
+
+
 def redact(text: str) -> str:
-    """Mask secret-like values in any free text (logs, tracebacks, job errors)."""
-    return _SECRET_RE.sub(lambda m: m.group(1) + "[redacted]", text or "")
+    """Mask secret-like values in any free text (logs, tracebacks, job errors), including the
+    password of a ``scheme://user:password@host`` URL (DATABASE_URL in a failed command)."""
+    out = _SECRET_RE.sub(lambda m: m.group(1) + "[redacted]", text or "")
+    return _URL_CRED_RE.sub(lambda m: m.group(1) + "[redacted]" + m.group(3), out)
 
 
 class JsonFormatter(logging.Formatter):

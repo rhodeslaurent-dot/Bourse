@@ -301,8 +301,75 @@ def init_params(example: str, target: str, telegram_user_id: str, email: str, up
     text = (dst if dst.exists() else src).read_text(encoding="utf-8")
     text = re.sub(r"^(\s*telegram_user_id:)\s*\S+", rf"\g<1> {int(telegram_user_id)}", text, count=1, flags=re.M)
     text = re.sub(r'^(\s*email:)\s*"[^"]*"', rf'\g<1> "{email}"', text, count=1, flags=re.M)
+    if update:
+        text, added = merge_missing_jobs(src.read_text(encoding="utf-8"), text)
+        if added:
+            print("jobs ajoutés depuis params.example.yaml : " + ", ".join(added))
     dst.write_text(text, encoding="utf-8")
     return True
+
+
+def _jobs_block(text: str) -> tuple[int, int, dict[str, str]]:
+    """(start, end) line indexes of the top-level ``jobs:`` block and its ``  name: {...}`` lines."""
+    import re
+
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, ln in enumerate(lines) if re.match(r"^jobs:", ln)), -1)
+    if start < 0:
+        return -1, -1, {}
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if lines[i].strip() and not lines[i].startswith((" ", "\t", "#")):
+            end = i
+            break
+    entries = {}
+    for ln in lines[start + 1 : end]:
+        m = re.match(r"^  ([A-Za-z0-9_]+):", ln)
+        if m:
+            entries[m.group(1)] = ln
+    return start, end, entries
+
+
+def merge_missing_jobs(example: str, target: str) -> tuple[str, list[str]]:
+    """Append to the target's ``jobs:`` block the job lines of the example that it lacks (a job
+    added to the example after the target was created, e.g. ``saxo_token_keepalive``). Existing
+    lines and comments are untouched; a multi-line job (``news_scan``) is only copied when its
+    first line is missing, with its indented continuation lines."""
+    import re
+
+    es, ee, ex_entries = _jobs_block(example)
+    ts, te, t_entries = _jobs_block(target)
+    if es < 0 or ts < 0:
+        return target, []
+    ex_lines = example.splitlines(keepends=True)[es + 1 : ee]
+    to_add: list[str] = []
+    added: list[str] = []
+    i = 0
+    while i < len(ex_lines):
+        ln = ex_lines[i]
+        m = re.match(r"^  ([A-Za-z0-9_]+):", ln)
+        if m and m.group(1) not in t_entries:
+            block = [ln]
+            j = i + 1
+            while j < len(ex_lines) and (ex_lines[j].startswith("    ") or not ex_lines[j].strip()):
+                if ex_lines[j].strip():
+                    block.append(ex_lines[j])
+                j += 1
+            to_add.extend(block)
+            added.append(m.group(1))
+            i = j
+            continue
+        i += 1
+    if not to_add:
+        return target, []
+    t_lines = target.splitlines(keepends=True)
+    insert_at = te
+    while insert_at > ts + 1 and not t_lines[insert_at - 1].strip():
+        insert_at -= 1  # keep the blank line(s) separating the next top-level key
+    if t_lines and not t_lines[insert_at - 1].endswith("\n"):
+        t_lines[insert_at - 1] += "\n"
+    t_lines[insert_at:insert_at] = to_add
+    return "".join(t_lines), added
 
 
 def cmd_params_init(args: argparse.Namespace) -> int:

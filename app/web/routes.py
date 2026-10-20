@@ -89,6 +89,20 @@ def sante(request: Request) -> HTMLResponse:
                 "last": run,
             }
         )
+    specs = cfg.params.jobs.specs()
+    for name in IMPLEMENTED_JOBS:
+        if name not in specs:  # declared in params.example.yaml after this params.yaml was created
+            jobs_view.append(
+                {
+                    "name": name,
+                    "implemented": True,
+                    "enabled": False,
+                    "market_days_only": False,
+                    "missing": True,
+                    "next": None,
+                    "last": runs.get(name),
+                }
+            )
     av = cfg.params.availability
     unconfirmed = unconfirmed_slots(av.schedule) if av else []
     ctx = {

@@ -46,7 +46,7 @@
     {% for j in jobs %}
       <tr class="border-t">
         <td>{{ j.name }}{% if j.market_days_only %} <span title="calendrier par place">📅</span>{% endif %}</td>
-        <td>{% if not j.enabled %}désactivé{% elif not j.implemented %}<span class="text-slate-500">non implémenté (phase suivante)</span>{% else %}planifié{% endif %}</td>
+        <td>{% if j.missing %}<span class="text-red-700">absent de params.yaml — `params-init --update`</span>{% elif not j.enabled %}désactivé{% elif not j.implemented %}<span class="text-slate-500">non implémenté (phase suivante)</span>{% else %}planifié{% endif %}</td>
         <td>{% if j.next %}{{ j.next|dual }}{% else %}—{% endif %}</td>
         <td>{% if j.last %}{{ j.last.status }} · {{ j.last.started_at|dual }}{% if j.last.note %} · {{ j.last.note }}{% endif %}{% if j.last.error %} · <span class="text-red-700">{{ j.last.error[:120] }}</span>{% endif %}{% else %}—{% endif %}</td>
       </tr>

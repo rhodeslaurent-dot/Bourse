@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import yaml
 
 from app import cli
@@ -105,3 +107,40 @@ def test_env_set_refuses_secrets(tmp_path, monkeypatch, capsys):
     assert cli.cmd_env_set(ns) == 0
     assert "BACKUP_HOST_DIR=C:/Users/Laurent RHODES/sauvegardes\n" in (tmp_path / ".env").read_text(encoding="utf-8")
     assert cli.cmd_env_set(argparse.Namespace(key="BACKUP_HOST_DIR", value="--C:/x", unset=False)) == 2
+
+
+def test_merge_missing_jobs_appends_new_jobs_only():
+    example = (
+        "jobs:\n"
+        '  test_job: {cron: "5 9 * * 1-5"}\n'
+        "  news_scan:\n"
+        '    premarket: {cron: "*/5 7-8 * * 1-5"}\n'
+        '    day: {cron: "*/15 9-18 * * 1-5"}\n'
+        '  backup: {cron: "0 23 * * *"}\n'
+        '  saxo_token_keepalive: {every_minutes: 20, days: "1-7", market_days_only: false}   # ADR-007\n'
+        "\n"
+        "subscriptions: []\n"
+    )
+    target = (
+        "jobs:   # heure de Paris\n"
+        '  test_job: {cron: "5 9 * * 1-5", misfire_grace_min: 10}\n'
+        '  backup: {cron: "0 23 * * *", tz: "Indian/Reunion"}\n'
+        "\n"
+        "subscriptions: []\n"
+    )
+    out, added = cli.merge_missing_jobs(example, target)
+    assert added == ["news_scan", "saxo_token_keepalive"]
+    assert "misfire_grace_min: 10" in out and 'tz: "Indian/Reunion"' in out  # existing lines untouched
+    assert out.index("saxo_token_keepalive") < out.index("subscriptions") and "    day:" in out
+    assert cli.merge_missing_jobs(example, out) == (out, [])  # idempotent
+
+
+def test_init_params_update_merges_jobs_from_real_example(tmp_path):
+    import yaml
+
+    target = tmp_path / "params.yaml"
+    text = Path("config/params.example.yaml").read_text(encoding="utf-8")  # noqa: F821
+    target.write_text(text.replace("  saxo_token_keepalive:", "  # removed:"), encoding="utf-8")
+    assert init_params("config/params.example.yaml", str(target), "42", "a@b.c", update=True)
+    data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert data["jobs"]["saxo_token_keepalive"]["every_minutes"] == 20
