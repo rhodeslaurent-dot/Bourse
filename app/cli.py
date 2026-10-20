@@ -268,6 +268,8 @@ def cmd_saxo_check(args: argparse.Namespace) -> int:
         print(f"  {p.symbol:12} {p.isin or 'ISIN ?':12} qty {p.qty:>6} @ {p.open_price:<10.4g} {p.currency}")
     for o in orders[:10]:
         print(f"  ordre {o.order_id} {o.side} {o.qty} {o.isin or o.uic} {o.order_type} {o.price or ''} {o.status}")
+    for uic, why in pf.isin_errors.items():
+        print(f"  ISIN non résolu pour Uic {uic} : {why}")
     env = Path(".env")
     if env.exists() and client_key and live:
         text = env.read_text(encoding="utf-8")

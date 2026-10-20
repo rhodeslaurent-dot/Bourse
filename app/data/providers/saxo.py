@@ -324,7 +324,7 @@ class SaxoPortfolio:
                 BrokerPositionDto(
                     position_id=str(p.get("PositionId")),
                     uic=uic,
-                    isin=self.isin_of(uic),
+                    isin=self.isin_of(uic, str(base.get("AssetType") or "Stock")),
                     symbol=disp.get("Symbol", uic),
                     qty=int(base.get("Amount") or 0),
                     open_price=float(base.get("OpenPrice") or 0),
@@ -345,7 +345,7 @@ class SaxoPortfolio:
                 BrokerOrderDto(
                     order_id=str(o.get("OrderId")),
                     uic=uic,
-                    isin=self.isin_of(uic),
+                    isin=self.isin_of(uic, str(o.get("AssetType") or "Stock")),
                     side="buy" if str(o.get("BuySell", "")).lower() == "buy" else "sell",
                     qty=int(o.get("Amount") or 0),
                     filled=int(o.get("FilledAmount") or 0),
@@ -372,7 +372,7 @@ class SaxoPortfolio:
                         or c.get("ClosedPositionUniqueId")
                         or f"{cp.get('OpeningPositionId')}-close"
                     ),
-                    "isin": self.isin_of(uic),
+                    "isin": self.isin_of(uic, str(cp.get("AssetType") or "Stock")),
                     "qty": abs(int(cp.get("Amount") or 0)),
                     "price": float(cp.get("ClosingPrice") or 0),
                     "ts": _iso(cp.get("ExecutionTimeClose")),
