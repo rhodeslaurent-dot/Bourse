@@ -59,6 +59,7 @@ class SymbolRow:
 @dataclass
 class RefreshReport:
     total: int = 0
+    reasons: dict[str, int] = field(default_factory=dict)  # exclusion reason → count (diagnostics)
     included: int = 0
     added: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
@@ -115,6 +116,8 @@ def refresh_universe(
             r.isin, mic, price * fx if (price is not None and fx) else None, inst.market_cap_eur, adv, len(bars)
         )
         dec = universe_decision(facts, filt)
+        for reason in dec.reasons:
+            rep.reasons[reason] = rep.reasons.get(reason, 0) + 1
         pea = pea_regulatory_eligibility(r.isin, inst.country_of_domicile, countries, inst.pea_available_boursobank)
         if inst.pea_eligible != pea.eligible or inst.pea_source != pea.source:
             s.add(

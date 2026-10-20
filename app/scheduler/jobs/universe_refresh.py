@@ -198,4 +198,9 @@ def run(ctx: JobContext) -> int:
         len(rep.removed),
         rep.watchlist,
     )
+    if rep.reasons:
+        top = sorted(rep.reasons.items(), key=lambda kv: -kv[1])
+        log.info("motifs d'exclusion (un instrument peut en cumuler) : %s", " ; ".join(f"{k} : {v}" for k, v in top))
+    if rep.watchlist == 0 and rep.included:
+        log.info("watchlist vide : les indicateurs du jour manquent — lancer eod_backfill_check puis relancer ce job")
     return rep.included
