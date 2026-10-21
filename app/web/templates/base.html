@@ -14,7 +14,7 @@
   </style>
 </head>
 <body class="min-h-full bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased">
-  {% set nav = [('/', 'Décisions', 'M4 6h16M4 12h10M4 18h7'), ('/positions', 'Positions', 'M3 17l6-6 4 4 8-8'), ('/watchlist', 'Watchlist', 'M12 4l2.5 5 5.5.8-4 3.9.9 5.5L12 16.6 7.1 19.2l.9-5.5-4-3.9 5.5-.8z'), ('/sante', 'Santé', 'M3 12h4l2-6 4 12 2-6h6')] %}
+  {% set nav = [('/', 'Décisions', 'M4 6h16M4 12h10M4 18h7'), ('/opportunites', 'Opportunités', 'M13 2L3 14h7l-1 8 10-12h-7z'), ('/positions', 'Positions', 'M3 17l6-6 4 4 8-8'), ('/watchlist', 'Watchlist', 'M12 4l2.5 5 5.5.8-4 3.9.9 5.5L12 16.6 7.1 19.2l.9-5.5-4-3.9 5.5-.8z'), ('/journee', 'Journée', 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'), ('/performance', 'Performance', 'M3 3v18h18M7 14l4-4 4 4 5-6'), ('/assistant', 'Assistant', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'), ('/sante', 'Santé', 'M3 12h4l2-6 4 12 2-6h6')] %}
   {% set path = request.url.path if request else '/' %}
   <header class="sticky top-0 z-20 border-b border-slate-200/80 dark:border-slate-800 bg-white/90 dark:bg-slate-950/90 backdrop-blur">
     <div class="mx-auto max-w-5xl px-4 h-14 flex items-center justify-between gap-4">
@@ -22,22 +22,22 @@
         <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-sky-700 text-white text-xs font-bold">BP</span>
         <span>BOURSE-PILOT</span>
       </a>
-      <nav class="hidden sm:flex items-center gap-1 text-sm">
+      <nav class="hidden sm:flex items-center gap-0.5 text-sm">
         {% for href, label, icon in nav %}
-        <a href="{{ href }}" class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition {% if path == href %}bg-slate-900 text-white dark:bg-white dark:text-slate-900{% else %}text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800{% endif %}">
+        <a href="{{ href }}" class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition {% if path == href %}bg-slate-900 text-white dark:bg-white dark:text-slate-900{% else %}text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800{% endif %}">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="{{ icon }}"/></svg>{{ label }}
         </a>
         {% endfor %}
       </nav>
-      <span class="hidden sm:inline text-xs text-slate-500 dark:text-slate-400">lecture seule · aucun ordre</span>
+      <span class="hidden lg:inline text-xs text-slate-500 dark:text-slate-400">lecture seule · aucun ordre</span>
     </div>
   </header>
   <main class="mx-auto max-w-5xl px-4 py-5 pb-24 sm:pb-8 space-y-5">
     {% block content %}{% endblock %}
   </main>
   <nav class="sm:hidden fixed bottom-0 inset-x-0 z-20 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur">
-    <div class="grid grid-cols-4">
-      {% for href, label, icon in nav %}
+    <div class="grid grid-cols-5">
+      {% for href, label, icon in nav if href in ('/', '/opportunites', '/positions', '/journee', '/sante') %}
       <a href="{{ href }}" class="flex flex-col items-center gap-0.5 py-2 text-[11px] {% if path == href %}text-sky-700 dark:text-sky-300 font-semibold{% else %}text-slate-500 dark:text-slate-400{% endif %}">
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="{{ icon }}"/></svg>{{ label }}
       </a>

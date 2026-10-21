@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, dot, empty, field, button, note %}
+{% block title %}Opportunités — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold">Opportunités</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Propositions du {{ day.strftime('%d/%m/%Y') }} : {{ counts.BUY }} achat(s), {{ counts.WATCH }} à surveiller. Une ligne d'explication par proposition ; le détail s'ouvre d'un clic. Aucun ordre n'est passé : vous décidez chez le courtier.</p>
+    </div>
+    <form method="get" action="/opportunites" class="flex flex-wrap items-center gap-2 text-sm">
+      {{ field('day', '', 'date', day.isoformat()) }}
+      <select name="action" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-sm">
+        <option value="" {% if not action %}selected{% endif %}>toutes</option><option value="BUY" {% if action == 'BUY' %}selected{% endif %}>achats</option><option value="WATCH" {% if action == 'WATCH' %}selected{% endif %}>à surveiller</option>
+      </select>
+      {{ button('Afficher', 'ghost') }}
+    </form>
+  </div>
+</section>
+
+{% for it in items %}
+{% set p = it.p %}{% set ex = it.explain %}
+<section class="card {% if p.action == 'BUY' and not ex.blocked and not p.to_verify %}border-l-4 border-l-emerald-500{% elif ex.blocked %}border-l-4 border-l-rose-500{% elif p.to_verify %}border-l-4 border-l-amber-500{% endif %}">
+  <div class="flex flex-wrap items-start justify-between gap-2">
+    <div class="min-w-0">
+      <div class="flex flex-wrap items-center gap-2">
+        <h2 class="text-lg font-semibold"><a href="/valeur/{{ p.isin }}" class="hover:underline">{{ it.name }}</a></h2>
+        {{ badge(label('action', p.action), 'green' if p.action == 'BUY' else 'blue' if p.action == 'WATCH' else 'slate') }}
+        {{ badge(label('proposal_status', p.status), 'slate', p.status) }}
+        {% if p.to_verify %}{{ badge('à vérifier', 'amber', help_of('to_verify')) }}{% endif %}
+        {% if p.account_recommended %}{{ badge(label('account', p.account_recommended), 'slate') }}{% endif %}
+      </div>
+      <p class="mt-1 text-sm">{{ ex.headline }}</p>
+      {% for b in ex.blocked %}<p class="mt-1 text-sm font-semibold text-rose-700 dark:text-rose-300">{{ b }}</p>{% endfor %}
+    </div>
+    <div class="text-right text-xs text-slate-500 dark:text-slate-400"><span class="font-mono">{{ p.isin }}</span><br>{{ p.created_at|dual }}{% if p.expires_at %}<br>expire {{ p.expires_at|dual }}{% endif %}</div>
+  </div>
+
+  <details class="mt-3 group">
+    <summary class="cursor-pointer select-none text-xs font-medium text-sky-700 dark:text-sky-300">▸ détail : fiche, données utilisées, portes, décisions, note</summary>
+    <div class="mt-3 grid md:grid-cols-2 gap-4 text-sm">
+      <div>
+        <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Fiche de proposition</h3>
+        <dl class="mt-1 grid grid-cols-2 gap-y-1">
+          <dt class="text-slate-500">Zone d'entrée</dt><dd class="tabular">{% if p.entry_zone %}{% for k, v in p.entry_zone.items() %}{{ k }} {{ v }} €{% if not loop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</dd>
+          <dt class="text-slate-500">Stop initial</dt><dd class="tabular">{{ p.stop if p.stop is not none else '—' }}{% if p.stop is not none %} €{% endif %}</dd>
+          <dt class="text-slate-500">Objectifs</dt><dd class="tabular">{% if p.targets %}{{ p.targets|join(' / ') }} €{% else %}—{% endif %}</dd>
+          <dt class="text-slate-500">Quantité · taille</dt><dd class="tabular">{% if p.shares %}{{ p.shares }} titres{% else %}—{% endif %}{% if p.size_eur %} · {{ p.size_eur|eur }}{% endif %}</dd>
+          <dt class="text-slate-500" title="{{ help_of('R') }}">Risque (R)</dt><dd class="tabular">{{ p.risk_eur|eur if p.risk_eur is not none else '—' }}</dd>
+          <dt class="text-slate-500">Horizon</dt><dd>{{ p.horizon or '—' }}</dd>
+        </dl>
+        {% if ex.bullets %}<ul class="mt-2 list-disc ml-4 space-y-0.5 text-slate-700 dark:text-slate-300">{% for b in ex.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+        {% if p.to_verify %}<p class="mt-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-200">À vérifier : donnée différée ou état de compte périmé. Pas de fiche d'ordre tant que ce n'est pas confirmé.</p>{% endif %}
+      </div>
+      <div>
+        <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Données utilisées (instantané de décision)</h3>
+        {% if ex.data_used %}<ul class="mt-1 list-disc ml-4 space-y-0.5 text-slate-700 dark:text-slate-300">{% for d in ex.data_used %}<li>{{ d }}</li>{% endfor %}</ul>{% else %}<p class="mt-1 text-slate-500">Instantané indisponible.</p>{% endif %}
+        <h3 class="mt-3 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Décisions</h3>
+        {% if it.decisions %}<ul class="mt-1 space-y-0.5">{% for d in it.decisions %}<li>{{ badge(label('decision', d.decision), 'slate') }} <span class="text-xs text-slate-500">{{ d.ts|dual }} · {{ d.via }}{% if d.reason %} · {{ d.reason }}{% endif %}</span></li>{% endfor %}</ul>{% else %}<p class="mt-1 text-slate-500">Aucune décision enregistrée.</p>{% endif %}
+        <form method="post" action="/opportunites/decision" class="mt-2 flex flex-wrap items-center gap-2">
+          <input type="hidden" name="proposal_id" value="{{ p.id }}"><input type="hidden" name="day" value="{{ day.isoformat() }}">
+          {{ field('reason', 'motif (optionnel)', 'text', '', 'style="width:14rem"') }}
+          <button name="decision" value="seen" class="rounded-lg px-3 py-1.5 text-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">Vu</button>
+          <button name="decision" value="watch" class="rounded-lg px-3 py-1.5 text-sm bg-sky-700 hover:bg-sky-800 text-white">Watch</button>
+          <button name="decision" value="order_entered"{% if p.to_verify or ex.blocked %} disabled title="à vérifier ou bloqué : pas de fiche d'ordre"{% endif %} class="rounded-lg px-3 py-1.5 text-sm bg-emerald-700 hover:bg-emerald-800 text-white disabled:opacity-40 disabled:cursor-not-allowed">Ordre saisi</button>
+          <button name="decision" value="ignored" class="rounded-lg px-3 py-1.5 text-sm ring-1 ring-inset ring-rose-300 text-rose-700 hover:bg-rose-50 dark:text-rose-300">Ignorer</button>
+        </form>
+        {{ note('proposal', p.id, it.note, '/opportunites?day=' ~ day.isoformat(), 'Pourquoi je prends ou non cette proposition…') }}
+      </div>
+    </div>
+  </details>
+</section>
+{% else %}
+<section class="card">{{ empty("Aucune proposition ce jour : absence de proposition = résultat normal. Les signaux viennent des lettres (phase 1) puis des détecteurs D1–D4 (phase 2).", 'green') }}</section>
+{% endfor %}
+{% endblock %}
