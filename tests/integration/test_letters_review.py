@@ -168,7 +168,10 @@ def test_review_guards_recommendations_and_alerts(seeded, config):
         assert recs[ASML]["sources_positives"] == ["momentum_capital", "zonebourse"]
         ev = digest_event(rev, list(recs.values()))
         assert len(ev.telegram_text().splitlines()) <= 12 and "TotalEnergies" in ev.telegram_text()
-    assert [e.kind for e in alerts.events] == ["letter_negative_position"] and alerts.events[0].isin == TTE
+    kinds = {e.kind: e for e in alerts.events}
+    assert (
+        set(kinds) == {"letter_negative_position", "letter_a_etudier"} and kinds["letter_negative_position"].isin == TTE
+    )
     # nothing new since: the next review is empty and costs nothing
     with db_session() as s:
         assert run_review(s, config, ClaudeGateway(SETTINGS, call=fake_review(seeded))).status == "empty"
@@ -184,3 +187,22 @@ def test_page_and_manual_run_without_key(seeded, config, calendars, monkeypatch)
         html = c.get("/lettres").text
         assert "Revue des lettres" in html and "Lettre zonebourse" in html and "Préconisations" in html
         assert 'href="/lettres"' in c.get("/").text
+
+
+def test_review_at_reception_alerts_immediately_and_catch_up_skips(seeded, config, calendars):
+    """docs/20 §20.1: letters are reviewed by imap_poll right after ingestion; P2 per new
+    recommendation; the evening catch-up has nothing left to review."""
+    from app.scheduler.jobs.imap_poll import review_at_reception
+    from app.scheduler.runner import JobContext
+
+    alerts = FakeAlerts()
+    ctx = JobContext(config, calendars, NOW.date(), ("XPAR",), "normal")
+    ctx.llm, ctx.alerts, ctx.mode = ClaudeGateway(SETTINGS, call=fake_review(seeded)), alerts, "disponible"
+    with db_session() as s:
+        review_at_reception(s, ctx, ["h-z1", "h-m1"])
+    kinds = sorted(e.kind for e in alerts.events)
+    assert kinds == ["letter_a_etudier", "letter_negative_position"]
+    assert "ASML" in next(e for e in alerts.events if e.kind == "letter_a_etudier").title
+    assert "réception" in ctx.note
+    with db_session() as s:
+        assert run_review(s, config, ClaudeGateway(SETTINGS, call=fake_review(seeded))).status == "empty"

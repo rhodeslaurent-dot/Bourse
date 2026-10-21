@@ -1,6 +1,6 @@
-"""``letters_review`` (19:15 Paris, market days): Claude reads the letters and linked pages received
-since the previous review and returns opinions and validations, checked by Python (docs/20).
-Telegram digest (P3, ≤ 12 lines) and P2 on negative opinions about held positions."""
+"""``letters_review`` (19:15 Paris, market days) — evening catch-up (docs/20 §20.1): letters are
+reviewed at reception by ``imap_poll``; this job reviews those left over (LLM unavailable, budget)
+and sends the day's digest (P3, ≤ 12 lines)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def run(ctx: JobContext) -> int:
     with db_session() as s:
         rev = run_review(s, ctx.config, ctx.llm, trigger="daily", alerts=ctx.alerts, mode=ctx.mode)
         recs = recommendations(s, ctx.config, rev.day)
-        ctx.note = f"{len(rev.item_ids or [])} lettre(s) · {rev.status} · {len(recs)} préconisation(s)"
-        if p.telegram_digest and ctx.alerts is not None and rev.status == "ok":
+        ctx.note = f"rattrapage : {len(rev.item_ids or [])} lettre(s) · {rev.status} · {len(recs)} préconisation(s)"
+        if p.telegram_digest and ctx.alerts is not None and recs:
             ctx.alerts.emit(s, digest_event(rev, recs), ctx.mode, False)
         return len(recs)

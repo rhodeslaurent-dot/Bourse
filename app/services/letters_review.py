@@ -53,12 +53,14 @@ def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
-def letters_since(s: Session, now: datetime) -> list[NewsletterItem]:
-    """Letters received since the previous successful review (24 h by default, 4 days at most)."""
-    last = s.scalar(select(LetterReview.ts).where(LetterReview.status == "ok").order_by(LetterReview.ts.desc()))
-    since = max(_aware(last) if last else now - timedelta(hours=24), now - MAX_LOOKBACK)
+def unreviewed_letters(s: Session, now: datetime) -> list[NewsletterItem]:
+    """Letters of the last days not yet covered by a successful review (catch-up / manual run)."""
+    done: set[int] = set()
+    for ids in s.scalars(select(LetterReview.item_ids).where(LetterReview.status == "ok")):
+        done.update(ids or [])
+    since = now - MAX_LOOKBACK
     rows = s.scalars(select(NewsletterItem).order_by(NewsletterItem.received_at.desc()))
-    return [r for r in rows if since < _aware(r.received_at) <= now]
+    return [r for r in rows if since < _aware(r.received_at) <= now and r.id not in done]
 
 
 def build_dossier(s: Session, config: LoadedConfig, items: list[NewsletterItem], now: datetime) -> dict[str, Any]:
@@ -142,13 +144,16 @@ def run_review(
     now: datetime | None = None,
     alerts: Any | None = None,
     mode: str = "reunion",
+    items: list[NewsletterItem] | None = None,
 ) -> LetterReview:
+    """Review ``items`` (default: every letter not yet reviewed). At reception (docs/20 §20.1) the
+    caller passes the letters just ingested, so signals are analysed while still actionable."""
     from app.llm.gateway import LlmUnavailable
     from app.llm.schemas import LettersReviewOut
 
     now = now or datetime.now(UTC)
     p = params_of(config)
-    items = letters_since(s, now)
+    items = unreviewed_letters(s, now) if items is None else items
     dossier = build_dossier(s, config, items, now)
     rev = LetterReview(
         ts=now,
@@ -254,7 +259,39 @@ def run_review(
     rev.rejected = rejected
     s.flush()
     _act_on_opinions(s, config, rev, alerts, mode)
+    if alerts is not None:
+        alert_recommendations(s, config, rev, alerts, mode)
     return rev
+
+
+def alert_recommendations(s: Session, config: LoadedConfig, rev: LetterReview, alerts: Any, mode: str) -> int:
+    """P2 per value touched by this review that now carries a recommendation (deduplicated per
+    value, kind and day by the alert service). Vigilance on positions is emitted separately."""
+    from app.notify.base import Event
+
+    touched = {o.isin for o in s.scalars(select(LetterOpinion).where(LetterOpinion.review_id == rev.id)) if o.isin}
+    vals = s.scalars(select(LetterValidation).where(LetterValidation.review_id == rev.id))
+    touched |= {v.isin for v in vals if v.isin}
+    n = 0
+    for r in recommendations(s, config, rev.day):
+        if r["isin"] not in touched or r["type"] == "vigilance":
+            continue
+        lines = []
+        if r["sources_positives"]:
+            lines.append("Avis positifs : " + ", ".join(r["sources_positives"]))
+        if r["contradictions"]:
+            lines.append(f"Contredit une proposition en cours ({r['contradictions']})")
+        if r["dernier_resume"]:
+            lines.append(r["dernier_resume"][:200])
+        lines.append("Pas un ordre : vérifier avec les règles de risque · page Revue des lettres")
+        alerts.emit(
+            s,
+            Event("P2", f"letter_{r['type']}", f"{REC_LABELS[r['type']]} : {r['valeur']}", lines, isin=r["isin"]),
+            mode,
+            True,
+        )
+        n += 1
+    return n
 
 
 def _act_on_opinions(s: Session, config: LoadedConfig, rev: LetterReview, alerts: Any, mode: str) -> None:
@@ -401,7 +438,7 @@ def digest_event(rev: LetterReview, recs: list[dict[str, Any]]) -> Any:
     from app.notify.base import Event
 
     lines = []
-    first = re.split(r"(?<=[.!?])\s", (rev.synthesis or "").strip())
+    first = re.split(r"(?<=[.!?])\s", (rev.synthesis or "").strip()) if rev.status == "ok" else []
     if first and first[0]:
         lines.append(first[0][:200])
     for r in recs[:8]:

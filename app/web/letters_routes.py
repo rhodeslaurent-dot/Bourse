@@ -56,7 +56,7 @@ def analyse_now(request: Request) -> RedirectResponse:
         rev = run_review(s, st.config, getattr(st, "llm", None), trigger="manual", alerts=getattr(st, "alerts", None))
         msg = {
             "ok": f"Revue terminée : {len(rev.item_ids or [])} lettre(s) analysée(s)",
-            "empty": "Aucune nouvelle lettre depuis la revue précédente",
+            "empty": "Toutes les lettres récentes sont déjà analysées",
             "rules": "IA non configurée : lettres listées sans analyse",
             "unavailable": "IA indisponible : " + (rev.synthesis or ""),
         }.get(rev.status, rev.status)

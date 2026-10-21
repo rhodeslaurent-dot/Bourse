@@ -5,7 +5,8 @@ Statut : spécification **acceptée le 21/10/2026** (demande utilisateur : « qu
 ## 20.1 Deux niveaux de lecture
 
 1. **À la réception** (`imap_poll`, inchangé) : extraction des valeurs et des niveaux écrits. **Une proposition (WATCH) n'est créée que pour une recommandation explicite** : sens « achat » ou « à surveiller ». Une simple **mention** (sens « neutre », fréquente dans les commentaires de marché type « Morning Meeting ») est conservée (`newsletter_values`) sans signal ni proposition. Un avis « vente » ne crée pas de proposition ; il est traité par la revue (§20.3) s'il concerne une position.
-2. **Revue quotidienne** (nouveau job `letters_review`, 19:15 Paris les jours de marché, et bouton « Analyser maintenant ») : Claude relit **toutes les lettres et pages liées** reçues depuis la revue précédente (au plus 24 h en fonctionnement normal), avec le contexte de l'outil, et produit des **avis par valeur** et des **validations**.
+2. **Revue à la réception** (décision utilisateur du 21/10/2026 : « l'analyse ne peut pas se faire le soir mais à réception des mails pour que les signaux soient encore actifs ») : dans `imap_poll`, juste après l'enregistrement d'une ou plusieurs lettres nouvelles (et de leur page liée), Claude lit **ces lettres** avec le contexte de l'outil et produit des **avis par valeur** et des **validations** ; les préconisations qui en découlent partent aussitôt en **P2** (une par valeur, type et jour). Un échec (IA indisponible, plafond atteint) ne bloque pas la relève : la lettre reste « non analysée ».
+3. **Rattrapage du soir** (job `letters_review`, 19:15 Paris, et bouton « Analyser maintenant ») : revue des lettres des 4 derniers jours non encore analysées, puis **digest** de la journée (P3, ≤ 12 lignes).
 
 ## 20.2 Dossier remis à Claude (construit en Python)
 
@@ -39,7 +40,7 @@ Sur `window_days` jours glissants (5), par valeur identifiée :
 
 - Page **`/lettres`** (« Revue des lettres ») : synthèse du jour, préconisations, validations (confirme / contredit) avec lettres sources, avis par valeur (source, orientation, résumé, lien vers l'article), lettres de la période (objet, source, statut de la page liée), bouton « Analyser maintenant », date au choix.
 - Opportunités : badges « confirmée par N lettre(s) » / « contredite » sur les cartes concernées. Fiche valeur et assistant : avis des 7 derniers jours.
-- Telegram : un digest **≤ 12 lignes** après la revue (synthèse courte + préconisations), niveau P3, regroupé ; P2 séparées pour la vigilance sur positions.
+- Telegram : à la réception, **P2** pour chaque préconisation nouvelle d'une valeur (à étudier, recommandation explicite, contradiction) et pour la vigilance sur positions, dédupliquées par valeur, type et jour ; le soir, un digest **≤ 12 lignes** (P3) de la journée.
 - Journée guidée : étape « Lire la revue des lettres » (soir).
 
 ## 20.7 Paramètres (`config/params.yaml`)

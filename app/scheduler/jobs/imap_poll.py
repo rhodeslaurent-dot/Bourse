@@ -54,6 +54,7 @@ def run(ctx: JobContext) -> int:
     follow = follow_rules(imap)
     cookie = os.environ.get("ZONEBOURSE_COOKIE") or None
     n = 0
+    new_hashes: list[str] = []
     with db_session() as s:
         for mail in mails:
             if not subject_ok(imap, mail.source, mail.subject):
@@ -73,4 +74,26 @@ def run(ctx: JobContext) -> int:
                 s, mail, ctx.config, ctx.llm, quotes_for(isins, ctx.config) if isins else {}, calendars=ctx.calendars
             )
             n += rep.signals
+            if rep.new:
+                new_hashes.append(mail.dedup_hash)
+        if new_hashes:
+            review_at_reception(s, ctx, new_hashes)
     return n
+
+
+def review_at_reception(s, ctx: JobContext, dedup_hashes: list[str]) -> None:  # type: ignore[no-untyped-def]
+    """docs/20 §20.1: the letters just received are reviewed by Claude right away (signals still
+    actionable); a failure leaves them for the evening catch-up, never breaks the poll."""
+    from sqlalchemy import select
+
+    from app.db.models import NewsletterItem
+    from app.services.letters_review import params_of, run_review
+
+    if params_of(ctx.config) is None:
+        return
+    items = list(s.scalars(select(NewsletterItem).where(NewsletterItem.dedup_hash.in_(dedup_hashes))))
+    try:
+        rev = run_review(s, ctx.config, ctx.llm, trigger="reception", alerts=ctx.alerts, mode=ctx.mode, items=items)
+        ctx.note = f"revue à réception : {len(items)} lettre(s), {rev.status}"
+    except Exception as exc:  # noqa: BLE001 — the evening catch-up reviews what is left
+        log.warning("revue à réception en échec (%s) : rattrapage au passage du soir", exc.__class__.__name__)
