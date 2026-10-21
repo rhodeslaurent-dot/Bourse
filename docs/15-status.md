@@ -5,7 +5,7 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 | Critère | Statut | Date | Commit | Note |
 |---|---|---|---|---|
 | A0.1 | en cours | 2026-09-13 | | Socle livré (compose, restart unless-stopped, misfire_grace, startup.ps1) ; **test réel** (redémarrage PC, coupure box 10 min, arrêt Docker) à faire par l'utilisateur — RUNBOOK §5 |
-| A0.2 | en cours | 2026-10-21 | | Domaine + Cloudflare Tunnel (connecteur **service Windows**, route `http://localhost:8000`, RUNBOOK §2 variante B) + Access (OTP, e-mail unique) opérationnels, `/sante` « activé » ; **reste** : test depuis le PC pro (proxy d'entreprise) |
+| A0.2 | fait | 2026-10-21 | | Domaine + Cloudflare Tunnel (connecteur **service Windows**, route `http://localhost:8000`, RUNBOOK §2 variante B) + Access (OTP, e-mail unique) opérationnels, `/sante` « activé » ; test depuis le PC pro (proxy d'entreprise) concluant le 21/10/2026 |
 | A0.3 | fait (tests) | 2026-09-13 | | `test_job` 09:05 Paris → 11:05 été / 12:05 hiver Réunion (test cron) ; job Xetra sauté le 24/12, job Paris tourne en demi-séance (tests + `run-job`) ; à observer en réel |
 | A0.4 | en cours | 2026-10-21 | | Vrai bot configuré et message de test reçu ; **reste** : vérifier un clic de bouton et `/mode reunion 2h` depuis le téléphone |
 | A0.5 | en cours | 2026-10-21 | | healthchecks.io en service (5 jobs surveillés : `saxo_token_keepalive` battement de cœur 20 min, `backup`, `eod_backfill_check`, `portfolio_sync`, `position_monitor`) ; sauvegarde quotidienne OK ; **reste** : test de restauration (`restore_test.ps1`) |
@@ -16,7 +16,7 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 | A1.3 | fait (tests) | 2026-09-15 | | Risque courant/réservé, secteur, facteur, scénario de gap, exposition, levier et couverture SRD sur portefeuille synthétique (SRD + comptant + PEA, SEK) ; équité docs/10 §10.3 ; affichés sur `/` (page « Trois décisions ») |
 | A1.4 | fait (tests) | 2026-09-15 | | `test_sizing_examples` : 114 actions, R 2,381 €, frais ≈ 27 €, 214 € si exécuté à 42,40 ; risque courant borné à zéro ; `BLOQUÉ : <règle>` avec la clé params ; état périmé (> 10 min) signalé sur `/` et `/positions` (le marquage « à vérifier » de la proposition arrive avec les propositions, phase 2) |
 | A1.5 | en cours | 2026-09-15 | | Référentiel `instruments` + alias, `universe_refresh` (listes EODHD + faits du screener, filtres docs/05, PEA réglementaire avec préfixes pièges, SRD par règles « à confirmer chez Saxo », instantané versionné + diff, watchlist momentum), `eod_backfill_check` (bulk officiel, remplace le provisoire, trous par calendrier de place, `features_daily` + rang RS), `daily_regime`, `backfill` CLI, `/watchlist`, `/api/instruments/<isin>` ; mécanique testée sur fixtures. **Reste** : clé EODHD → univers ≥ 600, EOD complet 5 matins, diff hebdo observé |
-| A1.6 | en cours | 2026-10-21 | | Clé Anthropic active ; boîte rds.cryptos (IMAP + SMTP) en service ; 299 lettres Momentum importées (docs/19) ; pages « Lire la suite » Zonebourse (Mailjet) ; revue à la réception (docs/20). **Reste** : 10 lettres réelles anonymisées en fixtures, redirection des lettres Momentum vers rds.cryptos |
+| A1.6 | en cours | 2026-10-21 | | Clé Anthropic active ; boîte rds.cryptos (IMAP + SMTP) en service ; 299 lettres Momentum importées (docs/19) ; pages « Lire la suite » Zonebourse (Mailjet) ; revue à la réception (docs/20). filtre Gmail de transfert Momentum → rds.cryptos en place (21/10/2026). **Reste** : 10 lettres réelles anonymisées en fixtures |
 | A1.7 | fait (tests) | 2026-09-15 | | Seuil franchi → P1 immédiate ; 5 min sans exécution confirmée → SELL au marché dans le même incident ; « stop exécuté » distinct ; hors séance pas de SELL |
 | A1.8 | fait (tests) | 2026-09-15 | | Toute proposition (y compris lettre seule) → `signals` + `proposals` + `decision_snapshots` figé + `decisions` via API/web ; base de la comparaison des trois démarches |
 | A17.1 | fait (tests) | 2026-10-21 | | `/opportunites` : ligne d'explication déterministe (`services/explain`), portes `BLOQUÉ` en rouge, détail dépliable (fiche, données de l'instantané, décisions, note) ; boutons Vu/Watch/Ordre saisi/Ignorer → `decisions.via = web` ; « Ordre saisi » désactivé si « à vérifier » ou bloqué |
@@ -68,7 +68,6 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 - 5 journées passées à rejouer pour contrôler D1 (dates + gaps observés) — phase 3 (A3.3).
 - Paramètres à renseigner : `srd.coverage_rate_broker`, `srd.prorogation_deadline_local` (interface Saxo), `pea.opening_date`, `pea.deposits_total_eur`, `risk.factor_groups`, TMI pour la simulation au barème — phases 1 à 4.
 - Confirmer, à la première proposition sur chaque place, `pea_available_boursobank` et `pea_order_types_ok` — phase 2.
-- Test d'accès depuis le PC pro (proxy) au hostname Cloudflare — phase 0 (A0.2).
 
 ## Journal des sessions
 
