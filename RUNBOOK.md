@@ -59,6 +59,9 @@ Le fichier `.env` (racine du dossier) est lu automatiquement par les commandes `
 - Mode de disponibilité : Telegram `/mode disponible|reunion|absent [2h|30m|1j]` ou formulaire sur `/sante`.
 - Saxo « autorisation expirée » (alerte P3 `saxo_auth_expired` ou ligne rouge sur `/sante`) : le refresh token Saxo expire en moins d'une heure sans rafraîchissement (ADR-007) ; après tout arrêt prolongé de l'application, relancer sur le PC `uv run python -m app.cli saxo-auth`. Le jeton est partagé par le volume `./data`.
 - Interface : après toute modification des gabarits `app/web/templates/*.html`, recompiler la feuille de style (`scripts\build_css.ps1` sous Windows, `scripts/build_css.sh` ailleurs ; ADR-008) et committer `app/web/static/app.css`.
+- Mise à jour de version (`git pull`) : lancer `uv run python -m app.cli params-init --update --email <adresse>` pour ajouter à `config/params.yaml` les jobs et blocs nouveaux de l'exemple (ex. job `kpi_snapshot`, bloc `workflow` de la journée guidée) sans toucher aux valeurs existantes, puis `docker compose up -d --build app` (les migrations Alembic s'appliquent au démarrage).
+- Journée guidée (`/journee`) : les étapes viennent du bloc `workflow` de `params.yaml` (type `job`, `page` ou `check`, créneau, jours) ; modifier ce bloc puis redémarrer l'application.
+- Assistant (`/assistant`) : nécessite `ANTHROPIC_API_KEY` dans `.env` ; sans clé, il affiche le dossier de faits. Une réponse contenant un nombre absent du dossier est rejetée (règle 3) ; le coût s'ajoute au plafond `llm.*`.
 - Position Saxo « non suivie » dans `saxo-check` ou alerte P3 `broker_unmapped` : Saxo ne fournit pas l'ISIN (ADR-006). Si l'univers EODHD n'est pas encore chargé, ajouter l'instrument dans `config/instruments_map.yaml` avec sa clé `saxo: <TICKER>:<mic>` (symbole affiché par `saxo-check`) puis relancer `saxo-check`. Un symbole en `…:xxxx` est un instrument radié ou bloqué : il reste volontairement hors suivi.
 
 ## 7. Restauration

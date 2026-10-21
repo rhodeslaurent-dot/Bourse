@@ -42,7 +42,7 @@ Conventions : clés `id` (bigint), horodatages `timestamptz` en UTC, montants `n
 
 ## 13.5 KPI, fiscal, journal
 
-- `kpi_daily` (date, account_id?, equity, cash, exposure, leverage, pnl_realized, pnl_unrealized, drawdown, …) ; `benchmarks_eod` (index, date, close).
+- ★ `kpi_daily` (day, account_id? — nul = consolidé, equity, cash, positions_value, latent_pnl, realized_pnl_cum, incomplete, computed_at ; unique (day, account_id)) — écrit par `kpi_snapshot` (migration 0006) ; exposition, levier et drawdown restent calculés à la volée ; `benchmarks_eod` (index, date, close).
 - `tax_lots` (account_id, isin, ts, qty, unit_cost_eur, fees, source_trade_id) ; `tax_pmp` (account_id, isin, ts, pmp, qty_after) ; `tax_disposals` (year, account_id, isin, ts_sale, ts_settlement, qty, proceeds_eur, cost_basis_eur, gain_eur, srd, fx json) ; `tax_carryforward` (origin_year, amount, remaining, expires_year) ; `pea_events` (type ∈ {opening, deposit, withdrawal}, date, amount).
 - `journal_entries` (position_id, tags[], notes, screenshots[], mae_r, mfe_r, entry_efficiency, exit_efficiency) ; `behavior_flags` (ts, kind, position_id?, proposal_id?, details) ; `reviews` (period, kind ∈ {weekly, monthly}, computed json, llm_text, adr_proposals json) ; `trader_memory` (ts, note, source ∈ {user, review}).
 
@@ -61,3 +61,9 @@ Conventions : clés `id` (bigint), horodatages `timestamptz` en UTC, montants `n
 - Une `position` n'est créée que par un `trade` (déclaré ou confirmé) ; un `order` seul ne crée jamais de position ; un `trade` déclaré non rapproché sous 24 h génère une alerte.
 - `portfolio_state` (account_id, cash, positions hash, orders hash, synced_at) : toute proposition référence l'âge de cet état.
 - Suppression interdite sur `signals`, `proposals`, `trades` (soft delete uniquement).
+
+## 13.8 Interface v2 (docs/17, migration 0006)
+
+- ★ `notes` (scope ∈ {position, watchlist, proposal, instrument, global}, ref, text, updated_at ; unique (scope, ref)) — texte libre persistant, jamais supprimé.
+- ★ `workflow_steps` (day, key, done_at, result ; unique (day, key)) — état des étapes de la journée guidée (`params.workflow`).
+- ★ `assistant_messages` (ts, isin?, question, answer json, answered_by ∈ {llm, rules, rejected}, context json, cost_usd, model) — questions à l'assistant avec le dossier de faits exact utilisé.

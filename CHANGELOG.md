@@ -2,6 +2,16 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Interface v2 — 2026-10-21
+
+- Cahier des charges `docs/17-interface-v2.md` (critères A17.1–A17.6) ; migration 0006 : `notes`, `workflow_steps`, `assistant_messages`, `kpi_daily`.
+- Libellés français partout (`app/web/labels.py`) ; noms de valeurs à la place des ISIN ; notes libres persistantes sur positions, watchlist, propositions, valeurs et journée.
+- `/opportunites` : explication en une ligne calculée en Python, portes bloquantes, détail dépliable, décisions depuis le web.
+- `/performance` : réalisé FIFO (`domain/performance`, pur), latent, qualité, répartition, courbe d'équité et barres mensuelles en SVG ; job `kpi_snapshot` (18:10 Paris).
+- `/journee` : déroulé quotidien cliquable (lancer un job, ouvrir une page, cocher), paramétré par `workflow` dans `params.yaml`.
+- `/assistant` : questions sur une valeur ou le portefeuille, réponses du LLM limitées au dossier de faits avec rejet des nombres non sourcés ; fiche `/valeur/<isin>` (graphique, indicateurs expliqués, position, propositions, news, note) ; recherche globale.
+- Correctif : la passerelle Claude est instanciée au démarrage et transmise aux jobs (auparavant jamais créée). `params-init --update` ajoute aussi les blocs manquants (`workflow`). Total : 250 tests.
+
 ## [Unreleased] — Interface refondue — 2026-10-21
 
 - ADR-008 : Tailwind compilé en local (`/static/app.css`, plus de CDN, HTMX retiré), système d'interface partagé (`_ui.html`), navigation haute et barre mobile, mode sombre, cartes et badges d'état, tuiles de risque avec jauge, tableau des jobs et watchlist lisibles, filtres `eur`/`pct`. Captures vérifiées sur ordinateur, mobile et mode sombre.
