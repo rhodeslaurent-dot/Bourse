@@ -162,6 +162,8 @@ def ingest_mail(
             row.gap_open = gap_fn(row.p_open, prev)
         if row.p_open and row.p_recv:
             row.drift_since_open = row.p_recv / row.p_open - 1
+        if v.direction not in ("buy", "watch"):
+            continue  # docs/20 §20.1: a mention (neutral) or a sell opinion is kept, not proposed
         sig = record_signal(
             s,
             v.isin,

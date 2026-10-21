@@ -222,6 +222,18 @@ class Llm(_Model):
     review_max_tokens: int = 4000
 
 
+class LettersReviewParams(_Model):
+    """docs/20 — daily review of the letters by Claude (reading only)."""
+
+    effective_from: date
+    window_days: int = 5
+    min_positive_sources: int = 2
+    max_chars_per_letter: int = 8000
+    max_total_chars: int = 60000
+    max_tokens: int = 4000
+    telegram_digest: bool = True
+
+
 class LearningParams(_Model):
     """docs/18 §18.4–18.6 — feedback loop thresholds (never auto-optimised)."""
 
@@ -282,3 +294,4 @@ class Params(BaseModel):
     subscriptions: list[dict[str, Any]] | None = None
     workflow: dict[str, Any] | None = None  # docs/17 §17.6
     learning: LearningParams | None = None  # docs/18
+    letters_review: LettersReviewParams | None = None  # docs/20

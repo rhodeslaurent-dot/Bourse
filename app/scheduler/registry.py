@@ -32,6 +32,7 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "watchlist_refresh": "app.scheduler.jobs.watchlist_refresh:run",
     "outcomes_update": "app.scheduler.jobs.outcomes_update:run",
     "weekly_review": "app.scheduler.jobs.weekly_review:run",
+    "letters_review": "app.scheduler.jobs.letters_review:run",
 }
 
 

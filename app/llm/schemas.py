@@ -81,3 +81,32 @@ class LearningReviewOut(BaseModel):
     findings: list[LearningFinding] = Field(default_factory=list, max_length=6)
     questions: list[LearningQuestionOut] = Field(default_factory=list, max_length=3)
     suggestions: list[LearningSuggestionOut] = Field(default_factory=list, max_length=5)
+
+
+class LetterOpinionOut(BaseModel):
+    """docs/20 §20.3 — what a letter says about one value (reading, never computing)."""
+
+    name: str = Field(max_length=128)
+    isin: str | None = None
+    orientation: Literal["positive", "negative", "neutre"]
+    explicite: bool = False
+    action_lettre: Literal["achat", "vente", "surveiller", "aucune"] = "aucune"
+    catalyseur: str = Field(default="", max_length=160)
+    horizon: Literal["court", "moyen", "long", "non_precise"] = "non_precise"
+    resume: str = Field(max_length=300)
+    citation: str = Field(max_length=200)
+    lettres: list[int] = Field(default_factory=list, max_length=8)
+
+
+class LetterValidationOut(BaseModel):
+    cible: Literal["proposition", "position", "watchlist"]
+    reference: str = Field(max_length=32)  # proposal id, or ISIN for a position / watchlist value
+    verdict: Literal["confirme", "contredit", "sans_avis"]
+    justification: str = Field(max_length=300)
+    lettres: list[int] = Field(default_factory=list, max_length=8)
+
+
+class LettersReviewOut(BaseModel):
+    synthese: str = Field(max_length=1200)
+    avis: list[LetterOpinionOut] = Field(default_factory=list, max_length=40)
+    validations: list[LetterValidationOut] = Field(default_factory=list, max_length=30)

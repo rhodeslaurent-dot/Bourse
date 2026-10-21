@@ -216,6 +216,26 @@ def build_context(
         note = get_note(s, scope, isin)
         if note and note.text:
             ctx[f"note_utilisateur_{scope}"] = note.text
+    from app.db.models import LetterOpinion
+
+    ops = [
+        o
+        for o in s.scalars(
+            select(LetterOpinion).where(LetterOpinion.isin == isin).order_by(LetterOpinion.id.desc()).limit(10)
+        )
+        if o.day >= (now - timedelta(days=7)).date()
+    ]
+    if ops:
+        ctx["avis_lettres_7j"] = [
+            {
+                "jour": _d(o.day),
+                "source": o.source,
+                "orientation": o.stance,
+                "recommandation": o.action if o.explicit else None,
+                "resume": o.summary,
+            }
+            for o in ops
+        ]
     w = s.scalar(select(WatchlistRow).where(WatchlistRow.isin == isin, WatchlistRow.active.is_(True)))
     if w:
         ctx["watchlist"] = {
@@ -234,6 +254,7 @@ PAGES = {
     "/journee": "Journée",
     "/performance": "Performance",
     "/apprentissage": "Apprentissage",
+    "/lettres": "Revue des lettres",
     "/sante": "Santé",
     "/assistant": "Assistant",
     "/import": "Import",
@@ -344,6 +365,14 @@ def page_facts(s: Session, page: str | None, config: Any | None, now: datetime) 
                 x.title
                 for x in s.scalars(select(LearningSuggestion).where(LearningSuggestion.status.in_(["open", "later"])))
             ]
+    elif page == "/lettres" and config is not None:
+        from app.db.models import LetterReview
+        from app.services.letters_review import recommendations
+
+        rev = s.scalar(select(LetterReview).order_by(LetterReview.ts.desc()))
+        if rev is not None:
+            out["synthese_du_jour"] = rev.synthesis
+        out["preconisations"] = recommendations(s, config)
     elif page == "/sante":
         from app.db.repo import last_runs
 

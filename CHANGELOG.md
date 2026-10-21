@@ -2,6 +2,13 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Revue quotidienne des lettres — 2026-10-21
+
+- Spécification `docs/20`, migration 0009 (`letter_reviews`, `letter_opinions`, `letter_validations`).
+- Une simple mention (sens neutre) ou un avis de vente dans une lettre ne crée plus de proposition ; seules les recommandations « achat » ou « à surveiller » en créent.
+- Job `letters_review` (19:15 Paris) et bouton « Analyser maintenant » : Claude relit lettres et articles liés avec le contexte (propositions, positions, watchlist, régime, leçons) ; avis par valeur et validations contrôlés par Python (citation littérale, chiffres présents, cible connue) ; préconisations déterministes (convergence ≥ 2 sources, vigilance P2 sur position, contradiction, recommandation explicite → WATCH avec niveaux écrits seulement) ; page `/lettres`, badges « confirmée / contredite » sur les opportunités, avis 7 jours dans l'assistant, digest Telegram.
+- En-tête : 9 onglets (« Lettres ») ; la recherche passe dans la page sous 1 536 px.
+
 ## [Unreleased] — Pages « Lire la suite » — 2026-10-21
 
 - Constat sur les vraies lettres : les liens Zonebourse passent par Mailjet (`xgsmz.mjt.lu`, en `http`) ; `mjt.lu` autorisé comme domaine de suivi (http toléré pour ce seul saut, destination `https` obligatoire, cookie jamais envoyé au traceur). Filtre `data.imap.subject_includes` par source. `newsletter-link-check --count N` liste les libellés et domaines des liens de N lettres.

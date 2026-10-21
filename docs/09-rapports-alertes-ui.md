@@ -80,6 +80,7 @@ Règles : déduplication par (`instrument`, `compte`, `type`, `jour`), **jamais 
 | `/performance` (docs/17) | Réalisé, latent avec statut, qualité (espérance R, profit factor, fiabilité), coûts, courbe d'équité `kpi_daily`, tableau mensuel |
 | `/journee` (docs/17) | Journée guidée : étapes cliquables par créneau (job, page, coche), progression, état persistant par jour |
 | `/apprentissage` (docs/18) | Retour d'expérience : résultat de chaque proposition prise ou non, statistiques par détecteur/source/régime/décision, historique comparable, questions de l'IA, propositions d'amélioration (accepter/refuser), leçons retenues. Couvre le post-mortem et la revue prévus pour `/revue` |
+| `/lettres` (docs/20) | Revue quotidienne des lettres par Claude : synthèse, préconisations (calcul Python), validations des propositions/positions/watchlist, avis par valeur avec citation vérifiée, lettres reçues et statut de l'article lié |
 | Toutes les pages (docs/18) | Panneau « Assistant » flottant avec le contexte de la page |
 | `/valeur/<isin>` (docs/17) | Fiche valeur : identité, éligibilités, clôtures (SVG), indicateurs libellés, position, propositions, nouvelles, note |
 | `/import` | Dépôt CSV BoursoBank, saisie manuelle d'exécutions |

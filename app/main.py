@@ -209,6 +209,9 @@ def create_app(
     from app.web.learning_routes import router as learning_router
 
     app.include_router(learning_router)
+    from app.web.letters_routes import router as letters_router
+
+    app.include_router(letters_router)
     from fastapi.staticfiles import StaticFiles
 
     app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "web" / "static")), name="static")

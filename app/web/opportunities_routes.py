@@ -57,6 +57,19 @@ def opportunities_page(request: Request, day: date | None = None, action: str | 
             else []
         ):
             decisions.setdefault(d.proposal_id, []).append(d)
+        letters: dict[int, dict[str, int]] = {}
+        if props:
+            from app.db.models import LetterValidation
+
+            for v in s.scalars(
+                select(LetterValidation).where(
+                    LetterValidation.target_type == "proposal",
+                    LetterValidation.target_ref.in_([str(p.id) for p in props]),
+                )
+            ):
+                d = letters.setdefault(int(v.target_ref), {"confirme": 0, "contredit": 0})
+                if v.verdict in d:
+                    d[v.verdict] += 1
         notes = {
             k: {"text": v.text, "updated_at": v.updated_at}
             for k, v in notes_for(s, "proposal", [str(p.id) for p in props]).items()
@@ -72,6 +85,7 @@ def opportunities_page(request: Request, day: date | None = None, action: str | 
                     "explain": explain_proposal(p, sig, snaps.get(p.id), capital),
                     "decisions": decisions.get(p.id, []),
                     "note": notes.get(str(p.id)),
+                    "letters": letters.get(p.id, {}),
                 }
             )
         # docs/18 §18.5: at equal action, favourable history first, unfavourable last (stable otherwise)

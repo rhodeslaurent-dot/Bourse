@@ -792,3 +792,54 @@ class TraderMemory(Base):
     source: Mapped[str] = mapped_column(String(12))  # utilisateur | reponse | suggestion
     ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# ---------------------------------------------------------------------------------------------
+# Daily letters review (docs/20) — Claude reads the day's letters and linked pages
+# ---------------------------------------------------------------------------------------------
+
+
+class LetterReview(Base):
+    __tablename__ = "letter_reviews"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    trigger: Mapped[str] = mapped_column(String(12))  # daily | manual
+    status: Mapped[str] = mapped_column(String(12))  # ok | rules | unavailable | empty
+    synthesis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    item_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    dossier: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    rejected: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    model: Mapped[str | None] = mapped_column(String(48), nullable=True)
+
+
+class LetterOpinion(Base):
+    __tablename__ = "letter_opinions"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    review_id: Mapped[int] = mapped_column(Integer, index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    isin: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    item_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    stance: Mapped[str] = mapped_column(String(10))  # positive | negative | neutre
+    explicit: Mapped[bool] = mapped_column(Boolean, default=False)
+    action: Mapped[str] = mapped_column(String(10))  # achat | vente | surveiller | aucune
+    catalyst: Mapped[str | None] = mapped_column(Text, nullable=True)
+    horizon: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class LetterValidation(Base):
+    __tablename__ = "letter_validations"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    review_id: Mapped[int] = mapped_column(Integer, index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    target_type: Mapped[str] = mapped_column(String(12))  # proposal | position | watchlist
+    target_ref: Mapped[str] = mapped_column(String(32))
+    isin: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    verdict: Mapped[str] = mapped_column(String(12))  # confirme | contredit | sans_avis
+    justification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    item_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)

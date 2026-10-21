@@ -307,7 +307,7 @@ def init_params(example: str, target: str, telegram_user_id: str, email: str, up
         text, added = merge_missing_jobs(example_text, text)
         if added:
             print("jobs ajoutés depuis params.example.yaml : " + ", ".join(added))
-        text, blocks = merge_missing_blocks(example_text, text, ["workflow", "learning"])
+        text, blocks = merge_missing_blocks(example_text, text, ["workflow", "learning", "letters_review"])
         if blocks:
             print("blocs ajoutés depuis params.example.yaml : " + ", ".join(blocks))
         text, steps = merge_missing_workflow_steps(example_text, text)

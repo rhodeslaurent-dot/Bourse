@@ -29,6 +29,8 @@
         {{ badge(label('action', p.action), 'green' if p.action == 'BUY' else 'blue' if p.action == 'WATCH' else 'slate') }}
         {{ badge(label('proposal_status', p.status), 'slate', p.status) }}
         {% if p.to_verify %}{{ badge('à vérifier', 'amber', help_of('to_verify')) }}{% endif %}
+        {% if it.letters.get('confirme') %}{{ badge('confirmée par ' ~ it.letters.confirme ~ ' lettre(s)', 'green', 'revue des lettres (docs/20)') }}{% endif %}
+        {% if it.letters.get('contredit') %}{{ badge('contredite par les lettres', 'red', 'revue des lettres (docs/20)') }}{% endif %}
         {% set tr = ex.track or {} %}{% if tr.get('verdict') in ('favorable', 'defavorable') %}{{ badge('historique ' ~ label('track_verdict', tr.verdict), 'green' if tr.verdict == 'favorable' else 'red', tr.n ~ ' cas comparables, espérance rétrécie ' ~ tr.shrunk_r ~ ' R') }}{% endif %}
         {% if p.account_recommended %}{{ badge(label('account', p.account_recommended), 'slate') }}{% endif %}
       </div>
