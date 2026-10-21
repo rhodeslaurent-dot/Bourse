@@ -179,7 +179,7 @@ def build_context(
     ctx["propositions_30j"] = [
         {
             "date": _d(p.created_at),
-            "explication": explain_proposal(p, s.get(Signal, p.signal_id), None, capital).headline,
+            "explication": explain_proposal(p, s.get(Signal, p.signal_id), None, capital).summary,
             "decisions": [
                 label("decision", d.decision) for d in s.scalars(select(Decision).where(Decision.proposal_id == p.id))
             ],

@@ -7,3 +7,6 @@
   .card h1, .card h2 { letter-spacing: -0.01em; }
   .tabular { font-variant-numeric: tabular-nums; }
 }
+
+/* custom disclosure arrow: hide the native marker (Safari) */
+summary.list-none::-webkit-details-marker { display: none; }

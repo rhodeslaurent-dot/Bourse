@@ -16,6 +16,22 @@ COLORS = {
 }
 
 
+MONTHS = ("janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc.")
+
+
+def _num(v: float, decimals: int) -> str:
+    return f"{v:,.{decimals}f}".replace(",", "\u202f")
+
+
+def _month_label(key: str) -> str:
+    """'2026-10' -> 'oct. 26'; any other key is returned unchanged."""
+    try:
+        y, m = key.split("-")
+        return f"{MONTHS[int(m) - 1]} {y[2:]}"
+    except (ValueError, IndexError):
+        return key
+
+
 def _scale(v: float, lo: float, hi: float, a: float, b: float) -> float:
     return a if hi == lo else a + (v - lo) * (b - a) / (hi - lo)
 
@@ -38,7 +54,8 @@ def line_chart(
     lo, hi = min(vals), max(vals)
     pad = (hi - lo) * 0.06 or abs(hi) * 0.02 or 1.0
     lo, hi = lo - pad, hi + pad
-    left, right, top, bottom = 52, width - 8, 10, height - 22
+    decimals = 0 if hi - lo >= 50 else 2
+    left, right, top, bottom = 64, width - 8, 10, height - 22
     xi = {d: _scale(i, 0, len(days) - 1, left, right) for i, d in enumerate(days)}
     parts = [
         f'<svg viewBox="0 0 {width} {height}" class="w-full h-auto" role="img" aria-label="graphique">',
@@ -51,13 +68,11 @@ def line_chart(
             f'<line x1="{left}" x2="{right}" y1="{y:.1f}" y2="{y:.1f}" stroke="currentColor" stroke-opacity=".08"/>'
         )
         parts.append(
-            f'<text x="{left - 6}" y="{y + 4:.1f}" text-anchor="end" font-size="10" fill="currentColor" fill-opacity=".55">{v:,.2f}</text>'.replace(  # noqa: E501
-                ",", " "
-            )
+            f'<text x="{left - 6}" y="{y + 4:.1f}" text-anchor="end" font-size="10" fill="currentColor" fill-opacity=".55">{_num(v, decimals)}</text>'  # noqa: E501
         )
-    for i in (0, len(days) // 2, len(days) - 1):
+    for i, anchor in ((0, "start"), (len(days) // 2, "middle"), (len(days) - 1, "end")):
         parts.append(
-            f'<text x="{xi[days[i]]:.1f}" y="{height - 6}" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity=".55">{days[i].strftime("%d/%m/%y")}</text>'  # noqa: E501
+            f'<text x="{xi[days[i]]:.1f}" y="{height - 6}" text-anchor="{anchor}" font-size="10" fill="currentColor" fill-opacity=".55">{days[i].strftime("%d/%m/%y")}</text>'  # noqa: E501
         )
     for name, value in (levels or {}).items():
         y = _scale(value, lo, hi, bottom, top)
@@ -89,26 +104,33 @@ def line_chart(
 
 
 def bars(values: dict[str, float], width: int = 720, height: int = 160) -> str:
-    """Signed bar chart (monthly P&L)."""
+    """Signed bar chart (monthly P&L); keys 'YYYY-MM' are shown as 'oct. 26'."""
     if not values:
         return '<p class="text-sm text-slate-500">Aucune donnée.</p>'
     m = max(abs(v) for v in values.values()) or 1.0
     n = len(values)
-    left, right, top, bottom = 8, width - 8, 10, height - 22
+    left, right, top, bottom = 8, width - 8, 18, height - 22
     zero = (top + bottom) / 2
-    bw = (right - left) / n
+    slot = min((right - left) / n, 72.0)  # a lone month stays a bar, not a block
+    start = left + ((right - left) - slot * n) / 2
+    bw = slot * 0.7
     parts = [f'<svg viewBox="0 0 {width} {height}" class="w-full h-auto" role="img" aria-label="barres">']
     parts.append(f'<line x1="{left}" x2="{right}" y1="{zero}" y2="{zero}" stroke="currentColor" stroke-opacity=".2"/>')
     for i, (k, v) in enumerate(values.items()):
         h = abs(v) / m * (bottom - top) / 2
-        x = left + i * bw + bw * 0.15
+        x = start + i * slot + (slot - bw) / 2
         y = zero - h if v >= 0 else zero
         color = COLORS["pos"] if v >= 0 else COLORS["neg"]
+        cx = x + bw / 2
+        label_y = y - 4 if v >= 0 else zero + h + 11
         parts.append(
-            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bw * 0.7:.1f}" height="{max(h, 1):.1f}" rx="2" fill="{color}"><title>{escape(k)} : {v:,.0f} €</title></rect>'  # noqa: E501
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bw:.1f}" height="{max(h, 1):.1f}" rx="2" fill="{color}"><title>{escape(_month_label(k))} : {_num(v, 0)} €</title></rect>'  # noqa: E501
         )
         parts.append(
-            f'<text x="{x + bw * 0.35:.1f}" y="{height - 6}" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity=".55">{escape(k[2:] if len(k) == 7 else k)}</text>'  # noqa: E501
+            f'<text x="{cx:.1f}" y="{label_y:.1f}" text-anchor="middle" font-size="10" fill="{color}">{_num(v, 0)} €</text>'  # noqa: E501
+        )
+        parts.append(
+            f'<text x="{cx:.1f}" y="{height - 6}" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity=".55">{escape(_month_label(k))}</text>'  # noqa: E501
         )
     parts.append("</svg>")
     return "".join(parts)

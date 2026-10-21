@@ -137,7 +137,7 @@ def instrument_page(request: Request, isin: str) -> HTMLResponse:
         )
         cap = float(cfg.params.capital.capital_pilote_eur)
         prop_view = [
-            {"p": p, "headline": explain_proposal(p, s.get(Signal, p.signal_id), None, cap).headline} for p in props
+            {"p": p, "headline": explain_proposal(p, s.get(Signal, p.signal_id), None, cap).summary} for p in props
         ]
         since = datetime.now(UTC) - timedelta(days=7)
         news = [

@@ -6,9 +6,11 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import select
 
 from app.api.portfolio_routes import get_positions
 from app.data.providers.boursobank_csv import BoursoFormatError, parse_operations, parse_positions
+from app.db.models import PriceEod
 from app.db.session import db_session
 from app.domain.orders import Execution, MatchTolerance, Side, TradeKind
 from app.services.instruments import name_of
@@ -30,7 +32,15 @@ def positions_page(request: Request) -> HTMLResponse:
     data = get_positions(request)
     for p in data["positions"]:
         p["name"] = name_of(p["isin"])
+    for o in data.get("open_orders", []):
+        o["name"] = name_of(o["isin"])
     with db_session() as s:
+        for p in data["positions"]:
+            p["price_as_of"] = None
+            if p.get("last_price") is None:  # no live quote: last official close, labelled as such
+                eod = s.scalar(select(PriceEod).where(PriceEod.isin == p["isin"]).order_by(PriceEod.day.desc()))
+                if eod is not None:
+                    p["last_price"], p["last_price_status"], p["price_as_of"] = eod.close, "eod", eod.day
         notes = notes_for(s, "position", [str(p["position_id"]) for p in data["positions"]])
         notes = {k: {"text": v.text, "updated_at": v.updated_at} for k, v in notes.items()}
     return templates.TemplateResponse(

@@ -101,7 +101,8 @@ def test_explanation_is_deterministic_and_complete():
         and "114 titres" in ex.headline
         and "0.9% du capital" in ex.headline
     )
-    assert ex.headline.endswith("BLOQUÉ : plafond de risque") and ex.blocked[0].startswith("BLOQUÉ")
+    assert ex.summary.endswith("BLOQUÉ : plafond de risque") and ex.blocked[0].startswith("BLOQUÉ")
+    assert "BLOQUÉ" not in ex.headline
     assert any("Compte recommandé : PEA" in b for b in ex.bullets) and any("Coût estimé" in b for b in ex.bullets)
 
 

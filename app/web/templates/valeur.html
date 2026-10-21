@@ -13,7 +13,7 @@
         {% if inst.in_universe %}{{ badge('dans l’univers', 'green') }}{% else %}{{ badge('hors univers', 'slate', (inst.universe_reasons or [])|join(' · ')) }}{% endif %}
         {% if wl %}{{ badge('watchlist : ' ~ label('watch_reason', wl.reason), 'blue') }}{% endif %}{% endif %}
       </div>
-      {% if inst and inst.sector %}<p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ inst.sector }}{% if inst.industry %} · {{ inst.industry }}{% endif %}{% if inst.market_cap_eur %} · capitalisation {{ (inst.market_cap_eur / 1e6)|round|int }} M€{% endif %}</p>{% endif %}
+      {% if inst and inst.sector %}<p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ inst.sector }}{% if inst.industry %} · {{ inst.industry }}{% endif %}{% if inst.market_cap_eur %} · capitalisation {% if inst.market_cap_eur >= 1e9 %}{{ '%.1f'|format(inst.market_cap_eur / 1e9) }} Md€{% else %}{{ (inst.market_cap_eur / 1e6)|round|int }} M€{% endif %}{% endif %}</p>{% endif %}
     </div>
     <div class="text-right">
       {% if last %}<div class="text-3xl font-bold tabular">{{ '%.2f'|format(last.close) }} €</div>

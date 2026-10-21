@@ -42,7 +42,7 @@
     <div class="mt-2 grid grid-cols-3 gap-3 text-sm">
       {% for title, d in [('Par compte', by_account), ('Par origine', by_detector), ('Par mode', by_mode)] %}
       <div><div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ title }}</div>
-        {% for k, val in d.items() %}<div class="flex justify-between gap-2"><span>{{ label('account', k) if title == 'Par compte' else label('mode', k) if title == 'Par mode' else label('detector', k) }}</span><span class="tabular {% if val < 0 %}text-rose-600{% else %}text-emerald-600{% endif %}">{{ val|eur }}</span></div>{% else %}<div class="text-slate-400">—</div>{% endfor %}
+        {% for k, val in d.items() %}<div class="flex justify-between gap-2"><span>{{ label('account', k) if title == 'Par compte' else label('mode', k) if title == 'Par mode' else ('sans origine (discrétionnaire)' if k == '—' else label('detector', k)) }}</span><span class="tabular {% if val < 0 %}text-rose-600{% else %}text-emerald-600{% endif %}">{{ val|eur }}</span></div>{% else %}<div class="text-slate-400">—</div>{% endfor %}
       </div>
       {% endfor %}
     </div>
@@ -63,7 +63,7 @@
   <h2 class="font-semibold">Positions ouvertes : latent</h2>
   {% if v.open_lines %}
   <table class="mt-2 w-full text-sm">
-    <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ th('Valeur') }}{{ th('Compte') }}{{ th('Quantité', '', 'right') }}{{ th('Prix de revient', '', 'right') }}{{ th('Dernier cours', '', 'right') }}{{ th('Latent', '', 'right') }}{{ th('Gain si stop touché', '', 'right') }}</tr></thead>
+    <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ th('Valeur') }}{{ th('Compte') }}{{ th('Quantité', '', 'right') }}{{ th('Prix de revient', '', 'right') }}{{ th('Dernier cours', '', 'right') }}{{ th('Latent', '', 'right') }}{{ th('Résultat si stop touché', '', 'right') }}</tr></thead>
     <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
     {% for ln in v.open_lines %}
       <tr>

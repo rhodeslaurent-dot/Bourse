@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import select
 
 from app.api.routes import current_mode_payload
 from app.api.security import cf_settings
@@ -16,6 +17,7 @@ from app.db.session import db_session
 from app.domain.availability import unconfirmed_slots
 from app.domain.timeutil import PARIS, REUNION, format_dual, from_store
 from app.scheduler.registry import IMPLEMENTED_JOBS
+from app.services.instruments import name_of
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -53,7 +55,7 @@ def home(request: Request) -> HTMLResponse:
         decisions.append(
             {
                 "level": "P1",
-                "text": f"Saisir un stop chez le courtier pour {p.isin} ({p.qty - p.qty_protected} titres non protégés)",  # noqa: E501
+                "text": f"Saisir un stop chez le courtier pour {name_of(p.isin) or p.isin} ({p.qty - p.qty_protected} titres non protégés)",  # noqa: E501
                 "href": "/positions",
             }
         )
@@ -68,10 +70,52 @@ def home(request: Request) -> HTMLResponse:
         )
     for a in r.alerts:
         decisions.append({"level": "P2", "text": a, "href": None})
+    from app.db.models import MarketRegimeRow, Proposal, WatchlistRow
+    from app.services.workflow import day_view
+
+    paris_today = datetime.now(PARIS).date()
+    with db_session() as s:
+        regime = s.scalar(select(MarketRegimeRow).order_by(MarketRegimeRow.id.desc()))
+        wl_count = len(list(s.scalars(select(WatchlistRow.id).where(WatchlistRow.active.is_(True)))))
+        props_today = [
+            p
+            for p in s.scalars(
+                select(Proposal).where(Proposal.deleted_at.is_(None)).order_by(Proposal.id.desc()).limit(200)
+            )
+            if (p.created_at.replace(tzinfo=UTC) if p.created_at.tzinfo is None else p.created_at).date()
+            == datetime.now(UTC).date()
+        ]
+        steps = [
+            x
+            for x in day_view(
+                s,
+                cfg.params,
+                paris_today,
+                bool(request.app.state.calendars.open_mics(paris_today, list(request.app.state.calendars.p0_mics))),
+                "reunion",
+            )
+            if x.applicable
+        ]
+        summary = {
+            "regime": regime.regime if regime else None,
+            "regime_day": regime.day if regime else None,
+            "watchlist": wl_count,
+            "props": len(props_today),
+            "props_open": sum(1 for p in props_today if p.status == "open"),
+            "steps_done": sum(1 for x in steps if x.done_at),
+            "steps_total": len(steps),
+        }
     return templates.TemplateResponse(
         request,
         "home.html",
-        {"request": request, "view": view, "decisions": decisions[:3], "mode": current_mode_payload(request)},
+        {
+            "request": request,
+            "view": view,
+            "decisions": decisions[:3],
+            "mode": current_mode_payload(request),
+            "summary": summary,
+            "names": {i: name_of(i) for i in {p.isin for p in view["unprotected"]} | set(view["price_status"] or {})},
+        },
     )
 
 

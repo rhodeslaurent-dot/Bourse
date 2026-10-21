@@ -15,6 +15,7 @@ class Explanation:
     bullets: list[str] = field(default_factory=list)  # details (fiche)
     blocked: list[str] = field(default_factory=list)  # "BLOQUÉ : …" lines, verbatim from gates
     data_used: list[str] = field(default_factory=list)  # snapshot facts with status / timestamps
+    summary: str = ""  # headline + first blocking gate + "à vérifier" (single-line contexts)
 
 
 def _fmt(x: Any, digits: int = 2, unit: str = "") -> str:
@@ -70,10 +71,11 @@ def explain_proposal(
     if ev.get("drift_since_open") is not None:
         parts.append(f"écart depuis l'ouverture {float(ev['drift_since_open']):+.1%}")
     headline = " · ".join(parts)
+    summary = headline
     if blocked:
-        headline += " · " + blocked[0].split("(")[0].strip()
+        summary += " · " + blocked[0].split("(")[0].strip()
     if getattr(proposal, "to_verify", False):
-        headline += " · à vérifier"
+        summary += " · à vérifier"
 
     bullets: list[str] = []
     if ev.get("p_open") is not None:
@@ -134,4 +136,4 @@ def explain_proposal(
                     + ("déclaratif" if st.get("declarative") else "synchronisé")
                     + (f", synchronisé {st.get('synced_at')}" if st.get("synced_at") else ", jamais synchronisé")
                 )
-    return Explanation(headline, bullets, blocked, data_used)
+    return Explanation(headline, bullets, blocked, data_used, summary)
