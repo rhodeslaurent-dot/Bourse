@@ -231,6 +231,8 @@ class LettersReviewParams(_Model):
     max_chars_per_letter: int = 8000
     max_total_chars: int = 60000
     max_tokens: int = 4000
+    max_values: int = 15
+    max_news_per_value: int = 5
     telegram_digest: bool = True
 
 

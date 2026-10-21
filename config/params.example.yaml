@@ -359,6 +359,8 @@ letters_review:                          # docs/20 — revue des lettres par Cla
   max_chars_per_letter: 8000
   max_total_chars: 60000
   max_tokens: 4000
+  max_values: 15                         # valeurs citées dont le dossier complet (cours, indicateurs, nouvelles…) est joint
+  max_news_per_value: 5
   telegram_digest: true
 
 learning:                                # docs/18 — retour d'expérience ; aucune optimisation automatique

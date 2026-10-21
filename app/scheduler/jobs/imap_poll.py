@@ -91,9 +91,18 @@ def review_at_reception(s, ctx: JobContext, dedup_hashes: list[str]) -> None:  #
 
     if params_of(ctx.config) is None:
         return
+    from app.services.letters_review import cited_isins
+
     items = list(s.scalars(select(NewsletterItem).where(NewsletterItem.dedup_hash.in_(dedup_hashes))))
     try:
-        rev = run_review(s, ctx.config, ctx.llm, trigger="reception", alerts=ctx.alerts, mode=ctx.mode, items=items)
+        isins = cited_isins(s, items)[:15]
+        try:
+            quotes = quotes_for(isins, ctx.config) if isins else {}  # quote at analysis time, status kept
+        except Exception:  # noqa: BLE001 — no quote is better than a guessed one
+            quotes = {}
+        rev = run_review(
+            s, ctx.config, ctx.llm, trigger="reception", alerts=ctx.alerts, mode=ctx.mode, items=items, quotes=quotes
+        )
         ctx.note = f"revue à réception : {len(items)} lettre(s), {rev.status}"
     except Exception as exc:  # noqa: BLE001 — the evening catch-up reviews what is left
         log.warning("revue à réception en échec (%s) : rattrapage au passage du soir", exc.__class__.__name__)

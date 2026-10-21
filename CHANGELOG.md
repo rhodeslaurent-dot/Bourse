@@ -2,6 +2,10 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Revue des lettres : dossier complet — 2026-10-21
+
+- Chaque analyse joint, pour les 15 valeurs les plus citées (`letters_review.max_values`), toutes les données de l'outil : dossier de l'assistant (clôtures, indicateurs, position, propositions, nouvelles 7 j, avis précédents, notes), cours à l'analyse avec son statut et son horodatage de marché, ouverture, écart et dérive mesurés à la réception ; plus le régime et les indices. Prompt `letters_review_v2` : croiser lettres et données sans rien calculer.
+
 ## [Unreleased] — Revue des lettres à la réception — 2026-10-21
 
 - Décision utilisateur : la revue se fait **à la réception** (signaux encore exploitables). `imap_poll` fait analyser par Claude les lettres qu'il vient d'enregistrer (page liée comprise) ; chaque préconisation nouvelle (à étudier, recommandation explicite, contradiction) part en P2, dédupliquée par valeur, type et jour ; vigilance sur position inchangée. `letters_review` (19:15) devient un rattrapage des lettres non analysées et envoie le digest du jour.

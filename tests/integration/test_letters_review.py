@@ -81,6 +81,38 @@ def seeded(db_engine, config, calendars):
                 mode="comptant",
             )
         )
+        from datetime import date
+
+        from app.db.models import FeatureDaily, NewsItem, PriceEod
+
+        for k, d in enumerate((date(2026, 10, 19), date(2026, 10, 20))):
+            s.add(
+                PriceEod(
+                    isin=ASML,
+                    day=d,
+                    open=640 + k,
+                    high=650,
+                    low=630,
+                    close=645.5 + k,
+                    volume=1000,
+                    source="eodhd",
+                    received_at=NOW,
+                    data_status="eod",
+                )
+            )
+        s.add(FeatureDaily(isin=ASML, day=date(2026, 10, 20), rs_rank=91, mm50=610.0, sessions=250))
+        s.add(
+            NewsItem(
+                source="actusnews",
+                guid="n1",
+                dedup_hash="n1",
+                published_at=NOW,
+                fetched_at=NOW,
+                title="ASML relève ses prévisions annuelles",
+                isins=[ASML],
+                classification={"type": "guidance", "direction": "positif"},
+            )
+        )
         ids = {i.source: i.id for i in s.scalars(select(NewsletterItem))}
     return ids
 
@@ -156,6 +188,10 @@ def test_review_guards_recommendations_and_alerts(seeded, config):
     with db_session() as s:
         rev = run_review(s, config, ClaudeGateway(SETTINGS, call=fake_review(seeded)), alerts=alerts)
         assert rev.status == "ok" and rev.synthesis.startswith("Les lettres")
+        pack = rev.dossier["valeurs"][ASML]  # docs/20 §20.2: every stored fact on each cited value
+        assert pack["valeur"]["nom"] == "ASML" and pack["dernieres_clotures"][0]["cloture"] == 646.5
+        assert pack["nouvelles_7j"][0]["titre"].startswith("ASML relève") and "indicateurs" in pack
+        assert "mesures_a_la_reception" in pack and list(rev.dossier["valeurs"])[0] == ASML
         motifs = [r["motif"] for r in rev.rejected]
         assert any("citation introuvable" in m for m in motifs)  # Airbus
         assert any("chiffres absents" in m for m in motifs)  # 900

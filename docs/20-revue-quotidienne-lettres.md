@@ -11,6 +11,8 @@ Statut : spécification **acceptée le 21/10/2026** (demande utilisateur : « qu
 ## 20.2 Dossier remis à Claude (construit en Python)
 
 - Lettres : identifiant, source, objet, heure de réception (Réunion et Paris), texte de la lettre et de la page liée (statut `page_liee`), tronqués à `letters_review.max_chars_per_letter` (8 000) et `max_total_chars` (60 000) au total, les plus récentes d'abord.
+- **Données de chaque valeur citée** (décision utilisateur du 21/10/2026 : « reprendre toutes les infos d'actualités et de cours disponibles pour une analyse la plus complète possible ») — pour les `letters_review.max_values` (15) valeurs les plus citées par les lettres analysées (extraction à la réception + alias dans le texte, page liée comprise), le **dossier de faits de l'assistant** (docs/17 §17.4) : identité, éligibilités, capitalisation, prochains résultats, 5 dernières clôtures avec statut, indicateurs du jour libellés (force relative, moyennes 50/200 j, plus haut 60 j, amplitude, RSI…), position et protection, propositions des 30 derniers jours avec explication et décisions, **nouvelles des 7 derniers jours** (au plus `max_news_per_value`, titre, source, classement, sens), avis des lettres des 7 derniers jours, notes de l'utilisateur ; plus, pour la lettre : **cours à la réception** (valeur, statut `realtime`/`delayed`…, horodatage de marché, source), ouverture du jour, clôture de la veille, écart d'ouverture et dérive depuis l'ouverture (`newsletter_values`). Une donnée absente est absente, jamais estimée.
+- **Marché** : régime (feu et composantes), dernières clôtures des indices de référence (CAC 40, STOXX 600) stockées.
 - Contexte : propositions ouvertes ou récentes (≤ `window_days` jours : identifiant, valeur, action, explication en une ligne), positions (valeur, quantité, protection, stop), watchlist active (valeur, motif), régime de marché, leçons retenues (docs/18).
 
 ## 20.3 Réponse attendue (schéma `LettersReviewOut`, température 0)
@@ -53,6 +55,8 @@ letters_review:
   max_chars_per_letter: 8000
   max_total_chars: 60000
   max_tokens: 4000
+  max_values: 15
+  max_news_per_value: 5
   telegram_digest: true
 jobs:
   letters_review: {cron: "15 19 * * 1-5", misfire_grace_min: 240, market_days_only: true}

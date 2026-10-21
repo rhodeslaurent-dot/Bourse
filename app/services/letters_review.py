@@ -63,7 +63,90 @@ def unreviewed_letters(s: Session, now: datetime) -> list[NewsletterItem]:
     return [r for r in rows if since < _aware(r.received_at) <= now and r.id not in done]
 
 
-def build_dossier(s: Session, config: LoadedConfig, items: list[NewsletterItem], now: datetime) -> dict[str, Any]:
+def cited_isins(s: Session, items: list[NewsletterItem]) -> list[str]:
+    """Values cited by the letters, most cited first: extraction at reception (``newsletter_values``)
+    plus known names / ISINs found in the text (linked page included)."""
+    from collections import Counter
+
+    from app.data.providers.imap_gmail import extract_values
+    from app.services.news import alias_index
+
+    counts: Counter[str] = Counter()
+    ids = [i.id for i in items]
+    for v in s.scalars(select(NewsletterValue).where(NewsletterValue.item_id.in_(ids or [-1]))):
+        if v.isin:
+            counts[v.isin] += 2
+    aliases = alias_index(s)
+    for it in items:
+        for v in extract_values(it.body_text or "", aliases):
+            if v.isin:
+                counts[v.isin] += 1
+    return [isin for isin, _ in counts.most_common()]
+
+
+def value_facts(
+    s: Session, config: LoadedConfig, isin: str, items: list[NewsletterItem], quote: Any | None, max_news: int
+) -> dict[str, Any]:
+    """All stored facts on one cited value (docs/20 §20.2): the assistant's fact pack, the quote at
+    reception with its status, and the letter's own measures (open, gap, drift)."""
+    from app.services.assistant import build_context
+
+    facts = build_context(s, isin, float(config.params.capital.capital_pilote_eur))
+    facts.pop("date_du_dossier", None)
+    facts.pop("regime_marche", None)  # given once for the whole market
+    if isinstance(facts.get("nouvelles_7j"), list):
+        facts["nouvelles_7j"] = facts["nouvelles_7j"][:max_news]
+    if quote is not None:
+        facts["cours_a_la_reception"] = {
+            "cours": getattr(quote, "last", None),
+            "statut": label("data_status", getattr(getattr(quote, "data_status", None), "value", None)),
+            "horodatage_marche": getattr(quote, "market_timestamp", None),
+            "source": getattr(quote, "source", None),
+        }
+    ids = [i.id for i in items]
+    measures = [
+        {
+            "lettre": v.item_id,
+            "sens": v.direction,
+            "niveaux_ecrits": v.levels,
+            "ouverture_du_jour": v.p_open,
+            "cloture_veille": v.close_prev,
+            "ecart_ouverture": v.gap_open,
+            "cours_reception": v.p_recv,
+            "statut_cours_reception": v.p_recv_status,
+            "derive_depuis_ouverture": v.drift_since_open,
+        }
+        for v in s.scalars(
+            select(NewsletterValue).where(NewsletterValue.item_id.in_(ids or [-1]), NewsletterValue.isin == isin)
+        )
+    ]
+    if measures:
+        facts["mesures_a_la_reception"] = measures
+    return facts
+
+
+def market_facts(s: Session) -> dict[str, Any]:
+    from app.db.models import PriceEod
+    from app.scheduler.jobs.daily_regime import INDEX_ISINS
+
+    reg = s.scalar(select(MarketRegimeRow).order_by(MarketRegimeRow.id.desc()))
+    out: dict[str, Any] = {}
+    if reg:
+        out["regime"] = {"jour": reg.day, "regime": label("regime", reg.regime), "details": reg.details}
+    for name, isin in INDEX_ISINS.items():
+        closes = list(s.scalars(select(PriceEod).where(PriceEod.isin == isin).order_by(PriceEod.day.desc()).limit(5)))
+        if closes:
+            out[name] = [{"jour": c.day, "cloture": c.close} for c in closes]
+    return out
+
+
+def build_dossier(
+    s: Session,
+    config: LoadedConfig,
+    items: list[NewsletterItem],
+    now: datetime,
+    quotes: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     p = params_of(config)
     per_letter = p.max_chars_per_letter if p else 8000
     budget = p.max_total_chars if p else 60000
@@ -114,6 +197,13 @@ def build_dossier(s: Session, config: LoadedConfig, items: list[NewsletterItem],
         json.dumps(
             {
                 "lettres": letters,
+                "valeurs": {
+                    isin: value_facts(
+                        s, config, isin, items, (quotes or {}).get(isin), p.max_news_per_value if p else 5
+                    )
+                    for isin in cited_isins(s, items)[: (p.max_values if p else 15)]
+                },
+                "marche": market_facts(s),
                 "contexte": {
                     "propositions": proposals[:60],
                     "positions": positions,
@@ -145,6 +235,7 @@ def run_review(
     alerts: Any | None = None,
     mode: str = "reunion",
     items: list[NewsletterItem] | None = None,
+    quotes: dict[str, Any] | None = None,
 ) -> LetterReview:
     """Review ``items`` (default: every letter not yet reviewed). At reception (docs/20 §20.1) the
     caller passes the letters just ingested, so signals are analysed while still actionable."""
@@ -154,7 +245,7 @@ def run_review(
     now = now or datetime.now(UTC)
     p = params_of(config)
     items = unreviewed_letters(s, now) if items is None else items
-    dossier = build_dossier(s, config, items, now)
+    dossier = build_dossier(s, config, items, now, quotes)
     rev = LetterReview(
         ts=now,
         day=now.astimezone(PARIS).date(),
