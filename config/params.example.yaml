@@ -312,6 +312,9 @@ notifications:
   p1_grouping: "by_incident"          # P1 : une alerte par incident puis rappel, jamais fusionnées entre incidents distincts
   p1_repeat_minutes: 15
   unread_escalation_minutes: 10
+  # healthchecks.io (RUNBOOK §4) : seuls ces jobs envoient un signal ; le premier bat toutes les 20 min,
+  # tous les jours, et sert de « battement de cœur » du PC
+  watchdog_jobs: ["saxo_token_keepalive", "backup", "eod_backfill_check", "portfolio_sync", "position_monitor"]
 
 availability:
   default_mode: "reunion"

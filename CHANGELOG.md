@@ -2,6 +2,10 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Surveillance externe — 2026-10-21
+
+- healthchecks.io : seuls les jobs de `notifications.watchdog_jobs` envoient un signal (défaut : `saxo_token_keepalive`, `backup`, `eod_backfill_check`, `portfolio_sync`, `position_monitor`), soit 5 checks à régler au lieu d'une quinzaine et pas de fausse alerte le week-end ; état sur `/sante` ; RUNBOOK §4 avec la planification de chaque check.
+
 ## [Unreleased] — Apprentissage : doublons — 2026-10-21
 
 - Les analyses répétées (ou servies par le cache) réenregistraient les mêmes propositions : questions et propositions sont maintenant dédoublonnées (texte normalisé, ou clé + valeur pour un paramètre), y compris contre les propositions déjà acceptées ou refusées ; message « rien de nouveau » et nombre de doublons écartés. Migration 0008 : doublons existants marqués `duplicate` / `dismissed` (rien n'est supprimé).

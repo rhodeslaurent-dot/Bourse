@@ -47,6 +47,16 @@ def resolve_job(name: str) -> JobFn:
     return getattr(importlib.import_module(module), fn)
 
 
+# Jobs pinging healthchecks.io when params.yaml does not list them (notifications.watchdog_jobs):
+# a 20-min all-days heartbeat plus the jobs whose silence matters (RUNBOOK §4).
+DEFAULT_WATCHDOG_JOBS = ("saxo_token_keepalive", "backup", "eod_backfill_check", "portfolio_sync", "position_monitor")
+
+
+def _watched(config: LoadedConfig, name: str) -> bool:
+    listed = getattr(config.params.notifications, "watchdog_jobs", None)
+    return name in (listed if listed is not None else DEFAULT_WATCHDOG_JOBS)
+
+
 def watchdog_ping(job: str, ok: bool) -> None:
     """Dead man's switch (docs/14 §14.2): ping healthchecks.io if configured, never raise."""
     key = os.environ.get("HEALTHCHECKS_PING_KEY")
@@ -92,7 +102,8 @@ def execute_job(
             run.note = decision.reason
             run.ended_at = datetime.now(UTC)
             log.info("job %s skipped: %s", name, decision.reason)
-            watchdog_ping(name, True)
+            if _watched(config, name):
+                watchdog_ping(name, True)
             return run
         ctx = JobContext(config, calendars, run_date, decision.open_mics, variant)
         ctx.alerts = alerts
@@ -112,5 +123,6 @@ def execute_job(
             log.exception("job %s failed", name)
         finally:
             run.ended_at = datetime.now(UTC)
-        watchdog_ping(name, run.status == "ok")
+        if _watched(config, name):
+            watchdog_ping(name, run.status == "ok")
         return run

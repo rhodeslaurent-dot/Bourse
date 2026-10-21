@@ -82,7 +82,13 @@ def test_watchdog_ping_called(config, calendars, db_engine, monkeypatch):
 
     monkeypatch.setattr(runner.httpx, "get", lambda url, timeout=10: calls.append(url))
     execute_job("test_job", config, calendars, run_date=date(2026, 9, 14))
-    assert calls == ["https://hc-ping.com/abc/test_job?create=1"]
+    assert calls == []  # not in notifications.watchdog_jobs: no check to configure on healthchecks.io
+    execute_job("backup", config, calendars, run_date=date(2026, 9, 14), fn=lambda ctx: 1)
+    execute_job("backup", config, calendars, run_date=date(2026, 9, 14), fn=lambda ctx: 1 / 0)
+    assert calls == ["https://hc-ping.com/abc/backup?create=1", "https://hc-ping.com/abc/backup/fail?create=1"]
+    app = create_app(config=config, calendars=calendars, start_scheduler=False, start_telegram=False)
+    with TestClient(app) as c:
+        assert "healthchecks.io : saxo_token_keepalive, backup" in c.get("/sante").text
     assert os.environ.get("HEALTHCHECKS_PING_KEY") == "abc"
 
 

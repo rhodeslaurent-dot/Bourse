@@ -33,8 +33,8 @@ Tout se fait depuis la racine du dossier (`cd Bourse`), sans éditer de fichier 
 
 ## 4. Watchdog externe (healthchecks.io)
 
-1. Créer un projet, récupérer la **Ping key** → `HEALTHCHECKS_PING_KEY`.
-2. Les checks sont créés au premier ping avec le nom du job (`test_job`, `backup`, puis `brief_premarket`, `eod_pipeline`, `portfolio_sync`…). Régler pour chacun période + grâce (15 min) et l'intégration Telegram + e-mail.
+1. Créer un projet, récupérer la **Ping key** → `uv run python -m app.cli env-setup healthchecks` (saisie masquée).
+2. Seuls les jobs de `notifications.watchdog_jobs` envoient un signal (par défaut `saxo_token_keepalive`, `backup`, `eod_backfill_check`, `portfolio_sync`, `position_monitor`) ; chaque check est créé au premier signal avec le nom du job. Planification (fuseau Europe/Paris sauf mention) : `saxo_token_keepalive` période 20 min, grâce 15 min (battement de cœur du PC) ; `backup` cron `0 23 * * *` fuseau Indian/Reunion, grâce 1 h ; `eod_backfill_check` cron `45 6 * * 1-5`, grâce 4 h ; `portfolio_sync` cron `0 19 * * 1-5`, grâce 4 h ; `position_monitor` cron `*/5 9-16 * * 1-5`, grâce 15 min. Intégrations : e-mail (et Telegram si souhaité).
 3. Un check sans ping = PC / box / Docker en panne : l'alerte part de l'extérieur.
 
 ## 5. Test de reprise après incident (A0.1, à faire réellement)

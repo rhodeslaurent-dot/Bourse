@@ -125,6 +125,7 @@ class Notifications(_Model):
     p1_grouping: str
     p1_repeat_minutes: int
     unread_escalation_minutes: int
+    watchdog_jobs: list[str] | None = None  # healthchecks.io: jobs that ping (None → runner default)
 
 
 class Data(_Model):

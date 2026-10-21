@@ -18,6 +18,7 @@ from app.db.session import db_session
 from app.domain.availability import unconfirmed_slots
 from app.domain.timeutil import PARIS, REUNION, format_dual, from_store
 from app.scheduler.registry import IMPLEMENTED_JOBS
+from app.scheduler.runner import DEFAULT_WATCHDOG_JOBS
 from app.services.instruments import name_of
 
 router = APIRouter()
@@ -193,6 +194,8 @@ def sante(request: Request) -> HTMLResponse:
         "unconfirmed_slots": unconfirmed,
         "cf_access": cf_settings() is not None,
         "local_writes": os.environ.get("ALLOW_UNAUTHENTICATED_WRITES") == "1",
+        "watchdog": bool(os.environ.get("HEALTHCHECKS_PING_KEY")),
+        "watchdog_jobs": list(getattr(cfg.params.notifications, "watchdog_jobs", None) or DEFAULT_WATCHDOG_JOBS),
         "calendars": st.calendars,
         "telegram": st.telegram_enabled,
         "email": st.email_enabled,
