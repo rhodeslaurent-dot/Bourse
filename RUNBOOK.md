@@ -20,7 +20,7 @@ Tout se fait depuis la racine du dossier (`cd Bourse`), sans éditer de fichier 
 1. Zero Trust → Networks → Tunnels → créer un tunnel (connector « Docker ») → copier le token dans `CLOUDFLARE_TUNNEL_TOKEN`.
 2. Public hostname : `bourse.<domaine>` → service `http://app:8000`.
 3. Access → Applications → Self-hosted `bourse.<domaine>` ; policy « Allow » sur l'e-mail unique ; méthodes : One-time PIN (+ Google) ; durée de session 24 h.
-4. Copier l'**Application Audience (AUD) tag** dans `CF_ACCESS_AUD`, le domaine d'équipe (`<equipe>.cloudflareaccess.com`) dans `CF_ACCESS_TEAM_DOMAIN`, l'e-mail dans `CF_ACCESS_EMAIL`. Redémarrer `app`. `/sante` doit afficher « Cloudflare Access : activé ».
+4. `uv run python -m app.cli env-setup cloudflare` : token du tunnel (`CLOUDFLARE_TUNNEL_TOKEN`), domaine d'équipe (`<equipe>.cloudflareaccess.com`, `CF_ACCESS_TEAM_DOMAIN`), **Application Audience (AUD) tag** (`CF_ACCESS_AUD`), e-mail autorisé (`CF_ACCESS_EMAIL`). Puis `docker compose up -d --force-recreate`. `/sante` doit afficher « Cloudflare Access : activé ».
 5. **Test depuis le PC pro** (A0.2) : ouvrir `https://bourse.<domaine>/` dans le navigateur d'entreprise → OTP → `/sante`. Si le proxy bloque : consigner ADR sur le plan B (Tailscale Funnel + TOTP applicatif).
 
 ## 3. Checklist Windows (docs/14 §14.2)

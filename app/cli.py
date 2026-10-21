@@ -119,6 +119,7 @@ def cmd_env_setup(args: argparse.Namespace) -> int:
         "imap": ["SMTP_USER", "SMTP_PASSWORD", "EMAIL_TO", "IMAP_USER", "IMAP_PASSWORD"],
         "healthchecks": ["HEALTHCHECKS_PING_KEY"],
         "zonebourse": ["ZONEBOURSE_COOKIE"],
+        "cloudflare": ["CLOUDFLARE_TUNNEL_TOKEN", "CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "CF_ACCESS_EMAIL"],
     }
     if args.group not in groups:
         print("groupes possibles : " + ", ".join(groups))
@@ -839,7 +840,7 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--unset", action="store_true", help="commenter la ligne (valeur par défaut)")
     ev.set_defaults(fn=cmd_env_set)
     es = sub.add_parser("env-setup", help="créer/compléter .env de façon interactive (saisie masquée)")
-    es.add_argument("group", help="database | saxo | eodhd | telegram | anthropic | imap | healthchecks | zonebourse")
+    es.add_argument("group", help="database | saxo | eodhd | telegram | anthropic | imap | healthchecks | zonebourse | cloudflare")
     es.add_argument("--force", action="store_true", help="remplacer une valeur déjà renseignée")
     es.set_defaults(fn=cmd_env_setup)
     sc = sub.add_parser("saxo-check", help="lecture seule : clients/me, cash, positions, ordres")
