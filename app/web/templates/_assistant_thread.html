@@ -17,6 +17,7 @@
 {% set a = m.answer or {} %}
 <div class="max-w-[95%] rounded-2xl rounded-bl-sm bg-slate-100 dark:bg-slate-800 px-3 py-2">
   <p class="whitespace-pre-line">{{ a.get('answer', '') }}</p>
+  {% if m.answered_by != 'llm' and m.context %}<details class="mt-1"><summary class="cursor-pointer text-xs text-sky-700 dark:text-sky-300">voir les données de l'outil</summary><pre class="mt-1 max-h-48 overflow-auto rounded-lg bg-slate-900 text-slate-100 p-2 text-[10px] leading-snug">{{ (m.context.get('page') or m.context)|tojson(indent=1) }}</pre></details>{% endif %}
   {% if a.get('caveats') %}<ul class="mt-1 text-xs text-amber-800 dark:text-amber-300 list-disc ml-4">{% for c in a.caveats %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
   <div class="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
     <span>{{ m.ts|dual }}</span>

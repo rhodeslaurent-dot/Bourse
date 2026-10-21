@@ -2,6 +2,15 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Apprentissage et assistant global — 2026-10-21
+
+- Spécification `docs/18`, ADR-009 (boucle d'apprentissage sans ré-entraînement ni optimisation automatique) ; migration 0007 : `signal_outcomes`, `learning_reviews`, `learning_questions`, `learning_suggestions`, `trader_memory`, `assistant_messages.page`.
+- Watchlist momentum recalculée chaque matin de marché (`watchlist_refresh`, 07:15) ; les jobs peuvent porter une note sur leur ligne `jobs_runs`.
+- Résultat de chaque proposition passée, prise ou non (`domain/outcomes`, job `outcomes_update` 07:20) ; statistiques par décision, détecteur, source, régime, heure et tranches (`domain/learning`) ; historique comparable figé dans l'instantané, tri des opportunités et rétrogradation BUY → WATCH (docs/12 §12.5.3).
+- Revue IA (`weekly_review` le samedi et bouton « Lancer une analyse ») : constats, questions à l'utilisateur, propositions d'amélioration, toutes contrôlées par Python ; leçons retenues ; page `/apprentissage`.
+- Assistant disponible sur chaque page (panneau flottant, faits de la page, continuité, leçons ; boutons « Demander ») ; navigation : « Apprentissage » remplace « Assistant », menu « Plus » sur mobile.
+- `params-init --update` ajoute aussi le bloc `learning` et les nouvelles étapes de la journée. Total : 272 tests.
+
 ## [Unreleased] — Interface v2 — 2026-10-21
 
 - Cahier des charges `docs/17-interface-v2.md` (critères A17.1–A17.6) ; migration 0006 : `notes`, `workflow_steps`, `assistant_messages`, `kpi_daily`.

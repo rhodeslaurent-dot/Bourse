@@ -66,4 +66,10 @@ Conventions : clés `id` (bigint), horodatages `timestamptz` en UTC, montants `n
 
 - ★ `notes` (scope ∈ {position, watchlist, proposal, instrument, global}, ref, text, updated_at ; unique (scope, ref)) — texte libre persistant, jamais supprimé.
 - ★ `workflow_steps` (day, key, done_at, result ; unique (day, key)) — état des étapes de la journée guidée (`params.workflow`).
-- ★ `assistant_messages` (ts, isin?, question, answer json, answered_by ∈ {llm, rules, rejected}, context json, cost_usd, model) — questions à l'assistant avec le dossier de faits exact utilisé.
+- ★ `assistant_messages` (ts, isin?, question, answer json, answered_by ∈ {llm, rules, rejected}, context json, cost_usd, model, page — migration 0007) — questions à l'assistant avec le dossier de faits exact utilisé.
+
+## 13.9 Retour d'expérience (docs/18, migration 0007)
+
+- ★ `signal_outcomes` (proposal_id unique, signal_id, isin, status, final, decision_group, ref_price, entry/exit day & price, exit_reason, r_gross, r_net, costs_counted, ret_pct, mfe/mae en % et en R, ret_1d/5d/20d, last_bar_day, note) — tient lieu des `signal_outcomes` de la phase 5 (docs/15-roadmap).
+- ★ `learning_reviews` (ts, trigger, status, summary, findings json, dossier json, rejected json, cost_usd, model) ; ★ `learning_questions` (review_id, question, why, kind, choices, answer, status) ; ★ `learning_suggestions` (review_id, kind, title, rationale, expected_effect, params_key, current_value, proposed_value, status, user_comment, decided_at).
+- ★ `trader_memory` (ts, text, source ∈ {utilisateur, reponse, suggestion}, ref, active) — précise la table prévue en §13.5.

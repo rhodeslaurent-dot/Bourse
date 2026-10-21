@@ -28,7 +28,7 @@
         <td class="py-1.5 pr-3 text-right tabular">{{ r.cas_avec_R }}</td>
         <td class="py-1.5 pr-3 text-right tabular">{{ (r.reussite_pct ~ ' %') if r.reussite_pct is not none else '—' }}</td>
         <td class="py-1.5 pr-3 text-right tabular font-medium {% if r.esperance_R is not none and r.esperance_R > 0 %}text-emerald-600{% elif r.esperance_R is not none and r.esperance_R < 0 %}text-rose-600{% endif %}">{{ ('%+.2f R'|format(r.esperance_R)) if r.esperance_R is not none else '—' }}</td>
-        <td class="py-1.5 pr-3 text-right tabular text-xs text-slate-500 hidden sm:table-cell">{{ ('[%+.2f ; %+.2f]'|format(r.ic90_R[0], r.ic90_R[1])) if r.ic90_R else '—' }}</td>
+        <td class="py-1.5 pr-3 text-right tabular text-xs text-slate-500 whitespace-nowrap hidden sm:table-cell">{{ ('[%+.2f ; %+.2f]'|format(r.ic90_R[0], r.ic90_R[1])) if r.ic90_R else '—' }}</td>
         <td class="py-1.5 pr-3 text-right tabular hidden sm:table-cell">{{ ('%+.1f %%'|format(r.rendement_moyen_pct)) if r.rendement_moyen_pct is not none else '—' }}</td>
         <td class="py-1.5 text-right">{{ rel(r.fiabilite) }}</td>
       </tr>

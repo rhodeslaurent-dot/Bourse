@@ -35,7 +35,7 @@
     <form action="/recherche" method="get" class="md:hidden"><input name="q" placeholder="Rechercher une valeur (nom ou ISIN)…" class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"></form>
     {% block content %}{% endblock %}
   </main>
-  <nav class="sm:hidden fixed bottom-0 inset-x-0 z-20 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur">
+  <nav class="sm:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur">
     <div class="grid grid-cols-5">
       {% for href, label, icon in nav if href in ('/', '/opportunites', '/positions', '/journee') %}
       <a href="{{ href }}" class="flex flex-col items-center gap-0.5 py-2 text-[11px] {% if path == href %}text-sky-700 dark:text-sky-300 font-semibold{% else %}text-slate-500 dark:text-slate-400{% endif %}">
@@ -58,7 +58,7 @@
     <summary class="list-none fixed z-30 right-4 bottom-20 sm:bottom-6 flex items-center gap-2 cursor-pointer select-none rounded-full bg-sky-700 hover:bg-sky-800 text-white shadow-lg shadow-sky-900/20 px-4 py-2.5 text-sm font-medium" title="Poser une question sans quitter la page">
       <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Assistant
     </summary>
-    <div class="fixed z-40 inset-x-2 top-16 bottom-36 sm:inset-auto sm:right-4 sm:bottom-20 sm:top-auto sm:w-[26rem] sm:h-[34rem] flex flex-col rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
+    <div class="fixed z-50 inset-x-2 top-16 bottom-36 sm:inset-auto sm:right-4 sm:bottom-20 sm:top-auto sm:w-[26rem] sm:h-[34rem] flex flex-col rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
       <div class="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 px-4 py-2.5">
         <div class="text-sm font-semibold">Assistant <span class="font-normal text-slate-500 dark:text-slate-400">· cette page</span></div>
         <a href="/assistant" class="text-xs underline decoration-dotted text-slate-500 dark:text-slate-400">historique complet</a>

@@ -75,7 +75,7 @@ def learning_page(request: Request) -> HTMLResponse:
                 s.scalars(
                     select(LearningSuggestion)
                     .where(LearningSuggestion.status.in_(["open", "later"]))
-                    .order_by(LearningSuggestion.status, LearningSuggestion.id)
+                    .order_by(LearningSuggestion.status.desc(), LearningSuggestion.id)  # open before later
                 )
             )
             decided = list(
