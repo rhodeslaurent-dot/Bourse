@@ -586,6 +586,88 @@ def cmd_saxo_check(args: argparse.Namespace) -> int:
     return 0 if os.environ.get("SAXO_TOKEN_KEY") else 2
 
 
+def cmd_newsletters_history(args: argparse.Namespace) -> int:
+    """docs/19 — one-off, read-only import of past newsletters from a Gmail mailbox (app password
+    asked at run time, never stored). ``--dry-run`` only counts senders and dates."""
+    import getpass
+    import os
+    from collections import Counter
+
+    from app.data.providers.imap_gmail import GmailHistory
+    from app.db.session import db_session
+
+    since = date.fromisoformat(args.since) if args.since else None
+    password = os.environ.get("IMAP_HISTORY_PASSWORD") or getpass.getpass(
+        f"Mot de passe d'application Gmail pour {args.user} (saisie masquée, jamais enregistré) : "
+    )
+    password = password.replace(" ", "")
+    try:
+        box = GmailHistory("imap.gmail.com", args.user, password).__enter__()
+    except Exception as exc:  # noqa: BLE001
+        print(f"connexion refusée ({exc.__class__.__name__}) : vérifier l'adresse et le mot de passe d'application")
+        return 2
+    try:
+        uids = box.search(args.query, since)
+        if args.limit:
+            uids = uids[-args.limit :]
+        print(f"dossier lu (lecture seule) : {box.folder} · {len(uids)} message(s) pour « {args.query} »")
+        if args.dry_run:
+            heads = [box.header(u) for u in uids]
+            senders = Counter(h.sender for h in heads)
+            dates = sorted(h.received_at for h in heads if h.received_at)
+            if dates:
+                print(f"du {dates[0]:%d/%m/%Y} au {dates[-1]:%d/%m/%Y}")
+            print("expéditeurs :")
+            for who, n in senders.most_common(10):
+                print(f"  {n:5d}  {who}")
+            print("exemples d'objets :")
+            for h in heads[-5:]:
+                print(f"  - {h.subject[:100]}")
+            print("rien n'a été enregistré (--dry-run)")
+            return 0
+
+        from app.domain.calendar import load_market_calendars
+        from app.llm.gateway import ClaudeGateway, settings_from
+        from app.services.newsletters import ingest_mail
+        from app.services.outcomes import update_outcomes
+
+        cfg = load_params(args.params)
+        cals = load_market_calendars(args.calendars)
+        llm_settings = None if args.no_llm else settings_from(cfg)
+        gateway = ClaudeGateway(llm_settings) if llm_settings else None
+        if gateway is not None and not gateway.enabled:
+            gateway = None
+        totals = Counter()
+        for i, uid in enumerate(uids, 1):
+            with db_session() as s:
+                if gateway is not None:
+                    ok, why = gateway.budget_ok(s)
+                    if not ok:
+                        print(f"arrêt : {why}. {len(uids) - i + 1} lettre(s) restante(s) : relancer demain, la reprise est automatique.")  # noqa: E501
+                        break
+                mail = box.mail(uid, args.source)
+                if mail is None:
+                    totals["illisibles"] += 1
+                    continue
+                rep = ingest_mail(s, mail, cfg, gateway, None, calendars=cals, historical=True)
+            totals["nouvelles"] += rep.new
+            totals["deja_presentes"] += 1 - rep.new
+            totals["valeurs"] += rep.values
+            totals["propositions"] += rep.signals
+            totals["extraites_par_ia"] += rep.parsed_by_llm
+            if i % 10 == 0 or i == len(uids):
+                print(
+                    f"{i}/{len(uids)} · nouvelles {totals['nouvelles']} · valeurs {totals['valeurs']} · "
+                    f"propositions {totals['propositions']} · extraites par l'IA {totals['extraites_par_ia']}"
+                )
+        with db_session() as s:
+            n = update_outcomes(s, cfg, cals)
+        print(f"résultats recalculés : {n} · bilan : " + ", ".join(f"{k} {v}" for k, v in totals.items()))
+        return 0
+    finally:
+        box.__exit__(None, None, None)
+
+
 def cmd_backfill(args: argparse.Namespace) -> int:
     """``backfill --provider eodhd --from 2016-01-01 [--isin FR…]`` : EOD history for the referential."""
     import os
@@ -645,6 +727,17 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("test-telegram").set_defaults(fn=cmd_test_telegram)
     sub.add_parser("test-email").set_defaults(fn=cmd_test_email)
     sub.add_parser("migrate").set_defaults(fn=cmd_migrate)
+    nh = sub.add_parser(
+        "newsletters-history", help="import ponctuel, en lecture seule, des lettres passées d'une boîte Gmail (docs/19)"
+    )
+    nh.add_argument("--user", required=True, help="adresse Gmail à lire (lecture seule)")
+    nh.add_argument("--query", required=True, help='requête Gmail, ex. "from:momentum"')
+    nh.add_argument("--source", default="momentum_capital", help="nom de source (identique à data.imap.senders)")
+    nh.add_argument("--since", help="AAAA-MM-JJ : lettres reçues depuis cette date")
+    nh.add_argument("--limit", type=int, help="ne traiter que les N plus récentes")
+    nh.add_argument("--dry-run", action="store_true", help="repérage : compte expéditeurs et dates, n'enregistre rien")
+    nh.add_argument("--no-llm", action="store_true", help="extraction par règles seules (gratuite)")
+    nh.set_defaults(fn=cmd_newsletters_history)
     bf = sub.add_parser("backfill")
     bf.add_argument("--provider", default="eodhd")
     bf.add_argument("--from", dest="from_date", required=True)

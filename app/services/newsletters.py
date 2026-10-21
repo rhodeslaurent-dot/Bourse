@@ -74,7 +74,11 @@ def ingest_mail(
     gateway: ClaudeGateway | None,
     quotes: dict[str, Quote] | None = None,
     calendars=None,  # type: ignore[no-untyped-def]
+    historical: bool = False,
 ) -> NewsletterReport:
+    """``historical`` (docs/19): letter imported after the fact — the proposal is dated from the
+    letter, ``expired``, with a reconstituted snapshot (no later data), no quote at receipt, no
+    watchlist entry and no comparable-history adjustment."""
     rep = NewsletterReport(received=1)
     if s.scalar(select(NewsletterItem).where(NewsletterItem.dedup_hash == mail.dedup_hash)) is not None:
         return rep
@@ -187,20 +191,31 @@ def ingest_mail(
                 f"BLOQUÉ : drift depuis l'ouverture {row.drift_since_open:+.1%} ≥ {max_drift:.0%} (detectors.d5_external.drift_since_open_max_for_buy) — aucun BUY sur signal externe seul"  # noqa: E501
             )
         action = "WATCH"  # phase 1: external signals feed the watchlist; BUY needs a D1–D4 setup (phase 2)
-        create_proposal(
+        snap_quotes = {v.isin: q.model_dump(mode="json")} if q else None
+        if historical:
+            snap_quotes = {
+                "reconstitution": f"lettre historique importée le {datetime.now(UTC):%d/%m/%Y} : "
+                "cours à la réception inconnu, données de marché antérieures ou égales au jour de la lettre"
+            }
+        p = create_proposal(
             s,
             sig,
             action,
-            {v.isin: q.model_dump(mode="json")} if q else None,
+            snap_quotes,
             gates,
             config.params.version,
             to_verify=q is None or q.data_status.value != "realtime",
-            config=config,
+            config=None if historical else config,
+            created_at=mail.received_at if historical else None,
+            as_of=day if historical else None,
             entry_zone={"achat": v.levels.get("achat")} if v.levels.get("achat") else None,
             stop=v.levels.get("stop"),
             targets=[v.levels["objectif"]] if "objectif" in v.levels else None,
         )
         rep.signals += 1
+        if historical:
+            p.status = "expired"  # no decision can be taken on an old letter
+            continue
         if (
             v.direction in ("buy", "watch")
             and s.scalar(select(WatchlistRow).where(WatchlistRow.isin == v.isin, WatchlistRow.active.is_(True))) is None

@@ -2,6 +2,11 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Import historique des lettres — 2026-10-21
+
+- Spécification `docs/19`. Commande `newsletters-history --user … --query "from:…" [--since] [--dry-run] [--no-llm]` : lecture seule de « Tous les messages » (`EXAMINE`, `BODY.PEEK`), mot de passe d'application saisi masqué et jamais stocké, repérage des expéditeurs, progression, arrêt propre au plafond LLM et reprise sans doublon.
+- Chaque valeur d'une lettre historique devient une proposition datée de la lettre (`expired`), avec un instantané reconstitué (indicateurs et régime antérieurs ou égaux au jour de la lettre, aucune donnée postérieure, cours à réception indisponible), sans watchlist ni notification ; son résultat est calculé par `outcomes_update` et alimente `/apprentissage`.
+
 ## [Unreleased] — Boîte mail partagée — 2026-10-21
 
 - `imap_poll` peut lire une boîte Gmail existante : recherche serveur limitée aux non-lus récents des expéditeurs de `data.imap.senders`, lecture en `BODY.PEEK` (état inchangé), seules les lettres reconnues sont marquées lues ; dossier ou libellé Gmail réglable (`data.imap.mailbox`, défaut `INBOX`).

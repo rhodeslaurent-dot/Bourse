@@ -205,3 +205,83 @@ class GmailImap:
                     out.append(mail)
                     conn.store(uid, "+FLAGS", "\\Seen")
         return out
+
+
+LIST_RE = re.compile(rb'\((?P<flags>[^)]*)\) (?:"[^"]*"|NIL) (?P<name>.+)$')
+
+
+def all_mail_folder(list_lines: list[bytes]) -> str | None:
+    """Gmail's « All mail » folder, found by its ``\\All`` attribute (its name is localised)."""
+    for line in list_lines:
+        m = LIST_RE.match(line or b"")
+        if m and b"\\All" in m.group("flags"):
+            return m.group("name").decode("utf-8", errors="replace")
+    return None
+
+
+def history_criteria(gmail_query: str, since: date | None) -> str:
+    q = gmail_query.replace("\\", "").replace('"', "")
+    return f'X-GM-RAW "{q}"' + (f" SINCE {since.strftime('%d-%b-%Y')}" if since else "")
+
+
+@dataclass
+class HistoryHeader:
+    sender: str
+    subject: str
+    received_at: datetime | None
+
+
+class GmailHistory:
+    """Read-only access to a mailbox for a one-off history import (docs/19 §19.2): the « All mail »
+    folder is opened with EXAMINE and every fetch uses BODY.PEEK, so no flag ever changes. The
+    password is passed in by the caller and never stored."""
+
+    def __init__(self, host: str, user: str, password: str) -> None:
+        self.host, self.user, self.password = host, user, password
+        self.conn: imaplib.IMAP4_SSL | None = None
+        self.folder = "INBOX"
+
+    def __enter__(self) -> GmailHistory:
+        self.conn = imaplib.IMAP4_SSL(self.host)
+        self.conn.login(self.user, self.password)
+        _, lines = self.conn.list()
+        self.folder = all_mail_folder([x for x in lines if isinstance(x, bytes)]) or "INBOX"
+        status, _ = self.conn.select(self.folder, readonly=True)
+        if status != "OK":
+            raise RuntimeError(f"dossier IMAP illisible : {self.folder}")
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        if self.conn is not None:
+            try:
+                self.conn.logout()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def search(self, gmail_query: str, since: date | None = None) -> list[bytes]:
+        assert self.conn is not None
+        _, data = self.conn.search(None, history_criteria(gmail_query, since))
+        return data[0].split() if data and data[0] else []
+
+    @staticmethod
+    def _internal(parts: list) -> datetime | None:  # type: ignore[type-arg]
+        for part in parts:
+            if isinstance(part, tuple) and b"INTERNALDATE" in part[0]:
+                t = imaplib.Internaldate2tuple(part[0])
+                if t:
+                    return datetime.fromtimestamp(time.mktime(t), tz=UTC)
+        return None
+
+    def header(self, uid: bytes) -> HistoryHeader:
+        assert self.conn is not None
+        _, parts = self.conn.fetch(uid, "(INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+        raw = next((p[1] for p in parts if isinstance(p, tuple)), b"")
+        msg = email.message_from_bytes(raw)
+        return HistoryHeader(_decode(msg.get("From")), _decode(msg.get("Subject")), self._internal(parts))
+
+    def mail(self, uid: bytes, source: str) -> NewsletterMail | None:
+        """Full letter, attributed to ``source`` (the search query selected it)."""
+        assert self.conn is not None
+        _, parts = self.conn.fetch(uid, "(INTERNALDATE BODY.PEEK[])")
+        raw = next((p[1] for p in parts if isinstance(p, tuple)), b"")
+        return parse_eml(raw, {source: [""]}, self._internal(parts)) if raw else None

@@ -5,7 +5,7 @@ comparison (docs/12) can be computed later from the snapshot, never from correct
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     Decision,
     DecisionSnapshot,
+    FeatureDaily,
     MarketRegimeRow,
     PortfolioState,
     Proposal,
@@ -73,12 +74,17 @@ def create_proposal(
     to_verify: bool = False,
     expires_at: datetime | None = None,
     config: Any | None = None,
+    created_at: datetime | None = None,
+    as_of: date | None = None,
     **fields: Any,
 ) -> Proposal:
     """Create the proposal and its snapshot in one go: the snapshot is what the decision saw.
 
     With ``config`` and ``learning`` enabled, the comparable history (docs/18 §18.5) is attached to
-    the snapshot and an unfavourable BUY on enough cases is issued as WATCH (docs/12 §12.5.3)."""
+    the snapshot and an unfavourable BUY on enough cases is issued as WATCH (docs/12 §12.5.3).
+
+    ``created_at`` / ``as_of`` reconstitute a past proposal (docs/19): the snapshot then holds only
+    the indicators and regime of the last stored day on or before ``as_of`` and no portfolio state."""
     track = None
     if config is not None:
         from app.domain.learning import should_demote
@@ -102,18 +108,29 @@ def create_proposal(
         gates=_jsonable(gates or {}),
         to_verify=to_verify,
         status="open" if action in ("BUY", "WATCH") else "open",
-        created_at=datetime.now(UTC),
+        created_at=created_at or datetime.now(UTC),
         expires_at=expires_at,
         **fields,
     )
     s.add(p)
     s.flush()
-    feats = latest_features(s, [sig.isin]).get(sig.isin)
-    regime = s.scalar(select(MarketRegimeRow).order_by(MarketRegimeRow.id.desc()))
-    states = [
-        {"account_id": st.account_id, "cash": st.cash, "synced_at": st.synced_at, "declarative": st.declarative}
-        for st in s.scalars(select(PortfolioState))
-    ]
+    if as_of is None:
+        feats = latest_features(s, [sig.isin]).get(sig.isin)
+        regime = s.scalar(select(MarketRegimeRow).order_by(MarketRegimeRow.id.desc()))
+        states = [
+            {"account_id": st.account_id, "cash": st.cash, "synced_at": st.synced_at, "declarative": st.declarative}
+            for st in s.scalars(select(PortfolioState))
+        ]
+    else:  # no data after as_of may enter a reconstituted snapshot (rule 10)
+        feats = s.scalar(
+            select(FeatureDaily)
+            .where(FeatureDaily.isin == sig.isin, FeatureDaily.day <= as_of)
+            .order_by(FeatureDaily.day.desc())
+        )
+        regime = s.scalar(
+            select(MarketRegimeRow).where(MarketRegimeRow.day <= as_of).order_by(MarketRegimeRow.day.desc())
+        )
+        states = []
     s.add(
         DecisionSnapshot(
             proposal_id=p.id,
