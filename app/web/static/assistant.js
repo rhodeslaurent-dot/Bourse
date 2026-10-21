@@ -47,10 +47,16 @@
     );
     scrollDown();
     fetch("/assistant/panel", { method: "POST", body: body, credentials: "same-origin" })
-      .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
+      .then(function (r) {
+        if (r.ok) return r.text();
+        return r.json().then(function (j) { return Promise.reject(j.detail || r.status); }, function () { return Promise.reject(r.status); });
+      })
       .then(function (html) { thread.innerHTML = html; form.question.value = ""; loadedFor = key(); })
-      .catch(function (status) {
-        thread.insertAdjacentHTML("beforeend", '<p class="text-rose-600">Erreur ' + status + " : question non envoyée.</p>");
+      .catch(function (why) {
+        var p = document.createElement("p");
+        p.className = "rounded-xl bg-rose-50 dark:bg-rose-500/10 p-2 text-rose-700 dark:text-rose-300";
+        p.textContent = "Question non envoyée : " + why;
+        thread.appendChild(p);
       })
       .finally(function () { button.disabled = false; button.textContent = "Demander"; scrollDown(); });
   });

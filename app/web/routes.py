@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -191,6 +192,7 @@ def sante(request: Request) -> HTMLResponse:
         "mode": current_mode_payload(request),
         "unconfirmed_slots": unconfirmed,
         "cf_access": cf_settings() is not None,
+        "local_writes": os.environ.get("ALLOW_UNAUTHENTICATED_WRITES") == "1",
         "calendars": st.calendars,
         "telegram": st.telegram_enabled,
         "email": st.email_enabled,

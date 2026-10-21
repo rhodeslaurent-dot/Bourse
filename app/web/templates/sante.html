@@ -19,7 +19,7 @@
       </div>
     </div>
     {% endmacro %}
-    {% if cf_access %}{{ row('Cloudflare Access', 'ok', 'activé : accès distant protégé', 'green') }}{% else %}{{ row('Cloudflare Access', 'off', 'DÉSACTIVÉ (CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD absents) — accès local seulement', 'red') }}{% endif %}
+    {% if cf_access %}{{ row('Cloudflare Access', 'ok', 'activé : accès distant protégé', 'green') }}{% else %}{{ row('Cloudflare Access', 'off', 'DÉSACTIVÉ (CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD absents) — accès local seulement · ' ~ ('écritures autorisées en local (ALLOW_UNAUTHENTICATED_WRITES=1)' if local_writes else 'écritures REFUSÉES : boutons et assistant inactifs (env-set ALLOW_UNAUTHENTICATED_WRITES 1)'), 'red') }}{% endif %}
     {{ row('Telegram', '', 'configuré' if telegram else 'non configuré', 'green' if telegram else 'amber') }}
     {{ row('E-mail', '', 'configuré' if email else 'non configuré', 'green' if email else 'amber') }}
     {% if llm_enabled %}{{ row('LLM', '', 'API Claude active · ' ~ ('%.2f'|format(llm_cost)) ~ ' $ / ' ~ (llm_budget or '—') ~ ' $ coût du mois (' ~ llm_calls ~ ' appels)', 'green') }}{% else %}{{ row('LLM', '', 'repli par règles (ANTHROPIC_API_KEY absent ou groupe llm désactivé) · coût du mois ' ~ ('%.2f'|format(llm_cost)) ~ ' $ / ' ~ (llm_budget or '—') ~ ' $ (' ~ llm_calls ~ ' appels)', 'amber') }}{% endif %}

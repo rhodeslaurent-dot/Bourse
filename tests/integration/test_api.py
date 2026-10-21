@@ -91,7 +91,14 @@ def test_writes_refused_without_access_unless_allowed(config, calendars, db_engi
         monkeypatch.delenv(var, raising=False)
     app = create_app(config=config, calendars=calendars, start_scheduler=False, start_telegram=False)
     with TestClient(app) as c:
-        assert c.get("/sante").status_code == 200  # read-only pages still visible (they show the red warning)
+        sante = c.get("/sante")
+        assert sante.status_code == 200 and "écritures REFUSÉES" in sante.text  # read-only pages stay visible
+        form = c.post("/apprentissage/analyse", headers={"Accept": "text/html"})
+        assert (
+            form.status_code == 503
+            and "Écriture refusée" in form.text
+            and "ALLOW_UNAUTHENTICATED_WRITES 1" in form.text
+        )
         assert c.post("/api/mode", json={"mode": "absent"}).status_code == 503
         assert (
             c.post(

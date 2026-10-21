@@ -17,7 +17,7 @@ import httpx
 import jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 
 EXEMPT_PREFIXES = ("/health", "/api/webhooks/", "/static/")
 
@@ -65,6 +65,23 @@ def app_token_ok(header_value: str | None) -> bool:
     return bool(expected) and header_value is not None and hmac.compare_digest(header_value, expected)
 
 
+WRITES_REFUSED_HTML = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Écriture refusée — BOURSE-PILOT</title>
+<link rel="stylesheet" href="/static/app.css"></head>
+<body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 p-6">
+<div class="mx-auto max-w-xl rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm
+ dark:border-amber-500/40 dark:bg-amber-500/10">
+<h1 class="text-lg font-semibold">Écriture refusée : accès non protégé</h1>
+<p class="mt-2">Cloudflare Access n'est pas configuré : l'application n'accepte que la lecture, pour qu'aucune action ne
+puisse venir d'un accès non authentifié.</p>
+<p class="mt-2"><b>Test sur le PC seulement</b> (port lié à 127.0.0.1) : lancer
+<code>uv run python -m app.cli env-set ALLOW_UNAUTHENTICATED_WRITES 1</code> puis
+<code>docker compose up -d --force-recreate app</code>.</p>
+<p class="mt-2"><b>Accès distant</b> : configurer Cloudflare Tunnel + Access (RUNBOOK §2).</p>
+<p class="mt-4"><a class="underline" href="javascript:history.back()">← revenir à la page</a></p>
+</div></body></html>"""
+
+
 class AccessMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
         path = request.url.path
@@ -76,12 +93,10 @@ class AccessMiddleware(BaseHTTPMiddleware):
                 request.state.auth = "app_token"
                 return await call_next(request)
             if request.method != "GET" and os.environ.get("ALLOW_UNAUTHENTICATED_WRITES") != "1":
-                return JSONResponse(
-                    {
-                        "detail": "accès non protégé : définir CF_ACCESS_TEAM_DOMAIN/CF_ACCESS_AUD (ou ALLOW_UNAUTHENTICATED_WRITES=1 en développement local) avant toute écriture"  # noqa: E501
-                    },
-                    status_code=503,
-                )
+                detail = "accès non protégé : définir CF_ACCESS_TEAM_DOMAIN/CF_ACCESS_AUD (ou ALLOW_UNAUTHENTICATED_WRITES=1 en développement local) avant toute écriture"  # noqa: E501
+                if "text/html" in request.headers.get("accept", ""):
+                    return HTMLResponse(WRITES_REFUSED_HTML, status_code=503)
+                return JSONResponse({"detail": detail}, status_code=503)
             request.state.auth = "disabled"
             return await call_next(request)
         if app_token_ok(request.headers.get("X-App-Token")):
