@@ -297,6 +297,7 @@ data:
     - {name: "globenewswire_fr", url: "à renseigner"}
   imap:
     host: "imap.gmail.com"
+    mailbox: "INBOX"                     # ou un libellé Gmail (ex. "Bourse") ; seuls les non-lus des expéditeurs ci-dessous sont lus
     poll_minutes: 10
     window_local: ["07:30", "19:00"]
     senders:

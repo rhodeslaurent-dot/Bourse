@@ -2,6 +2,10 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Boîte mail partagée — 2026-10-21
+
+- `imap_poll` peut lire une boîte Gmail existante : recherche serveur limitée aux non-lus récents des expéditeurs de `data.imap.senders`, lecture en `BODY.PEEK` (état inchangé), seules les lettres reconnues sont marquées lues ; dossier ou libellé Gmail réglable (`data.imap.mailbox`, défaut `INBOX`).
+
 ## [Unreleased] — Surveillance externe — 2026-10-21
 
 - healthchecks.io : seuls les jobs de `notifications.watchdog_jobs` envoient un signal (défaut : `saxo_token_keepalive`, `backup`, `eod_backfill_check`, `portfolio_sync`, `position_monitor`), soit 5 checks à régler au lieu d'une quinzaine et pas de fausse alerte le week-end ; état sur `/sante` ; RUNBOOK §4 avec la planification de chaque check.

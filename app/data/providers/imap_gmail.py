@@ -11,7 +11,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from email.header import decode_header, make_header
 from email.message import Message
 from email.utils import parsedate_to_datetime
@@ -154,6 +154,17 @@ def extract_values(body: str, aliases: dict[str, str] | None = None) -> list[Ext
     return out
 
 
+def search_criteria(senders: dict[str, list[str]], since: date) -> str:
+    """IMAP SEARCH for unread mails of known newsletter senders only (prefix ``OR`` chain), so a
+    shared mailbox is never scanned wholesale: other unread mails are not even fetched."""
+    patterns = sorted({p.lstrip("@").replace('"', "") for ps in senders.values() for p in ps if p.strip("@ ")})
+    base = f"UNSEEN SINCE {since.strftime('%d-%b-%Y')}"
+    if not patterns:
+        return base
+    froms = " ".join(f'FROM "{p}"' for p in patterns)
+    return f"{base} {'OR ' * (len(patterns) - 1)}{froms}"
+
+
 class GmailImap:
     def __init__(self, host: str, user: str | None = None, password: str | None = None) -> None:
         self.host = host
@@ -161,18 +172,24 @@ class GmailImap:
         self.password = password or os.environ.get("IMAP_PASSWORD", "")
 
     def fetch_unseen(
-        self, senders: dict[str, list[str]], mailbox: str = "INBOX", limit: int = 50
+        self, senders: dict[str, list[str]], mailbox: str = "INBOX", limit: int = 50, since_days: int = 3
     ) -> list[NewsletterMail]:
+        """Unread newsletters of known senders. Mails are read with ``BODY.PEEK`` (state unchanged);
+        only the ones recognised as newsletters are then marked as read, so a mailbox shared with
+        other uses keeps its other unread mails."""
         if not (self.user and self.password):
             raise RuntimeError("IMAP_USER / IMAP_PASSWORD absents")
         out: list[NewsletterMail] = []
+        since = (datetime.now(UTC) - timedelta(days=since_days)).date()
         with imaplib.IMAP4_SSL(self.host) as conn:
             conn.login(self.user, self.password)
-            conn.select(mailbox)
-            _, data = conn.search(None, "UNSEEN")
+            status, _ = conn.select(f'"{mailbox}"' if " " in mailbox else mailbox)
+            if status != "OK":
+                raise RuntimeError(f"dossier IMAP introuvable : {mailbox} (libellé Gmail à créer ?)")
+            _, data = conn.search(None, search_criteria(senders, since))
             ids = data[0].split()[-limit:]
             for uid in ids:
-                _, parts = conn.fetch(uid, "(INTERNALDATE RFC822)")
+                _, parts = conn.fetch(uid, "(INTERNALDATE BODY.PEEK[])")
                 raw = b""
                 internal = None
                 for part in parts:
@@ -186,4 +203,5 @@ class GmailImap:
                 mail = parse_eml(raw, senders, received)
                 if mail:
                     out.append(mail)
+                    conn.store(uid, "+FLAGS", "\\Seen")
         return out

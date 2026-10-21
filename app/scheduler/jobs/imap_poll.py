@@ -21,7 +21,9 @@ def run(ctx: JobContext) -> int:
         log.info("IMAP non configuré : rappel manuel (docs/14 dégradation contrôlée)")
         return 0
     senders = {k: list(v) for k, v in (imap.get("senders") or {}).items()}
-    mails = GmailImap(str(imap.get("host", "imap.gmail.com"))).fetch_unseen(senders)
+    mails = GmailImap(str(imap.get("host", "imap.gmail.com"))).fetch_unseen(
+        senders, mailbox=str(imap.get("mailbox", "INBOX"))
+    )
     n = 0
     with db_session() as s:
         for mail in mails:

@@ -56,3 +56,62 @@ def test_parse_eml_html_momentum_and_unrelated():
     )
     assert parse_eml((FX / "imap" / "unrelated_sample.eml").read_bytes(), SENDERS) is None
     assert source_for("Foo <x@marketscreener.com>", SENDERS) == "zonebourse"
+
+
+def test_search_criteria_only_known_senders():
+    from datetime import date
+
+    from app.data.providers.imap_gmail import search_criteria
+
+    c = search_criteria(
+        {"zonebourse": ["@zonebourse.com"], "momentum": ["@capital.fr", "@prismamedia"]}, date(2026, 10, 19)
+    )
+    assert c == 'UNSEEN SINCE 19-Oct-2026 OR OR FROM "capital.fr" FROM "prismamedia" FROM "zonebourse.com"'
+
+
+def test_shared_mailbox_other_mails_untouched(monkeypatch):
+    """A mailbox shared with other uses: mails are peeked, only newsletters get the \\Seen flag."""
+    import imaplib
+
+    from app.data.providers.imap_gmail import GmailImap
+
+    raws = {
+        b"1": (FX / "imap" / "zonebourse_sample.eml").read_bytes(),
+        b"2": (FX / "imap" / "unrelated_sample.eml").read_bytes(),
+    }
+    log: list[tuple] = []
+
+    class FakeImap:
+        def __init__(self, host):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def login(self, u, p):
+            log.append(("login", u))
+
+        def select(self, box):
+            log.append(("select", box))
+            return "OK", [b"2"]
+
+        def search(self, charset, criteria):
+            log.append(("search", criteria))
+            return "OK", [b"1 2"]
+
+        def fetch(self, uid, what):
+            log.append(("fetch", uid, what))
+            return "OK", [(b'%s (INTERNALDATE "20-Oct-2026 09:31:00 +0200" BODY[] {10}' % uid, raws[uid]), b")"]
+
+        def store(self, uid, op, flag):
+            log.append(("store", uid, flag))
+
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeImap)
+    mails = GmailImap("imap.gmail.com", "u", "p").fetch_unseen({"zonebourse": ["@zonebourse.com"]}, mailbox="Bourse")
+    assert [m.source for m in mails] == ["zonebourse"]
+    assert ("select", "Bourse") in log and all("PEEK" in e[2] for e in log if e[0] == "fetch")
+    assert [e for e in log if e[0] == "store"] == [("store", b"1", "\\Seen")]
+    assert next(e for e in log if e[0] == "search")[1].startswith("UNSEEN SINCE")
