@@ -284,6 +284,10 @@ def test_learning_page_and_assistant_panel(client, calendars):
         body = client.get(path).text
         assert 'id="ai-panel"' in body and "/static/assistant.js" in body
     assert f'name="isin" value="{ISIN}"' in client.get(f"/valeur/{ISIN}").text
+    # activity overlay: every page carries it, long actions announce their usual duration
+    learn = client.get("/apprentissage").text
+    assert 'id="busy"' in learn and "/static/busy.js" in learn and 'data-busy-eta="30 s à 1 min 30"' in learn
+    assert client.get("/static/busy.js").status_code == 200
     assert f'data-ai-isin="{ISIN}"' in client.get("/opportunites").text
 
     frag = client.get("/assistant/panel", params={"page": "/opportunites"}).text

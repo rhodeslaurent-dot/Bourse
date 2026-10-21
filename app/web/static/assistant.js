@@ -41,10 +41,19 @@
     var body = new URLSearchParams(new FormData(form));
     button.disabled = true;
     button.textContent = "…";
-    thread.insertAdjacentHTML(
-      "beforeend",
-      '<p class="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-2 text-slate-500">Recherche dans les données de l’outil…</p>'
-    );
+    var wait = document.createElement("div");
+    wait.className = "rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 text-slate-600 dark:text-slate-300";
+    wait.innerHTML =
+      '<div class="flex items-center gap-2"><svg class="h-4 w-4 shrink-0 animate-spin text-sky-600" viewBox="0 0 24 24" fill="none">' +
+      '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".25"/>' +
+      '<path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>' +
+      "<span>L’assistant rassemble les données et rédige sa réponse…</span></div>" +
+      '<div class="mt-2 h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"><div class="busy-bar h-full w-2/5 rounded-full bg-sky-600"></div></div>' +
+      '<div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">habituellement 5 à 30 s · écoulé <b class="tabular">0 s</b></div>';
+    thread.appendChild(wait);
+    var t0 = Date.now();
+    var elapsed = wait.querySelector("b");
+    var tick = setInterval(function () { elapsed.textContent = Math.round((Date.now() - t0) / 1000) + " s"; }, 1000);
     scrollDown();
     fetch("/assistant/panel", { method: "POST", body: body, credentials: "same-origin" })
       .then(function (r) {
@@ -58,7 +67,13 @@
         p.textContent = "Question non envoyée : " + why;
         thread.appendChild(p);
       })
-      .finally(function () { button.disabled = false; button.textContent = "Demander"; scrollDown(); });
+      .finally(function () {
+        clearInterval(tick);
+        if (wait.parentNode) wait.parentNode.removeChild(wait);
+        button.disabled = false;
+        button.textContent = "Demander";
+        scrollDown();
+      });
   });
 
   document.addEventListener("click", function (e) {

@@ -10,3 +10,8 @@
 
 /* custom disclosure arrow: hide the native marker (Safari) */
 summary.list-none::-webkit-details-marker { display: none; }
+
+/* indeterminate activity bar (busy overlay, assistant panel) — no fake percentage */
+@keyframes busy-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+.busy-bar { animation: busy-slide 1.3s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .busy-bar { animation-duration: 3s; } }

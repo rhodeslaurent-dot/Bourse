@@ -10,7 +10,7 @@
     </div>
     {% if llm_on %}{{ badge('IA active', 'green') }}{% else %}{{ badge('IA non configurée : dossier de faits seul', 'amber', 'env-setup anthropic puis recréer le conteneur') }}{% endif %}
   </div>
-  <form method="post" action="/assistant" class="mt-4 space-y-2">
+  <form method="post" action="/assistant" class="mt-4 space-y-2" data-busy="L'assistant rassemble les données et rédige sa réponse…" data-busy-eta="5 à 30 s">
     <div class="flex flex-wrap gap-2">
       <input name="isin" list="valeurs" value="{{ isin or '' }}" placeholder="Valeur (ISIN ou nom), facultatif" class="w-full sm:w-72 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
       <datalist id="valeurs">{% for v, n in choices %}<option value="{{ v }}">{{ n }}</option>{% endfor %}</datalist>

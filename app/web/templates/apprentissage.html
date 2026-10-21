@@ -48,8 +48,8 @@
     </div>
     <div class="flex flex-wrap gap-2">
       {% if enabled %}
-      <form method="post" action="/apprentissage/recalculer">{{ button('Recalculer les résultats', 'ghost') }}</form>
-      <form method="post" action="/apprentissage/analyse">{{ button('Lancer une analyse') }}</form>
+      <form method="post" action="/apprentissage/recalculer" data-busy="Calcul des résultats des propositions passées…" data-busy-eta="quelques secondes">{{ button('Recalculer les résultats', 'ghost') }}</form>
+      <form method="post" action="/apprentissage/analyse" data-busy="Analyse par l'IA en cours : statistiques, questions et propositions…" data-busy-eta="30 s à 1 min 30">{{ button('Lancer une analyse') }}</form>
       {% endif %}
     </div>
   </div>

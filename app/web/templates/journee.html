@@ -25,7 +25,7 @@
   <ol class="mt-3 space-y-2">
     {% for st in g['items'] %}
     <li class="flex items-start gap-3 rounded-xl border p-3 {% if not st.applicable %}border-dashed border-slate-200 dark:border-slate-800 opacity-60{% elif st.done_at %}border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-emerald-500/10{% else %}border-slate-200 dark:border-slate-800{% endif %}">
-      <form method="post" action="/journee/step" class="shrink-0">
+      <form method="post" action="/journee/step" class="shrink-0"{% if st.kind == 'job' and not st.done_at %} data-busy="Exécution du job {{ st.target }}…" data-busy-eta="de quelques secondes à quelques minutes"{% endif %}>
         <input type="hidden" name="key" value="{{ st.key }}">
         {% if st.done_at %}
         <button name="action" value="undo" title="annuler" class="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-white">✓</button>
