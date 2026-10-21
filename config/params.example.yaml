@@ -305,6 +305,13 @@ data:
       momentum_capital: ["@capital.fr", "@prismamedia"]
       decision_bourse: ["@decisionbourse.fr"]
       abc_premium: ["@abcbourse.com"]
+    follow_links:                        # docs/19 §19.6 : lettres dont le détail est derrière « Lire la suite »
+      - source: zonebourse
+        link_texts: ["Lire la suite"]
+        allowed_domains: ["zonebourse.com"]   # destination autorisée (sous-domaines inclus)
+        tracking_domains: []                  # domaines de redirection de clics à autoriser après contrôle (newsletter-link-check)
+        min_interval_s: 3                     # import historique : pause entre deux pages
+        timeout_s: 15
 
 notifications:
   telegram: {enabled: true, rate_limit_per_sec: 1, quiet_hours_local_display: ["22:00", "06:30"]}

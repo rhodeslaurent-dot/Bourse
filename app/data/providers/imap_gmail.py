@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime, timedelta
 from email.header import decode_header, make_header
 from email.message import Message
 from email.utils import parsedate_to_datetime
+from typing import Any
 
 from app.data.providers.rss import strip_html
 
@@ -35,6 +36,8 @@ class NewsletterMail:
     received_at: datetime
     body_text: str
     dedup_hash: str
+    html: str = ""  # raw HTML part (links such as « Lire la suite », docs/19 §19.6)
+    linked: dict[str, Any] | None = None  # page behind the link once fetched (status, url, time)
 
 
 @dataclass
@@ -53,6 +56,16 @@ def _decode(value: str | None) -> str:
         return str(make_header(decode_header(value)))
     except Exception:  # noqa: BLE001
         return value
+
+
+def message_html(msg: Message) -> str:
+    out = []
+    for part in msg.walk():
+        if part.get_content_type() == "text/html":
+            payload = part.get_payload(decode=True)
+            if payload is not None:
+                out.append(payload.decode(part.get_content_charset() or "utf-8", errors="replace"))
+    return "\n".join(out)
 
 
 def message_text(msg: Message) -> str:
@@ -105,6 +118,7 @@ def parse_eml(raw: bytes, senders: dict[str, list[str]], received_at: datetime |
         received,
         message_text(msg),
         hashlib.sha256(f"{source}|{mid}".encode()).hexdigest(),
+        message_html(msg),
     )
 
 

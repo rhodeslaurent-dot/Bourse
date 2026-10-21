@@ -33,6 +33,7 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 | A18.6 | fait (tests) | 2026-10-21 | | Revue LLM : éléments avec nombres hors dossier, clés inconnues, hausse de plafond de risque écartés et listés ; sans clé, statistiques seules ; **à valider avec la vraie clé (P3)** |
 | A18.7 | fait (tests) | 2026-10-21 | | Réponses et suggestions acceptées → leçons, relues par l'assistant ; suggestion de paramètre → extrait YAML + brouillon d'ADR, `params.yaml` inchangé |
 | A19.1 – A19.4 | fait (tests) | 2026-10-21 | | `newsletters-history` : repérage `--dry-run` sans écriture, boîte « Tous les messages » en lecture seule (`EXAMINE` + `BODY.PEEK`, faux serveur IMAP), mot de passe saisi masqué jamais stocké ; proposition datée de la lettre, `expired`, instantané reconstitué sans donnée postérieure, pas de watchlist ; reprise sans doublon, arrêt au plafond LLM. **À faire par l'utilisateur** : import réel de Momentum depuis la boîte principale |
+| A19.5 – A19.7 | fait (tests) | 2026-10-21 | | « Lire la suite » : liste blanche de domaines vérifiée à chaque redirection (aucune requête vers un domaine refusé ou une IP), page réservée → `reserve`, texte principal ajouté à la lettre et extrait ; `newsletter-link-check`. **À valider sur une vraie notification `noreply@zonebourse.com`** (domaine de suivi de clics éventuel à autoriser) |
 | A2.1 – A2.7 | à faire | | | MVP : entrées préparées, 3 décisions, mode de disponibilité |
 | A3.1 – A3.4 | à faire | | | Détection d'ouverture, après ADR-002 |
 | A4.1 – A4.3 | à faire | | | KPI P&L et fiscal |

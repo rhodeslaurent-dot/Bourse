@@ -33,3 +33,17 @@ Statut : spécification **acceptée le 21/10/2026** (demande utilisateur). Compl
 - A19.2 La boîte est ouverte en lecture seule et lue en `BODY.PEEK` (test sur faux serveur IMAP) ; le mot de passe n'apparaît ni dans `.env` ni dans la sortie.
 - A19.3 Une lettre historique crée une proposition datée de la lettre, `expired`, sans watchlist, avec un instantané sans donnée postérieure, `p_recv` indisponible ; son résultat est calculé sur les séances suivantes.
 - A19.4 Relancer l'import ne duplique rien ; budget atteint → arrêt propre et reprise possible.
+
+## 19.6 Lettres à lien « Lire la suite » (notifications Zonebourse)
+
+Certaines lettres (ex. notifications `noreply@zonebourse.com`) ne contiennent qu'un extrait ; le détail est sur la page ouverte par le bouton « Lire la suite ». Pour les sources listées dans `data.imap.follow_links` :
+
+- **Lien** : l'ancre dont le texte contient l'un des libellés configurés (`link_texts`, ex. « Lire la suite ») est extraite du HTML de la lettre.
+- **Sécurité** : seuls `https` et les hôtes de `allowed_domains` (destination) ou `tracking_domains` (redirections de suivi de clics) sont suivis, à chaque redirection (5 au plus) ; toute autre destination (adresse IP, domaine inconnu) est **refusée** et l'hôte est indiqué pour décision. Délai maximal par requête, en-tête navigateur, pas de JavaScript.
+- **Sobriété** (docs/04 §4.7) : une page par lettre, `min_interval_s` (défaut 3 s) entre deux pages lors d'un import historique ; jamais de navigation au-delà de la page liée.
+- **Contenu** : texte principal de la page (`<article>`, sinon `<main>`, sinon le corps, sans menus ni scripts), limité à 20 000 caractères, ajouté au texte de la lettre sous l'intitulé « Contenu de la page liée », puis extraction habituelle (règles + LLM, niveaux vérifiés dans le texte).
+- **Page réservée aux abonnés** (redirection vers une page de connexion, ou mention d'accès réservé sur une page courte) : statut `reserve`, rien n'est inventé, la lettre garde son seul extrait. Un cookie de session personnel (`ZONEBOURSE_COOKIE`, secret dans `.env`, saisi par `env-setup zonebourse`) peut être fourni pour lire les pages de l'abonnement de l'utilisateur ; il n'est jamais journalisé.
+- **Traçabilité** : `newsletter_items.parsed.page_liee` = URL finale, statut (`ok`, `reserve`, `refuse`, `erreur`, `absent`), code HTTP, horodatage de récupération.
+- **Contrôle** : `newsletter-link-check --user … --query …` lit la lettre la plus récente (lecture seule), suit son lien et affiche le statut, l'hôte final et la longueur du texte récupéré (sans le contenu).
+
+Critères : A19.5 un lien vers un domaine non autorisé ou une IP est refusé sans requête vers la destination ; A19.6 une page réservée donne `reserve` et aucune valeur n'est tirée de la page ; A19.7 le texte de la page liée est ajouté et ses valeurs extraites (tests sur pages figées).

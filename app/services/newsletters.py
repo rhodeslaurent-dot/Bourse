@@ -105,7 +105,7 @@ def ingest_mail(
                 s,
                 "newsletter_extract",
                 "newsletter_extract",
-                mail.body_text[:6000],
+                mail.body_text[:12000],
                 NewsletterExtraction,
                 max_tokens=2048,
             )
@@ -138,6 +138,7 @@ def ingest_mail(
     item.parsed = {
         "values": [{"isin": v.isin, "name": v.name, "direction": v.direction, "levels": v.levels} for v in values],
         "rejected_llm_levels": rejected_levels,
+        **({"page_liee": mail.linked} if getattr(mail, "linked", None) else {}),
     }
     item.parsed_by, item.llm_prompt_version = parsed_by, version
     day = session_day_for(mail.received_at, calendars)  # noqa: F821

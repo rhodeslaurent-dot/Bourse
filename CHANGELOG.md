@@ -2,6 +2,10 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Pages « Lire la suite » — 2026-10-21
+
+- docs/19 §19.6 : pour les sources de `data.imap.follow_links` (défaut : `zonebourse`, libellé « Lire la suite », domaine `zonebourse.com`), `imap_poll` et `newsletters-history` suivent le lien de la lettre : `https` et domaines autorisés uniquement à chaque redirection, une page par lettre, pause en import historique, texte principal ajouté à la lettre puis extraction habituelle ; page réservée aux abonnés signalée `reserve` (cookie de session facultatif `ZONEBOURSE_COOKIE` via `env-setup zonebourse`) ; trace `parsed.page_liee`. Commande de contrôle `newsletter-link-check`. Extraction LLM sur 12 000 caractères.
+
 ## [Unreleased] — Import historique des lettres — 2026-10-21
 
 - Spécification `docs/19`. Commande `newsletters-history --user … --query "from:…" [--since] [--dry-run] [--no-llm]` : lecture seule de « Tous les messages » (`EXAMINE`, `BODY.PEEK`), mot de passe d'application saisi masqué et jamais stocké, repérage des expéditeurs, progression, arrêt propre au plafond LLM et reprise sans doublon.

@@ -118,6 +118,7 @@ def cmd_env_setup(args: argparse.Namespace) -> int:
         "anthropic": ["ANTHROPIC_API_KEY"],
         "imap": ["SMTP_USER", "SMTP_PASSWORD", "EMAIL_TO", "IMAP_USER", "IMAP_PASSWORD"],
         "healthchecks": ["HEALTHCHECKS_PING_KEY"],
+        "zonebourse": ["ZONEBOURSE_COOKIE"],
     }
     if args.group not in groups:
         print("groupes possibles : " + ", ".join(groups))
@@ -586,6 +587,56 @@ def cmd_saxo_check(args: argparse.Namespace) -> int:
     return 0 if os.environ.get("SAXO_TOKEN_KEY") else 2
 
 
+def ingest_known(s, mail) -> bool:  # type: ignore[no-untyped-def]
+    from sqlalchemy import select
+
+    from app.db.models import NewsletterItem
+
+    return s.scalar(select(NewsletterItem.id).where(NewsletterItem.dedup_hash == mail.dedup_hash)) is not None
+
+
+def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
+    """docs/19 §19.6 — read the latest matching letter (read-only), follow its link and print the
+    status, final host and text length (never the content)."""
+    import getpass
+    import os
+    from urllib.parse import urlparse
+
+    from app.data.providers.imap_gmail import GmailHistory
+    from app.data.providers.linked_page import enrich_mail
+    from app.scheduler.jobs.imap_poll import follow_rules
+
+    cfg = load_params(args.params)
+    rule = follow_rules(cfg.params.data.imap or {}).get(args.source)
+    if rule is None:
+        print(f"aucune règle follow_links pour la source {args.source}")
+        return 2
+    password = os.environ.get("IMAP_HISTORY_PASSWORD") or (
+        os.environ.get("IMAP_PASSWORD") if args.user == os.environ.get("IMAP_USER") else None
+    )
+    password = (password or getpass.getpass(f"Mot de passe d'application Gmail pour {args.user} : ")).replace(" ", "")
+    with GmailHistory("imap.gmail.com", args.user, password) as box:
+        uids = box.search(args.query)
+        if not uids:
+            print("aucune lettre trouvée")
+            return 1
+        mail = box.mail(uids[-1], args.source)
+    if mail is None:
+        print("lettre illisible")
+        return 1
+    from app.data.providers.linked_page import find_link
+
+    href = find_link(mail.html, list(rule.get("link_texts") or []))
+    print(f"lettre du {mail.received_at:%d/%m/%Y %H:%M} UTC · objet : {mail.subject[:80]}")
+    print(f"lien trouvé : {'oui, hôte ' + (urlparse(href).hostname or '?') if href else 'non'}")
+    _, page = enrich_mail(mail, rule, cookie=os.environ.get("ZONEBOURSE_COOKIE") or None)
+    final_host = urlparse(page.url).hostname if page.url else None
+    print(f"statut : {page.status} · hôte final : {final_host} · HTTP {page.http_status} · {len(page.text)} caractères")
+    if page.detail:
+        print(f"détail : {page.detail}")
+    return 0 if page.status == "ok" else 1
+
+
 def cmd_newsletters_history(args: argparse.Namespace) -> int:
     """docs/19 — one-off, read-only import of past newsletters from a Gmail mailbox (app password
     asked at run time, never stored). ``--dry-run`` only counts senders and dates."""
@@ -637,18 +688,31 @@ def cmd_newsletters_history(args: argparse.Namespace) -> int:
         gateway = ClaudeGateway(llm_settings) if llm_settings else None
         if gateway is not None and not gateway.enabled:
             gateway = None
+        import time as _time
+
+        from app.data.providers.linked_page import enrich_mail
+        from app.scheduler.jobs.imap_poll import follow_rules
+
+        rule = follow_rules(cfg.params.data.imap or {}).get(args.source)
+        cookie = os.environ.get("ZONEBOURSE_COOKIE") or None
         totals = Counter()
         for i, uid in enumerate(uids, 1):
             with db_session() as s:
                 if gateway is not None:
                     ok, why = gateway.budget_ok(s)
                     if not ok:
-                        print(f"arrêt : {why}. {len(uids) - i + 1} lettre(s) restante(s) : relancer demain, la reprise est automatique.")  # noqa: E501
+                        print(
+                            f"arrêt : {why}. {len(uids) - i + 1} lettre(s) restante(s) : relancer demain, la reprise est automatique."  # noqa: E501
+                        )  # noqa: E501
                         break
                 mail = box.mail(uid, args.source)
                 if mail is None:
                     totals["illisibles"] += 1
                     continue
+                if rule is not None and not ingest_known(s, mail):
+                    mail, page = enrich_mail(mail, rule, cookie=cookie)
+                    totals[f"pages_{page.status}"] += 1
+                    _time.sleep(float(rule.get("min_interval_s", 3)))
                 rep = ingest_mail(s, mail, cfg, gateway, None, calendars=cals, historical=True)
             totals["nouvelles"] += rep.new
             totals["deja_presentes"] += 1 - rep.new
@@ -738,6 +802,11 @@ def main(argv: list[str] | None = None) -> int:
     nh.add_argument("--dry-run", action="store_true", help="repérage : compte expéditeurs et dates, n'enregistre rien")
     nh.add_argument("--no-llm", action="store_true", help="extraction par règles seules (gratuite)")
     nh.set_defaults(fn=cmd_newsletters_history)
+    lc = sub.add_parser("newsletter-link-check", help="suit le lien « Lire la suite » de la dernière lettre (docs/19)")
+    lc.add_argument("--user", required=True)
+    lc.add_argument("--query", required=True, help='ex. "from:noreply@zonebourse.com"')
+    lc.add_argument("--source", default="zonebourse")
+    lc.set_defaults(fn=cmd_newsletter_link_check)
     bf = sub.add_parser("backfill")
     bf.add_argument("--provider", default="eodhd")
     bf.add_argument("--from", dest="from_date", required=True)
@@ -756,7 +825,7 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--unset", action="store_true", help="commenter la ligne (valeur par défaut)")
     ev.set_defaults(fn=cmd_env_set)
     es = sub.add_parser("env-setup", help="créer/compléter .env de façon interactive (saisie masquée)")
-    es.add_argument("group", help="database | saxo | eodhd | telegram | anthropic | imap | healthchecks")
+    es.add_argument("group", help="database | saxo | eodhd | telegram | anthropic | imap | healthchecks | zonebourse")
     es.add_argument("--force", action="store_true", help="remplacer une valeur déjà renseignée")
     es.set_defaults(fn=cmd_env_setup)
     sc = sub.add_parser("saxo-check", help="lecture seule : clients/me, cash, positions, ordres")

@@ -15,6 +15,26 @@ from app.services.newsletters import ingest_mail
 log = logging.getLogger("bourse.jobs.imap_poll")
 
 
+# Used when params.yaml has no data.imap.follow_links (same values as params.example.yaml).
+DEFAULT_FOLLOW_LINKS = [
+    {
+        "source": "zonebourse",
+        "link_texts": ["Lire la suite"],
+        "allowed_domains": ["zonebourse.com"],
+        "tracking_domains": [],
+        "min_interval_s": 3,
+        "timeout_s": 15,
+    }
+]
+
+
+def follow_rules(imap: dict) -> dict[str, dict]:
+    """``data.imap.follow_links`` by source (docs/19 §19.6)."""
+    rules = imap.get("follow_links")
+    rules = DEFAULT_FOLLOW_LINKS if rules is None else rules
+    return {r["source"]: r for r in rules if isinstance(r, dict) and r.get("source")}
+
+
 def run(ctx: JobContext) -> int:
     imap = ctx.config.params.data.imap or {}
     if not (os.environ.get("IMAP_USER") and os.environ.get("IMAP_PASSWORD")):
@@ -24,9 +44,17 @@ def run(ctx: JobContext) -> int:
     mails = GmailImap(str(imap.get("host", "imap.gmail.com"))).fetch_unseen(
         senders, mailbox=str(imap.get("mailbox", "INBOX"))
     )
+    follow = follow_rules(imap)
+    cookie = os.environ.get("ZONEBOURSE_COOKIE") or None
     n = 0
     with db_session() as s:
         for mail in mails:
+            rule = follow.get(mail.source)
+            if rule is not None:
+                from app.data.providers.linked_page import enrich_mail
+
+                mail, page = enrich_mail(mail, rule, cookie=cookie)
+                log.info("page liée %s : %s", mail.source, page.status)
             from app.data.providers.imap_gmail import extract_values
             from app.services.news import alias_index
 

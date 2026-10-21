@@ -149,3 +149,40 @@ def test_import_dates_proposal_from_letter_and_computes_outcome(db_engine, gmail
         assert len(list(s.scalars(select(NewsletterItem)))) == 1
         assert len(list(s.scalars(select(Proposal).where(Proposal.isin == ASML)))) == 1
     assert "deja_presentes 1" in capsys.readouterr().out
+
+
+def test_linked_page_values_are_ingested(db_engine, config, calendars):
+    """A19.7: the page behind « Lire la suite » feeds the extraction; its status is traced."""
+    import httpx
+
+    from app.data.providers.imap_gmail import NewsletterMail
+    from app.data.providers.linked_page import enrich_mail
+    from app.db.models import NewsletterValue
+    from app.services.newsletters import ingest_mail
+
+    article = (
+        "<article><p>ASML (NL0010273215) : achat, entrée à 640, objectif 700, stop 600.</p><p>"
+        + "x " * 150
+        + "</p></article>"
+    )
+    c = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, text=article)), follow_redirects=False)
+    mail = NewsletterMail(
+        "zonebourse",
+        "<zb1>",
+        "Momentum",
+        "noreply@zonebourse.com",
+        None,
+        datetime(2026, 10, 20, 8, tzinfo=UTC),
+        "Trois valeurs sous surveillance.",
+        "zbh1",
+        '<a href="https://www.zonebourse.com/m/1">Lire la suite</a>',
+    )
+    mail, page = enrich_mail(mail, {"link_texts": ["Lire la suite"], "allowed_domains": ["zonebourse.com"]}, client=c)
+    with db_session() as s:
+        s.add(Instrument(isin=ASML, name="ASML", mic="XAMS", in_universe=True))
+        s.flush()
+        rep = ingest_mail(s, mail, config, None, None, calendars=calendars)
+        item = s.scalar(select(NewsletterItem).where(NewsletterItem.dedup_hash == "zbh1"))
+        assert rep.values >= 1 and item.parsed["page_liee"]["statut"] == "ok"
+        v = s.scalar(select(NewsletterValue).where(NewsletterValue.isin == ASML))
+        assert v.levels["achat"] == 640.0 and v.levels["stop"] == 600.0
