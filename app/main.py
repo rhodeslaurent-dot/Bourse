@@ -196,6 +196,9 @@ def create_app(
 
     app.include_router(notes_router)
     app.include_router(opportunities_router)
+    from app.web.performance_routes import router as performance_router
+
+    app.include_router(performance_router)
     from fastapi.staticfiles import StaticFiles
 
     app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "web" / "static")), name="static")

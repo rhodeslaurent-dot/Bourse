@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, dot, tile, empty, th %}
+{% block title %}Performance — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold">Performance</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Calculée en Python à partir des exécutions enregistrées (FIFO, frais et TTF inclus). Capital pilote {{ capital|eur }}. Aucun chiffre estimé : une donnée manquante est signalée et exclue.</p>
+    </div>
+    {{ badge(q.reliability, 'slate' if q.n == 0 else 'amber' if q.n < 30 else 'green', 'fiabilité statistique selon le nombre de trades clos') }}
+  </div>
+  {% if v.incomplete %}
+  <div class="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+    <b>Données incomplètes</b> : {{ v.incomplete|join(' · ') }}
+  </div>
+  {% endif %}
+</section>
+
+<section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+  {{ tile('Réalisé (positions closes)', v.realized_total|eur, (v.realized_total / capital)|pct ~ ' du capital · ' ~ q.n ~ ' trade(s)', 'green' if v.realized_total > 0 else 'red' if v.realized_total < 0 else 'slate') }}
+  {{ tile('Latent (positions ouvertes)', v.latent_total|eur, 'après frais de sortie estimés · ' ~ (v.open_lines|length) ~ ' position(s)', 'green' if v.latent_total > 0 else 'red' if v.latent_total < 0 else 'slate') }}
+  {{ tile('Espérance par trade', ('%.2f R'|format(q.expectancy_r)) if q.expectancy_r is not none else '—', ('soit ' ~ (q.expectancy_eur|eur)) if q.expectancy_eur is not none else 'aucun trade clos avec stop initial', 'blue') }}
+  {{ tile('Frais et taxes payés', v.fees_total|eur, 'courtage + TTF, depuis le début', 'slate') }}
+</section>
+
+<section class="grid md:grid-cols-2 gap-4">
+  <div class="card">
+    <h2 class="font-semibold">Qualité des trades</h2>
+    <dl class="mt-2 grid grid-cols-2 gap-y-1.5 text-sm">
+      <dt class="text-slate-500 dark:text-slate-400">Taux de réussite</dt><dd class="text-right tabular">{{ q.win_rate|pct(0) if q.win_rate is not none else '—' }} <span class="text-xs text-slate-400">({{ q.wins }} gagnants / {{ q.losses }} perdants)</span></dd>
+      <dt class="text-slate-500 dark:text-slate-400">Gain moyen</dt><dd class="text-right tabular">{{ q.avg_win|eur if q.avg_win is not none else '—' }}{% if q.avg_win_r is not none %} · {{ '%.2f'|format(q.avg_win_r) }} R{% endif %}</dd>
+      <dt class="text-slate-500 dark:text-slate-400">Perte moyenne</dt><dd class="text-right tabular">{{ q.avg_loss|eur if q.avg_loss is not none else '—' }}{% if q.avg_loss_r is not none %} · {{ '%.2f'|format(q.avg_loss_r) }} R{% endif %}</dd>
+      <dt class="text-slate-500 dark:text-slate-400" title="{{ help_of('profit_factor') }}">Profit factor ⓘ</dt><dd class="text-right tabular">{{ '%.2f'|format(q.profit_factor) if q.profit_factor is not none else '—' }}</dd>
+      <dt class="text-slate-500 dark:text-slate-400" title="{{ help_of('expectancy') }}">Espérance (R) ⓘ</dt><dd class="text-right tabular">{{ '%.2f'|format(q.expectancy_r) if q.expectancy_r is not none else '—' }}</dd>
+      <dt class="text-slate-500 dark:text-slate-400">Repli maximal de l'équité</dt><dd class="text-right tabular">{{ v.drawdown|pct if v.drawdown is not none else '—' }}</dd>
+    </dl>
+    <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">{{ help_of('R') }}</p>
+  </div>
+  <div class="card">
+    <h2 class="font-semibold">Répartition du réalisé</h2>
+    <div class="mt-2 grid grid-cols-3 gap-3 text-sm">
+      {% for title, d in [('Par compte', by_account), ('Par origine', by_detector), ('Par mode', by_mode)] %}
+      <div><div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ title }}</div>
+        {% for k, val in d.items() %}<div class="flex justify-between gap-2"><span>{{ label('account', k) if title == 'Par compte' else label('mode', k) if title == 'Par mode' else label('detector', k) }}</span><span class="tabular {% if val < 0 %}text-rose-600{% else %}text-emerald-600{% endif %}">{{ val|eur }}</span></div>{% else %}<div class="text-slate-400">—</div>{% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="flex items-baseline justify-between"><h2 class="font-semibold">Équité consolidée</h2><span class="text-xs text-slate-500 dark:text-slate-400">instantané quotidien 18:10 Paris (job kpi_snapshot){% if v.equity_incomplete_days %} · {{ v.equity_incomplete_days }} jour(s) incomplet(s){% endif %}</span></div>
+  <div class="mt-2 text-sky-700 dark:text-sky-300">{% if equity_svg %}{{ equity_svg|safe }}{% else %}{{ empty("La courbe apparaîtra après deux instantanés quotidiens (job kpi_snapshot, jours ouvrés 18:10 Paris). Pour un premier point maintenant : Journée → « Instantané de performance ».", 'slate') }}{% endif %}</div>
+</section>
+
+<section class="card">
+  <h2 class="font-semibold">Réalisé par mois</h2>
+  <div class="mt-2">{% if months_svg %}{{ months_svg|safe }}{% else %}{{ empty("Aucune position close pour l'instant.", 'slate') }}{% endif %}</div>
+</section>
+
+<section class="card overflow-x-auto">
+  <h2 class="font-semibold">Positions ouvertes : latent</h2>
+  {% if v.open_lines %}
+  <table class="mt-2 w-full text-sm">
+    <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ th('Valeur') }}{{ th('Compte') }}{{ th('Quantité', '', 'right') }}{{ th('Prix de revient', '', 'right') }}{{ th('Dernier cours', '', 'right') }}{{ th('Latent', '', 'right') }}{{ th('Gain si stop touché', '', 'right') }}</tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+    {% for ln in v.open_lines %}
+      <tr>
+        <td class="py-2 pr-3"><a class="font-medium hover:underline" href="/valeur/{{ ln.isin }}">{{ ln.name }}</a><div class="text-xs font-mono text-slate-400">{{ ln.isin }}</div></td>
+        <td class="py-2 pr-3">{{ label('account', ln.account) }}</td>
+        <td class="py-2 pr-3 text-right tabular">{{ ln.qty }}</td>
+        <td class="py-2 pr-3 text-right tabular">{{ '%.3f'|format(ln.avg_price) }} €</td>
+        <td class="py-2 pr-3 text-right tabular">{% if ln.last_price is not none %}{{ '%.3f'|format(ln.last_price) }} € <div>{{ badge(label('data_status', ln.status), 'green' if ln.status in ('realtime', 'eod') else 'amber') }}{% if ln.as_of %} <span class="text-[11px] text-slate-400">{{ ln.as_of }}</span>{% endif %}</div>{% else %}{{ badge('Indisponible', 'amber') }}{% endif %}</td>
+        <td class="py-2 pr-3 text-right tabular {% if ln.latent is not none and ln.latent < 0 %}text-rose-600{% elif ln.latent %}text-emerald-600{% endif %}">{{ ln.latent|eur if ln.latent is not none else '—' }}{% if ln.latent_pct is not none %}<div class="text-xs">{{ '%+.1f'|format(ln.latent_pct * 100) }} %</div>{% endif %}</td>
+        <td class="py-2 pr-3 text-right tabular" title="(stop − prix de revient) × quantité">{% if ln.stop %}{{ ((ln.stop - ln.avg_price) * ln.qty)|eur }}{% else %}<span class="text-rose-600">pas de stop</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="mt-2">{{ empty("Aucune position ouverte.", 'slate') }}</div>{% endif %}
+</section>
+
+<section class="card overflow-x-auto">
+  <h2 class="font-semibold">Trades clos</h2>
+  {% if v.closed %}
+  <table class="mt-2 w-full text-sm">
+    <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ th('Clôture') }}{{ th('Valeur') }}{{ th('Compte') }}{{ th('Origine') }}{{ th('Jours', '', 'right') }}{{ th('Résultat', '', 'right') }}{{ th('R', 'R', 'right') }}</tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+    {% for t in v.closed|sort(attribute='closed', reverse=true) %}
+      <tr>
+        <td class="py-1.5 pr-3 tabular">{{ t.closed.strftime('%d/%m/%Y') }}</td>
+        <td class="py-1.5 pr-3"><a class="hover:underline" href="/valeur/{{ t.isin }}">{{ v.closed_names.get(t.isin, t.isin) }}</a></td>
+        <td class="py-1.5 pr-3">{{ label('account', t.account) }} · {{ label('mode', t.mode) }}</td>
+        <td class="py-1.5 pr-3">{{ label('detector', t.detector) if t.detector else 'discrétionnaire' }}</td>
+        <td class="py-1.5 pr-3 text-right tabular">{{ t.days_held if t.days_held is not none else '—' }}</td>
+        <td class="py-1.5 pr-3 text-right tabular {% if t.pnl < 0 %}text-rose-600{% else %}text-emerald-600{% endif %}">{{ t.pnl|eur }}</td>
+        <td class="py-1.5 pr-3 text-right tabular">{{ '%.2f'|format(t.r) if t.r is not none else '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="mt-2">{{ empty("Aucun trade clos pour l'instant : les statistiques apparaîtront avec les premières ventes.", 'slate') }}</div>{% endif %}
+</section>
+{% endblock %}

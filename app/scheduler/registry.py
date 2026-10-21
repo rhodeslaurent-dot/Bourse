@@ -28,6 +28,7 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "news_scan": "app.scheduler.jobs.news_scan:run",
     "imap_poll": "app.scheduler.jobs.imap_poll:run",
     "saxo_token_keepalive": "app.scheduler.jobs.saxo_token_keepalive:run",
+    "kpi_snapshot": "app.scheduler.jobs.kpi_snapshot:run",
 }
 
 
