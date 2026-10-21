@@ -74,6 +74,7 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 
 | Date | Phase | Fait | Non fait | À décider |
 |---|---|---|---|---|
+| 2026-10-21 | Décision budget IA | Revue des lettres avec dossier complet : **qualité privilégiée** (`llm.write_model` pour toutes les revues, y compris à la réception) ; l'utilisateur a relevé `llm.monthly_budget_usd` à 50 $ et `llm.daily_budget_usd` à 2 $ dans son `params.yaml` (l'exemple garde 15 $ / 1 $) | — | Revoir le budget après un mois de coût réel (`/sante`) |
 | 2026-10-21 | Revue quotidienne des lettres (docs/20) | Spécification `docs/20` ; migration 0009 ; mentions sans proposition ; job `letters_review` et page `/lettres` ; garde-fous ; préconisations ; navigation « Lettres » ; 293 tests | Validation sur lettres réelles ; mesure du résultat des avis (comme docs/18) | Seuils `letters_review.*` à ajuster après quelques semaines |
 | 2026-10-21 | Import historique des lettres (docs/19) | Spécification `docs/19` ; `newsletters-history` (lecture seule, repérage, reprise, progression) ; `create_proposal` reconstitué (`created_at`, `as_of`) ; `ingest_mail(historical=True)` ; boîte partagée sûre pour `imap_poll` ; 281 tests | Import réel par l'utilisateur ; domaine d'expéditeur Momentum à confirmer dans `data.imap.senders` | — |
 | 2026-10-21 | Correctif LLM | `temperature` retirée des arguments du SDK 1.x (TypeError à chaque appel réel) → `extra_body` ; test sur le vrai SDK ; erreurs d'API lisibles ; page d'écriture refusée ; 275 tests | Validation réelle par l'utilisateur (assistant, analyse) | — |
