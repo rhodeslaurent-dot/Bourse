@@ -708,7 +708,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # human-readable job logs on the console (the app itself logs JSON); a skipped job says why
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(levelname)s %(name)s : %(message)s")
-    for noisy in ("httpx", "httpcore", "apscheduler", "urllib3"):
+    for noisy in ("httpx", "httpx2", "httpcore", "anthropic", "apscheduler", "urllib3"):
         logging.getLogger(noisy).setLevel("WARNING")
     p = argparse.ArgumentParser(prog="bourse-pilot")
     p.add_argument("--params", default=None, help="chemin de params.yaml (défaut: $PARAMS_PATH ou config/params.yaml)")

@@ -40,6 +40,13 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+def quiet_http_clients() -> None:
+    """One INFO line per HTTP request (httpx, and httpx2 used by the Anthropic SDK) floods the
+    console and the logs; warnings and errors are kept."""
+    for name in ("httpx", "httpx2", "httpcore", "anthropic"):
+        logging.getLogger(name).setLevel("WARNING")
+
+
 def setup_logging() -> None:
     root = logging.getLogger()
     if getattr(root, "_bourse_configured", False):
@@ -49,5 +56,5 @@ def setup_logging() -> None:
     root.handlers = [handler]
     root.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
     root._bourse_configured = True  # type: ignore[attr-defined]
-    logging.getLogger("httpx").setLevel("WARNING")
+    quiet_http_clients()
     logging.getLogger("apscheduler").setLevel("INFO")
