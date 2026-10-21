@@ -17,8 +17,10 @@ Tout se fait depuis la racine du dossier (`cd Bourse`), sans éditer de fichier 
 
 ## 2. Cloudflare Tunnel + Access (aucun port ouvert)
 
-1. Zero Trust → Networks → Tunnels → créer un tunnel (connector « Docker ») → copier le token dans `CLOUDFLARE_TUNNEL_TOKEN`.
-2. Public hostname : `bourse.<domaine>` → service `http://app:8000`.
+1. Zero Trust → Networks → Tunnels → créer un tunnel. Deux variantes de connecteur :
+   - **A — conteneur** : copier le **token** (chaîne `eyJ…` de la commande d'installation, pas le Tunnel ID) dans `CLOUDFLARE_TUNNEL_TOKEN` (`env-setup cloudflare`), puis `docker compose --profile tunnel up -d` ; route vers `http://app:8000` ; `docker-compose.override.yml` peut être supprimé.
+   - **B — service Windows** (retenue le 21/10/2026) : `cloudflared.exe service install <token>` en administrateur ; route vers `http://localhost:8000` ; **garder** `docker-compose.override.yml` (port lié à 127.0.0.1 seulement) ; ne pas démarrer le profil `tunnel`.
+2. Route (« Public hostname » / « Published application ») : `bourse.<domaine>` → service selon la variante.
 3. Access → Applications → Self-hosted `bourse.<domaine>` ; policy « Allow » sur l'e-mail unique ; méthodes : One-time PIN (+ Google) ; durée de session 24 h.
 4. `uv run python -m app.cli env-setup cloudflare` : token du tunnel (`CLOUDFLARE_TUNNEL_TOKEN`), domaine d'équipe (`<equipe>.cloudflareaccess.com`, `CF_ACCESS_TEAM_DOMAIN`), **Application Audience (AUD) tag** (`CF_ACCESS_AUD`), e-mail autorisé (`CF_ACCESS_EMAIL`). Puis `docker compose up -d --force-recreate`. `/sante` doit afficher « Cloudflare Access : activé ».
 5. **Test depuis le PC pro** (A0.2) : ouvrir `https://bourse.<domaine>/` dans le navigateur d'entreprise → OTP → `/sante`. Si le proxy bloque : consigner ADR sur le plan B (Tailscale Funnel + TOTP applicatif).

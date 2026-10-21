@@ -23,9 +23,13 @@ services:
       timeout: 5s
       retries: 3
 
+  # Connecteur Cloudflare en conteneur (RUNBOOK §2, variante A) : démarré seulement avec
+  # `docker compose --profile tunnel up -d`. Variante B : connecteur installé comme service Windows,
+  # qui atteint l'application par http://localhost:8000 (docker-compose.override.yml requis).
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: bourse-cloudflared
+    profiles: ["tunnel"]
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
