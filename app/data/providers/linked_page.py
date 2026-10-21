@@ -100,18 +100,22 @@ def _host_allowed(host: str, domains: list[str]) -> bool:
 
 
 def check_url(url: str, allowed: list[str], tracking: list[str]) -> str | None:
-    """Reason to refuse ``url`` (None when it may be requested)."""
+    """Reason to refuse ``url`` (None when it may be requested). The destination must be ``https``;
+    plain ``http`` is tolerated only for an allow-listed click-tracking hop (mailers such as
+    Mailjet still emit ``http`` links), which never receives the session cookie."""
     u = urlparse(url)
-    if u.scheme != "https":
-        return f"schéma refusé ({u.scheme or 'aucun'})"
     host = u.hostname or ""
     try:
         ipaddress.ip_address(host)
         return f"adresse IP refusée ({host})"
     except ValueError:
         pass
+    if u.scheme not in ("https", "http"):
+        return f"schéma refusé ({u.scheme or 'aucun'})"
     if not _host_allowed(host, allowed + tracking):
         return f"domaine non autorisé : {host} (à ajouter à allowed_domains ou tracking_domains si légitime)"
+    if u.scheme == "http" and not _host_allowed(host, tracking):
+        return f"schéma refusé (http) pour {host} : seule une redirection de suivi de clics autorisée peut être en http"
     return None
 
 
@@ -181,8 +185,6 @@ def fetch_linked(
     tracking = tracking or []
     now = datetime.now(UTC)
     headers = {"User-Agent": BROWSER_UA, "Accept": "text/html"}
-    if cookie:
-        headers["Cookie"] = cookie
     c = client or httpx.Client(timeout=timeout, follow_redirects=False)
     current = url
     try:
@@ -190,7 +192,11 @@ def fetch_linked(
             why = check_url(current, allowed, tracking)
             if why:
                 return LinkedPage("refuse", current, detail=why, fetched_at=now)
-            r = c.get(current, headers=headers)
+            hop_headers = dict(headers)
+            u = urlparse(current)
+            if cookie and u.scheme == "https" and _host_allowed(u.hostname or "", allowed):
+                hop_headers["Cookie"] = cookie  # the session cookie only ever goes to the destination site
+            r = c.get(current, headers=hop_headers)
             if r.is_redirect and r.headers.get("location"):
                 current = urljoin(current, r.headers["location"])
                 continue

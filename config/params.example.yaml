@@ -305,11 +305,13 @@ data:
       momentum_capital: ["@capital.fr", "@prismamedia"]
       decision_bourse: ["@decisionbourse.fr"]
       abc_premium: ["@abcbourse.com"]
+    subject_includes:                    # facultatif : par source, ne garder que les lettres dont l'objet contient l'un de ces mots (vide/absent = toutes)
+      zonebourse: []
     follow_links:                        # docs/19 §19.6 : lettres dont le détail est derrière « Lire la suite »
       - source: zonebourse
         link_texts: ["Lire la suite"]
-        allowed_domains: ["zonebourse.com"]   # destination autorisée (sous-domaines inclus)
-        tracking_domains: []                  # domaines de redirection de clics à autoriser après contrôle (newsletter-link-check)
+        allowed_domains: ["zonebourse.com"]   # destination autorisée (sous-domaines inclus), https obligatoire
+        tracking_domains: ["mjt.lu"]          # Mailjet (envoi des lettres Zonebourse) : redirection de suivi de clics, http toléré
         min_interval_s: 3                     # import historique : pause entre deux pages
         timeout_s: 15
 

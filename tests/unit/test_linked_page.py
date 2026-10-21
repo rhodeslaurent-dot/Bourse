@@ -131,3 +131,30 @@ def test_image_button_label_and_anchor_listing():
     assert find_link(html, ["Lire la suite"]) == "https://www.zonebourse.com/m/9"
     labels = [lab for _, lab in anchors(html)]
     assert "Lire la suite" in labels[0] and "Votre compte" in labels[1]
+
+
+def test_mailjet_http_tracking_hop_and_cookie_only_to_destination():
+    """Zonebourse letters go through Mailjet (http click tracking): tolerated for that hop only,
+    and the session cookie is sent to zonebourse.com, never to the tracker."""
+    sent: list[tuple[str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append((str(request.url), request.headers.get("cookie")))
+        if request.url.host == "xgsmz.mjt.lu":
+            return httpx.Response(302, headers={"location": "https://www.zonebourse.com/actualite/1"})
+        return httpx.Response(200, text=ARTICLE)
+
+    c = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+    page = fetch_linked("http://xgsmz.mjt.lu/lnk/abc", ["zonebourse.com"], ["mjt.lu"], cookie="sid=1", client=c)
+    assert page.status == "ok"
+    assert sent == [("http://xgsmz.mjt.lu/lnk/abc", None), ("https://www.zonebourse.com/actualite/1", "sid=1")]
+    assert "http" in check_url("http://www.zonebourse.com/a", ["zonebourse.com"], ["mjt.lu"])
+
+
+def test_subject_filter():
+    from app.scheduler.jobs.imap_poll import subject_ok
+
+    imap = {"subject_includes": {"zonebourse": ["Momentum"]}}
+    assert subject_ok(imap, "zonebourse", "Liste Momentum Europe du jour")
+    assert not subject_ok(imap, "zonebourse", "Morning Meeting - Attention, fragile !")
+    assert subject_ok(imap, "momentum_capital", "Lettre du jour") and subject_ok({}, "zonebourse", "x")

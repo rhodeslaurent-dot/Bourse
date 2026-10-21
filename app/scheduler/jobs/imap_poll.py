@@ -21,11 +21,18 @@ DEFAULT_FOLLOW_LINKS = [
         "source": "zonebourse",
         "link_texts": ["Lire la suite"],
         "allowed_domains": ["zonebourse.com"],
-        "tracking_domains": [],
+        "tracking_domains": ["mjt.lu"],
         "min_interval_s": 3,
         "timeout_s": 15,
     }
 ]
+
+
+def subject_ok(imap: dict, source: str, subject: str) -> bool:
+    """``data.imap.subject_includes``: keep only letters whose subject contains one of the words
+    configured for their source (none configured → all letters of the source are kept)."""
+    words = [w.lower() for w in ((imap.get("subject_includes") or {}).get(source) or []) if w]
+    return not words or any(w in (subject or "").lower() for w in words)
 
 
 def follow_rules(imap: dict) -> dict[str, dict]:
@@ -49,6 +56,9 @@ def run(ctx: JobContext) -> int:
     n = 0
     with db_session() as s:
         for mail in mails:
+            if not subject_ok(imap, mail.source, mail.subject):
+                log.info("lettre %s ignorée (objet hors subject_includes) : %s", mail.source, mail.subject[:80])
+                continue
             rule = follow.get(mail.source)
             if rule is not None:
                 from app.data.providers.linked_page import enrich_mail

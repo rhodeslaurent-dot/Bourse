@@ -699,9 +699,10 @@ def cmd_newsletters_history(args: argparse.Namespace) -> int:
         import time as _time
 
         from app.data.providers.linked_page import enrich_mail
-        from app.scheduler.jobs.imap_poll import follow_rules
+        from app.scheduler.jobs.imap_poll import follow_rules, subject_ok
 
-        rule = follow_rules(cfg.params.data.imap or {}).get(args.source)
+        imap_cfg = cfg.params.data.imap or {}
+        rule = follow_rules(imap_cfg).get(args.source)
         cookie = os.environ.get("ZONEBOURSE_COOKIE") or None
         totals = Counter()
         for i, uid in enumerate(uids, 1):
@@ -716,6 +717,9 @@ def cmd_newsletters_history(args: argparse.Namespace) -> int:
                 mail = box.mail(uid, args.source)
                 if mail is None:
                     totals["illisibles"] += 1
+                    continue
+                if not subject_ok(imap_cfg, args.source, mail.subject):
+                    totals["hors_filtre_objet"] += 1
                     continue
                 if rule is not None and not ingest_known(s, mail):
                     mail, page = enrich_mail(mail, rule, cookie=cookie)
