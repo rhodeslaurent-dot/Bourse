@@ -37,7 +37,7 @@ Univers attendu : ~600–900 valeurs (Paris ~200, Xetra ~150, Amsterdam/Bruxelle
 
 ## 5.4 Sous-univers dynamiques (recalculés chaque soir)
 
-- **Leaders momentum** : rang RS (docs/06) ≥ 80e percentile de l'univers, au-dessus de MM50 et MM200, MM50 > MM200 → « watchlist momentum » (≤ 100 valeurs) sur laquelle les détecteurs de **point d'entrée** (D4 pullback, D3 range expansion) tournent en priorité et qui est suivie en temps réel.
+- **Leaders momentum** : rang RS (docs/06) ≥ 80e percentile de l'univers, au-dessus de MM50 et MM200, MM50 > MM200 → « watchlist momentum » (≤ 100 valeurs, **recalculée chaque matin de marché** par `watchlist_refresh`, docs/18 §18.2) sur laquelle les détecteurs de **point d'entrée** (D4 pullback, D3 range expansion) tournent en priorité et qui est suivie en temps réel.
 - **Liste d'ouverture** (chaque matin à 08:45) : valeurs ayant un catalyseur classé pertinent depuis 17:40 la veille + valeurs des lettres du matin + valeurs momentum proches d'un pivot (≤ 3 % sous le plus haut 60 j) → ≤ 15 valeurs suivies en temps réel dès 08:55.
 - **Univers SRD** : intersection univers × `srd_eligibility=complet` → seul sous-univers routable vers le CTO avec levier.
 - **Univers PEA** : intersection univers × `pea_eligible=true (confidence ≥ 0.8)`.

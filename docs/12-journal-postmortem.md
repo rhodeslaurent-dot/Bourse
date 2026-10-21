@@ -40,4 +40,7 @@ Signaux relevés et affichés dans le digest : entrée dans les 5 séances suiva
 
 ## 12.6 Pages
 
+Le post-mortem (§12.2), la revue avec questions et propositions (§12.4) et la mémoire de trading sont livrés en avance sur la page `/apprentissage` (docs/18) ; `/journal` reste à faire.
+
+
 `/journal` (liste, filtres, fiche trade avec graphique et niveaux, MAE/MFE), `/revue` (digests, post-mortem par détecteur/source/heure, précocité, comportement, propositions d'ADR avec boutons « accepter / refuser / plus tard »).

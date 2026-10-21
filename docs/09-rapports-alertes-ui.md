@@ -79,6 +79,8 @@ Règles : déduplication par (`instrument`, `compte`, `type`, `jour`), **jamais 
 | `/assistant` (docs/17) | Questions sur une valeur, réponses fondées sur le dossier de faits de l'outil (jamais de chiffre hors données), historique |
 | `/performance` (docs/17) | Réalisé, latent avec statut, qualité (espérance R, profit factor, fiabilité), coûts, courbe d'équité `kpi_daily`, tableau mensuel |
 | `/journee` (docs/17) | Journée guidée : étapes cliquables par créneau (job, page, coche), progression, état persistant par jour |
+| `/apprentissage` (docs/18) | Retour d'expérience : résultat de chaque proposition prise ou non, statistiques par détecteur/source/régime/décision, historique comparable, questions de l'IA, propositions d'amélioration (accepter/refuser), leçons retenues. Couvre le post-mortem et la revue prévus pour `/revue` |
+| Toutes les pages (docs/18) | Panneau « Assistant » flottant avec le contexte de la page |
 | `/valeur/<isin>` (docs/17) | Fiche valeur : identité, éligibilités, clôtures (SVG), indicateurs libellés, position, propositions, nouvelles, note |
 | `/import` | Dépôt CSV BoursoBank, saisie manuelle d'exécutions |
 | `/ecarts` (phase 2, période de fonctionnement en parallèle) | Chaque jour : valeurs proposées par l'outil (heure, prix) vs valeurs des newsletters (heure de réception, prix), recouvrement, précocité — sert à la validation technique A2.7 (pas de conclusion de rentabilité avant docs/12 §12.2) |
