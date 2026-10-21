@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.db.models import Decision, DecisionSnapshot, Proposal, Signal
 from app.db.session import db_session
+from app.domain.learning import VERDICT_ORDER
 from app.services.decisions import record_decision
 from app.services.explain import explain_proposal
 from app.services.instruments import name_of
@@ -73,6 +74,14 @@ def opportunities_page(request: Request, day: date | None = None, action: str | 
                     "note": notes.get(str(p.id)),
                 }
             )
+        # docs/18 §18.5: at equal action, favourable history first, unfavourable last (stable otherwise)
+        action_rank = {"BUY": 0, "WATCH": 1}
+        items.sort(
+            key=lambda it: (
+                action_rank.get(it["p"].action, 2),
+                VERDICT_ORDER.get((it["explain"].track or {}).get("verdict", "insuffisant"), 1),
+            )
+        )
         counts = {a: sum(1 for it in items if it["p"].action == a) for a in ("BUY", "WATCH")}
     return templates.TemplateResponse(
         request,

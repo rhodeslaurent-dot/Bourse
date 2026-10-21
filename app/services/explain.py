@@ -16,6 +16,7 @@ class Explanation:
     blocked: list[str] = field(default_factory=list)  # "BLOQUÉ : …" lines, verbatim from gates
     data_used: list[str] = field(default_factory=list)  # snapshot facts with status / timestamps
     summary: str = ""  # headline + first blocking gate + "à vérifier" (single-line contexts)
+    track: dict[str, Any] | None = None  # comparable history frozen in the snapshot (docs/18 §18.5)
 
 
 def _fmt(x: Any, digits: int = 2, unit: str = "") -> str:
@@ -70,6 +71,10 @@ def explain_proposal(
         parts.append(f"risque {_fmt(risk_eur, 0)} €{pct}")
     if ev.get("drift_since_open") is not None:
         parts.append(f"écart depuis l'ouverture {float(ev['drift_since_open']):+.1%}")
+    feats_snap = (getattr(snapshot, "features", None) or {}) if snapshot is not None else {}
+    track = feats_snap.get("track_record") if isinstance(feats_snap, dict) else None
+    if track and track.get("verdict") in ("favorable", "defavorable"):
+        parts.append(f"historique {label('track_verdict', track['verdict'])}")
     headline = " · ".join(parts)
     summary = headline
     if blocked:
@@ -98,6 +103,15 @@ def explain_proposal(
         bullets.append(f"Porte passée : {g}")
     if getattr(proposal, "horizon", None):
         bullets.append(f"Horizon : {proposal.horizon}")
+    if track:
+        if track.get("n"):
+            bullets.append(
+                f"Historique comparable ({track.get('scope')}) : {track['n']} cas, espérance "
+                f"{float(track.get('mean_r') or 0):+.2f} R, rétrécie {float(track.get('shrunk_r') or 0):+.2f} R "
+                f"→ {label('track_verdict', track.get('verdict'))}"
+            )
+        else:
+            bullets.append("Historique comparable : aucun cas terminé à la date de la proposition")
 
     data_used: list[str] = []
     if snapshot is not None:
@@ -109,7 +123,7 @@ def explain_proposal(
                     + f"] source {q.get('source', '?')}"
                 )
         feats = getattr(snapshot, "features", None) or {}
-        if feats:
+        if feats.get("day"):
             data_used.append(
                 "Indicateurs du "
                 + str(feats.get("day", "?"))
@@ -136,4 +150,4 @@ def explain_proposal(
                     + ("déclaratif" if st.get("declarative") else "synchronisé")
                     + (f", synchronisé {st.get('synced_at')}" if st.get("synced_at") else ", jamais synchronisé")
                 )
-    return Explanation(headline, bullets, blocked, data_used, summary)
+    return Explanation(headline, bullets, blocked, data_used, summary, track)

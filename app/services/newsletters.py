@@ -195,6 +195,7 @@ def ingest_mail(
             gates,
             config.params.version,
             to_verify=q is None or q.data_status.value != "realtime",
+            config=config,
             entry_zone={"achat": v.levels.get("achat")} if v.levels.get("achat") else None,
             stop=v.levels.get("stop"),
             targets=[v.levels["objectif"]] if "objectif" in v.levels else None,

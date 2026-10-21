@@ -306,9 +306,12 @@ def init_params(example: str, target: str, telegram_user_id: str, email: str, up
         text, added = merge_missing_jobs(example_text, text)
         if added:
             print("jobs ajoutés depuis params.example.yaml : " + ", ".join(added))
-        text, blocks = merge_missing_blocks(example_text, text, ["workflow"])
+        text, blocks = merge_missing_blocks(example_text, text, ["workflow", "learning"])
         if blocks:
             print("blocs ajoutés depuis params.example.yaml : " + ", ".join(blocks))
+        text, steps = merge_missing_workflow_steps(example_text, text)
+        if steps:
+            print("étapes de la journée ajoutées : " + ", ".join(steps))
     dst.write_text(text, encoding="utf-8")
     return True
 
@@ -332,6 +335,22 @@ def _jobs_block(text: str) -> tuple[int, int, dict[str, str]]:
         if m:
             entries[m.group(1)] = ln
     return start, end, entries
+
+
+def merge_missing_workflow_steps(example: str, target: str) -> tuple[str, list[str]]:
+    """Insert the example's ``workflow.steps`` lines whose key the target lacks, after the
+    target's last step line. Existing steps are never modified."""
+    import re
+
+    step_re = re.compile(r"^    - \{key: ([A-Za-z0-9_]+),")
+    have = {m.group(1) for ln in target.splitlines() if (m := step_re.match(ln))}
+    missing = [(m.group(1), ln) for ln in example.splitlines() if (m := step_re.match(ln)) and m.group(1) not in have]
+    if not missing or not have:
+        return target, []
+    lines = target.splitlines(keepends=True)
+    last = max(i for i, ln in enumerate(lines) if step_re.match(ln))
+    lines[last + 1 : last + 1] = [ln + "\n" for _, ln in missing]
+    return "".join(lines), [k for k, _ in missing]
 
 
 def merge_missing_blocks(example: str, target: str, keys: list[str]) -> tuple[str, list[str]]:

@@ -72,9 +72,29 @@ def create_proposal(
     params_version: str,
     to_verify: bool = False,
     expires_at: datetime | None = None,
+    config: Any | None = None,
     **fields: Any,
 ) -> Proposal:
-    """Create the proposal and its snapshot in one go: the snapshot is what the decision saw."""
+    """Create the proposal and its snapshot in one go: the snapshot is what the decision saw.
+
+    With ``config`` and ``learning`` enabled, the comparable history (docs/18 §18.5) is attached to
+    the snapshot and an unfavourable BUY on enough cases is issued as WATCH (docs/12 §12.5.3)."""
+    track = None
+    if config is not None:
+        from app.domain.learning import should_demote
+        from app.services.outcomes import comparable_history, learning_params
+
+        track = comparable_history(s, config, sig, datetime.now(UTC))
+        lp = learning_params(config)
+        min_signals = int((config.params.review or {}).get("profitability_min_signals_per_detector", 60))
+        if track is not None and lp is not None and should_demote(action, track, min_signals, lp.demote_buy_to_watch):
+            action = "WATCH"
+            gates = dict(gates or {})
+            gates["blocked"] = [
+                *(gates.get("blocked") or []),
+                f"BLOQUÉ : historique défavorable ({track.n} cas comparables, espérance rétrécie "
+                f"{track.shrunk_r:+.2f} R) → WATCH seulement (learning.demote_buy_to_watch)",
+            ]
     p = Proposal(
         signal_id=sig.id,
         isin=sig.isin,
@@ -101,25 +121,31 @@ def create_proposal(
             quotes=_jsonable(quotes or {}),
             features=_jsonable(
                 {
-                    k: getattr(feats, k)
-                    for k in (
-                        "day",
-                        "atr14",
-                        "adr20",
-                        "mm20",
-                        "mm50",
-                        "mm200",
-                        "rvol",
-                        "rs_rank",
-                        "pivot_60",
-                        "high_52w",
-                        "rsi14",
-                        "gap_in_data",
-                    )
+                    **(
+                        {
+                            k: getattr(feats, k)
+                            for k in (
+                                "day",
+                                "atr14",
+                                "adr20",
+                                "mm20",
+                                "mm50",
+                                "mm200",
+                                "rvol",
+                                "rs_rank",
+                                "pivot_60",
+                                "high_52w",
+                                "rsi14",
+                                "gap_in_data",
+                            )
+                        }
+                        if feats
+                        else {}
+                    ),
+                    **({"track_record": track.as_dict()} if track is not None else {}),
                 }
             )
-            if feats
-            else None,
+            or None,
             regime=_jsonable({"day": regime.day, "regime": regime.regime, "details": regime.details})
             if regime
             else None,

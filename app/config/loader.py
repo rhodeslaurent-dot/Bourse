@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from app.config.schema import (
     Availability,
+    LearningParams,
     Llm,
     Params,
     SrdParams,
@@ -36,6 +37,7 @@ OPTIONAL_FEATURES: dict[str, tuple[str, Any]] = {
     "subscriptions": ("Suivi des abonnements", None),
     "brokers": ("Frais de courtage estimés", None),
     "srd": ("Calendrier SRD et coûts SRD", SrdParams),
+    "learning": ("Retour d'expérience et ajustement des propositions", LearningParams),
 }
 
 

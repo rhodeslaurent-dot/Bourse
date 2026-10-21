@@ -35,6 +35,7 @@ class JobContext:
     alerts: Any | None = None  # AlertService (set by the scheduler service)
     mode: str = "reunion"  # availability mode at run time
     llm: Any | None = None  # ClaudeGateway (None → rules fallback)
+    note: str | None = None  # set by a job to surface a warning on its jobs_runs line
 
 
 JobFn = Callable[[JobContext], int]
@@ -102,7 +103,7 @@ def execute_job(
             rows = job_fn(ctx)
             run.status = "ok"
             run.rows = rows
-            run.note = decision.reason
+            run.note = " · ".join(x for x in (decision.reason, ctx.note) if x) or None
         except Exception as exc:  # noqa: BLE001 — recorded, then reported
             run.status = "error"
             from app.logging_setup import redact

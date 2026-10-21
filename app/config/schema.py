@@ -218,6 +218,22 @@ class Llm(_Model):
     cache: bool = True
     prompt_versions_dir: str = "app/llm/prompts"
     assistant_max_tokens: int = 800
+    review_max_tokens: int = 2500
+
+
+class LearningParams(_Model):
+    """docs/18 §18.4–18.6 — feedback loop thresholds (never auto-optimised)."""
+
+    effective_from: date
+    horizon_sessions: int = 20
+    entry_validity_sessions: int = 5
+    min_samples_display: int = 20
+    min_samples_adjust: int = 20
+    shrinkage_k: float = 20
+    favorable_r: float = 0.3
+    unfavorable_r: float = -0.2
+    demote_buy_to_watch: bool = True
+    memory_max_items: int = 30
 
 
 class SrdParams(_Model):
@@ -264,3 +280,4 @@ class Params(BaseModel):
     review: dict[str, Any] | None = None
     subscriptions: list[dict[str, Any]] | None = None
     workflow: dict[str, Any] | None = None  # docs/17 §17.6
+    learning: LearningParams | None = None  # docs/18

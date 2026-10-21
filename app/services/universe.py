@@ -235,6 +235,17 @@ def refresh_momentum_watchlist(s: Session, config: LoadedConfig, universe: set[s
     return len(wl)
 
 
+def refresh_watchlist_daily(s: Session, config: LoadedConfig) -> tuple[int, date | None]:
+    """docs/18 §18.2 — momentum watchlist from the current universe and the latest computed
+    features. Returns (size, day of the features used); the caller flags an old day."""
+    universe = {i.isin for i in s.scalars(select(Instrument).where(Instrument.in_universe.is_(True)))}
+    feats = latest_features(s, sorted(universe)) if universe else {}
+    days = [f.day for f in feats.values() if f.day is not None]
+    if not days:  # nothing computed yet: keep the current list rather than emptying it
+        return len(list(s.scalars(select(WatchlistRow.id).where(WatchlistRow.active.is_(True))))), None
+    return refresh_momentum_watchlist(s, config, universe, feats), (max(days) if days else None)
+
+
 def tradingview_export(s: Session) -> str:
     """One ``EXCHANGE:TICKER`` per line for the active watchlist (docs/09 §9.5)."""
     lines = []

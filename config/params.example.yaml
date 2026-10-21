@@ -330,7 +330,7 @@ availability:
 
 config_validation:
   required_groups: ["timezones", "capital", "risk", "accounts", "notifications", "data", "jobs"]
-  optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers"]   # manquant → fonctionnalité désactivée, mention sur /sante
+  optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers", "learning"]   # manquant → fonctionnalité désactivée, mention sur /sante
 
 review:
   human_delay_minutes: 5              # délai humain appliqué en rejeu entre alerte et ordre
@@ -338,6 +338,18 @@ review:
   technical_validation_days: 10
   profitability_min_days: 90
   profitability_min_signals_per_detector: 60
+
+learning:                                # docs/18 — retour d'expérience ; aucune optimisation automatique
+  effective_from: 2026-10-22
+  horizon_sessions: 20                   # sortie simulée à la clôture de la 20e séance après l'entrée
+  entry_validity_sessions: 5             # ordre limite simulé valable 5 séances (ou jusqu'à expires_at)
+  min_samples_display: 20                # sous ce nombre : « indicatif »
+  min_samples_adjust: 20                 # effectif minimal pour qualifier un historique favorable/défavorable
+  shrinkage_k: 20                        # espérance rétrécie = n / (n + k) × R moyen
+  favorable_r: 0.3
+  unfavorable_r: -0.2
+  demote_buy_to_watch: true              # docs/12 §12.5.3 : BUY → WATCH si défavorable sur ≥ review.profitability_min_signals_per_detector cas
+  memory_max_items: 30                   # leçons retenues injectées dans l'assistant et la revue
 
 llm:
   provider: "anthropic"
@@ -353,6 +365,7 @@ llm:
   cache: true
   prompt_versions_dir: "app/llm/prompts"
   assistant_max_tokens: 800            # docs/17 §17.4 ; réponse ≤ 1 200 caractères, write_model, température 0
+  review_max_tokens: 2500              # docs/18 §18.6 ; revue d'apprentissage (write_model)
 
 jobs:                                    # heure de Paris sauf mention tz ; market_days_only => calendrier de la place de chaque instrument traité (docs/02 §2.4)
   test_job: {cron: "5 9 * * 1-5", misfire_grace_min: 10, market_days_only: true}   # job de test de la phase 0 (A0.3)
@@ -376,7 +389,9 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   backup: {cron: "0 23 * * *", tz: "Indian/Reunion", market_days_only: false}
   kpi_snapshot: {cron: "10 18 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/17 §17.5 : équité du jour → kpi_daily
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h
-  weekly_review: {cron: "0 8 * * 6", market_days_only: false}
+  weekly_review: {cron: "0 8 * * 6", misfire_grace_min: 600, market_days_only: false}   # docs/18 §18.6 : revue IA, questions et propositions
+  watchlist_refresh: {cron: "15 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/18 §18.2 : après eod_backfill_check
+  outcomes_update: {cron: "20 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}     # docs/18 §18.4 : résultat des propositions passées
   us_open_scan: {cron: "35 15 * * 1-5", enabled: false, market_days_only: true}          # phase 6
 
 workflow:                                # docs/17 §17.6 — journée guidée ; heures en Europe/Paris
@@ -393,6 +408,7 @@ workflow:                                # docs/17 §17.6 — journée guidée ;
     - {key: c3_notes, slot: C3, label: "Notes du jour complétées (positions, watchlist)", kind: check, target: "", days: "1-5"}
     - {key: c3_kpi, slot: C3, label: "Instantané de performance du jour", kind: job, target: kpi_snapshot, days: "1-5"}
     - {key: c3_import, slot: C3, label: "Import CSV BoursoBank de la semaine", kind: page, target: "/import", days: "5"}
+    - {key: hebdo_apprentissage, slot: hebdo, label: "Répondre aux questions de l'IA et trier ses propositions", kind: page, target: "/apprentissage", days: "6"}
     - {key: hebdo_perf, slot: hebdo, label: "Relire la performance et le journal de la semaine", kind: page, target: "/performance", days: "6"}
     - {key: sys_backup, slot: systeme, label: "Sauvegarde du jour présente (sinon la lancer)", kind: job, target: backup, days: "1-7"}
 

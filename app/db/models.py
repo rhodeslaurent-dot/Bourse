@@ -7,6 +7,7 @@ prices, signals…) arrive with their phase and their own Alembic migration.
 from __future__ import annotations
 
 from datetime import date, datetime, time
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -678,6 +679,7 @@ class AssistantMessage(Base):
     context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     cost_usd: Mapped[float] = mapped_column(default=0.0)
     model: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    page: Mapped[str | None] = mapped_column(String(48), nullable=True)  # docs/18 §18.3 (panel context)
 
 
 class KpiDaily(Base):
@@ -695,3 +697,98 @@ class KpiDaily(Base):
     incomplete: Mapped[bool] = mapped_column(Boolean, default=False)  # a position without price was excluded
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     __table_args__ = (UniqueConstraint("day", "account_id", name="uq_kpi_daily_day_account"),)
+
+
+# ---------------------------------------------------------------------------------------------
+# Learning loop (docs/18) — outcomes of every proposal, AI reviews, questions, suggestions, memory
+# ---------------------------------------------------------------------------------------------
+
+
+class SignalOutcome(Base):
+    """Simulated result of one proposal on official EOD bars after its creation (docs/18 §18.4)."""
+
+    __tablename__ = "signal_outcomes"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    proposal_id: Mapped[int] = mapped_column(Integer, unique=True)
+    signal_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(12))  # pending|running|not_filled|stopped|target|horizon|unavailable
+    final: Mapped[bool] = mapped_column(Boolean, default=False)
+    decision_group: Mapped[str] = mapped_column(String(16))  # prise|ignoree|vue_sans_suite|sans_decision
+    ref_price: Mapped[float | None] = mapped_column(nullable=True)
+    entry_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    entry_price: Mapped[float | None] = mapped_column(nullable=True)
+    exit_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    exit_price: Mapped[float | None] = mapped_column(nullable=True)
+    exit_reason: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    r_gross: Mapped[float | None] = mapped_column(nullable=True)
+    r_net: Mapped[float | None] = mapped_column(nullable=True)
+    costs_counted: Mapped[bool] = mapped_column(Boolean, default=False)
+    ret_pct: Mapped[float | None] = mapped_column(nullable=True)
+    mfe_pct: Mapped[float | None] = mapped_column(nullable=True)
+    mae_pct: Mapped[float | None] = mapped_column(nullable=True)
+    mfe_r: Mapped[float | None] = mapped_column(nullable=True)
+    mae_r: Mapped[float | None] = mapped_column(nullable=True)
+    ret_1d: Mapped[float | None] = mapped_column(nullable=True)
+    ret_5d: Mapped[float | None] = mapped_column(nullable=True)
+    ret_20d: Mapped[float | None] = mapped_column(nullable=True)
+    last_bar_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class LearningReview(Base):
+    __tablename__ = "learning_reviews"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    trigger: Mapped[str] = mapped_column(String(12))  # weekly | manual
+    status: Mapped[str] = mapped_column(String(12))  # ok | rules | unavailable
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    findings: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    dossier: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    rejected: Mapped[list | None] = mapped_column(JSON, nullable=True)  # items dropped by the Python guards
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    model: Mapped[str | None] = mapped_column(String(48), nullable=True)
+
+
+class LearningQuestion(Base):
+    __tablename__ = "learning_questions"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    review_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    question: Mapped[str] = mapped_column(Text)
+    why: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kind: Mapped[str] = mapped_column(String(8), default="texte")  # texte | choix
+    choices: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(12), default="open")  # open | answered | dismissed
+
+
+class LearningSuggestion(Base):
+    __tablename__ = "learning_suggestions"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    review_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    kind: Mapped[str] = mapped_column(String(12))  # parametre | processus | donnees | source
+    title: Mapped[str] = mapped_column(Text)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expected_effect: Mapped[str | None] = mapped_column(Text, nullable=True)
+    params_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    current_value: Mapped[Any] = mapped_column(JSON, nullable=True)  # read by Python, never copied from the LLM
+    proposed_value: Mapped[Any] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(10), default="open")  # open | accepted | rejected | later
+    user_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TraderMemory(Base):
+    """Lessons kept for continuity (docs/12 §12.4, docs/18 §18.6)."""
+
+    __tablename__ = "trader_memory"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    text: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(12))  # utilisateur | reponse | suggestion
+    ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)

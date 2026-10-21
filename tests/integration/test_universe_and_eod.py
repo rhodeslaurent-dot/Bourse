@@ -208,3 +208,25 @@ def test_srd_liquidation_alert_j_minus_3(db_engine, config, calendars):
     ctx2 = JobContext(config, calendars, date(2026, 9, 15), ("XPAR",), "normal")
     ctx2.alerts, ctx2.mode = ctx.alerts, "reunion"
     assert srd_liquidation_alerts(ctx2) == 0
+
+
+def test_watchlist_refresh_job_daily(seeded, raw, calendars):
+    """docs/18 §18.2 — the morning job recomputes the momentum list and reports the features day."""
+    from app.config import validate_params
+    from app.scheduler.runner import execute_job
+
+    raw["universe"]["momentum_watchlist_rs_rank_min"] = 70
+    config = validate_params(raw)
+    with db_session() as s:
+        for isin, mic in (("FR0000120271", "XPAR"), ("FR0000120073", "XPAR"), ("DE0007164600", "XETR")):
+            s.add(Instrument(isin=isin, name=isin, mic=mic, in_universe=True))
+        s.add(WatchlistRow(isin="FR0000120073", reason="momentum", source="rs_rank", active=True))
+        s.add(WatchlistRow(isin="NL0010273215", reason="manual", source="web", active=True))
+        compute_features_for_day(s, DAY, ["FR0000120271", "FR0000120073", "DE0007164600"])
+    run = execute_job("watchlist_refresh", config, calendars, run_date=date(2026, 9, 15), fn=None)
+    assert run.status == "ok" and run.rows == 2 and "indicateurs du 14/09" in run.note
+    with db_session() as s:
+        active = {(w.isin, w.reason) for w in s.scalars(select(WatchlistRow).where(WatchlistRow.active.is_(True)))}
+    assert active == {("FR0000120271", "momentum"), ("DE0007164600", "momentum"), ("NL0010273215", "manual")}
+    late = execute_job("watchlist_refresh", config, calendars, run_date=date(2026, 9, 17))
+    assert "dernière séance attendue 16/09" in late.note

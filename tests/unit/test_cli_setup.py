@@ -144,3 +144,24 @@ def test_init_params_update_merges_jobs_from_real_example(tmp_path):
     assert init_params("config/params.example.yaml", str(target), "42", "a@b.c", update=True)
     data = yaml.safe_load(target.read_text(encoding="utf-8"))
     assert data["jobs"]["saxo_token_keepalive"]["every_minutes"] == 20
+
+
+def test_init_params_update_adds_learning_block_and_new_workflow_steps(tmp_path):
+    import re
+
+    import yaml
+
+    target = tmp_path / "params.yaml"
+    text = Path("config/params.example.yaml").read_text(encoding="utf-8")  # noqa: F821
+    text = re.sub(r"^learning:.*?(?=^\S)", "", text, flags=re.M | re.S)  # an older params.yaml
+    text = re.sub(r"^    - \{key: hebdo_apprentissage.*\n", "", text, flags=re.M)
+    text = text.replace('label: "Lire les trois décisions du jour"', 'label: "Mes décisions"')
+    target.write_text(text, encoding="utf-8")
+    assert init_params("config/params.example.yaml", str(target), "42", "a@b.c", update=True)
+    data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert data["learning"]["horizon_sessions"] == 20
+    keys = [st["key"] for st in data["workflow"]["steps"]]
+    assert "hebdo_apprentissage" in keys and len(keys) == len(set(keys))
+    assert data["workflow"]["steps"][0]["label"] == "Mes décisions"  # user edits kept
+    out = target.read_text(encoding="utf-8")
+    assert cli.merge_missing_workflow_steps(out, out) == (out, [])
