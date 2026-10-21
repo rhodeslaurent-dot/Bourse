@@ -124,7 +124,10 @@ def test_enrich_mail_appends_page_text():
 def test_image_button_label_and_anchor_listing():
     from app.data.providers.linked_page import anchors
 
-    html = '<a href="https://www.zonebourse.com/m/9"><img src="b.png" alt="Lire la suite"></a><a href="https://x.fr" title="Votre compte">C</a>'
+    html = (
+        '<a href="https://www.zonebourse.com/m/9"><img src="b.png" alt="Lire la suite"></a>'
+        '<a href="https://x.fr" title="Votre compte">C</a>'
+    )
     assert find_link(html, ["Lire la suite"]) == "https://www.zonebourse.com/m/9"
     labels = [lab for _, lab in anchors(html)]
     assert "Lire la suite" in labels[0] and "Votre compte" in labels[1]
