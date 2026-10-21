@@ -76,6 +76,10 @@ Règles : déduplication par (`instrument`, `compte`, `type`, `jour`), **jamais 
 | `/revue` | Digest hebdo / mensuel, post-mortem des signaux (docs/12) |
 | `/parametres` | Capital pilote, cash additionnel, cash PEA, blocages temporaires, abonnements (revue), seuils (lecture seule sauf `overrides` tracés) |
 | `/sante` | Jobs (dernier run, statut), fraîcheur par source, quotas API, coûts LLM du mois, sauvegardes, version des paramètres, tunnel |
+| `/assistant` (docs/17) | Questions sur une valeur, réponses fondées sur le dossier de faits de l'outil (jamais de chiffre hors données), historique |
+| `/performance` (docs/17) | Réalisé, latent avec statut, qualité (espérance R, profit factor, fiabilité), coûts, courbe d'équité `kpi_daily`, tableau mensuel |
+| `/journee` (docs/17) | Journée guidée : étapes cliquables par créneau (job, page, coche), progression, état persistant par jour |
+| `/valeur/<isin>` (docs/17) | Fiche valeur : identité, éligibilités, clôtures (SVG), indicateurs libellés, position, propositions, nouvelles, note |
 | `/import` | Dépôt CSV BoursoBank, saisie manuelle d'exécutions |
 | `/ecarts` (phase 2, période de fonctionnement en parallèle) | Chaque jour : valeurs proposées par l'outil (heure, prix) vs valeurs des newsletters (heure de réception, prix), recouvrement, précocité — sert à la validation technique A2.7 (pas de conclusion de rentabilité avant docs/12 §12.2) |
 

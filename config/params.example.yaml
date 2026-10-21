@@ -352,6 +352,7 @@ llm:
     claude-sonnet-5: {input: 2.0, output: 10.0}
   cache: true
   prompt_versions_dir: "app/llm/prompts"
+  assistant_max_tokens: 800            # docs/17 §17.4 ; réponse ≤ 1 200 caractères, write_model, température 0
 
 jobs:                                    # heure de Paris sauf mention tz ; market_days_only => calendrier de la place de chaque instrument traité (docs/02 §2.4)
   test_job: {cron: "5 9 * * 1-5", misfire_grace_min: 10, market_days_only: true}   # job de test de la phase 0 (A0.3)
@@ -373,9 +374,26 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   eod_pipeline: {cron: "50 17 * * 1-5", half_day: "14:20", misfire_grace_min: 240, market_days_only: true}
   portfolio_sync: {cron: "0 19 * * 1-5", misfire_grace_min: 240, market_days_only: true}
   backup: {cron: "0 23 * * *", tz: "Indian/Reunion", market_days_only: false}
+  kpi_snapshot: {cron: "10 18 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/17 §17.5 : équité du jour → kpi_daily
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h
   weekly_review: {cron: "0 8 * * 6", market_days_only: false}
   us_open_scan: {cron: "35 15 * * 1-5", enabled: false, market_days_only: true}          # phase 6
+
+workflow:                                # docs/17 §17.6 — journée guidée ; heures en Europe/Paris
+  effective_from: 2026-10-21
+  steps:
+    - {key: c1_decisions, slot: C1, label: "Lire les trois décisions du jour", kind: page, target: "/", days: "1-5"}
+    - {key: c1_sante, slot: C1, label: "Vérifier la santé du système (jobs, jeton Saxo, sources)", kind: page, target: "/sante", days: "1-5"}
+    - {key: c1_sync, slot: C1, label: "Synchroniser le portefeuille Saxo", kind: job, target: portfolio_sync_intraday, days: "1-5"}
+    - {key: c1_news, slot: C1, label: "Scanner les nouvelles du matin", kind: job, target: news_scan, days: "1-5"}
+    - {key: c3_sync, slot: C3, label: "Synchroniser le portefeuille Saxo (soir)", kind: job, target: portfolio_sync, days: "1-5"}
+    - {key: c3_protections, slot: C3, label: "Relire les positions : toutes protégées ?", kind: page, target: "/positions", days: "1-5"}
+    - {key: c3_opportunites, slot: C3, label: "Relire les opportunités et décider (Vu / Watch / Ignorer)", kind: page, target: "/opportunites", days: "1-5"}
+    - {key: c3_orders, slot: C3, label: "Ordres du soir saisis chez le courtier (stops, entrées J+1)", kind: check, target: "", days: "1-5"}
+    - {key: c3_notes, slot: C3, label: "Notes du jour complétées (positions, watchlist)", kind: check, target: "", days: "1-5"}
+    - {key: c3_import, slot: C3, label: "Import CSV BoursoBank de la semaine", kind: page, target: "/import", days: "5"}
+    - {key: hebdo_perf, slot: hebdo, label: "Relire la performance et le journal de la semaine", kind: page, target: "/performance", days: "6"}
+    - {key: sys_backup, slot: systeme, label: "Sauvegarde du jour présente (sinon la lancer)", kind: job, target: backup, days: "1-7"}
 
 subscriptions:
   - {name: "EODHD EOD+Intraday", monthly_cost: 29.99, currency: "USD", started: null, review: null, status: "planned"}

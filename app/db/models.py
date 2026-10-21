@@ -634,3 +634,64 @@ class DecisionSnapshot(Base):
     regime: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     portfolio_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     params_version: Mapped[str] = mapped_column(String(32))
+
+
+# ---------------------------------------------------------------------------------------------
+# Interface v2 (docs/17) — notes, journée guidée, assistant, KPI quotidiens (migration 0006)
+# ---------------------------------------------------------------------------------------------
+
+
+class Note(Base):
+    """One current free-text note per (scope, ref), edited in place, never deleted (emptied at most)."""
+
+    __tablename__ = "notes"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(16), index=True)  # isin | position | watchlist | proposal | global
+    ref: Mapped[str] = mapped_column(String(64), index=True)
+    text: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("scope", "ref", name="uq_notes_scope_ref"),)
+
+
+class WorkflowStep(Base):
+    """Daily state of a guided-day step (docs/17 §17.6); reset by the day column."""
+
+    __tablename__ = "workflow_steps"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    key: Mapped[str] = mapped_column(String(48))
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    __table_args__ = (UniqueConstraint("day", "key", name="uq_workflow_steps_day_key"),)
+
+
+class AssistantMessage(Base):
+    """Question / answer of the grounded assistant (docs/17 §17.4), with the fact pack used."""
+
+    __tablename__ = "assistant_messages"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    isin: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # AssistantAnswer or None (rules fallback)
+    answered_by: Mapped[str] = mapped_column(String(16))  # llm | rules | rejected
+    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    model: Mapped[str | None] = mapped_column(String(48), nullable=True)
+
+
+class KpiDaily(Base):
+    """Daily equity snapshot per account (``account_id`` NULL = consolidated), docs/10 §10.3."""
+
+    __tablename__ = "kpi_daily"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    equity: Mapped[float | None] = mapped_column(nullable=True)
+    cash: Mapped[float | None] = mapped_column(nullable=True)
+    positions_value: Mapped[float | None] = mapped_column(nullable=True)
+    latent_pnl: Mapped[float | None] = mapped_column(nullable=True)
+    realized_pnl_cum: Mapped[float | None] = mapped_column(nullable=True)
+    incomplete: Mapped[bool] = mapped_column(Boolean, default=False)  # a position without price was excluded
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("day", "account_id", name="uq_kpi_daily_day_account"),)

@@ -217,6 +217,7 @@ class Llm(_Model):
     monthly_budget_usd: float
     cache: bool = True
     prompt_versions_dir: str = "app/llm/prompts"
+    assistant_max_tokens: int = 800
 
 
 class SrdParams(_Model):
@@ -262,3 +263,4 @@ class Params(BaseModel):
     pea: dict[str, Any] | None = None
     review: dict[str, Any] | None = None
     subscriptions: list[dict[str, Any]] | None = None
+    workflow: dict[str, Any] | None = None  # docs/17 §17.6
