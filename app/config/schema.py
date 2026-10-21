@@ -218,7 +218,7 @@ class Llm(_Model):
     cache: bool = True
     prompt_versions_dir: str = "app/llm/prompts"
     assistant_max_tokens: int = 800
-    review_max_tokens: int = 2500
+    review_max_tokens: int = 4000
 
 
 class LearningParams(_Model):

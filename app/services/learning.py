@@ -255,7 +255,7 @@ def run_review(s: Session, config: LoadedConfig, gateway: Any, trigger: str = "m
         rev.summary = _rules_summary(dossier)
         return rev
     user = f"<dossier>\n{json.dumps(dossier, ensure_ascii=False, indent=1)}\n</dossier>"
-    max_tokens = config.params.llm.review_max_tokens if config.params.llm else 2500
+    max_tokens = config.params.llm.review_max_tokens if config.params.llm else 4000
     try:
         out, usage = gateway.parse(
             s,

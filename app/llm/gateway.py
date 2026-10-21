@@ -74,10 +74,29 @@ def _sdk_parse(  # noqa: UP047
     )
     if response.stop_reason == "refusal":
         raise LlmUnavailable("réponse refusée par le modèle")
+    if response.stop_reason == "max_tokens":
+        raise LlmUnavailable(
+            f"réponse tronquée (max_tokens = {max_tokens} atteint) : augmenter la limite dans params.yaml"
+        )
     parsed = response.parsed_output
     if parsed is None:
         raise LlmUnavailable("sortie JSON invalide")
     return parsed, response.usage.input_tokens, response.usage.output_tokens
+
+
+def describe_error(exc: Exception) -> str:
+    """Short, secret-free explanation of an SDK error (status code and API message, never headers)."""
+    from app.logging_setup import redact
+
+    status = getattr(exc, "status_code", None)
+    body = getattr(exc, "body", None)
+    message = None
+    if isinstance(body, dict):
+        err = body.get("error")
+        message = err.get("message") if isinstance(err, dict) else None
+    text = message or str(exc)
+    head = f"{exc.__class__.__name__}" + (f" {status}" if status else "")
+    return redact(f"{head} — {text}")[:300]
 
 
 class ClaudeGateway:
@@ -161,7 +180,9 @@ class ClaudeGateway:
         except LlmUnavailable:
             raise
         except Exception as exc:  # noqa: BLE001 — SDK errors → fallback rules
-            raise LlmUnavailable(f"API Claude : {exc.__class__.__name__}") from exc
+            detail = describe_error(exc)
+            log.warning("appel %s (%s) en échec : %s", purpose, model, detail)
+            raise LlmUnavailable(f"API Claude : {detail}") from exc
         cost = self.cost(model, tin, tout)
         s.add(
             LlmCall(

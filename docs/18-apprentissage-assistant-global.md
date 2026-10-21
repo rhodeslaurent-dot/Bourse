@@ -109,7 +109,7 @@ jobs:
   watchlist_refresh: {cron: "15 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}
   outcomes_update: {cron: "20 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}
 llm:
-  review_max_tokens: 2500
+  review_max_tokens: 4000
 ```
 
 Le groupe `learning` est optionnel : absent, la page `/apprentissage` est désactivée et aucune proposition n'est ajustée (validation bloquante par fonctionnalité, règle 8).
