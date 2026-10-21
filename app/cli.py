@@ -609,8 +609,7 @@ def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
     cfg = load_params(args.params)
     rule = follow_rules(cfg.params.data.imap or {}).get(args.source)
     if rule is None:
-        print(f"aucune règle follow_links pour la source {args.source}")
-        return 2
+        print(f"source {args.source} : aucun lien suivi (follow_links) ; liste des liens seulement")
     password = os.environ.get("IMAP_HISTORY_PASSWORD") or (
         os.environ.get("IMAP_PASSWORD") if args.user == os.environ.get("IMAP_USER") else None
     )
@@ -630,6 +629,8 @@ def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
             if label and (label, host) not in labels:
                 labels.append((label, host))
         print("  liens : " + (" | ".join(f"« {lab[:40]} » ({host})" for lab, host in labels[:15]) or "aucun"))
+        if rule is None:
+            continue
         href = find_link(mail.html, list(rule.get("link_texts") or []))
         if not href:
             print(f"  bouton {rule.get('link_texts')} : absent")
