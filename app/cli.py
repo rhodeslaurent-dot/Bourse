@@ -596,14 +596,14 @@ def ingest_known(s, mail) -> bool:  # type: ignore[no-untyped-def]
 
 
 def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
-    """docs/19 §19.6 — read the latest matching letter (read-only), follow its link and print the
-    status, final host and text length (never the content)."""
+    """docs/19 §19.6 — examine the latest matching letters (read-only): subject, link labels and
+    hosts (never the content), then follow the configured link of each and print its status."""
     import getpass
     import os
     from urllib.parse import urlparse
 
     from app.data.providers.imap_gmail import GmailHistory
-    from app.data.providers.linked_page import enrich_mail
+    from app.data.providers.linked_page import anchors, enrich_mail, find_link
     from app.scheduler.jobs.imap_poll import follow_rules
 
     cfg = load_params(args.params)
@@ -620,21 +620,29 @@ def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
         if not uids:
             print("aucune lettre trouvée")
             return 1
-        mail = box.mail(uids[-1], args.source)
-    if mail is None:
-        print("lettre illisible")
-        return 1
-    from app.data.providers.linked_page import find_link
-
-    href = find_link(mail.html, list(rule.get("link_texts") or []))
-    print(f"lettre du {mail.received_at:%d/%m/%Y %H:%M} UTC · objet : {mail.subject[:80]}")
-    print(f"lien trouvé : {'oui, hôte ' + (urlparse(href).hostname or '?') if href else 'non'}")
-    _, page = enrich_mail(mail, rule, cookie=os.environ.get("ZONEBOURSE_COOKIE") or None)
-    final_host = urlparse(page.url).hostname if page.url else None
-    print(f"statut : {page.status} · hôte final : {final_host} · HTTP {page.http_status} · {len(page.text)} caractères")
-    if page.detail:
-        print(f"détail : {page.detail}")
-    return 0 if page.status == "ok" else 1
+        mails = [m for m in (box.mail(u, args.source) for u in uids[-args.count :]) if m is not None]
+    ok = 0
+    for mail in reversed(mails):
+        print(f"\n— {mail.received_at:%d/%m/%Y %H:%M} UTC · {mail.subject[:90]}")
+        labels = []
+        for href, label in anchors(mail.html):
+            host = urlparse(href).hostname or "?"
+            if label and (label, host) not in labels:
+                labels.append((label, host))
+        print("  liens : " + (" | ".join(f"« {lab[:40]} » ({host})" for lab, host in labels[:15]) or "aucun"))
+        href = find_link(mail.html, list(rule.get("link_texts") or []))
+        if not href:
+            print(f"  bouton {rule.get('link_texts')} : absent")
+            continue
+        _, page = enrich_mail(mail, rule, cookie=os.environ.get("ZONEBOURSE_COOKIE") or None)
+        final_host = urlparse(page.url).hostname if page.url else None
+        print(
+            f"  page liée : {page.status} · hôte final {final_host} · HTTP {page.http_status} · {len(page.text)} caractères"  # noqa: E501
+        )
+        if page.detail:
+            print(f"  détail : {page.detail}")
+        ok += page.status == "ok"
+    return 0 if ok else 1
 
 
 def cmd_newsletters_history(args: argparse.Namespace) -> int:
@@ -806,6 +814,7 @@ def main(argv: list[str] | None = None) -> int:
     lc.add_argument("--user", required=True)
     lc.add_argument("--query", required=True, help='ex. "from:noreply@zonebourse.com"')
     lc.add_argument("--source", default="zonebourse")
+    lc.add_argument("--count", type=int, default=5, help="nombre de lettres récentes examinées")
     lc.set_defaults(fn=cmd_newsletter_link_check)
     bf = sub.add_parser("backfill")
     bf.add_argument("--provider", default="eodhd")

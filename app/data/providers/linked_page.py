@@ -59,9 +59,12 @@ class _Anchors(HTMLParser):
         self._text: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = dict(attrs)
         if tag == "a":
-            self._href = dict(attrs).get("href") or None
-            self._text = []
+            self._href = a.get("href") or None
+            self._text = [a.get("title") or "", a.get("aria-label") or ""]
+        elif tag == "img" and self._href is not None:  # image buttons: the label is in alt / title
+            self._text += [" ", a.get("alt") or "", " ", a.get("title") or ""]
 
     def handle_data(self, data: str) -> None:
         if self._href is not None:
@@ -71,6 +74,13 @@ class _Anchors(HTMLParser):
         if tag == "a" and self._href is not None:
             self.links.append((self._href, " ".join("".join(self._text).split())))
             self._href = None
+
+
+def anchors(html: str) -> list[tuple[str, str]]:
+    """(href, visible label) of every link of the letter, for diagnosis."""
+    p = _Anchors()
+    p.feed(html or "")
+    return p.links
 
 
 def find_link(html: str, link_texts: list[str]) -> str | None:
