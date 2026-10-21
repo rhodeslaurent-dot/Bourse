@@ -34,10 +34,8 @@ def test_steps_follow_days_and_calendar(db_engine, config):
     assert sat["hebdo_perf"].applicable and sat["sys_backup"].applicable and not sat["c1_sync"].applicable
 
 
-def test_job_step_runs_and_persists(client, monkeypatch):
-    monkeypatch.setenv(
-        "BACKUP_DIR", "/tmp/claude-0/-home-user-Bourse/a937a5ef-3526-5ccd-a8bb-b03dfd7d2f97/scratchpad/bk"
-    )
+def test_job_step_runs_and_persists(client, monkeypatch, tmp_path):
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path))
     r = client.post("/journee/step", data={"key": "sys_backup", "action": "do"}, follow_redirects=False)
     assert r.status_code == 303
     with db_session() as s:

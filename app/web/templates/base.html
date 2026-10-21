@@ -17,10 +17,10 @@
   {% set nav = [('/', 'Décisions', 'M4 6h16M4 12h10M4 18h7'), ('/opportunites', 'Opportunités', 'M13 2L3 14h7l-1 8 10-12h-7z'), ('/positions', 'Positions', 'M3 17l6-6 4 4 8-8'), ('/watchlist', 'Watchlist', 'M12 4l2.5 5 5.5.8-4 3.9.9 5.5L12 16.6 7.1 19.2l.9-5.5-4-3.9 5.5-.8z'), ('/journee', 'Journée', 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'), ('/performance', 'Performance', 'M3 3v18h18M7 14l4-4 4 4 5-6'), ('/assistant', 'Assistant', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'), ('/sante', 'Santé', 'M3 12h4l2-6 4 12 2-6h6')] %}
   {% set path = request.url.path if request else '/' %}
   <header class="sticky top-0 z-20 border-b border-slate-200/80 dark:border-slate-800 bg-white/90 dark:bg-slate-950/90 backdrop-blur">
-    <div class="mx-auto max-w-5xl px-4 h-14 flex items-center justify-between gap-4">
+    <div class="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between gap-3">
       <a href="/" class="flex items-center gap-2 font-semibold tracking-tight">
         <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-sky-700 text-white text-xs font-bold">BP</span>
-        <span>BOURSE-PILOT</span>
+        <span class="hidden xl:inline">BOURSE-PILOT</span>
       </a>
       <nav class="hidden sm:flex items-center gap-0.5 text-sm">
         {% for href, label, icon in nav %}
@@ -29,10 +29,11 @@
         </a>
         {% endfor %}
       </nav>
-      <span class="hidden lg:inline text-xs text-slate-500 dark:text-slate-400">lecture seule · aucun ordre</span>
+      <form action="/recherche" method="get" class="hidden md:block"><input name="q" placeholder="Rechercher une valeur…" class="w-44 lg:w-52 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"></form>
     </div>
   </header>
-  <main class="mx-auto max-w-5xl px-4 py-5 pb-24 sm:pb-8 space-y-5">
+  <main class="mx-auto max-w-6xl px-4 py-5 pb-24 sm:pb-8 space-y-5">
+    <form action="/recherche" method="get" class="md:hidden"><input name="q" placeholder="Rechercher une valeur (nom ou ISIN)…" class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"></form>
     {% block content %}{% endblock %}
   </main>
   <nav class="sm:hidden fixed bottom-0 inset-x-0 z-20 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur">
@@ -44,6 +45,6 @@
       {% endfor %}
     </div>
   </nav>
-  <footer class="mx-auto max-w-5xl px-4 pb-24 sm:pb-6 text-xs text-slate-500 dark:text-slate-400">Aucun ordre n'est jamais passé par cet outil. Heures affichées en Réunion (Paris entre parenthèses).</footer>
+  <footer class="mx-auto max-w-6xl px-4 pb-24 sm:pb-6 text-xs text-slate-500 dark:text-slate-400">Aucun ordre n'est jamais passé par cet outil. Heures affichées en Réunion (Paris entre parenthèses).</footer>
 </body>
 </html>

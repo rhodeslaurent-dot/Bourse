@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, dot, empty, button %}
+{% block title %}Assistant — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold">Assistant</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Posez une question sur une valeur ou sur le portefeuille. L'outil rassemble d'abord les données qu'il détient (cours datés, indicateurs, position, propositions, nouvelles, vos notes) ; l'IA rédige la réponse à partir de ce dossier uniquement. Une réponse contenant un chiffre absent des données est rejetée.</p>
+    </div>
+    {% if llm_on %}{{ badge('IA active', 'green') }}{% else %}{{ badge('IA non configurée : dossier de faits seul', 'amber', 'env-setup anthropic puis recréer le conteneur') }}{% endif %}
+  </div>
+  <form method="post" action="/assistant" class="mt-4 space-y-2">
+    <div class="flex flex-wrap gap-2">
+      <input name="isin" list="valeurs" value="{{ isin or '' }}" placeholder="Valeur (ISIN ou nom), facultatif" class="w-full sm:w-72 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+      <datalist id="valeurs">{% for v, n in choices %}<option value="{{ v }}">{{ n }}</option>{% endfor %}</datalist>
+    </div>
+    <textarea name="question" rows="3" required placeholder="Ex. : Où en est la tendance de cette valeur ? Ma position est-elle protégée ? Quelles nouvelles cette semaine ?" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"></textarea>
+    <div class="flex items-center justify-between gap-2">
+      <span class="text-xs text-slate-500 dark:text-slate-400">Information, pas conseil. Aucun ordre n'est passé.</span>
+      {{ button('Demander') }}
+    </div>
+  </form>
+  {% if inst %}<p class="mt-2 text-sm">Valeur sélectionnée : <a class="font-medium hover:underline" href="/valeur/{{ inst.isin }}">{{ inst.name }}</a> · <a class="text-xs underline decoration-dotted" href="/assistant">toutes les questions</a></p>{% endif %}
+</section>
+
+{% for m in history %}
+<section class="card">
+  <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+    <span>{{ m.ts|dual }}{% if m.isin %} · <a class="hover:underline" href="/valeur/{{ m.isin }}">{{ names.get(m.isin, m.isin) }}</a>{% endif %}</span>
+    <span>{% if m.answered_by == 'llm' %}{{ badge('réponse IA', 'blue', m.model or '') }}{% elif m.answered_by == 'rejected' %}{{ badge('réponse rejetée', 'red') }}{% else %}{{ badge('données seules', 'slate') }}{% endif %}{% if m.cost_usd %} · {{ '%.4f'|format(m.cost_usd) }} ${% endif %}</span>
+  </div>
+  <p class="mt-2 font-medium">{{ m.question }}</p>
+  {% set a = m.answer or {} %}
+  <div class="mt-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 text-sm whitespace-pre-line">{{ a.get('answer', '') }}</div>
+  {% if a.get('caveats') %}<ul class="mt-2 text-xs text-amber-800 dark:text-amber-300 list-disc ml-4">{% for c in a.caveats %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+  {% if a.get('not_available') %}<p class="mt-1 text-xs text-slate-500">Non disponible : {{ a.not_available|join(' · ') }}</p>{% endif %}
+  <details class="mt-2">
+    <summary class="cursor-pointer text-xs text-sky-700 dark:text-sky-300">▸ {% if a.get('facts_used') %}faits utilisés et {% endif %}dossier de faits complet</summary>
+    {% if a.get('facts_used') %}<ul class="mt-2 text-xs list-disc ml-4">{% for f in a.facts_used %}<li>{{ f }}</li>{% endfor %}</ul>{% endif %}
+    <pre class="mt-2 max-h-80 overflow-auto rounded-lg bg-slate-900 text-slate-100 p-3 text-[11px] leading-snug">{{ m.context|tojson(indent=1) }}</pre>
+  </details>
+</section>
+{% else %}
+<section class="card">{{ empty("Aucune question pour l'instant.", 'slate') }}</section>
+{% endfor %}
+{% endblock %}

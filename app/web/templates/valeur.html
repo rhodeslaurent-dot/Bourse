@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, dot, tile, empty, note, th %}
+{% block title %}{{ inst.name if inst else isin }} — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold">{{ inst.name if inst else isin }}</h1>
+      <div class="mt-1 flex flex-wrap gap-1.5 text-xs">
+        {{ badge(isin, 'slate') }}{% if inst %}{{ badge(inst.mic, 'slate') }}{{ badge(inst.currency, 'slate') }}
+        {% if inst.pea_eligible is true %}{{ badge('PEA éligible', 'green', 'réglementaire') }}{% elif inst.pea_eligible is false %}{{ badge('PEA non éligible', 'slate') }}{% else %}{{ badge('PEA inconnu', 'amber') }}{% endif %}
+        {{ badge('SRD ' ~ inst.srd_status, 'blue' if inst.srd_status == 'complet' else 'slate', 'à confirmer chez Saxo') }}
+        {% if inst.in_universe %}{{ badge('dans l’univers', 'green') }}{% else %}{{ badge('hors univers', 'slate', (inst.universe_reasons or [])|join(' · ')) }}{% endif %}
+        {% if wl %}{{ badge('watchlist : ' ~ label('watch_reason', wl.reason), 'blue') }}{% endif %}{% endif %}
+      </div>
+      {% if inst and inst.sector %}<p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ inst.sector }}{% if inst.industry %} · {{ inst.industry }}{% endif %}{% if inst.market_cap_eur %} · capitalisation {{ (inst.market_cap_eur / 1e6)|round|int }} M€{% endif %}</p>{% endif %}
+    </div>
+    <div class="text-right">
+      {% if last %}<div class="text-3xl font-bold tabular">{{ '%.2f'|format(last.close) }} €</div>
+      <div class="text-sm {% if change is not none and change < 0 %}text-rose-600{% else %}text-emerald-600{% endif %}">{% if change is not none %}{{ '%+.2f'|format(change * 100) }} % vs veille{% endif %}</div>
+      <div class="text-xs">{{ badge(label('data_status', last.data_status), 'green') }} <span class="text-slate-400">{{ last.day.strftime('%d/%m/%Y') }}</span></div>
+      {% else %}{{ badge('cours indisponible', 'amber') }}{% endif %}
+      <a href="/assistant?isin={{ isin }}" class="mt-2 inline-flex items-center gap-1 rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-800">Poser une question</a>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="flex flex-wrap items-baseline justify-between gap-2"><h2 class="font-semibold">Clôtures ({{ n_closes }} séances)</h2><span class="text-xs text-slate-500 dark:text-slate-400">ligne pointillée : plus haut 60 j{% if positions %} et stop{% endif %}</span></div>
+  <div class="mt-2 text-sky-700 dark:text-sky-300">{% if chart %}{{ chart|safe }}{% else %}{{ empty("Pas d'historique de cours (backfill EODHD).", 'slate') }}{% endif %}</div>
+</section>
+
+{% if feat %}
+<section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+  {{ tile('Force relative', ('%.0f'|format(feat.rs_rank) ~ ' / 100') if feat.rs_rank is not none else '—', help_of('rs_rank')[:60] ~ '…', 'green' if feat.rs_rank and feat.rs_rank >= 80 else 'slate') }}
+  {{ tile('Moyennes 50 / 200 j', ('%.2f'|format(feat.mm50) if feat.mm50 else '—') ~ ' / ' ~ ('%.2f'|format(feat.mm200) if feat.mm200 else '—'), 'tendance ' ~ ('haussière' if feat.mm50 and feat.mm200 and feat.mm50 > feat.mm200 else 'non haussière'), 'blue') }}
+  {{ tile('Plus haut 60 j', '%.2f'|format(feat.pivot_60) if feat.pivot_60 else '—', ('écart ' ~ ('%+.1f'|format((last.close / feat.pivot_60 - 1) * 100)) ~ ' %') if last and feat.pivot_60 else '', 'slate') }}
+  {{ tile('Amplitude 14 j (ATR)', ('%.2f €'|format(feat.atr14)) if feat.atr14 else '—', ('RSI ' ~ ('%.0f'|format(feat.rsi14))) if feat.rsi14 else '', 'slate') }}
+</section>
+<p class="text-xs text-slate-500 dark:text-slate-400">Indicateurs du {{ feat.day.strftime('%d/%m/%Y') }}{% if feat.gap_in_data %} · <span class="text-amber-700">trou de données</span>{% endif %}. Survolez les intitulés pour leur définition.</p>
+{% endif %}
+
+<section class="grid md:grid-cols-2 gap-4">
+  <div class="card">
+    <h2 class="font-semibold">Position</h2>
+    {% for p in positions %}
+    <dl class="mt-2 grid grid-cols-2 gap-y-1 text-sm">
+      <dt class="text-slate-500">Quantité · prix de revient</dt><dd class="text-right tabular">{{ p.qty_held }} · {{ '%.3f'|format(p.avg_price) }} €</dd>
+      <dt class="text-slate-500">Protection</dt><dd class="text-right">{{ badge(label('protection_state', p.protection_state), 'green' if p.protection_state == 'protected' else 'red') }}</dd>
+      <dt class="text-slate-500">Stop courant</dt><dd class="text-right tabular">{{ p.stop_current or '—' }}</dd>
+    </dl>
+    {% else %}<p class="mt-2 text-sm text-slate-500">Aucune position ouverte sur cette valeur.</p>{% endfor %}
+    <a href="/positions" class="mt-2 inline-block text-xs underline decoration-dotted">Positions</a>
+  </div>
+  <div class="card">
+    <h2 class="font-semibold">Propositions récentes</h2>
+    {% for x in props %}<p class="mt-2 text-sm"><span class="text-xs text-slate-400">{{ x.p.created_at|dual }}</span><br>{{ x.headline }}</p>{% else %}<p class="mt-2 text-sm text-slate-500">Aucune proposition.</p>{% endfor %}
+    {% if props %}<a href="/opportunites" class="mt-2 inline-block text-xs underline decoration-dotted">Opportunités</a>{% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <h2 class="font-semibold">Nouvelles des 7 derniers jours</h2>
+  {% for n in news %}
+  <div class="mt-2 text-sm"><span class="text-xs text-slate-400">{{ (n.published_at or n.fetched_at)|dual }} · {{ n.source }}</span>{% if n.classification %} {{ badge(n.classification.get('type', ''), 'green' if n.classification.get('direction') == 'positif' else 'red' if n.classification.get('direction') == 'negatif' else 'slate') }}{% endif %}<br>{% if n.url %}<a class="hover:underline" href="{{ n.url }}" rel="noopener" target="_blank">{{ n.title }}</a>{% else %}{{ n.title }}{% endif %}</div>
+  {% else %}<p class="mt-2 text-sm text-slate-500">Aucune nouvelle rattachée à cette valeur.</p>{% endfor %}
+</section>
+
+<section class="card">
+  <h2 class="font-semibold">Ma note sur la valeur</h2>
+  {{ note('isin', isin, note, '/valeur/' ~ isin, 'Thèse, catalyseurs, niveaux à surveiller…') }}
+</section>
+{% endblock %}

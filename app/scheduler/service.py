@@ -41,8 +41,13 @@ def _job_entry(name: str, variant: str) -> None:
 
 
 def create_scheduler(
-    config: LoadedConfig, calendars: MarketCalendars, alerts: object | None = None, mode_fn: object | None = None
+    config: LoadedConfig,
+    calendars: MarketCalendars,
+    alerts: object | None = None,
+    mode_fn: object | None = None,
+    llm: object | None = None,
 ) -> BackgroundScheduler:
+    _state["llm"] = llm  # ClaudeGateway or None (rules fallback)
     _state["config"] = config
     _state["calendars"] = calendars
     _state["alerts"] = alerts

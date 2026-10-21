@@ -25,7 +25,7 @@ from app.notify.base import Notifier
 from app.notify.email import send_event_email, smtp_settings
 from app.notify.telegram import ModeStore, TelegramBot, telegram_settings
 from app.scheduler.service import create_scheduler
-from app.llm import ClaudeGateway, settings_from  # noqa: F401
+from app.llm import ClaudeGateway, settings_from
 from app.services.alerts import AlertService
 from app.web.portfolio_routes import router as portfolio_web_router
 from app.web.routes import router as web_router
@@ -162,7 +162,7 @@ def create_app(
         app.state.alerts = AlertService(notifier, config.params.notifications.p1_repeat_minutes)
         if start_scheduler:
             app.state.scheduler = create_scheduler(
-                config, calendars, alerts=app.state.alerts, mode_fn=store.current_mode
+                config, calendars, alerts=app.state.alerts, mode_fn=store.current_mode, llm=app.state.llm
             )
             app.state.scheduler.start()
         for f in config.disabled_features:
@@ -184,7 +184,8 @@ def create_app(
     app.state.db_kind = database_url().split(":", 1)[0]
     app.add_middleware(AccessMiddleware)
     app.state.alerts = None
-    app.state.llm = None
+    llm_settings = settings_from(config)
+    app.state.llm = ClaudeGateway(llm_settings) if llm_settings else None  # used by news, newsletters, assistant
     app.include_router(api_router)
     app.include_router(portfolio_api_router)
     app.include_router(ingest_router)
@@ -202,6 +203,9 @@ def create_app(
     from app.web.workflow_routes import router as workflow_router
 
     app.include_router(workflow_router)
+    from app.web.assistant_routes import router as assistant_router
+
+    app.include_router(assistant_router)
     from fastapi.staticfiles import StaticFiles
 
     app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "web" / "static")), name="static")
