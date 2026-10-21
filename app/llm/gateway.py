@@ -58,19 +58,22 @@ def load_prompt(prompts_dir: Path, name: str) -> tuple[str, str]:
 
 
 def _sdk_parse(  # noqa: UP047
-    model: str, system: str, user: str, schema: type[T], temperature: float, max_tokens: int
+    model: str, system: str, user: str, schema: type[T], temperature: float, max_tokens: int, client: Any = None
 ) -> tuple[T, int, int]:
-    """Real call through the official SDK (``messages.parse`` validates against the schema)."""
+    """Real call through the official SDK (``messages.parse`` validates against the schema).
+
+    SDK 1.x no longer accepts ``temperature`` as an argument (TypeError); the API still honours it
+    for the pinned Claude 4.5/4.6 models, so it is sent through ``extra_body`` (CLAUDE.md rule 3)."""
     import anthropic
 
-    client = anthropic.Anthropic()
+    client = client or anthropic.Anthropic()
     response = client.messages.parse(
         model=model,
         max_tokens=max_tokens,
-        temperature=temperature,
         system=system,
         messages=[{"role": "user", "content": user}],
         output_format=schema,
+        extra_body={"temperature": temperature},
     )
     if response.stop_reason == "refusal":
         raise LlmUnavailable("réponse refusée par le modèle")

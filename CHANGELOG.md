@@ -2,6 +2,12 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Correctif LLM — 2026-10-21
+
+- **Tous les appels réels à Claude échouaient** depuis le passage au SDK `anthropic` 1.x : `messages.parse()` n'accepte plus `temperature` (TypeError), donc classification des news, extraction des lettres, assistant et revue retombaient sur le repli par règles. La température 0 (CLAUDE.md règle 3) est désormais transmise par `extra_body`, acceptée par les modèles épinglés (Sonnet 4.6, Haiku 4.5). Nouveau test sur le vrai chemin du SDK (transport HTTP simulé).
+- Les erreurs d'API sont décrites (code et message de l'API, sans secret) et journalisées ; réponse tronquée détectée ; `llm.review_max_tokens` 4000.
+- Écriture refusée sans Cloudflare Access : page explicative, message dans le panneau assistant, état sur `/sante`.
+
 ## [Unreleased] — Apprentissage et assistant global — 2026-10-21
 
 - Spécification `docs/18`, ADR-009 (boucle d'apprentissage sans ré-entraînement ni optimisation automatique) ; migration 0007 : `signal_outcomes`, `learning_reviews`, `learning_questions`, `learning_suggestions`, `trader_memory`, `assistant_messages.page`.
