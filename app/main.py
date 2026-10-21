@@ -191,6 +191,9 @@ def create_app(
     app.include_router(web_router)
     app.include_router(portfolio_web_router)
     app.include_router(watchlist_router)
+    from app.web.notes_routes import router as notes_router
+
+    app.include_router(notes_router)
     from fastapi.staticfiles import StaticFiles
 
     app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "web" / "static")), name="static")

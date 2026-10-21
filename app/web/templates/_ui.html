@@ -55,3 +55,21 @@
 } -%}
 <button class="rounded-lg px-3 py-1.5 text-sm font-medium transition {{ tones.get(tone, tones['primary']) }}">{{ text }}</button>
 {%- endmacro %}
+
+{% macro note(scope, ref, current, next, placeholder='Note libre (reprise chaque jour)') -%}
+<details class="mt-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40" {% if current and current.text %}open{% endif %}>
+  <summary class="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center gap-2">
+    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+    Note{% if current and current.text %} <span class="font-normal text-slate-400">· mise à jour {{ current.updated_at|dual }}</span>{% else %} <span class="font-normal text-slate-400">· vide</span>{% endif %}
+  </summary>
+  <form method="post" action="/notes" class="px-3 pb-3 space-y-2">
+    <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="ref" value="{{ ref }}"><input type="hidden" name="next" value="{{ next }}">
+    <textarea name="text" rows="3" placeholder="{{ placeholder }}" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">{{ current.text if current else '' }}</textarea>
+    <div class="flex justify-end">{{ button('Enregistrer la note', 'ghost') }}</div>
+  </form>
+</details>
+{%- endmacro %}
+
+{% macro th(text, key='', align='left') -%}
+<th class="py-1 pr-3 font-medium {% if align == 'right' %}text-right{% endif %}"{% if key and help_of(key) %} title="{{ help_of(key) }}"{% endif %}>{{ text }}{% if key and help_of(key) %} <span class="text-slate-400 cursor-help">ⓘ</span>{% endif %}</th>
+{%- endmacro %}

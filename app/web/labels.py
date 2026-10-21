@@ -52,7 +52,7 @@ LABELS: dict[str, dict[str, str]] = {
         "momentum": "Momentum (force relative)",
         "external": "Lettre / analyste",
         "manual": "Ajout manuel",
-        "a_l_affut": "À l'affût (repli)",
+        "a_l_affut": "À l’affût (repli)",
     },
     "detector": {
         "d1": "D1 · gap + catalyseur",

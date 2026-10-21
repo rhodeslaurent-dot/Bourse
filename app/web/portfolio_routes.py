@@ -12,6 +12,7 @@ from app.data.providers.boursobank_csv import BoursoFormatError, parse_operation
 from app.db.session import db_session
 from app.domain.orders import Execution, MatchTolerance, Side, TradeKind
 from app.services.instruments import name_of
+from app.services.notes import notes_for
 from app.services.portfolio import (
     account_by_type,
     declare_execution,
@@ -29,7 +30,12 @@ def positions_page(request: Request) -> HTMLResponse:
     data = get_positions(request)
     for p in data["positions"]:
         p["name"] = name_of(p["isin"])
-    return templates.TemplateResponse(request, "positions.html", {"request": request, **data, "now": datetime.now(UTC)})
+    with db_session() as s:
+        notes = notes_for(s, "position", [str(p["position_id"]) for p in data["positions"]])
+        notes = {k: {"text": v.text, "updated_at": v.updated_at} for k, v in notes.items()}
+    return templates.TemplateResponse(
+        request, "positions.html", {"request": request, **data, "now": datetime.now(UTC), "notes": notes}
+    )
 
 
 @router.post("/positions/execute")

@@ -35,6 +35,9 @@ def _pct(value: object, digits: int = 1) -> str:
 
 templates.env.filters["eur"] = _eur
 templates.env.filters["pct"] = _pct
+from app.web.labels import FEATURE_LABELS, help_of, label  # noqa: E402
+
+templates.env.globals.update(label=label, help_of=help_of, feature_labels=FEATURE_LABELS)
 
 
 @router.get("/", response_class=HTMLResponse)

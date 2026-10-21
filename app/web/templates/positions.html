@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% from "_ui.html" import badge, dot, bar, empty, field, select, button %}
+{% from "_ui.html" import badge, dot, bar, empty, field, select, button, note %}
 {% block title %}Positions — BOURSE-PILOT{% endblock %}
 {% block content %}
 <section class="card">
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div>
       <h1 class="text-2xl font-bold">Positions</h1>
-      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Deux états par position : exécution et protection, suivis par quantité. Une position n'existe qu'après une exécution déclarée ou importée.</p>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Deux états par position : exécution et protection, suivis par quantité. Une position n'existe qu'après une exécution déclarée ou importée ; un état « déclaratif » attend la confirmation du courtier.</p>
     </div>
     <div class="flex flex-wrap gap-2 text-xs">
       {% for k, v in cash.items() %}<span class="rounded-full border border-slate-200 dark:border-slate-700 px-2.5 py-1">{{ k }} · cash <b class="tabular">{{ v.cash|eur if v.cash is not none else '—' }}</b> <span class="text-slate-400">({{ v.source or 'non renseigné' }})</span></span>{% endfor %}
@@ -20,28 +20,28 @@
   <div class="flex flex-wrap items-start justify-between gap-2">
     <div>
       <h2 class="text-lg font-semibold">{{ p.name }}</h2>
-      <div class="mt-0.5 flex flex-wrap gap-1.5 text-xs">{{ badge(p.isin, 'slate') }}{{ badge(p.account, 'blue') }}{{ badge(p.mode, 'slate') }}</div>
+      <div class="mt-0.5 flex flex-wrap gap-1.5 text-xs"><a href="/valeur/{{ p.isin }}">{{ badge(p.isin, 'slate', 'fiche valeur') }}</a>{{ badge(label('account', p.account), 'blue') }}{{ badge(label('mode', p.mode), 'slate') }}</div>
     </div>
     <div class="text-right">
-      {% if p.last_price %}<div class="text-xl font-semibold tabular">{{ '%.3f'|format(p.last_price) }} €</div><div class="text-xs">{{ badge(p.last_price_status|upper, 'green' if p.last_price_status in ('realtime', 'eod') else 'amber') }}</div>{% else %}<div class="text-sm text-slate-500">cours indisponible</div>{% endif %}
+      {% if p.last_price %}<div class="text-xl font-semibold tabular">{{ '%.3f'|format(p.last_price) }} €</div><div class="text-xs">{{ badge(label('data_status', p.last_price_status), 'green' if p.last_price_status in ('realtime', 'eod') else 'amber', 'statut de la donnée de marché') }}</div>{% else %}<div class="text-sm text-slate-500">cours indisponible</div>{% endif %}
     </div>
   </div>
   <div class="mt-3 grid sm:grid-cols-3 gap-3 text-sm">
     <div class="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3">
       <div class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Exécution</div>
-      <div class="mt-1 font-medium">{{ p.execution_state }}</div>
+      <div class="mt-1 font-medium" title="{{ p.execution_state }}">{{ label('execution_state', p.execution_state) }}</div>
       <div class="text-xs text-slate-500 dark:text-slate-400 tabular">{{ p.qty_held }} titres à {{ '%.3f'|format(p.avg_price) }} € (PMP frais inclus)</div>
     </div>
     <div class="rounded-xl p-3 {% if p.protection_state == 'protected' %}bg-emerald-50 dark:bg-emerald-500/10{% else %}bg-rose-50 dark:bg-rose-500/10{% endif %}">
       <div class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Protection</div>
-      <div class="mt-1 font-medium {% if p.protection_state != 'protected' %}text-rose-700 dark:text-rose-300{% endif %}">{{ p.protection_state }}</div>
+      <div class="mt-1 font-medium {% if p.protection_state != 'protected' %}text-rose-700 dark:text-rose-300{% endif %}" title="{{ p.protection_state }}">{{ label('protection_state', p.protection_state) }}</div>
       <div class="mt-1">{{ bar((p.qty_protected / p.qty_held) if p.qty_held else 0, 'green' if p.protection_state == 'protected' else 'red') }}</div>
       <div class="mt-1 text-xs tabular">couverts {{ p.qty_protected }}/{{ p.qty_held }}{% if p.qty_unprotected > 0 %} · <b class="text-rose-700 dark:text-rose-300">{{ p.qty_unprotected }} NON PROTÉGÉS</b>{% endif %}</div>
       <div class="text-xs text-slate-500 dark:text-slate-400">stop courant {{ p.stop_current or '—' }} · initial {{ p.stop_initial or '—' }}</div>
     </div>
     <div class="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3">
       <div class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">État du portefeuille</div>
-      <div class="mt-1 font-medium">{% if p.state_declarative %}déclaratif{% else %}synchronisé{% endif %}</div>
+      <div class="mt-1 font-medium" {% if p.state_declarative %}title="{{ help_of('declarative') }}"{% endif %}>{% if p.state_declarative %}Déclaratif{% else %}Synchronisé courtier{% endif %}</div>
       <div class="text-xs text-slate-500 dark:text-slate-400">{% if p.state_age_minutes is not none %}{{ p.state_age_minutes }} min{% if not p.state_fresh %} · <span class="text-amber-700 dark:text-amber-300">périmé → propositions « à vérifier »</span>{% endif %}{% else %}jamais synchronisé{% endif %}</div>
     </div>
   </div>
@@ -54,6 +54,7 @@
     {{ select('kind', [('initial', 'initial'), ('trailing', 'trailing'), ('manual', 'manuel')]) }}
     {{ button('Stop saisi') }}
   </form>
+  {{ note('position', p.position_id, notes.get(p.position_id|string), '/positions', 'Thèse, niveaux, ce que je surveille sur cette position…') }}
 </section>
 {% else %}
 <section class="card">{{ empty("Aucune position ouverte. Une position n'existe qu'après une exécution déclarée ou importée.", 'slate') }}</section>
@@ -62,7 +63,7 @@
 {% if open_orders %}
 <section class="card">
   <h2 class="font-semibold">Ordres saisis non exécutés</h2>
-  <ul class="mt-2 divide-y divide-slate-100 dark:divide-slate-800 text-sm">{% for o in open_orders %}<li class="py-1.5 flex flex-wrap items-center gap-2"><span class="font-mono text-xs text-slate-400">#{{ o.order_id }}</span>{{ badge(o.side, 'green' if o.side == 'buy' else 'red') }}<span class="tabular">{{ o.qty }}</span><b>{{ o.isin }}</b><span class="text-slate-500">{{ o.order_type }}</span>{{ badge(o.state, 'slate') }}{% if o.qty_filled %}<span class="text-xs">exécuté {{ o.qty_filled }}</span>{% endif %}</li>{% endfor %}</ul>
+  <ul class="mt-2 divide-y divide-slate-100 dark:divide-slate-800 text-sm">{% for o in open_orders %}<li class="py-1.5 flex flex-wrap items-center gap-2"><span class="font-mono text-xs text-slate-400">#{{ o.order_id }}</span>{{ badge('achat' if o.side == 'buy' else 'vente', 'green' if o.side == 'buy' else 'red') }}<span class="tabular">{{ o.qty }} titres</span><b>{{ o.isin }}</b><span class="text-slate-500">{{ 'à plage de déclenchement' if o.order_type == 'plage' else o.order_type }}</span>{{ badge(label('execution_state', o.state), 'slate', o.state) }}{% if o.qty_filled %}<span class="text-xs">exécuté {{ o.qty_filled }}</span>{% endif %}</li>{% endfor %}</ul>
 </section>
 {% endif %}
 

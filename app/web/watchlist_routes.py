@@ -11,6 +11,7 @@ from sqlalchemy import select
 from app.db.models import Instrument, MarketRegimeRow, UniverseSnapshot, WatchlistRow
 from app.db.session import db_session
 from app.services.market_data import latest_features
+from app.services.notes import notes_for
 from app.services.universe import tradingview_export
 from app.web.routes import templates
 
@@ -51,9 +52,14 @@ def watchlist_page(request: Request) -> HTMLResponse:
             }
             for r in rows
         ]
+        notes = {
+            k: {"text": v.text, "updated_at": v.updated_at}
+            for k, v in notes_for(s, "watchlist", [r.isin for r in rows]).items()
+        }
         ctx = {
             "request": request,
             "items": items,
+            "notes": notes,
             "snapshot": snap,
             "regime": regime,
             "universe_count": s.scalar(select(Instrument.isin).where(Instrument.in_universe.is_(True)).limit(1))
