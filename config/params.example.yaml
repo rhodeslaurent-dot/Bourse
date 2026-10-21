@@ -391,6 +391,7 @@ workflow:                                # docs/17 §17.6 — journée guidée ;
     - {key: c3_opportunites, slot: C3, label: "Relire les opportunités et décider (Vu / Watch / Ignorer)", kind: page, target: "/opportunites", days: "1-5"}
     - {key: c3_orders, slot: C3, label: "Ordres du soir saisis chez le courtier (stops, entrées J+1)", kind: check, target: "", days: "1-5"}
     - {key: c3_notes, slot: C3, label: "Notes du jour complétées (positions, watchlist)", kind: check, target: "", days: "1-5"}
+    - {key: c3_kpi, slot: C3, label: "Instantané de performance du jour", kind: job, target: kpi_snapshot, days: "1-5"}
     - {key: c3_import, slot: C3, label: "Import CSV BoursoBank de la semaine", kind: page, target: "/import", days: "5"}
     - {key: hebdo_perf, slot: hebdo, label: "Relire la performance et le journal de la semaine", kind: page, target: "/performance", days: "6"}
     - {key: sys_backup, slot: systeme, label: "Sauvegarde du jour présente (sinon la lancer)", kind: job, target: backup, days: "1-7"}

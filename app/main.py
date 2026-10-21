@@ -199,6 +199,9 @@ def create_app(
     from app.web.performance_routes import router as performance_router
 
     app.include_router(performance_router)
+    from app.web.workflow_routes import router as workflow_router
+
+    app.include_router(workflow_router)
     from fastapi.staticfiles import StaticFiles
 
     app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "web" / "static")), name="static")

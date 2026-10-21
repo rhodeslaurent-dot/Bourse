@@ -302,9 +302,13 @@ def init_params(example: str, target: str, telegram_user_id: str, email: str, up
     text = re.sub(r"^(\s*telegram_user_id:)\s*\S+", rf"\g<1> {int(telegram_user_id)}", text, count=1, flags=re.M)
     text = re.sub(r'^(\s*email:)\s*"[^"]*"', rf'\g<1> "{email}"', text, count=1, flags=re.M)
     if update:
-        text, added = merge_missing_jobs(src.read_text(encoding="utf-8"), text)
+        example_text = src.read_text(encoding="utf-8")
+        text, added = merge_missing_jobs(example_text, text)
         if added:
             print("jobs ajoutés depuis params.example.yaml : " + ", ".join(added))
+        text, blocks = merge_missing_blocks(example_text, text, ["workflow"])
+        if blocks:
+            print("blocs ajoutés depuis params.example.yaml : " + ", ".join(blocks))
     dst.write_text(text, encoding="utf-8")
     return True
 
@@ -328,6 +332,30 @@ def _jobs_block(text: str) -> tuple[int, int, dict[str, str]]:
         if m:
             entries[m.group(1)] = ln
     return start, end, entries
+
+
+def merge_missing_blocks(example: str, target: str, keys: list[str]) -> tuple[str, list[str]]:
+    """Append top-level blocks (``workflow:`` …) of the example that the target lacks, verbatim
+    with their comments. Existing blocks are never modified."""
+    import re
+
+    ex_lines = example.splitlines(keepends=True)
+    added: list[str] = []
+    for key in keys:
+        if re.search(rf"^{re.escape(key)}:", target, re.M):
+            continue
+        start = next((i for i, ln in enumerate(ex_lines) if re.match(rf"^{re.escape(key)}:", ln)), None)
+        if start is None:
+            continue
+        end = len(ex_lines)
+        for i in range(start + 1, len(ex_lines)):
+            if ex_lines[i].strip() and not ex_lines[i].startswith((" ", "\t", "#")):
+                end = i
+                break
+        block = "".join(ex_lines[start:end]).rstrip() + "\n"
+        target = target.rstrip("\n") + "\n\n" + block
+        added.append(key)
+    return target, added
 
 
 def merge_missing_jobs(example: str, target: str) -> tuple[str, list[str]]:
