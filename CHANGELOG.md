@@ -4,6 +4,8 @@ Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
 ## [Unreleased] — Pages « Lire la suite » — 2026-10-21
 
+- Constat sur les vraies lettres : les liens Zonebourse passent par Mailjet (`xgsmz.mjt.lu`, en `http`) ; `mjt.lu` autorisé comme domaine de suivi (http toléré pour ce seul saut, destination `https` obligatoire, cookie jamais envoyé au traceur). Filtre `data.imap.subject_includes` par source. `newsletter-link-check --count N` liste les libellés et domaines des liens de N lettres.
+
 - docs/19 §19.6 : pour les sources de `data.imap.follow_links` (défaut : `zonebourse`, libellé « Lire la suite », domaine `zonebourse.com`), `imap_poll` et `newsletters-history` suivent le lien de la lettre : `https` et domaines autorisés uniquement à chaque redirection, une page par lettre, pause en import historique, texte principal ajouté à la lettre puis extraction habituelle ; page réservée aux abonnés signalée `reserve` (cookie de session facultatif `ZONEBOURSE_COOKIE` via `env-setup zonebourse`) ; trace `parsed.page_liee`. Commande de contrôle `newsletter-link-check`. Extraction LLM sur 12 000 caractères.
 
 ## [Unreleased] — Import historique des lettres — 2026-10-21
