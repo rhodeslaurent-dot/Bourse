@@ -70,6 +70,18 @@ def home(request: Request) -> HTMLResponse:
         )
     for a in r.alerts:
         decisions.append({"level": "P2", "text": a, "href": None})
+    from app.db.models import LearningQuestion
+
+    with db_session() as s:
+        n_questions = len(list(s.scalars(select(LearningQuestion.id).where(LearningQuestion.status == "open"))))
+    if n_questions:
+        decisions.append(
+            {
+                "level": "P3",
+                "text": f"L'IA a {n_questions} question(s) pour vous sur le retour d'expérience",
+                "href": "/apprentissage#questions",
+            }
+        )
     from app.db.models import MarketRegimeRow, Proposal, WatchlistRow
     from app.services.workflow import day_view
 

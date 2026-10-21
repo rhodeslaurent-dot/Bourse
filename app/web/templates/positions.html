@@ -20,7 +20,7 @@
   <div class="flex flex-wrap items-start justify-between gap-2">
     <div>
       <h2 class="text-lg font-semibold">{{ p.name }}</h2>
-      <div class="mt-0.5 flex flex-wrap gap-1.5 text-xs"><a href="/valeur/{{ p.isin }}">{{ badge(p.isin, 'slate', 'fiche valeur') }}</a>{{ badge(label('account', p.account), 'blue') }}{{ badge(label('mode', p.mode), 'slate') }}</div>
+      <div class="mt-0.5 flex flex-wrap gap-1.5 text-xs"><a href="/valeur/{{ p.isin }}">{{ badge(p.isin, 'slate', 'fiche valeur') }}</a>{{ badge(label('account', p.account), 'blue') }}{{ badge(label('mode', p.mode), 'slate') }}<a href="/assistant?isin={{ p.isin }}" data-ai-isin="{{ p.isin }}" data-ai-name="{{ p.name }}" class="inline-flex items-center gap-1 rounded-full border border-sky-200 dark:border-sky-800 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10" title="Poser une question sur cette valeur"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Demander</a></div>
     </div>
     <div class="text-right">
       {% if p.last_price %}<div class="text-xl font-semibold tabular">{{ '%.3f'|format(p.last_price) }} €</div><div class="text-xs">{{ badge(label('data_status', p.last_price_status), 'green' if p.last_price_status in ('realtime', 'eod') else 'amber', 'statut de la donnée de marché') }}{% if p.price_as_of %} <span class="text-slate-400">{{ p.price_as_of.strftime('%d/%m') }}</span>{% endif %}</div>{% else %}<div class="text-sm text-slate-500">cours indisponible</div>{% endif %}

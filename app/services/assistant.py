@@ -14,13 +14,19 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     AssistantMessage,
     Decision,
+    DecisionSnapshot,
     Instrument,
+    LearningQuestion,
+    LearningSuggestion,
     MarketRegimeRow,
     NewsItem,
+    Order,
+    PortfolioState,
     PositionRow,
     PriceEod,
     Proposal,
     Signal,
+    TraderMemory,
     WatchlistRow,
 )
 from app.services.explain import explain_proposal
@@ -220,6 +226,148 @@ def build_context(
     return ctx
 
 
+PAGES = {
+    "/": "Décisions du jour",
+    "/opportunites": "Opportunités",
+    "/positions": "Positions",
+    "/watchlist": "Watchlist",
+    "/journee": "Journée",
+    "/performance": "Performance",
+    "/apprentissage": "Apprentissage",
+    "/sante": "Santé",
+    "/assistant": "Assistant",
+    "/import": "Import",
+}
+
+
+def page_key(path: str | None) -> str | None:
+    """Normalise a request path to a known page key ('/valeur/<isin>' → '/valeur')."""
+    if not path:
+        return None
+    if path.startswith("/valeur/"):
+        return "/valeur"
+    return path if path in PAGES else None
+
+
+def page_facts(s: Session, page: str | None, config: Any | None, now: datetime) -> dict[str, Any] | None:
+    """Facts of the page the question was asked from (docs/18 §18.3). Stored or Python-computed
+    values only; never job error texts."""
+    if page is None or page in ("/valeur", "/assistant"):
+        return None
+    out: dict[str, Any] = {"nom": PAGES.get(page, page)}
+    if page == "/" and config is not None:
+        from app.services.risk_view import build_risk_view
+
+        view = build_risk_view(s, config)
+        r = view["risk"]
+        out["risque"] = {
+            "risque_ouvert_pct_du_capital": _d(getattr(r, "open_risk_pct", None)),
+            "plafond_pct": view["max_open_risk_pct"],
+            "risque_courant_eur": _d(getattr(r, "open_risk_current_eur", None)),
+            "risque_reserve_eur": _d(getattr(r, "open_risk_reserved_eur", None)),
+            "alertes": list(getattr(r, "alerts", []) or []),
+            "incomplet": view["incomplete"],
+        }
+        out["positions_non_protegees"] = [
+            {"isin": p.isin, "quantite_sans_stop": p.qty - p.qty_protected} for p in view["unprotected"]
+        ]
+    elif page == "/opportunites":
+        day = now.date()
+        rows = []
+        for p in s.scalars(
+            select(Proposal).where(Proposal.deleted_at.is_(None)).order_by(Proposal.id.desc()).limit(80)
+        ):
+            created = p.created_at if p.created_at.tzinfo else p.created_at.replace(tzinfo=UTC)
+            if created.date() != day:
+                continue
+            snap = s.scalar(select(DecisionSnapshot).where(DecisionSnapshot.proposal_id == p.id))
+            ex = explain_proposal(p, s.get(Signal, p.signal_id), snap, None)
+            rows.append(
+                {
+                    "isin": p.isin,
+                    "action": label("action", p.action),
+                    "explication": ex.summary,
+                    "historique_comparable": ex.track,
+                    "a_verifier": p.to_verify,
+                }
+            )
+        out["propositions_du_jour"] = rows[:20]
+    elif page == "/positions":
+        out["liquidites"] = [
+            {
+                "compte_id": st.account_id,
+                "cash": _d(st.cash),
+                "declaratif": st.declarative,
+                "synchronise": _d(st.synced_at),
+            }
+            for st in s.scalars(select(PortfolioState))
+        ]
+        out["ordres_en_attente"] = [
+            {"isin": o.isin, "sens": o.side, "quantite": o.qty, "etat": label("order_state", o.state)}
+            for o in s.scalars(select(Order).where(Order.state.in_(["entered", "partially_filled"])))
+        ]
+    elif page == "/journee" and config is not None:
+        from app.services.workflow import day_view
+
+        steps = day_view(s, config.params, now.date(), True, "disponible")
+        out["etapes"] = [
+            {"etape": st.label, "creneau": st.slot, "faite": st.done_at is not None, "applicable": st.applicable}
+            for st in steps
+        ]
+    elif page == "/performance" and config is not None:
+        from app.services.performance import build_performance
+
+        data = build_performance(s, config)
+        v, q = data["v"], data["q"]
+        out["synthese"] = {
+            "realise_eur": _d(v.realized_total),
+            "latent_eur": _d(v.latent_total),
+            "frais_eur": _d(v.fees_total),
+            "trades_clos": q.n,
+            "taux_de_reussite": _d(q.win_rate),
+            "esperance_R": _d(q.expectancy_r),
+            "profit_factor": _d(q.profit_factor),
+            "fiabilite": q.reliability,
+            "donnees_incompletes": v.incomplete,
+        }
+    elif page == "/apprentissage" and config is not None:
+        from app.services.learning import aggregates
+        from app.services.outcomes import learning_params
+
+        if learning_params(config) is not None:
+            agg = aggregates(s, config)
+            out["retour_experience"] = {k: agg[k] for k in ("echantillon", "global", "par_decision", "par_source")}
+            out["questions_ouvertes"] = [
+                q.question for q in s.scalars(select(LearningQuestion).where(LearningQuestion.status == "open"))
+            ]
+            out["propositions_en_attente"] = [
+                x.title
+                for x in s.scalars(select(LearningSuggestion).where(LearningSuggestion.status.in_(["open", "later"])))
+            ]
+    elif page == "/sante":
+        from app.db.repo import last_runs
+
+        out["jobs"] = [
+            {"job": name, "statut": r.status, "fin": _d(r.ended_at), "lignes": r.rows}
+            for name, r in sorted(last_runs(s).items())
+        ]
+    return out
+
+
+def continuity(s: Session, page: str | None, isin: str | None, now: datetime, limit: int = 2) -> list[dict[str, Any]]:
+    """Last exchanges of the same context (< 2 h) — already validated answers."""
+    since = now - timedelta(hours=2)
+    rows = []
+    for m in s.scalars(select(AssistantMessage).order_by(AssistantMessage.id.desc()).limit(20)):
+        ts = m.ts if m.ts.tzinfo else m.ts.replace(tzinfo=UTC)
+        if ts < since or m.page != page or m.isin != isin or m.answered_by != "llm":
+            continue
+        rows.append({"question": m.question, "reponse": (m.answer or {}).get("answer", "")})
+        if len(rows) >= limit:
+            break
+    return list(reversed(rows))
+
+
 def _num(token: str) -> float | None:
     t = re.sub(r"[   ]", "", token).replace(",", ".")
     try:
@@ -249,16 +397,43 @@ def unsupported_numbers(answer: str, context: dict[str, Any], question: str = ""
 
 
 def ask(
-    s: Session, gateway: Any, question: str, isin: str | None, capital: float | None, max_tokens: int = 800
+    s: Session,
+    gateway: Any,
+    question: str,
+    isin: str | None,
+    capital: float | None,
+    max_tokens: int = 800,
+    page: str | None = None,
+    config: Any | None = None,
 ) -> AssistantMessage:
-    """Answer with the LLM when available; otherwise store the fact pack (rules fallback)."""
+    """Answer with the LLM when available; otherwise store the fact pack (rules fallback).
+    ``page`` adds the facts of the page the question comes from (docs/18 §18.3)."""
     from app.llm.gateway import LlmUnavailable
     from app.llm.schemas import AssistantAnswer
 
+    now = datetime.now(UTC)
+    page = page_key(page)
     ctx = build_context(s, isin, capital)
+    facts = page_facts(s, page, config, now)
+    if facts:
+        ctx["page"] = facts
+    prev = continuity(s, page, isin, now)
+    if prev:
+        ctx["echanges_precedents"] = prev
+    lp = getattr(getattr(config, "params", None), "learning", None)
+    lessons = s.scalars(
+        select(TraderMemory)
+        .where(TraderMemory.active.is_(True))
+        .order_by(TraderMemory.id.desc())
+        .limit(lp.memory_max_items if lp else 30)
+    )
+    lessons_txt = [m.text for m in lessons]
+    if lessons_txt:
+        ctx["lecons_retenues"] = lessons_txt
     msg = AssistantMessage(
-        ts=datetime.now(UTC),
+        ts=now,
         isin=isin,
+        page=page,
         question=question.strip()[:2000],
         context=json.loads(json.dumps(ctx, default=str)),
         answered_by="rules",

@@ -83,12 +83,9 @@ def _before_open(cal: VenueCalendar, created_at: datetime) -> bool:
 
 
 def last_expected_session(cal: VenueCalendar, now: datetime) -> date:
-    """Latest session whose official close is expected in the database."""
-    local = now.astimezone(PARIS)
-    today = local.date()
-    if cal.is_open(today) and local.time() >= time(18, 0):
-        return today
-    return cal.previous_session(today)
+    """Latest session whose *official* close should be stored: the previous session (official
+    closes are loaded the next morning by ``eod_backfill_check``)."""
+    return cal.previous_session(now.astimezone(PARIS).date())
 
 
 def outcome_for(
@@ -122,10 +119,9 @@ def outcome_for(
     row = s.scalar(select(SignalOutcome).where(SignalOutcome.proposal_id == p.id)) or SignalOutcome(
         proposal_id=p.id, signal_id=p.signal_id, isin=p.isin
     )
-    if row.id is None:
-        s.add(row)
     row.computed_at = now
-    row.decision_group = decision_group(s, p)
+    with s.no_autoflush:
+        row.decision_group = decision_group(s, p)
     for k in (
         "status",
         "final",
@@ -152,6 +148,8 @@ def outcome_for(
         setattr(row, k, getattr(o, k))
     if o.status == "pending" and first:
         row.note = f"première séance évaluée : {first:%d/%m/%Y}"
+    if row.id is None:
+        s.add(row)
     return row
 
 

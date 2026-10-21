@@ -1,0 +1,30 @@
+{% from "_ui.html" import badge %}
+{% set suggestions = {
+  'Décisions du jour': ["Qu'est-ce qui est prioritaire aujourd'hui ?", "Mon risque ouvert est-il sous le plafond ?"],
+  'Opportunités': ["Résume les opportunités du jour.", "Lesquelles ont un historique comparable favorable ?"],
+  'Positions': ["Quelles positions ne sont pas entièrement protégées ?", "Quels ordres sont en attente ?"],
+  'Watchlist': ["Quelles valeurs ont la plus forte force relative ?"],
+  'Journée': ["Que me reste-t-il à faire aujourd'hui ?"],
+  'Performance': ["Résume ma performance et sa fiabilité."],
+  'Apprentissage': ["Que retenir des derniers résultats ?", "Mes choix font-ils mieux que les propositions ignorées ?"],
+  'Santé': ["Un job est-il en erreur ?"],
+  'Fiche valeur': ["Où en est la tendance de cette valeur ?", "Quelles nouvelles cette semaine ?"],
+} %}
+{% if not llm_on %}<p class="rounded-xl bg-amber-50 dark:bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-200">IA non configurée : la réponse affichera les données de l'outil (dossier de faits).</p>{% endif %}
+{% if inst %}<p class="text-xs text-slate-500 dark:text-slate-400">Questions sur <a href="/valeur/{{ inst.isin }}" class="font-medium underline decoration-dotted">{{ inst.name }}</a></p>{% endif %}
+{% for m in msgs %}
+<div class="flex justify-end"><p class="max-w-[85%] rounded-2xl rounded-br-sm bg-sky-700 text-white px-3 py-2">{{ m.question }}</p></div>
+{% set a = m.answer or {} %}
+<div class="max-w-[95%] rounded-2xl rounded-bl-sm bg-slate-100 dark:bg-slate-800 px-3 py-2">
+  <p class="whitespace-pre-line">{{ a.get('answer', '') }}</p>
+  {% if a.get('caveats') %}<ul class="mt-1 text-xs text-amber-800 dark:text-amber-300 list-disc ml-4">{% for c in a.caveats %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+  <div class="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+    <span>{{ m.ts|dual }}</span>
+    {% if m.answered_by == 'llm' %}{{ badge('IA', 'blue') }}{% elif m.answered_by == 'rejected' %}{{ badge('réponse rejetée', 'red') }}{% else %}{{ badge('données seules', 'slate') }}{% endif %}
+    <a href="/assistant{% if m.isin %}?isin={{ m.isin }}{% endif %}" class="underline decoration-dotted">dossier de faits</a>
+  </div>
+</div>
+{% else %}
+<p class="text-slate-500 dark:text-slate-400">Posez une question{% if page_name %} sur « {{ page_name }} »{% endif %}{% if inst %} ou sur {{ inst.name }}{% endif %}. L'assistant répond à partir des données de l'outil uniquement.</p>
+<div class="flex flex-wrap gap-1.5">{% for q in suggestions.get(page_name, ["Résume la situation du portefeuille."]) %}<button type="button" data-ai-suggest="{{ q }}" class="rounded-full border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">{{ q }}</button>{% endfor %}</div>
+{% endfor %}

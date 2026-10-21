@@ -99,3 +99,11 @@ def test_watch_without_entry_level_forward_returns():
 
 def test_pending_without_session_after_creation():
     assert evaluate(inp(), [D0], {}).status == "pending"
+
+
+def test_latest_close_not_loaded_yet_is_running_not_unavailable():
+    ss = sessions(2)
+    b = {ss[1]: DayBar(ss[1], 103, 104, 102, 103)}
+    o = evaluate(inp(), ss, b)
+    assert o.status == "running" and "pas encore chargée" in o.note
+    assert evaluate(inp(), ss[:2], {}).status == "running"

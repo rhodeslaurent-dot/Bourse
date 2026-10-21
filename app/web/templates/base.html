@@ -13,7 +13,7 @@
   </style>
 </head>
 <body class="min-h-full bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased">
-  {% set nav = [('/', 'Décisions', 'M4 6h16M4 12h10M4 18h7'), ('/opportunites', 'Opportunités', 'M13 2L3 14h7l-1 8 10-12h-7z'), ('/positions', 'Positions', 'M3 17l6-6 4 4 8-8'), ('/watchlist', 'Watchlist', 'M12 4l2.5 5 5.5.8-4 3.9.9 5.5L12 16.6 7.1 19.2l.9-5.5-4-3.9 5.5-.8z'), ('/journee', 'Journée', 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'), ('/performance', 'Performance', 'M3 3v18h18M7 14l4-4 4 4 5-6'), ('/assistant', 'Assistant', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'), ('/sante', 'Santé', 'M3 12h4l2-6 4 12 2-6h6')] %}
+  {% set nav = [('/', 'Décisions', 'M4 6h16M4 12h10M4 18h7'), ('/opportunites', 'Opportunités', 'M13 2L3 14h7l-1 8 10-12h-7z'), ('/positions', 'Positions', 'M3 17l6-6 4 4 8-8'), ('/watchlist', 'Watchlist', 'M12 4l2.5 5 5.5.8-4 3.9.9 5.5L12 16.6 7.1 19.2l.9-5.5-4-3.9 5.5-.8z'), ('/journee', 'Journée', 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'), ('/performance', 'Performance', 'M3 3v18h18M7 14l4-4 4 4 5-6'), ('/apprentissage', 'Apprentissage', 'M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z'), ('/sante', 'Santé', 'M3 12h4l2-6 4 12 2-6h6')] %}
   {% set path = request.url.path if request else '/' %}
   <header class="sticky top-0 z-20 border-b border-slate-200/80 dark:border-slate-800 bg-white/90 dark:bg-slate-950/90 backdrop-blur">
     <div class="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between gap-3">
@@ -37,13 +37,48 @@
   </main>
   <nav class="sm:hidden fixed bottom-0 inset-x-0 z-20 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur">
     <div class="grid grid-cols-5">
-      {% for href, label, icon in nav if href in ('/', '/opportunites', '/positions', '/journee', '/sante') %}
+      {% for href, label, icon in nav if href in ('/', '/opportunites', '/positions', '/journee') %}
       <a href="{{ href }}" class="flex flex-col items-center gap-0.5 py-2 text-[11px] {% if path == href %}text-sky-700 dark:text-sky-300 font-semibold{% else %}text-slate-500 dark:text-slate-400{% endif %}">
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="{{ icon }}"/></svg>{{ label }}
       </a>
       {% endfor %}
+      <details class="relative">
+        <summary class="list-none cursor-pointer flex flex-col items-center gap-0.5 py-2 text-[11px] {% if path in ('/watchlist', '/performance', '/apprentissage', '/sante', '/assistant') %}text-sky-700 dark:text-sky-300 font-semibold{% else %}text-slate-500 dark:text-slate-400{% endif %}">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>Plus
+        </summary>
+        <div class="absolute bottom-14 right-1 w-48 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl py-1 text-sm">
+          {% for href, label, icon in nav if href in ('/watchlist', '/performance', '/apprentissage', '/sante') %}<a href="{{ href }}" class="flex items-center gap-2 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="{{ icon }}"/></svg>{{ label }}</a>{% endfor %}
+          <a href="/assistant" class="flex items-center gap-2 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Historique assistant</a>
+        </div>
+      </details>
     </div>
   </nav>
+  {% set ai_isin = assistant_isin if assistant_isin is defined and assistant_isin else '' %}
+  <details id="ai-panel">
+    <summary class="list-none fixed z-30 right-4 bottom-20 sm:bottom-6 flex items-center gap-2 cursor-pointer select-none rounded-full bg-sky-700 hover:bg-sky-800 text-white shadow-lg shadow-sky-900/20 px-4 py-2.5 text-sm font-medium" title="Poser une question sans quitter la page">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Assistant
+    </summary>
+    <div class="fixed z-40 inset-x-2 top-16 bottom-36 sm:inset-auto sm:right-4 sm:bottom-20 sm:top-auto sm:w-[26rem] sm:h-[34rem] flex flex-col rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
+      <div class="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 px-4 py-2.5">
+        <div class="text-sm font-semibold">Assistant <span class="font-normal text-slate-500 dark:text-slate-400">· cette page</span></div>
+        <a href="/assistant" class="text-xs underline decoration-dotted text-slate-500 dark:text-slate-400">historique complet</a>
+      </div>
+      <div id="ai-thread" class="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-sm">
+        <noscript><p class="text-slate-500">Votre question s'ouvrira sur la page Assistant.</p></noscript>
+      </div>
+      <form id="ai-form" method="post" action="/assistant" class="border-t border-slate-200 dark:border-slate-800 p-3 space-y-2">
+        <input type="hidden" name="page" value="{{ path }}">
+        <input type="hidden" name="isin" value="{{ ai_isin }}">
+        <div id="ai-chip" class="{% if not ai_isin %}hidden {% endif %}flex items-center gap-2 text-xs"><span class="rounded-full bg-sky-50 dark:bg-sky-500/10 text-sky-800 dark:text-sky-200 px-2 py-0.5">Valeur : <b id="ai-chip-name">{{ ai_isin }}</b></span><a href="#" id="ai-chip-clear" class="underline decoration-dotted text-slate-500">retirer</a></div>
+        <textarea name="question" rows="2" required placeholder="Votre question sur cette page ou une valeur…" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"></textarea>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[11px] text-slate-500 dark:text-slate-400">Information, pas conseil. Aucun ordre n'est passé.</span>
+          <button type="submit" class="rounded-lg px-3 py-1.5 text-sm font-medium bg-sky-700 hover:bg-sky-800 text-white disabled:opacity-60">Demander</button>
+        </div>
+      </form>
+    </div>
+  </details>
   <footer class="mx-auto max-w-6xl px-4 pb-24 sm:pb-6 text-xs text-slate-500 dark:text-slate-400">Aucun ordre n'est jamais passé par cet outil. Heures affichées en Réunion (Paris entre parenthèses).</footer>
+  <script src="/static/assistant.js" defer></script>
 </body>
 </html>

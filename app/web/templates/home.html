@@ -38,13 +38,13 @@
   </div>
   <ol class="mt-4 space-y-2">
     {% for d in decisions %}
-    <li class="flex items-start gap-3 rounded-xl border p-3 {% if d.level == 'P1' %}border-rose-200 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10{% else %}border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10{% endif %}">
-      <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold {% if d.level == 'P1' %}bg-rose-600 text-white{% else %}bg-amber-500 text-white{% endif %}">{{ loop.index }}</span>
+    <li class="flex items-start gap-3 rounded-xl border p-3 {% if d.level == 'P1' %}border-rose-200 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10{% elif d.level == 'P3' %}border-sky-200 bg-sky-50 dark:border-sky-500/30 dark:bg-sky-500/10{% else %}border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10{% endif %}">
+      <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold {% if d.level == 'P1' %}bg-rose-600 text-white{% elif d.level == 'P3' %}bg-sky-600 text-white{% else %}bg-amber-500 text-white{% endif %}">{{ loop.index }}</span>
       <div class="text-sm">
         <div class="font-medium">{{ d.text }}</div>
         {% if d.href %}<a class="mt-1 inline-block text-xs underline decoration-dotted" href="{{ d.href }}">ouvrir →</a>{% endif %}
       </div>
-      <span class="ml-auto">{{ badge(d.level, 'red' if d.level == 'P1' else 'amber') }}</span>
+      <span class="ml-auto">{{ badge(d.level, 'red' if d.level == 'P1' else 'blue' if d.level == 'P3' else 'amber') }}</span>
     </li>
     {% else %}
     <li>{{ empty("Aucune décision urgente : absence de proposition = résultat normal.") }}</li>

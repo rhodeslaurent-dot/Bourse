@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.db.models import AssistantMessage, Instrument, NewsItem, PositionRow, PriceEod, Proposal, Signal, WatchlistRow
 from app.db.session import db_session
-from app.services.assistant import ask, build_context, resolve_isin, search_instruments
+from app.services.assistant import PAGES, ask, build_context, page_key, resolve_isin, search_instruments
 from app.services.explain import explain_proposal
 from app.services.market_data import latest_features
 from app.services.notes import get_note
@@ -70,8 +70,7 @@ def assistant_page(request: Request, isin: str | None = None) -> HTMLResponse:
         )
 
 
-@router.post("/assistant")
-def assistant_ask(request: Request, question: str = Form(...), isin: str = Form("")) -> RedirectResponse:
+def _ask_from_form(request: Request, question: str, isin: str, page: str):  # type: ignore[no-untyped-def]
     if not question.strip():
         raise HTTPException(400, "question vide")
     st = request.app.state
@@ -85,8 +84,54 @@ def assistant_ask(request: Request, question: str = Form(...), isin: str = Form(
             target,
             float(cfg.params.capital.capital_pilote_eur),
             cfg.params.llm.assistant_max_tokens if cfg.params.llm else 800,
+            page=page or None,
+            config=cfg,
         )
+    return target
+
+
+@router.post("/assistant")
+def assistant_ask(
+    request: Request, question: str = Form(...), isin: str = Form(""), page: str = Form("")
+) -> RedirectResponse:
+    target = _ask_from_form(request, question, isin, page)
     return RedirectResponse(f"/assistant{'?isin=' + target if target else ''}", status_code=303)
+
+
+def _thread(request: Request, page: str, isin: str | None) -> HTMLResponse:
+    key = page_key(page)
+    with db_session() as s:
+        q = select(AssistantMessage).order_by(AssistantMessage.id.desc())
+        q = q.where(AssistantMessage.page == key) if key else q.where(AssistantMessage.page.is_(None))
+        q = q.where(AssistantMessage.isin == isin) if isin else q.where(AssistantMessage.isin.is_(None))
+        msgs = list(reversed(list(s.scalars(q.limit(3)))))
+        inst = s.get(Instrument, isin) if isin else None
+        st = request.app.state
+        return templates.TemplateResponse(
+            request,
+            "_assistant_thread.html",
+            {
+                "request": request,
+                "msgs": msgs,
+                "inst": inst,
+                "page_name": PAGES.get(key or "", "") if key != "/valeur" else "Fiche valeur",
+                "llm_on": bool(getattr(st, "llm", None) and st.llm.enabled),
+            },
+        )
+
+
+@router.get("/assistant/panel", response_class=HTMLResponse)
+def assistant_panel(request: Request, page: str = "", isin: str = "") -> HTMLResponse:
+    """Fragment for the floating panel (docs/18 §18.3): last exchanges of this page / value."""
+    return _thread(request, page, isin.upper() or None)
+
+
+@router.post("/assistant/panel", response_class=HTMLResponse)
+def assistant_panel_ask(
+    request: Request, question: str = Form(...), isin: str = Form(""), page: str = Form("")
+) -> HTMLResponse:
+    target = _ask_from_form(request, question, isin, page)
+    return _thread(request, page, target)
 
 
 @router.get("/recherche", response_class=HTMLResponse)
@@ -165,5 +210,6 @@ def instrument_page(request: Request, isin: str) -> HTMLResponse:
             "note": _note_view(get_note(s, "isin", isin)),
             "n_closes": len(closes),
             "facts": build_context(s, isin, cap),
+            "assistant_isin": isin,
         }
         return templates.TemplateResponse(request, "valeur.html", ctx)

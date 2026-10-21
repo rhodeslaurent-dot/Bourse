@@ -25,6 +25,7 @@
     <div class="min-w-0">
       <div class="flex flex-wrap items-center gap-2">
         <h2 class="text-lg font-semibold"><a href="/valeur/{{ p.isin }}" class="hover:underline">{{ it.name }}</a></h2>
+        <a href="/assistant?isin={{ p.isin }}" data-ai-isin="{{ p.isin }}" data-ai-name="{{ it.name }}" class="inline-flex items-center gap-1 rounded-full border border-sky-200 dark:border-sky-800 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10" title="Poser une question sur cette valeur"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Demander</a>
         {{ badge(label('action', p.action), 'green' if p.action == 'BUY' else 'blue' if p.action == 'WATCH' else 'slate') }}
         {{ badge(label('proposal_status', p.status), 'slate', p.status) }}
         {% if p.to_verify %}{{ badge('à vérifier', 'amber', help_of('to_verify')) }}{% endif %}

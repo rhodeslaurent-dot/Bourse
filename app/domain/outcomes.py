@@ -86,6 +86,8 @@ def evaluate(inp: OutcomeInput, sessions: list[date], bars: dict[date, DayBar]) 
 
     out = Outcome("running")
     if not avail:
+        if missing == path[-1]:  # only the latest close is not loaded yet: wait, nothing is missing
+            return Outcome("running", note=f"clôture du {missing:%d/%m/%Y} pas encore chargée")
         return Outcome("unavailable", note=f"séance manquante {missing:%d/%m/%Y}" if missing else None)
     out.last_bar_day = avail[-1].day
     ref = inp.entry_price if inp.entry_price else avail[0].open
@@ -94,7 +96,9 @@ def evaluate(inp: OutcomeInput, sessions: list[date], bars: dict[date, DayBar]) 
     out.ret_1d, out.ret_5d, out.ret_20d = (_forward(ref, closes, k) for k in (1, 5, 20))
 
     def incomplete(reason_day: date | None) -> Outcome:
-        if reason_day is not None:
+        if reason_day is not None and reason_day == path[-1]:
+            out.note = f"clôture du {reason_day:%d/%m/%Y} pas encore chargée"
+        elif reason_day is not None:
             out.status, out.note = "unavailable", f"séance manquante {reason_day:%d/%m/%Y}"
         return out
 
@@ -113,9 +117,7 @@ def evaluate(inp: OutcomeInput, sessions: list[date], bars: dict[date, DayBar]) 
     # 1) simulated limit entry
     fill_idx: int | None = None
     validity = [
-        i
-        for i, d in enumerate(path[: inp.validity_sessions])
-        if inp.expires_day is None or d <= inp.expires_day
+        i for i, d in enumerate(path[: inp.validity_sessions]) if inp.expires_day is None or d <= inp.expires_day
     ]
     for i in validity:
         if i >= len(avail):

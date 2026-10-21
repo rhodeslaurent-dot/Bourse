@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, dot, tile, empty, button %}
+{% block title %}Apprentissage — BOURSE-PILOT{% endblock %}
+
+{% macro rel(f) -%}
+{{ badge(f, 'green' if f == 'suffisant' else 'amber' if f == 'indicatif' else 'slate', 'insuffisant < ' ~ agg.echantillon.seuil_indicatif ~ ' cas ≤ indicatif < ' ~ agg.echantillon.seuil_suffisant ~ ' cas ≤ suffisant') }}
+{%- endmacro %}
+
+{% macro stats_table(title, rows, help='') -%}
+<div class="card overflow-x-auto">
+  <h3 class="font-semibold">{{ title }}</h3>
+  {% if help %}<p class="text-xs text-slate-500 dark:text-slate-400">{{ help }}</p>{% endif %}
+  {% if rows %}
+  <table class="mt-2 w-full text-sm">
+    <thead class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400"><tr>
+      <th class="py-1 pr-3 text-left font-medium">Groupe</th>
+      <th class="py-1 pr-3 text-right font-medium" title="propositions avec stop, résultat définitif">Cas</th>
+      <th class="py-1 pr-3 text-right font-medium">Réussite</th>
+      <th class="py-1 pr-3 text-right font-medium" title="{{ help_of('expectancy') }}">Espérance</th>
+      <th class="py-1 pr-3 text-right font-medium hidden sm:table-cell" title="intervalle de confiance à 90 %">IC 90 %</th>
+      <th class="py-1 pr-3 text-right font-medium hidden sm:table-cell" title="rendement moyen, toutes propositions définitives">Rendement</th>
+      <th class="py-1 text-right font-medium">Fiabilité</th>
+    </tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+    {% for r in rows %}
+      <tr>
+        <td class="py-1.5 pr-3">{{ r.groupe }}</td>
+        <td class="py-1.5 pr-3 text-right tabular">{{ r.cas_avec_R }}</td>
+        <td class="py-1.5 pr-3 text-right tabular">{{ (r.reussite_pct ~ ' %') if r.reussite_pct is not none else '—' }}</td>
+        <td class="py-1.5 pr-3 text-right tabular font-medium {% if r.esperance_R is not none and r.esperance_R > 0 %}text-emerald-600{% elif r.esperance_R is not none and r.esperance_R < 0 %}text-rose-600{% endif %}">{{ ('%+.2f R'|format(r.esperance_R)) if r.esperance_R is not none else '—' }}</td>
+        <td class="py-1.5 pr-3 text-right tabular text-xs text-slate-500 hidden sm:table-cell">{{ ('[%+.2f ; %+.2f]'|format(r.ic90_R[0], r.ic90_R[1])) if r.ic90_R else '—' }}</td>
+        <td class="py-1.5 pr-3 text-right tabular hidden sm:table-cell">{{ ('%+.1f %%'|format(r.rendement_moyen_pct)) if r.rendement_moyen_pct is not none else '—' }}</td>
+        <td class="py-1.5 text-right">{{ rel(r.fiabilite) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}{{ empty('Aucun résultat définitif pour l’instant.', 'slate') }}{% endif %}
+</div>
+{%- endmacro %}
+
+{% block content %}
+<section class="card">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="max-w-3xl">
+      <h1 class="text-2xl font-bold">Apprentissage</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">L'outil mesure ce qu'aurait donné <b>chaque</b> proposition passée, prise ou non, sur les cours réellement observés ensuite (entrée à cours limité, stop d'abord, 20 séances). Ces résultats ajustent les nouvelles propositions de façon bornée (historique comparable), et l'IA les relit pour vous poser des questions et proposer des améliorations que vous validez. L'IA n'est pas ré-entraînée : elle apprend par vos réponses et vos décisions, gardées en mémoire.</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      {% if enabled %}
+      <form method="post" action="/apprentissage/recalculer">{{ button('Recalculer les résultats', 'ghost') }}</form>
+      <form method="post" action="/apprentissage/analyse">{{ button('Lancer une analyse') }}</form>
+      {% endif %}
+    </div>
+  </div>
+  {% if request.query_params.get('msg') %}<p class="mt-3 rounded-lg bg-sky-50 dark:bg-sky-500/10 p-2 text-sm text-sky-900 dark:text-sky-200">{{ request.query_params.get('msg') }}</p>{% endif %}
+  {% if not enabled %}<p class="mt-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 p-2 text-sm text-amber-900 dark:text-amber-200">Fonctionnalité désactivée : le groupe <code>learning</code> manque dans <code>config/params.yaml</code>. Lancer <code>uv run python -m app.cli params-init --update --email …</code> puis redémarrer.</p>{% endif %}
+</section>
+
+{% if enabled %}
+<section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+  {{ tile('Propositions évaluées', agg.echantillon.resultats_definitifs ~ ' / ' ~ agg.echantillon.propositions_evaluees, 'résultats définitifs / suivies', 'blue') }}
+  {{ tile('Espérance théorique', ('%+.2f R'|format(agg.global.esperance_R)) if agg.global.esperance_R is not none else '—', agg.global.cas_avec_R ~ ' cas avec stop · ' ~ agg.global.fiabilite, 'green' if (agg.global.esperance_R or 0) > 0 else 'red' if (agg.global.esperance_R or 0) < 0 else 'slate') }}
+  {% set dec = {} %}{% for r in agg.par_decision %}{% set _ = dec.update({r.groupe: r}) %}{% endfor %}
+  {{ tile('Prises vs ignorées', (('%+.2f'|format(dec['Prise'].esperance_R)) if dec.get('Prise') and dec['Prise'].esperance_R is not none else '—') ~ ' / ' ~ (('%+.2f R'|format(dec['Ignorée'].esperance_R)) if dec.get('Ignorée') and dec['Ignorée'].esperance_R is not none else '—'), 'biais de sélection : vos choix font-ils mieux ?', 'slate') }}
+  {{ tile('Gagnants manqués', agg.gagnants_manques|length, 'non prises ayant atteint ≥ 2 R', 'amber' if agg.gagnants_manques else 'slate') }}
+</section>
+
+{% if review %}
+<section class="card">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <h2 class="font-semibold">Dernière analyse</h2>
+    <span class="text-xs text-slate-500 dark:text-slate-400">{{ review.ts|dual }} · {{ 'automatique (samedi)' if review.trigger == 'weekly' else 'à la demande' }} · {% if review.status == 'ok' %}{{ badge('IA', 'blue', review.model or '') }}{% else %}{{ badge('statistiques seules', 'slate') }}{% endif %}{% if review.cost_usd %} · {{ '%.3f'|format(review.cost_usd) }} ${% endif %}</span>
+  </div>
+  <p class="mt-2 text-sm whitespace-pre-line">{{ review.summary }}</p>
+  {% if review.findings %}
+  <ul class="mt-3 space-y-2">{% for f in review.findings %}
+    <li class="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 text-sm">
+      <div class="flex flex-wrap items-center gap-2"><b>{{ f.title }}</b>{{ badge('confiance ' ~ f.confidence, 'green' if f.confidence == 'forte' else 'amber' if f.confidence == 'moyenne' else 'slate') }}</div>
+      <p class="mt-1">{{ f.detail }}</p>
+      {% if f.evidence %}<p class="mt-1 text-xs text-slate-500">Données : {{ f.evidence|join(' · ') }}</p>{% endif %}
+    </li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if review.rejected %}<details class="mt-2 text-xs text-slate-500"><summary class="cursor-pointer">{{ review.rejected|length }} élément(s) de l'IA écarté(s) par les garde-fous</summary><ul class="mt-1 list-disc ml-4">{% for r in review.rejected %}<li>{{ r.element }} — {{ r.motif }}</li>{% endfor %}</ul></details>{% endif %}
+</section>
+{% elif not llm_on %}
+<section class="card text-sm text-slate-600 dark:text-slate-300">IA non configurée : « Lancer une analyse » produira un résumé calculé ; les questions et propositions de l'IA nécessitent la clé Anthropic.</section>
+{% endif %}
+
+<section class="card" id="questions">
+  <h2 class="font-semibold">Questions de l'IA pour vous</h2>
+  <p class="text-xs text-slate-500 dark:text-slate-400">Vos réponses sont gardées dans les leçons et relues à chaque analyse et par l'assistant.</p>
+  {% for q in questions %}
+  <form method="post" action="/apprentissage/question/{{ q.id }}" class="mt-3 rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+    <p class="font-medium">{{ q.question }}</p>
+    {% if q.why %}<p class="text-xs text-slate-500 dark:text-slate-400">Pourquoi : {{ q.why }}</p>{% endif %}
+    {% if q.kind == 'choix' and q.choices %}<div class="flex flex-wrap gap-3 text-sm">{% for c in q.choices %}<label class="flex items-center gap-1.5"><input type="radio" name="choice" value="{{ c }}"> {{ c }}</label>{% endfor %}</div>{% endif %}
+    <textarea name="answer" rows="2" placeholder="{{ 'Précision (facultatif)' if q.kind == 'choix' else 'Votre réponse' }}" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"></textarea>
+    <div class="flex justify-end gap-2">{{ button('Répondre') }}</div>
+  </form>
+  {% else %}{{ empty('Aucune question en attente.', 'slate') }}{% endfor %}
+</section>
+
+<section class="card" id="propositions">
+  <h2 class="font-semibold">Propositions d'amélioration</h2>
+  <p class="text-xs text-slate-500 dark:text-slate-400">Jamais appliquées automatiquement. Une proposition de paramètre acceptée donne l'extrait à reporter dans <code>config/params.yaml</code> et un brouillon d'ADR.</p>
+  {% for x in suggestions %}
+  <div class="mt-3 rounded-xl border border-slate-200 dark:border-slate-800 p-3">
+    <div class="flex flex-wrap items-center gap-2">{{ badge(label('suggestion_kind', x.kind), 'blue') }}<b>{{ x.title }}</b>{% if x.status == 'later' %}{{ badge('reportée', 'slate') }}{% endif %}</div>
+    {% if x.params_key %}<p class="mt-1 text-sm tabular"><code>{{ x.params_key }}</code> : {{ x.current_value }} → <b>{{ '%g'|format(x.proposed_value) }}</b></p>{% endif %}
+    <p class="mt-1 text-sm">{{ x.rationale }}</p>
+    {% if x.expected_effect %}<p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Effet attendu : {{ x.expected_effect }}</p>{% endif %}
+    <form method="post" action="/apprentissage/suggestion/{{ x.id }}" class="mt-2 flex flex-wrap items-center gap-2">
+      <input name="comment" placeholder="commentaire (facultatif)" class="flex-1 min-w-40 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-sm">
+      <button name="status" value="accepted" class="rounded-lg px-3 py-1.5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white">Accepter</button>
+      <button name="status" value="rejected" class="rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-rose-300 text-rose-700 dark:text-rose-300">Refuser</button>
+      {% if x.status != 'later' %}<button name="status" value="later" class="rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-slate-300 dark:ring-slate-700">Plus tard</button>{% endif %}
+    </form>
+  </div>
+  {% else %}{{ empty('Aucune proposition en attente.', 'slate') }}{% endfor %}
+  {% if decided %}
+  <details class="mt-3"><summary class="cursor-pointer text-xs font-medium text-sky-700 dark:text-sky-300">Décisions précédentes ({{ decided|length }})</summary>
+    <ul class="mt-2 space-y-2 text-sm">{% for d in decided %}
+      <li class="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3">
+        {{ badge('acceptée' if d.x.status == 'accepted' else 'refusée', 'green' if d.x.status == 'accepted' else 'slate') }} <b>{{ d.x.title }}</b> <span class="text-xs text-slate-500">{{ d.x.decided_at|dual }}</span>
+        {% if d.x.user_comment %}<p class="text-xs mt-1">Commentaire : {{ d.x.user_comment }}</p>{% endif %}
+        {% if d.x.status == 'accepted' and d.yaml %}
+        <p class="mt-2 text-xs font-medium">À reporter dans config/params.yaml :</p>
+        <pre class="mt-1 overflow-x-auto rounded-lg bg-slate-900 text-slate-100 p-2 text-[11px]">{{ d.yaml }}</pre>
+        <details class="mt-1"><summary class="cursor-pointer text-xs text-sky-700 dark:text-sky-300">Brouillon d'ADR</summary><pre class="mt-1 overflow-x-auto whitespace-pre-wrap rounded-lg bg-slate-900 text-slate-100 p-2 text-[11px]">{{ d.adr }}</pre></details>
+        {% endif %}
+      </li>{% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</section>
+
+<section class="grid lg:grid-cols-2 gap-4">
+  {{ stats_table('Par décision', agg.par_decision, 'Prises vs ignorées : mesure du biais de sélection (docs/12 §12.2).') }}
+  {{ stats_table('Par détecteur', agg.par_detecteur) }}
+  {{ stats_table('Par source', agg.par_source, 'Lettres et analystes : base de la reconduction des abonnements (docs/12 §12.5).') }}
+  {{ stats_table('Par régime de marché', agg.par_regime, 'Régime figé dans l’instantané de la proposition.') }}
+</section>
+{% for c in agg.seuils_candidats %}
+<section>{{ stats_table('Par tranche : ' ~ c.libelle, c.tranches, 'Paramètre ' ~ c.parametre ~ ' (valeur actuelle : ' ~ c.valeur_actuelle ~ '). Seules ces bornes peuvent être proposées par l’IA.') }}</section>
+{% endfor %}
+
+{% if agg.gagnants_manques or agg.pertes_evitees %}
+<section class="grid md:grid-cols-2 gap-4">
+  <div class="card"><h3 class="font-semibold">Gagnants manqués</h3>
+    <ul class="mt-2 text-sm divide-y divide-slate-100 dark:divide-slate-800">{% for g in agg.gagnants_manques %}<li class="py-1.5 flex justify-between gap-2"><span>{{ g.valeur }} <span class="text-xs text-slate-500">{{ g.date }} · {{ g.source }} · {{ g.decision }}</span></span><b class="tabular text-emerald-600">{{ '%+.2f R'|format(g.R) }}</b></li>{% else %}<li class="py-1.5 text-slate-500">Aucun.</li>{% endfor %}</ul>
+  </div>
+  <div class="card"><h3 class="font-semibold">Pertes évitées</h3>
+    <ul class="mt-2 text-sm divide-y divide-slate-100 dark:divide-slate-800">{% for g in agg.pertes_evitees %}<li class="py-1.5 flex justify-between gap-2"><span>{{ g.valeur }} <span class="text-xs text-slate-500">{{ g.date }} · {{ g.source }} · {{ g.decision }}</span></span><b class="tabular text-rose-600">{{ '%+.2f R'|format(g.R) }}</b></li>{% else %}<li class="py-1.5 text-slate-500">Aucune.</li>{% endfor %}</ul>
+  </div>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2 class="font-semibold">Propositions passées et leur résultat</h2>
+  <p class="text-xs text-slate-500 dark:text-slate-400">Clôtures officielles uniquement ; une séance manquante rend le résultat « cours indisponibles » (jamais estimé).</p>
+  <ul class="mt-2 divide-y divide-slate-100 dark:divide-slate-800">
+  {% for r in rows %}{% set o = r.o %}
+    <li class="py-2">
+      <details class="group">
+        <summary class="list-none cursor-pointer flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <span class="inline-block text-slate-400 transition-transform group-open:rotate-90">▸</span>
+          <a href="/valeur/{{ r.p.isin }}" class="font-semibold hover:underline">{{ r.name }}</a>
+          <span class="text-xs text-slate-500">{{ r.p.created_at|dual }}</span>
+          {{ badge(label('action', r.p.action), 'blue' if r.p.action == 'WATCH' else 'green' if r.p.action == 'BUY' else 'slate') }}
+          {{ badge(label('decision_group', o.decision_group), 'green' if o.decision_group == 'prise' else 'slate') }}
+          {{ badge(label('outcome_status', o.status), 'green' if o.status == 'target' else 'red' if o.status == 'stopped' else 'amber' if o.status == 'unavailable' else 'slate') }}
+          <span class="ml-auto tabular font-medium {% if (o.r_net or 0) > 0 %}text-emerald-600{% elif (o.r_net or 0) < 0 %}text-rose-600{% endif %}">{{ ('%+.2f R'|format(o.r_net)) if o.r_net is not none else '' }}</span>
+          <span class="tabular text-xs text-slate-500">J+5 {{ ('%+.1f %%'|format(o.ret_5d * 100)) if o.ret_5d is not none else '—' }} · J+20 {{ ('%+.1f %%'|format(o.ret_20d * 100)) if o.ret_20d is not none else '—' }}</span>
+        </summary>
+        <div class="mt-2 grid md:grid-cols-3 gap-3 text-sm">
+          <dl class="grid grid-cols-2 gap-y-1 text-xs md:col-span-1">
+            <dt class="text-slate-500">Source</dt><dd>{{ label('detector', r.sig.detector) if r.sig else '—' }}{% if r.sig and r.sig.detector == 'external' %} · {{ r.sig.source }}{% endif %}</dd>
+            <dt class="text-slate-500">Prix de référence</dt><dd class="tabular">{{ '%.2f'|format(o.ref_price) if o.ref_price else '—' }}</dd>
+            <dt class="text-slate-500">Entrée simulée</dt><dd class="tabular">{{ ('%.2f'|format(o.entry_price) ~ ' le ' ~ o.entry_day.strftime('%d/%m')) if o.entry_price else '—' }}</dd>
+            <dt class="text-slate-500">Sortie</dt><dd class="tabular">{{ ('%.2f'|format(o.exit_price) ~ ' le ' ~ o.exit_day.strftime('%d/%m') ~ ' (' ~ o.exit_reason ~ ')') if o.exit_price else '—' }}</dd>
+            <dt class="text-slate-500">Excursions</dt><dd class="tabular">{{ ('+%.1f %% / %.1f %%'|format(o.mfe_pct * 100, o.mae_pct * 100)) if o.mfe_pct is not none else '—' }}</dd>
+            <dt class="text-slate-500">Coûts</dt><dd>{{ 'comptés' if o.costs_counted else 'non comptés' }}</dd>
+            {% if o.note %}<dt class="text-slate-500">Note</dt><dd>{{ o.note }}</dd>{% endif %}
+          </dl>
+          <div class="md:col-span-2">{{ r.chart|safe }}</div>
+        </div>
+      </details>
+    </li>
+  {% else %}<li>{{ empty('Aucune proposition évaluée : lancez « Recalculer les résultats » après les premières propositions.', 'slate') }}</li>{% endfor %}
+  </ul>
+</section>
+
+<section class="card" id="lecons">
+  <h2 class="font-semibold">Leçons retenues</h2>
+  <p class="text-xs text-slate-500 dark:text-slate-400">Relues par l'IA à chaque analyse et par l'assistant (au plus {{ request.app.state.config.params.learning.memory_max_items }} leçons actives).</p>
+  <form method="post" action="/apprentissage/lecon" class="mt-2 flex flex-wrap gap-2">
+    <input name="text" placeholder="Ex. : je n'achète pas une valeur dont le gap d'ouverture dépasse 4 %" class="flex-1 min-w-48 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-sm">
+    {{ button('Ajouter') }}
+  </form>
+  <ul class="mt-3 divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+  {% for m in memory %}
+    <li class="py-2 flex items-start justify-between gap-3 {% if not m.active %}opacity-50{% endif %}">
+      <span>{{ m.text }} <span class="text-xs text-slate-400">· {{ label('memory_source', m.source) }} · {{ m.ts|dual }}</span></span>
+      <form method="post" action="/apprentissage/lecon/{{ m.id }}/basculer"><button class="text-xs underline decoration-dotted whitespace-nowrap">{{ 'désactiver' if m.active else 'réactiver' }}</button></form>
+    </li>
+  {% else %}<li class="py-2 text-slate-500">Aucune leçon pour l'instant.</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

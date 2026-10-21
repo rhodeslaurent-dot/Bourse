@@ -1,6 +1,6 @@
 /** Tailwind v3 (compilé hors ligne : scripts/build_css.sh ou .ps1 → app/web/static/app.css). */
 module.exports = {
-  content: ["./app/web/templates/**/*.html"],
+  content: ["./app/web/templates/**/*.html", "./app/web/static/*.js"],
   darkMode: "media",
   theme: {
     extend: {
