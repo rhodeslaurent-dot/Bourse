@@ -2,6 +2,12 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Apprentissage : doublons — 2026-10-21
+
+- Les analyses répétées (ou servies par le cache) réenregistraient les mêmes propositions : questions et propositions sont maintenant dédoublonnées (texte normalisé, ou clé + valeur pour un paramètre), y compris contre les propositions déjà acceptées ou refusées ; message « rien de nouveau » et nombre de doublons écartés. Migration 0008 : doublons existants marqués `duplicate` / `dismissed` (rien n'est supprimé).
+- Le dossier de la revue décrit ce que l'outil fait déjà (`contexte_outil` : journal des décisions, calcul quotidien des résultats, revue hebdomadaire, notes) et liste les propositions et questions en attente ; prompt `learning_review_v2` : ne rien proposer d'existant, listes vides acceptées, priorité aux questions tant qu'aucun résultat n'est définitif.
+- Fenêtre d'attente pendant les traitements longs et dans le panneau assistant.
+
 ## [Unreleased] — Correctif LLM — 2026-10-21
 
 - **Tous les appels réels à Claude échouaient** depuis le passage au SDK `anthropic` 1.x : `messages.parse()` n'accepte plus `temperature` (TypeError), donc classification des news, extraction des lettres, assistant et revue retombaient sur le repli par règles. La température 0 (CLAUDE.md règle 3) est désormais transmise par `extra_body`, acceptée par les modèles épinglés (Sonnet 4.6, Haiku 4.5). Nouveau test sur le vrai chemin du SDK (transport HTTP simulé).

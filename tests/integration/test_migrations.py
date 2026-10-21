@@ -56,3 +56,34 @@ def test_seed_calendar_cli(tmp_path, monkeypatch):
         ).scalar()
         assert n == 1
         assert c.execute(text("select count(*) from srd_calendar")).scalar() == 24
+
+
+INS_SUG = (
+    "INSERT INTO learning_suggestions (ts, kind, title, status) VALUES (CURRENT_TIMESTAMP, 'processus', :t, 'open')"
+)
+INS_Q = "INSERT INTO learning_questions (ts, question, kind, status) " + (
+    "VALUES (CURRENT_TIMESTAMP, 'Pourquoi ?', 'texte', 'open')"
+)
+
+
+def test_migration_0008_marks_duplicate_suggestions(tmp_path, monkeypatch):
+    from sqlalchemy import create_engine, text
+
+    url = f"sqlite+pysqlite:///{tmp_path / 'dedup.sqlite'}"
+    monkeypatch.setenv("DATABASE_URL", url)
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "0007")
+    eng = create_engine(url)
+    with eng.begin() as c:
+        for t in ("Planifier une revue", "planifier une revue !", "Autre idée"):
+            c.execute(
+                text(INS_SUG),
+                {"t": t},
+            )
+        for _ in range(3):
+            c.execute(text(INS_Q))
+    command.upgrade(cfg, "head")
+    with eng.begin() as c:
+        sug = [r[0] for r in c.execute(text("SELECT status FROM learning_suggestions ORDER BY id"))]
+        qs = [r[0] for r in c.execute(text("SELECT status FROM learning_questions ORDER BY id"))]
+    assert sug == ["open", "duplicate", "open"] and qs == ["open", "dismissed", "dismissed"]

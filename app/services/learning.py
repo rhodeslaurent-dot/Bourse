@@ -73,6 +73,28 @@ PARAM_KEYS_SHOWN = [
 ]
 
 
+def norm_text(text: str | None) -> str:
+    """Comparison key for de-duplication: case, accents, punctuation and spacing ignored."""
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", (text or "").lower())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return " ".join("".join(c if c.isalnum() else " " for c in t).split())
+
+
+TOOL_CONTEXT = {
+    "decisions": "chaque décision (Vu, Watch, Ordre saisi, Ignorer) est enregistrée automatiquement depuis "
+    "l'interface ou Telegram, avec un motif facultatif : c'est déjà le journal de décision",
+    "resultats": "le résultat de chaque proposition, prise ou non, est calculé automatiquement chaque matin de bourse "
+    "à 07:20 ; il devient définitif quand le stop ou l'objectif est touché, quand l'entrée n'a pas été atteinte "
+    "pendant sa validité, ou à la fin de l'horizon",
+    "revue": "une analyse automatique a lieu chaque samedi à 08:00, et à la demande",
+    "notes": "une note libre peut être saisie sur chaque proposition, position et valeur ; elle est reprise ici",
+    "valeurs_vides": "une statistique vide (null) signifie qu'aucun résultat n'est encore définitif, "
+    "pas un défaut de configuration du suivi",
+}
+
+
 def param_value(config: LoadedConfig, dotted: str) -> Any:
     cur: Any = config.raw
     for part in dotted.split("."):
@@ -195,6 +217,20 @@ def build_dossier(s: Session, config: LoadedConfig) -> dict[str, Any]:
             .limit(10)
         )
     ]
+    dossier["propositions_en_attente"] = [
+        {"titre": x.title, "statut": x.status}
+        for x in s.scalars(select(LearningSuggestion).where(LearningSuggestion.status.in_(["open", "later"])))
+    ]
+    dossier["questions_en_attente"] = [
+        q.question for q in s.scalars(select(LearningQuestion).where(LearningQuestion.status == "open"))
+    ]
+    statuses = list(s.scalars(select(SignalOutcome.status)))
+    first = s.scalar(select(Proposal.created_at).where(Proposal.deleted_at.is_(None)).order_by(Proposal.id))
+    dossier["resultats_en_cours"] = {
+        "en_cours_ou_en_attente": sum(1 for x in statuses if x in ("pending", "running")),
+        "plus_ancienne_proposition_suivie": first.date().isoformat() if first else None,
+    }
+    dossier["contexte_outil"] = TOOL_CONTEXT
     dossier["lecons_retenues"] = [m.text for m in memory_items(s, lp.memory_max_items if lp else 30)]
     dossier["parametres_courants"] = {k: param_value(config, k) for k in PARAM_KEYS_SHOWN}
     return json.loads(json.dumps(dossier, default=str))
@@ -285,14 +321,19 @@ def run_review(s: Session, config: LoadedConfig, gateway: Any, trigger: str = "m
         else:
             findings.append(f.model_dump())
     rev.findings = findings
-    open_questions = {q.question for q in s.scalars(select(LearningQuestion).where(LearningQuestion.status == "open"))}
+    asked = {
+        norm_text(q.question)
+        for q in s.scalars(select(LearningQuestion).where(LearningQuestion.status.in_(["open", "answered"])))
+    }
     for q in out.questions:
         b = _guard_text([q.question, q.why, *q.choices], dossier)
-        if b or q.question in open_questions:
-            rejected.append(
-                {"element": q.question, "motif": "doublon" if not b else "chiffres absents : " + ", ".join(b[:5])}
-            )
+        if b:
+            rejected.append({"element": q.question, "motif": "chiffres absents : " + ", ".join(b[:5])})
             continue
+        if norm_text(q.question) in asked:
+            rejected.append({"element": q.question, "motif": "doublon : question déjà posée"})
+            continue
+        asked.add(norm_text(q.question))
         s.add(
             LearningQuestion(
                 review_id=rev.id,
@@ -304,12 +345,29 @@ def run_review(s: Session, config: LoadedConfig, gateway: Any, trigger: str = "m
                 status="open",
             )
         )
+    known: dict[str, str] = {}
+    for x in s.scalars(select(LearningSuggestion).where(LearningSuggestion.status != "duplicate")):
+        known[norm_text(x.title)] = x.status
+        if x.params_key and x.proposed_value is not None:
+            known[f"{x.params_key}={x.proposed_value}"] = x.status
     for sug in out.suggestions:
         b = _guard_text([sug.title, sug.rationale, sug.expected_effect], dossier)
         why, current = check_suggestion(sug, dossier, config)
         if b or why:
             rejected.append({"element": sug.title, "motif": why or "chiffres absents : " + ", ".join(b[:5])})
             continue
+        keys = [norm_text(sug.title)]
+        if sug.kind == "parametre" and sug.params_key and sug.proposed_value is not None:
+            keys.append(f"{sug.params_key}={sug.proposed_value}")
+        seen = next((known[k] for k in keys if k in known), None)
+        if seen is not None:
+            label_status = {"open": "en attente", "later": "reportée", "accepted": "acceptée", "rejected": "refusée"}
+            rejected.append(
+                {"element": sug.title, "motif": f"doublon : déjà proposée ({label_status.get(seen, seen)})"}
+            )
+            continue
+        for k in keys:
+            known[k] = "open"
         s.add(
             LearningSuggestion(
                 review_id=rev.id,
@@ -428,3 +486,15 @@ def outcome_rows(s: Session, limit: int = 100) -> list[dict[str, Any]]:
         sig = s.get(Signal, p.signal_id)
         rows.append({"o": o, "p": p, "sig": sig, "name": name_of(p.isin)})
     return rows
+
+
+def review_counts(s: Session, rev: LearningReview) -> dict[str, int]:
+    """New items created by a review and duplicates it skipped (for the page message)."""
+    return {
+        "questions": len(list(s.scalars(select(LearningQuestion.id).where(LearningQuestion.review_id == rev.id)))),
+        "suggestions": len(
+            list(s.scalars(select(LearningSuggestion.id).where(LearningSuggestion.review_id == rev.id)))
+        ),
+        "doublons": sum(1 for r in (rev.rejected or []) if str(r.get("motif", "")).startswith("doublon")),
+        "ecartes": sum(1 for r in (rev.rejected or []) if not str(r.get("motif", "")).startswith("doublon")),
+    }

@@ -246,9 +246,15 @@ def test_review_guards_questions_suggestions_and_memory(db_engine, config, calen
         assert drift.current_value == 0.02  # read by Python from params.yaml
         q = s.scalar(select(LearningQuestion))
         assert q.kind == "choix" and q.status == "open"
-        # same question is not asked twice
-        run_review(s, config, ClaudeGateway(SETTINGS, call=_fake_review))
+        # same question / suggestions are not recorded twice (repeated or cached reviews)
+        again = run_review(s, config, ClaudeGateway(SETTINGS, call=_fake_review))
         assert len(list(s.scalars(select(LearningQuestion)))) == 1
+        assert len(list(s.scalars(select(LearningSuggestion)))) == 2
+        from app.services.learning import review_counts
+
+        c = review_counts(s, again)
+        assert c["questions"] == 0 and c["suggestions"] == 0 and c["doublons"] == 3
+        assert "contexte_outil" in again.dossier and again.dossier["propositions_en_attente"]
 
         answer_question(s, q.id, "Indisponible — réunions le matin")
         decide_suggestion(s, sugs["Décider avant 10 h"].id, "accepted", "")

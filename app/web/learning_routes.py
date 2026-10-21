@@ -19,6 +19,7 @@ from app.services.learning import (
     answer_question,
     decide_suggestion,
     outcome_rows,
+    review_counts,
     run_review,
     yaml_snippet,
 )
@@ -121,8 +122,16 @@ def analyse(request: Request) -> RedirectResponse:
         msg = {
             "ok": "Analyse IA terminée",
             "rules": "IA non configurée : statistiques seules",
-            "unavailable": "IA indisponible : statistiques seules",
+            "unavailable": "IA indisponible : statistiques seules (raison sous « Dernière analyse »)",
         }.get(rev.status, rev.status)
+        if rev.status == "ok":
+            c = review_counts(s, rev)
+            if c["questions"] or c["suggestions"]:
+                msg += f" : {c['questions']} nouvelle(s) question(s), {c['suggestions']} nouvelle(s) proposition(s)"
+            else:
+                msg += " : rien de nouveau (les données n'ont pas changé depuis la dernière analyse)"
+            if c["doublons"]:
+                msg += f" · {c['doublons']} doublon(s) écarté(s)"
     return _back(msg)
 
 
