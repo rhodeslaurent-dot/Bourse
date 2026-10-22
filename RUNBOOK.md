@@ -38,6 +38,7 @@ Tout se fait depuis la racine du dossier (`cd Bourse`), sans éditer de fichier 
 1. Créer un projet, récupérer la **Ping key** → `uv run python -m app.cli env-setup healthchecks` (saisie masquée).
 2. Seuls les jobs de `notifications.watchdog_jobs` envoient un signal (par défaut `saxo_token_keepalive`, `backup`, `eod_backfill_check`, `portfolio_sync`, `position_monitor`) ; chaque check est créé au premier signal avec le nom du job. Planification (fuseau Europe/Paris sauf mention) : `saxo_token_keepalive` période 20 min, grâce 15 min (battement de cœur du PC) ; `backup` cron `0 23 * * *` fuseau Indian/Reunion, grâce 1 h ; `eod_backfill_check` cron `45 6 * * 1-5`, grâce 4 h ; `portfolio_sync` cron `0 19 * * 1-5`, grâce 4 h ; `position_monitor` cron `*/5 9-16 * * 1-5`, grâce 15 min. Intégrations : e-mail (et Telegram si souhaité).
 3. Un check sans ping = PC / box / Docker en panne : l'alerte part de l'extérieur.
+4. **Checks en trop** : avant le 21/10/2026 (commit `151917b`), chaque job envoyait un signal et créait son check (période par défaut 1 jour). Ces checks (`universe_refresh`, `portfolio_sync_intraday`, `imap_poll`, `news_scan`…) ne reçoivent plus rien et passent « DOWN » : les **supprimer** sur healthchecks.io (Check → Settings → Remove). Ne garder que les 5 checks ci-dessus (+ `pc-startup` si la tâche de démarrage est en place), chacun réglé selon le point 2.
 
 ## 5. Test de reprise après incident (A0.1, à faire réellement)
 

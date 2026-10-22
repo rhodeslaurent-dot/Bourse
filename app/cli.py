@@ -629,7 +629,12 @@ def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
             host = urlparse(href).hostname or "?"
             if label and (label, host) not in labels:
                 labels.append((label, host))
-        print("  liens : " + (" | ".join(f"« {lab[:40]} » ({host})" for lab, host in labels[:15]) or "aucun"))
+        if args.all_links:  # docs/21: locate the press-review block (labels and hosts only, never the content)
+            print(f"  {len(labels)} lien(s) :")
+            for i, (lab, host) in enumerate(labels, 1):
+                print(f"   {i:>3}. « {lab[:80]} » ({host})")
+        else:
+            print("  liens : " + (" | ".join(f"« {lab[:40]} » ({host})" for lab, host in labels[:15]) or "aucun"))
         if rule is None:
             continue
         href = find_link(mail.html, list(rule.get("link_texts") or []))
@@ -821,6 +826,7 @@ def main(argv: list[str] | None = None) -> int:
     lc.add_argument("--query", required=True, help='ex. "from:noreply@zonebourse.com"')
     lc.add_argument("--source", default="zonebourse")
     lc.add_argument("--count", type=int, default=5, help="nombre de lettres récentes examinées")
+    lc.add_argument("--all-links", action="store_true", help="liste tous les liens (libellé complet, hôte)")
     lc.set_defaults(fn=cmd_newsletter_link_check)
     bf = sub.add_parser("backfill")
     bf.add_argument("--provider", default="eodhd")
