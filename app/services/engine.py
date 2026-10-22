@@ -741,67 +741,74 @@ def _persist(
         if key in existing:
             rep.skipped_existing += 1
             continue
-        r, er = ranks.get(f"{e.isin}:{e.detector}", (None, None))
-        e.details["rang"] = r
-        e.details["esperance_nette_r"] = er
-        blocked_caps = [b for b in e.blocked if b.startswith("BLOQUÉ")]
-        if op is not None and r is not None and blocked_caps and e.action == "BUY":
-            sc = e.details.get("score") or {}
-            ok, missing = override_eligible(r, float(sc.get("total") or 0), int(sc.get("confiance") or 0), e.net_rr, op)
-            cap = (e.details.get("plafonds") or {}).get("plafond_eur") or 0
-            e.details["derogation"] = {
-                "proposable": ok and override_fits(float(e.risk_eur or 0), float(cap), op),
-                "manque": missing,
-                "rappel": "jamais appliquée sans l'accord explicite de l'utilisateur (R21)",
-            }
-        sig = record_signal(
-            s,
-            e.isin,
-            e.detector,
-            "moteur_lettre" if e.detector == "external" else "moteur",
-            now,
-            "eod",
-            e.price_status,
-            p.version,
-            evidence={**e.setup.evidence, "stop_base": e.setup.stop_basis},
-            entry_low=e.setup.entry_level,
-            entry_high=e.details.get("p_max"),
-            stop_initial=e.setup.stop,
-            targets=e.setup.targets,
-            horizon=e.setup.horizon,
-        )
-        prop = create_proposal(
-            s,
-            sig,
-            e.action,
-            {
-                e.isin: {
-                    "last": e.price,
-                    "data_status": e.price_status,
-                    "source": e.details.get("source_cours"),
-                    "market_timestamp": e.details.get("horodatage_cours"),
-                    "releve_a": now,
-                }
-            },
-            {"passed": e.passed, "blocked": e.blocked},
-            p.version,
-            to_verify=e.price_status not in ("realtime", "delayed", "eod"),
-            expires_at=now + timedelta(days=expiry_sessions + 2),
-            config=config,
-            account_recommended=e.account,
-            entry_zone=e.details.get("entree"),
-            stop=e.setup.stop,
-            targets=e.setup.targets,
-            horizon=e.setup.horizon,
-            size_eur=e.size_eur,
-            shares=e.shares or None,
-            risk_eur=e.risk_eur,
-            cost_estimate=e.details.get("comptes"),
-        )
-        prop.rank = r
-        prop.details = _json(e.details)
-        rep.created += 1
-        rep.by_action[prop.action] = rep.by_action.get(prop.action, 0) + 1
+        try:
+            with s.begin_nested():  # savepoint: a row the database rejects never aborts the others
+                r, er = ranks.get(f"{e.isin}:{e.detector}", (None, None))
+                e.details["rang"] = r
+                e.details["esperance_nette_r"] = er
+                blocked_caps = [b for b in e.blocked if b.startswith("BLOQUÉ")]
+                if op is not None and r is not None and blocked_caps and e.action == "BUY":
+                    sc = e.details.get("score") or {}
+                    ok, missing = override_eligible(
+                        r, float(sc.get("total") or 0), int(sc.get("confiance") or 0), e.net_rr, op
+                    )
+                    cap = (e.details.get("plafonds") or {}).get("plafond_eur") or 0
+                    e.details["derogation"] = {
+                        "proposable": ok and override_fits(float(e.risk_eur or 0), float(cap), op),
+                        "manque": missing,
+                        "rappel": "jamais appliquée sans l'accord explicite de l'utilisateur (R21)",
+                    }
+                sig = record_signal(
+                    s,
+                    e.isin,
+                    e.detector,
+                    "moteur_lettre" if e.detector == "external" else "moteur",
+                    now,
+                    "eod",
+                    e.price_status,
+                    p.version,
+                    evidence={**e.setup.evidence, "stop_base": e.setup.stop_basis},
+                    entry_low=e.setup.entry_level,
+                    entry_high=e.details.get("p_max"),
+                    stop_initial=e.setup.stop,
+                    targets=e.setup.targets,
+                    horizon=e.setup.horizon,
+                )
+                prop = create_proposal(
+                    s,
+                    sig,
+                    e.action,
+                    {
+                        e.isin: {
+                            "last": e.price,
+                            "data_status": e.price_status,
+                            "source": e.details.get("source_cours"),
+                            "market_timestamp": e.details.get("horodatage_cours"),
+                            "releve_a": now,
+                        }
+                    },
+                    {"passed": e.passed, "blocked": e.blocked},
+                    p.version,
+                    to_verify=e.price_status not in ("realtime", "delayed", "eod"),
+                    expires_at=now + timedelta(days=expiry_sessions + 2),
+                    config=config,
+                    account_recommended=e.account,
+                    entry_zone=e.details.get("entree"),
+                    stop=e.setup.stop,
+                    targets=e.setup.targets,
+                    horizon=e.setup.horizon,
+                    size_eur=e.size_eur,
+                    shares=e.shares or None,
+                    risk_eur=e.risk_eur,
+                    cost_estimate=e.details.get("comptes"),
+                )
+                prop.rank = r
+                prop.details = _json(e.details)
+                rep.created += 1
+                rep.by_action[prop.action] = rep.by_action.get(prop.action, 0) + 1
+        except Exception as exc:  # noqa: BLE001
+            rep.errors.append(f"{e.isin}: {exc.__class__.__name__}")
+            log.warning("moteur : enregistrement de %s refusé (%s)", e.isin, exc.__class__.__name__, exc_info=True)
     s.flush()
 
 

@@ -219,7 +219,7 @@ class Trade(Base):
     source: Mapped[str] = mapped_column(String(16))
     order_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     proposal_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    detector: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    detector: Mapped[str | None] = mapped_column(String(32), nullable=True)
     tags: Mapped[list | None] = mapped_column(JSON, nullable=True)  # e.g. ["discretionary?"]
     position_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # soft delete only
@@ -606,7 +606,7 @@ class Signal(Base):
     __tablename__ = "signals"
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     isin: Mapped[str] = mapped_column(String(12), index=True)
-    detector: Mapped[str] = mapped_column(String(16), index=True)  # d1..d6 | external
+    detector: Mapped[str] = mapped_column(String(32), index=True)  # d2_breakout.. | external
     source: Mapped[str] = mapped_column(String(32))
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     timeframe: Mapped[str] = mapped_column(String(10))

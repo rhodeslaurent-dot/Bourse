@@ -219,3 +219,39 @@ def test_flat_or_zero_volume_bars_and_one_bad_value_never_stop_the_scan(db_engin
         monkeypatch.setattr("app.services.engine.run_detectors", boom)
         rep = engine.scan(s, config, DAY, now=NOW)
         assert rep.errors == ["FR0000131104: ValueError"] and rep.setups >= 1 and "en erreur" in rep.note()
+
+
+def test_a_row_the_database_rejects_is_rolled_back_alone(config, monkeypatch, tmp_path):
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.exc import DataError
+
+    from app.db import session as session_mod
+    from app.db.models import Signal
+    from app.db.session import configure_engine, create_all_for_tests
+
+    # pysqlite ignores SAVEPOINTs unless SQLAlchemy drives BEGIN (documented recipe); PostgreSQL needs nothing.
+    eng = create_engine(f"sqlite+pysqlite:///{tmp_path / 'sp.sqlite'}")
+    event.listen(eng, "connect", lambda c, _r: setattr(c, "isolation_level", None))
+    event.listen(eng, "begin", lambda conn: conn.exec_driver_sql("BEGIN"))
+    create_all_for_tests(eng)
+    for name in ("_engine", "_SessionLocal"):
+        monkeypatch.setattr(session_mod, name, getattr(session_mod, name))  # restored after the test
+    configure_engine(eng)
+
+    real = engine.record_signal
+    calls = []
+
+    def reject_first(s, *a, **kw):
+        sig = real(s, *a, **kw)  # inserted, then refused like a too-long VARCHAR (22/10/2026 crash)
+        calls.append(sig.id)
+        if len(calls) == 1:
+            raise DataError("INSERT INTO signals", {}, Exception("value too long for type character varying(16)"))
+        return sig
+
+    monkeypatch.setattr("app.services.engine.record_signal", reject_first)
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        rep = engine.scan(s, config, DAY, now=NOW)
+        assert rep.errors and rep.errors[0].endswith("DataError")
+        assert len(calls) == rep.created + 1 >= 2  # the scan went on after the refused row
+        assert s.query(Signal).count() == s.query(Proposal).count() == rep.created  # savepoint dropped that row only
