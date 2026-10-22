@@ -140,7 +140,22 @@ class LetterValidationOut(BaseModel):
     lettres: Items(int, 8) = Field(default_factory=list)
 
 
+class IndexViewOut(BaseModel):
+    """docs/07 §7.9.4 (option C): what the letters publish about the reference index (CAC 40) —
+    levels copied from the text, never computed; « attendre » when the letter advises waiting."""
+
+    indice: Text(32) = "CAC 40"
+    obstacle_bas: float | None = None  # resistance zone to clear at the close
+    obstacle_haut: float | None = None
+    support_bas: float | None = None
+    support_haut: float | None = None
+    conseil: Literal["attendre", "acheter", "neutre", "non_precise"] = "non_precise"
+    citation: Quote(200) = ""
+    lettres: Items(int, 8) = Field(default_factory=list)
+
+
 class LettersReviewOut(BaseModel):
     synthese: Text(1200)
+    indice: IndexViewOut | None = None
     avis: Items(LetterOpinionOut, 40) = Field(default_factory=list)
     validations: Items(LetterValidationOut, 30) = Field(default_factory=list)

@@ -66,7 +66,17 @@ Déployé sur le PC le 22/10/2026 : calendriers chargés (6 205 lignes), `fx_ref
 - **taux d'État** : les séries EODHD « GBOND » sont hors forfait (403) ; les taux France et Allemagne passent par le screener TradingView (`TVC:FR10Y`, `TVC:DE10Y`), sans historique (constitué au fil des jours) ; à appliquer par `params-init --update --reset data.macro` ;
 - **liste TTF** : téléchargement refusé depuis le conteneur ; la commande tourne désormais sur le PC, écrit `data/ttf_list.yaml` (dossier partagé) et accepte la page enregistrée depuis le navigateur (`--file`).
 
-**Prochain lot** : 2.3 (détecteurs et propositions).
+**Lot 2.3 fait le 22/10/2026** (migration 0011) — moteur de propositions :
+- détecteurs D2 (cassure du pivot 60 séances), D3 (expansion de range), D4 (repli sur leader) en Python pur ; stops sous les zones de support (R1) ; objectifs exploitables uniquement (zones, plus hauts, mesure de la base, objectif publié), jamais un multiple de R (R4) ;
+- lettres « testables » (invalidation + objectif chiffrés) recalculées par le moteur, à la réception et chaque matin, avec l'objectif publié comme objectif 1 (R15) ; les autres restent en WATCH comme avant ;
+- par compte (PEA, CTO comptant, SRD) : frais connus ou signalés « non renseignés », TTF (liste officielle ou estimation signalée), prix maximal net de frais, taille, gain et perte nets après impôt, ratio net ; choix du compte au meilleur ratio net, le PEA en premier à égalité ; SRD seulement s'il fait mieux que le comptant ou si la trésorerie manque (R13), mode restreint au Brent (R12) ;
+- score /100 (C, T, R, M ; F non attribué faute de source gratuite qualifiée), ratio d'admission, confiance, risque ;
+- portail de marché option C : niveaux et conseil des lettres sur le CAC 40 lus par la revue des lettres (prompt v3, citation et niveaux vérifiés dans le texte) + risque conjoncturel (R10) ; plafonds de risque par état du portail et par ligne (R8) ; dérogation proposable au rang 1 seulement (R21) ;
+- annonces non couvertes par un stop (R14) : résultats dans la fenêtre de blocage, annonces macro « High » dans les 30 h (mots-clés `events.macro_keywords`), avec l'exception « faiblement exposée » mesurée sur les écarts d'ouverture passés ;
+- classement du jour (espérance nette si l'historique comparable suffit, puis ratio net, puis gain net) ; un ordre limite au prix maximal ; un instantané par proposition ; une proposition par valeur, détecteur et jour ;
+- job `opportunity_scan` (07:50 Paris) et moteur à la réception des lettres.
+Non fait : fondamentaux (bloc F), protocole « fixing de clôture » (fiche 17:15) et carnet d'ordres → lot 2.4/2.5.
+**Prochain lot** : 2.4 (fiche, thèse, classement, notifications).
 - **Dépôt GitHub public** : le dépôt contient des éléments personnels (adresses, symboles de positions) ; passage en **privé** recommandé. Le référentiel de gestion n'est pas versionné.
 - **docs/21 (revue de presse Momentum)** : à valider ; liens à repérer avec `newsletter-link-check --all-links` sur une lettre Momentum réelle (domaines de presse à autoriser).
 - ADR-000 et ADR-001 : **acceptés** le 15/09/2026 (« ok allons y ») ; ADR-003, ADR-004, ADR-005 à relire.

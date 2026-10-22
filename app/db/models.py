@@ -648,6 +648,9 @@ class Proposal(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     channels: Mapped[list | None] = mapped_column(JSON, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rank: Mapped[int | None] = mapped_column(Integer, nullable=True)  # docs/22 §22.4, rank of the day
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # engine output (setup, net, score, gates…)
+    thesis: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # lot 2.4: LLM thesis tied to fact ids
 
 
 class Decision(Base):
@@ -849,6 +852,7 @@ class LetterReview(Base):
     rejected: Mapped[list | None] = mapped_column(JSON, nullable=True)
     cost_usd: Mapped[float] = mapped_column(default=0.0)
     model: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    index_view: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # option C of the market gate
 
 
 class LetterOpinion(Base):

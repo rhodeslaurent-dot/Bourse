@@ -319,6 +319,9 @@ def run_review(
             )
         )
 
+    if out.indice is not None:
+        rev.index_view = _index_view(out.indice, texts, rev.day, rejected)
+
     ctx = dossier["contexte"]
     known = {
         "proposition": {str(x["id"]): x["isin"] for x in ctx["propositions"]},
@@ -353,6 +356,72 @@ def run_review(
     if alerts is not None:
         alert_recommendations(s, config, rev, alerts, mode)
     return rev
+
+
+def _index_view(iv: Any, texts: dict[int, str], day: Any, rejected: list[dict[str, str]]) -> dict[str, Any] | None:
+    """Option C of the market gate (docs/07 §7.9.4): levels and advice on the index, kept only if
+    the quote is literal and every level is written in a letter (never computed by the LLM)."""
+    quote = _norm(iv.citation)
+    if not quote or not any(quote in t for t in texts.values()):
+        rejected.append({"element": f"indice {iv.indice}", "motif": "citation introuvable dans les lettres"})
+        return None
+    levels = {k: getattr(iv, k) for k in ("obstacle_bas", "obstacle_haut", "support_bas", "support_haut")}
+    shown = " ".join(f"{v:g}" for v in levels.values() if v is not None)
+    bad = unsupported_numbers(shown, {"lettres": list(texts.values())}) if shown else []
+    if bad:
+        rejected.append({"element": f"indice {iv.indice}", "motif": "niveaux absents des lettres : " + ", ".join(bad)})
+        return None
+    ids = [i for i in iv.lettres if i in texts] or [i for i, t in texts.items() if quote in t]
+    return {
+        "jour": str(day),
+        "indice": iv.indice,
+        **levels,
+        "conseil": iv.conseil,
+        "citation": iv.citation,
+        "lettres": ids,
+    }
+
+
+def published_gate(s: Session, config: LoadedConfig, day: Any) -> tuple[bool | None, str]:
+    """Option C conditions from the latest index view of the letters (≤ market_gate.max_age_sessions
+    sessions old): the reference index closed above the published obstacle zone **and** the letter
+    no longer advises waiting. Unknown when there is no recent publication or no stored close."""
+    from app.db.models import PriceEod
+
+    gate = getattr(config.params, "market_gate", None) or {}
+    max_age = int(gate.get("max_age_sessions", 5))
+    rev = s.scalar(
+        select(LetterReview)
+        .where(LetterReview.index_view.is_not(None), LetterReview.day <= day)
+        .order_by(LetterReview.day.desc(), LetterReview.id.desc())
+    )
+    if rev is None or not rev.index_view:
+        return None, "aucune publication des lettres sur l'indice"
+    iv = rev.index_view
+    rows = list(
+        s.scalars(
+            select(PriceEod)
+            .where(PriceEod.isin == str(gate.get("index_isin", "FR0003500008")), PriceEod.day <= day)
+            .order_by(PriceEod.day.desc())
+            .limit(max_age + 2)
+        )
+    )
+    if not rows:
+        return None, "clôture de l'indice indisponible"
+    age = sum(1 for r in rows if r.day > rev.day)
+    if age > max_age:
+        return None, f"publication sur l'indice du {rev.day:%d/%m} trop ancienne ({age} séances)"
+    close = rows[0].close
+    top = iv.get("obstacle_haut") or iv.get("obstacle_bas")
+    if top is None:
+        return None, "aucun obstacle chiffré publié sur l'indice"
+    above = close > float(top)
+    waits = iv.get("conseil") == "attendre"
+    why = (
+        f"clôture {close:.2f} {'au-dessus' if above else 'sous'} de l'obstacle {float(top):g} publié le {rev.day:%d/%m}"
+        f" ; conseil de la lettre : {iv.get('conseil')}"
+    )
+    return above and not waits, why
 
 
 def alert_recommendations(s: Session, config: LoadedConfig, rev: LetterReview, alerts: Any, mode: str) -> int:

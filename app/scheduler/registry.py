@@ -36,6 +36,7 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "fx_refresh": "app.scheduler.jobs.fx_refresh:run",
     "macro_snapshot": "app.scheduler.jobs.macro_snapshot:run",
     "macro_calendar": "app.scheduler.jobs.macro_calendar:run",
+    "opportunity_scan": "app.scheduler.jobs.opportunity_scan:run",
 }
 
 

@@ -16,6 +16,7 @@ class RankItem:
     net_reward_risk: float | None
     net_gain_pct: float | None
     hit_rate: float | None = None  # shrunk comparable hit rate (docs/18), None if insufficient
+    expected_r: float | None = None  # shrunk expected R of comparable proposals, when already known
 
 
 def expected_net_r(hit_rate: float | None, net_reward_risk: float | None) -> float | None:
@@ -31,6 +32,9 @@ def _desc(v: float | None) -> tuple[int, float]:
 
 def rank(items: list[RankItem]) -> list[tuple[int, RankItem, float | None]]:
     """Returns (rank from 1, item, expected net R)."""
-    scored = [(it, expected_net_r(it.hit_rate, it.net_reward_risk)) for it in items]
+    scored = [
+        (it, it.expected_r if it.expected_r is not None else expected_net_r(it.hit_rate, it.net_reward_risk))
+        for it in items
+    ]
     scored.sort(key=lambda x: (_desc(x[1]), _desc(x[0].net_reward_risk), _desc(x[0].net_gain_pct), x[0].key))
     return [(i + 1, it, e) for i, (it, e) in enumerate(scored)]

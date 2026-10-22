@@ -188,6 +188,20 @@ def ingest_mail(
             targets=[v.levels["objectif"]] if "objectif" in v.levels else None,
         )
         row.signal_id = sig.id
+        lv = v.levels or {}
+        if (
+            not historical
+            and getattr(config.params, "admission", None)
+            and lv.get("stop") is not None
+            and lv.get("objectif") is not None
+            and (lv.get("achat") is not None or lv.get("support") is not None)
+        ):
+            # R15: a testable letter is recalculated by the engine at reception (docs/22 §22.4 D),
+            # which creates the proposal with P_max, full cost and ranking; no duplicate WATCH here.
+            rep.signals += 1
+            if s.scalar(select(WatchlistRow).where(WatchlistRow.isin == v.isin, WatchlistRow.active.is_(True))) is None:
+                s.add(WatchlistRow(isin=v.isin, reason="external", source=mail.source, active=True, levels=lv or None))
+            continue
         gates = {"passed": [], "blocked": []}
         if v.direction == "buy" and row.drift_since_open is not None and row.drift_since_open >= max_drift:
             gates["blocked"].append(
