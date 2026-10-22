@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 
-LIST_PATH = Path("config/ttf_list.yaml")
+LIST_PATH = Path("data/ttf_list.yaml")  # ./data is shared by the container and the PC CLI
 
 
 @lru_cache(maxsize=4)

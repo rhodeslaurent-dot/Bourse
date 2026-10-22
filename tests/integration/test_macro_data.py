@@ -69,9 +69,9 @@ def test_snapshot_fallback_range_and_context(db_engine, config):
             return [(date(2026, 10, 21), 50.7)]  # scaled ×10 by mistake → out of range, rejected
         return []
 
-    def eodhd(symbol, start, end):
-        calls.append(f"eodhd:{symbol}")
-        return {"FR10Y.GBOND": [(date(2026, 10, 21), 4.85)], "DE10Y.GBOND": [(date(2026, 10, 21), 3.45)]}.get(
+    def tradingview(symbol, start, end):
+        calls.append(f"tv:{symbol}")
+        return {"cfd/TVC:FR10Y": [(date(2026, 10, 21), 4.85)], "cfd/TVC:DE10Y": [(date(2026, 10, 21), 3.45)]}.get(
             symbol, []
         )
 
@@ -79,10 +79,10 @@ def test_snapshot_fallback_range_and_context(db_engine, config):
         return [(date(2026, 10, 21), 1.0812)] if symbol == "USD" else []
 
     with db_session() as s:
-        rep = macro.snapshot(s, config, date(2026, 10, 21), {"yfinance": yf, "eodhd": eodhd, "ecb": ecb})
-        assert rep.sources["eurusd"] == "ecb:USD" and rep.sources["fr10y"] == "eodhd:FR10Y.GBOND"
+        rep = macro.snapshot(s, config, date(2026, 10, 21), {"yfinance": yf, "tradingview": tradingview, "ecb": ecb})
+        assert rep.sources["eurusd"] == "ecb:USD" and rep.sources["fr10y"] == "tradingview:cfd/TVC:FR10Y"
         assert "us10y" in rep.missing and any("us10y" in r for r in rep.rejected)
-        assert "eodhd:US10Y.GBOND" in calls and "yf:^TNX" in calls  # fallback tried, then rejected
+        assert "yf:^TNX" in calls and "tv:cfd/TVC:US10Y" in calls  # rejected, then fallback tried
         assert "hors plage" in rep.note()
         vals = macro.latest(s, date(2026, 10, 21))
         assert vals["brent"].value == 105.0 and vals["brent"].source == "yfinance"
@@ -93,7 +93,9 @@ def test_snapshot_fallback_range_and_context(db_engine, config):
         ctx = macro.market_context(s, config, date(2026, 10, 21))
         assert ctx.level in ("modere", "eleve") and ctx.gate in ("restreint", "restreint_plus")  # no publication
         assert ctx.components["us10y_pct"] == "inconnu"
-        n = macro.snapshot(s, config, date(2026, 10, 21), {"yfinance": yf, "eodhd": eodhd, "ecb": ecb}).stored
+        n = macro.snapshot(
+            s, config, date(2026, 10, 21), {"yfinance": yf, "tradingview": tradingview, "ecb": ecb}
+        ).stored
         assert n == 0  # idempotent
 
 
@@ -203,3 +205,24 @@ def test_home_shows_macro_card(db_engine, config, calendars):
     with TestClient(app) as c:
         html = c.get("/").text
     assert "Contexte macro" in html and "Brent ($)" in html and "107.82" in html and "risque conjoncturel" in html
+
+
+def test_tradingview_latest_values_and_ttf_file(tmp_path):
+    import httpx
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/cfd/scan"
+        return httpx.Response(200, json={"data": [{"s": "TVC:FR10Y", "d": [3.48]}, {"s": "TVC:DE10Y", "d": [None]}]})
+
+    from app.data.providers.tradingview_screener import latest_values
+
+    client = httpx.Client(base_url="https://scanner.tradingview.com", transport=httpx.MockTransport(handler))
+    assert latest_values(["TVC:FR10Y", "TVC:DE10Y"], "cfd", client) == {"TVC:FR10Y": 3.48}
+
+    from app.cli import main
+
+    page = tmp_path / "bofip.html"
+    page.write_text("<table><tr><td>ORANGE</td><td>FR0000133308</td></tr></table>", encoding="utf-8")
+    out = tmp_path / "ttf.yaml"
+    assert main(["ttf-list-load", "--year", "2026", "--file", str(page), "--out", str(out)]) == 0
+    assert ttf_status("FR0000133308", 3e10, 1e9, 2026, out)[0]

@@ -203,3 +203,11 @@ def test_params_update_adds_new_rules_to_an_old_params(tmp_path):
     d = yaml.safe_load(target.read_text(encoding="utf-8"))
     assert d["admission"]["min_reward_risk"] == 2.0 and d["risk"]["override"]["min_score"] == 85
     assert d["risk"]["stop"]["wick_buffer_pct"] == 0.005 and d["market_gate"]["mode"] == "double"
+
+
+def test_reset_block_replaces_only_the_named_block():
+    example = "data:\n  a: 1\n  macro:\n    series:\n      x: new\n  b: 2\njobs:\n  j: 1\n"
+    target = "data:\n  a: 5\n  macro:\n    series:\n      x: old\n      y: old\n  b: 7\njobs:\n  j: 9\n"
+    out, done = cli.reset_block(example, target, "data.macro")
+    assert done and out == "data:\n  a: 5\n  macro:\n    series:\n      x: new\n  b: 7\njobs:\n  j: 9\n"
+    assert cli.reset_block(example, target, "data.absent") == (target, False)

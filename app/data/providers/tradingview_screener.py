@@ -142,3 +142,26 @@ def parse_earnings(value: object) -> date | None:
     if isinstance(value, int | float) and value:
         return datetime.fromtimestamp(int(value), tz=UTC).date()
     return None
+
+
+def latest_values(tickers: list[str], market: str = "cfd", client: httpx.Client | None = None) -> dict[str, float]:
+    """Last value of given tickers (e.g. ``TVC:FR10Y`` government yields, docs/22 §22.7), delayed,
+    from the same unofficial scanner. Unknown tickers are simply absent (never guessed)."""
+    c = client or httpx.Client(base_url=BASE, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        r = c.post(
+            f"/{market}/scan", json={"symbols": {"tickers": tickers, "query": {"types": []}}, "columns": ["close"]}
+        )
+        if r.status_code >= 400:
+            raise ProviderError(f"tradingview {r.status_code} on {market}: {r.text[:120]}")
+        out: dict[str, float] = {}
+        for item in r.json().get("data", []) or []:
+            v = (item.get("d") or [None])[0]
+            if isinstance(v, int | float):
+                out[str(item.get("s"))] = float(v)
+        return out
+    except httpx.HTTPError as exc:
+        raise ProviderError(f"tradingview indisponible : {exc.__class__.__name__}") from exc
+    finally:
+        if client is None:
+            c.close()

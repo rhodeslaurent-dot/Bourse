@@ -62,6 +62,10 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 - liste officielle TTF (`ttf-list-load --year 2026`, à lancer sur le PC : le BOFiP n'est pas joignable depuis l'environnement de développement), estimation signalée sinon ;
 - calendriers des places PEA restantes + Londres, Zurich, New York générés depuis `exchange_calendars` (`scripts/gen_calendars.py`) ;
 - univers étendu aux places P2 (Lisbonne, Dublin, Vienne, Varsovie), correspondance du screener étendue (préfixes à qualifier, A0.7), capitalisations hors euro converties au taux BCE (« capitalisation inconnue » sans taux) ; le screener est interrogé par lots, sans troncature silencieuse.
+Déployé sur le PC le 22/10/2026 : calendriers chargés (6 205 lignes), `fx_refresh` 1 856 taux, `macro_snapshot` 2 206 points (taux 10 ans US via `^TNX` en secours), `macro_calendar` 9 annonces. Correctifs du même jour :
+- **taux d'État** : les séries EODHD « GBOND » sont hors forfait (403) ; les taux France et Allemagne passent par le screener TradingView (`TVC:FR10Y`, `TVC:DE10Y`), sans historique (constitué au fil des jours) ; à appliquer par `params-init --update --reset data.macro` ;
+- **liste TTF** : téléchargement refusé depuis le conteneur ; la commande tourne désormais sur le PC, écrit `data/ttf_list.yaml` (dossier partagé) et accepte la page enregistrée depuis le navigateur (`--file`).
+
 **Prochain lot** : 2.3 (détecteurs et propositions).
 - **Dépôt GitHub public** : le dépôt contient des éléments personnels (adresses, symboles de positions) ; passage en **privé** recommandé. Le référentiel de gestion n'est pas versionné.
 - **docs/21 (revue de presse Momentum)** : à valider ; liens à repérer avec `newsletter-link-check --all-links` sur une lettre Momentum réelle (domaines de presse à autoriser).

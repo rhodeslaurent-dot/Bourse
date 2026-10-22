@@ -290,7 +290,9 @@ def create_database(host: str, db: str, user: str, password: str, superuser: str
     return 0
 
 
-def init_params(example: str, target: str, telegram_user_id: str, email: str, update: bool = False) -> bool:
+def init_params(
+    example: str, target: str, telegram_user_id: str, email: str, update: bool = False, reset: list[str] | None = None
+) -> bool:
     """Create ``config/params.yaml`` from the example and fill ``user.telegram_user_id`` / ``user.email``
     by line substitution (comments are kept). Returns False when the target already exists, unless
     ``update`` is set: then only those two ``user.*`` lines are rewritten in the existing file."""
@@ -318,6 +320,9 @@ def init_params(example: str, target: str, telegram_user_id: str, email: str, up
         text, steps = merge_missing_workflow_steps(example_text, text)
         if steps:
             print("étapes de la journée ajoutées : " + ", ".join(steps))
+        for path in reset or []:
+            text, done = reset_block(example_text, text, path)
+            print(f"bloc {path} remplacé par celui de l'exemple" if done else f"bloc {path} introuvable : inchangé")
     dst.write_text(text, encoding="utf-8")
     return True
 
@@ -436,6 +441,24 @@ def merge_missing_children(example: str, target: str, path: str) -> tuple[str, l
     return "".join(tg[:insert_at] + add + tg[insert_at:]), added
 
 
+def reset_block(example: str, target: str, path: str) -> tuple[str, bool]:
+    """Replace the mapping at dotted ``path`` (e.g. ``data.macro``) of the target by the example's,
+    verbatim. Used only on explicit request (``params-init --update --reset data.macro``) when the
+    example's version of a block must replace an older copy (other blocks are untouched)."""
+    ex = example.splitlines(keepends=True)
+    tg = target.splitlines(keepends=True)
+    es, ee, _ = _block_range(ex, path)
+    ts, te, _ = _block_range(tg, path)
+    if es < 0 or ts < 0:
+        return target, False
+    while ee > es + 1 and not ex[ee - 1].strip():
+        ee -= 1
+    while te > ts + 1 and not tg[te - 1].strip():
+        te -= 1
+    block = [ln if ln.endswith("\n") else ln + "\n" for ln in ex[es:ee]]
+    return "".join(tg[:ts] + block + tg[te:]), True
+
+
 def merge_missing_blocks(example: str, target: str, keys: list[str]) -> tuple[str, list[str]]:
     """Append top-level blocks (``workflow:`` …) of the example that the target lacks, verbatim
     with their comments. Existing blocks are never modified."""
@@ -514,7 +537,9 @@ def cmd_params_init(args: argparse.Namespace) -> int:
     if "@" not in email:
         print("adresse e-mail invalide")
         return 2
-    if not init_params("config/params.example.yaml", "config/params.yaml", uid, email, update=args.update):
+    if not init_params(
+        "config/params.example.yaml", "config/params.yaml", uid, email, update=args.update, reset=args.reset
+    ):
         print("config/params.yaml existe déjà : rien n'est modifié (relancer avec --update pour corriger user.*)")
         return 0
     verb = "mis à jour" if args.update else "créé"
@@ -679,7 +704,7 @@ def ingest_known(s, mail) -> bool:  # type: ignore[no-untyped-def]
 
 def cmd_ttf_list_load(args: argparse.Namespace) -> int:
     """docs/22 R11 — download the official BOFiP list of companies subject to the French TTF and
-    write ``config/ttf_list.yaml`` (year, source, ISINs). Nothing is guessed: no ISIN found → error."""
+    write ``data/ttf_list.yaml`` (year, source, ISINs). Nothing is guessed: no ISIN found → error."""
     from datetime import UTC, datetime
     from pathlib import Path
 
@@ -687,13 +712,21 @@ def cmd_ttf_list_load(args: argparse.Namespace) -> int:
 
     from app.data.providers import ttf_list
 
-    rows = ttf_list.fetch(args.url)
+    if args.file:  # page saved from the browser (Ctrl+S) when the site refuses scripted downloads
+        rows = ttf_list.parse(Path(args.file).read_text(encoding="utf-8", errors="replace"))
+    else:
+        try:
+            rows = ttf_list.fetch(args.url)
+        except Exception as exc:  # noqa: BLE001
+            print(f"téléchargement impossible ({exc}) : ouvrir la page dans le navigateur, l'enregistrer (Ctrl+S)")
+            print("puis relancer avec --file <fichier.html>")
+            return 2
     if not rows:
-        print("aucun ISIN trouvé sur la page : vérifier l'adresse (--url) de l'annexe BOI-ANNX-000467")
+        print("aucun ISIN trouvé : vérifier l'adresse (--url) ou le fichier (--file) de l'annexe BOI-ANNX-000467")
         return 1
     data = {
         "year": args.year,
-        "source": args.url,
+        "source": args.file or args.url,
         "loaded_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "count": len(rows),
         "isins": [i for i, _ in rows],
@@ -936,7 +969,8 @@ def main(argv: list[str] | None = None) -> int:
     tl = sub.add_parser("ttf-list-load", help="télécharge la liste officielle des sociétés soumises à la TTF")
     tl.add_argument("--year", type=int, required=True)
     tl.add_argument("--url", default="https://bofip.impots.gouv.fr/bofip/ANNX-000467")
-    tl.add_argument("--out", default="config/ttf_list.yaml")
+    tl.add_argument("--file", help="page BOFiP enregistrée depuis le navigateur (si le téléchargement est refusé)")
+    tl.add_argument("--out", default="data/ttf_list.yaml")
     tl.set_defaults(fn=cmd_ttf_list_load)
     lc = sub.add_parser("newsletter-link-check", help="suit le lien « Lire la suite » de la dernière lettre (docs/19)")
     lc.add_argument("--user", required=True)
@@ -955,6 +989,12 @@ def main(argv: list[str] | None = None) -> int:
     pi.add_argument("--email", default=None)
     pi.add_argument(
         "--update", action="store_true", help="réécrire user.telegram_user_id / user.email d'un fichier existant"
+    )
+    pi.add_argument(
+        "--reset",
+        action="append",
+        default=[],
+        help="avec --update : remplacer ce bloc par celui de l'exemple (ex. data.macro)",
     )
     pi.set_defaults(fn=cmd_params_init)
     ev = sub.add_parser("env-set", help="régler une variable non secrète de .env (ex. BACKUP_HOST_DIR)")

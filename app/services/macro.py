@@ -86,7 +86,23 @@ def default_fetchers(config: Any) -> dict[str, SeriesFetcher]:
         period = "90d" if (end - start).days <= 90 else "hist"
         return [(p.day, p.rate) for p in ecb_fx.fetch(period) if p.currency == symbol and start <= p.day <= end]
 
-    return {"yfinance": yf, "eodhd": eodhd, "ecb": ecb}
+    def tradingview(symbol: str, start: date, end: date) -> list[tuple[date, float]]:
+        """``symbol`` = ``market/TICKER`` (e.g. ``cfd/TVC:FR10Y``). Only the last value exists: it is
+        dated today after 18:00 Paris (the European session is over), else the previous weekday."""
+        from app.data.providers.tradingview_screener import latest_values
+        from app.domain.timeutil import PARIS
+
+        market, _, ticker = symbol.partition("/")
+        vals = latest_values([ticker], market or "cfd")
+        if ticker not in vals:
+            return []
+        now = datetime.now(PARIS)
+        d = now.date() if now.hour >= 18 else now.date() - timedelta(days=1)
+        while d.weekday() >= 5:
+            d -= timedelta(days=1)
+        return [(d, vals[ticker])] if start <= d <= end + timedelta(days=1) else []
+
+    return {"yfinance": yf, "eodhd": eodhd, "ecb": ecb, "tradingview": tradingview}
 
 
 @dataclass

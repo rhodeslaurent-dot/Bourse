@@ -363,9 +363,10 @@ data:
       vix: {valid_range: [5, 100], sources: [{provider: yfinance, symbol: "^VIX"}]}
       gold: {valid_range: [200, 20000], sources: [{provider: yfinance, symbol: "GC=F"}]}
       eurusd: {valid_range: [0.5, 2.0], sources: [{provider: ecb, symbol: "USD"}, {provider: yfinance, symbol: "EURUSD=X"}]}
-      us10y: {valid_range: [-2, 20], sources: [{provider: eodhd, symbol: "US10Y.GBOND"}, {provider: yfinance, symbol: "^TNX"}]}
-      fr10y: {valid_range: [-2, 20], sources: [{provider: eodhd, symbol: "FR10Y.GBOND"}]}
-      de10y: {valid_range: [-2, 20], sources: [{provider: eodhd, symbol: "DE10Y.GBOND"}]}
+      # taux d'État : EODHD « GBOND » hors forfait EOD (403 constaté le 22/10/2026) → sources gratuites ; historique constitué au fil des jours
+      us10y: {valid_range: [-2, 20], sources: [{provider: yfinance, symbol: "^TNX"}, {provider: tradingview, symbol: "cfd/TVC:US10Y"}]}
+      fr10y: {valid_range: [-2, 20], sources: [{provider: tradingview, symbol: "cfd/TVC:FR10Y"}]}
+      de10y: {valid_range: [-2, 20], sources: [{provider: tradingview, symbol: "cfd/TVC:DE10Y"}]}
       sp500: {valid_range: [100, 100000], sources: [{provider: yfinance, symbol: "^GSPC"}]}
       nikkei: {valid_range: [1000, 200000], sources: [{provider: yfinance, symbol: "^N225"}]}
       msci_world: {valid_range: [1, 10000], sources: [{provider: yfinance, symbol: "URTH"}]}   # ETF MSCI World coté (proxy déclaré)
