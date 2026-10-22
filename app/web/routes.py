@@ -110,6 +110,11 @@ def home(request: Request) -> HTMLResponse:
             )
             if x.applicable
         ]
+        from app.services.macro import LABELS as MACRO_LABELS
+        from app.services.macro import market_context, upcoming_events
+
+        macro = market_context(s, cfg, paris_today)
+        macro_events = upcoming_events(s, datetime.now(UTC), days=7)
         summary = {
             "regime": regime.regime if regime else None,
             "regime_day": regime.day if regime else None,
@@ -128,6 +133,9 @@ def home(request: Request) -> HTMLResponse:
             "decisions": decisions[:3],
             "mode": current_mode_payload(request),
             "summary": summary,
+            "macro": macro,
+            "macro_events": macro_events,
+            "macro_labels": MACRO_LABELS,
             "names": {i: name_of(i) for i in {p.isin for p in view["unprotected"]} | set(view["price_status"] or {})},
         },
     )

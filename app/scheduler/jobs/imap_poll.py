@@ -8,9 +8,9 @@ import os
 
 from app.data.providers.imap_gmail import GmailImap
 from app.db.session import db_session
-from app.scheduler.jobs.position_monitor import quotes_for
 from app.scheduler.runner import JobContext
 from app.services.newsletters import ingest_mail
+from app.services.quotes import plausible_quotes
 
 log = logging.getLogger("bourse.jobs.imap_poll")
 
@@ -71,7 +71,12 @@ def run(ctx: JobContext) -> int:
 
             isins = [v.isin for v in extract_values(mail.body_text, alias_index(s)) if v.isin]
             rep = ingest_mail(
-                s, mail, ctx.config, ctx.llm, quotes_for(isins, ctx.config) if isins else {}, calendars=ctx.calendars
+                s,
+                mail,
+                ctx.config,
+                ctx.llm,
+                plausible_quotes(s, isins, ctx.config) if isins else {},
+                calendars=ctx.calendars,
             )
             n += rep.signals
             if rep.new:
@@ -97,7 +102,7 @@ def review_at_reception(s, ctx: JobContext, dedup_hashes: list[str]) -> None:  #
     try:
         isins = cited_isins(s, items)[:15]
         try:
-            quotes = quotes_for(isins, ctx.config) if isins else {}  # quote at analysis time, status kept
+            quotes = plausible_quotes(s, isins, ctx.config) if isins else {}  # R19: quote at analysis time
         except Exception:  # noqa: BLE001 — no quote is better than a guessed one
             quotes = {}
         rev = run_review(

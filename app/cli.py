@@ -677,6 +677,37 @@ def ingest_known(s, mail) -> bool:  # type: ignore[no-untyped-def]
     return s.scalar(select(NewsletterItem.id).where(NewsletterItem.dedup_hash == mail.dedup_hash)) is not None
 
 
+def cmd_ttf_list_load(args: argparse.Namespace) -> int:
+    """docs/22 R11 — download the official BOFiP list of companies subject to the French TTF and
+    write ``config/ttf_list.yaml`` (year, source, ISINs). Nothing is guessed: no ISIN found → error."""
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    import yaml
+
+    from app.data.providers import ttf_list
+
+    rows = ttf_list.fetch(args.url)
+    if not rows:
+        print("aucun ISIN trouvé sur la page : vérifier l'adresse (--url) de l'annexe BOI-ANNX-000467")
+        return 1
+    data = {
+        "year": args.year,
+        "source": args.url,
+        "loaded_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "count": len(rows),
+        "isins": [i for i, _ in rows],
+        "names": {i: n for i, n in rows},
+    }
+    Path(args.out).write_text(
+        "# Liste officielle TTF (BOFiP BOI-ANNX-000467) — générée par ttf-list-load, ne pas éditer à la main\n"
+        + yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    print(f"{len(rows)} sociétés soumises à la TTF en {args.year} → {args.out}")
+    return 0
+
+
 def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
     """docs/19 §19.6 — examine the latest matching letters (read-only): subject, link labels and
     hosts (never the content), then follow the configured link of each and print its status."""
@@ -902,6 +933,11 @@ def main(argv: list[str] | None = None) -> int:
     nh.add_argument("--dry-run", action="store_true", help="repérage : compte expéditeurs et dates, n'enregistre rien")
     nh.add_argument("--no-llm", action="store_true", help="extraction par règles seules (gratuite)")
     nh.set_defaults(fn=cmd_newsletters_history)
+    tl = sub.add_parser("ttf-list-load", help="télécharge la liste officielle des sociétés soumises à la TTF")
+    tl.add_argument("--year", type=int, required=True)
+    tl.add_argument("--url", default="https://bofip.impots.gouv.fr/bofip/ANNX-000467")
+    tl.add_argument("--out", default="config/ttf_list.yaml")
+    tl.set_defaults(fn=cmd_ttf_list_load)
     lc = sub.add_parser("newsletter-link-check", help="suit le lien « Lire la suite » de la dernière lettre (docs/19)")
     lc.add_argument("--user", required=True)
     lc.add_argument("--query", required=True, help='ex. "from:noreply@zonebourse.com"')

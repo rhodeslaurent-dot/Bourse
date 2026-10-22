@@ -356,6 +356,20 @@ data:
   buy_intraday_max_market_age_minutes: 3   # âge de l'horodatage de MARCHÉ (pas du téléchargement) ; BUY EOD calculé sur EOD
   perimeter_consistency_required: true     # un indicateur ne mélange jamais deux périmètres (primaire vs Cboe)
   silent_source_switch_allowed: false
+  macro:                                   # docs/22 §22.7 — sources gratuites ou déjà payées, dans l'ordre de priorité ; source affichée
+    history_days: 400                      # premier chargement (percentile VIX sur 1 an)
+    series:
+      brent: {valid_range: [10, 300], sources: [{provider: yfinance, symbol: "BZ=F"}]}
+      vix: {valid_range: [5, 100], sources: [{provider: yfinance, symbol: "^VIX"}]}
+      gold: {valid_range: [200, 20000], sources: [{provider: yfinance, symbol: "GC=F"}]}
+      eurusd: {valid_range: [0.5, 2.0], sources: [{provider: ecb, symbol: "USD"}, {provider: yfinance, symbol: "EURUSD=X"}]}
+      us10y: {valid_range: [-2, 20], sources: [{provider: eodhd, symbol: "US10Y.GBOND"}, {provider: yfinance, symbol: "^TNX"}]}
+      fr10y: {valid_range: [-2, 20], sources: [{provider: eodhd, symbol: "FR10Y.GBOND"}]}
+      de10y: {valid_range: [-2, 20], sources: [{provider: eodhd, symbol: "DE10Y.GBOND"}]}
+      sp500: {valid_range: [100, 100000], sources: [{provider: yfinance, symbol: "^GSPC"}]}
+      nikkei: {valid_range: [1000, 200000], sources: [{provider: yfinance, symbol: "^N225"}]}
+      msci_world: {valid_range: [1, 10000], sources: [{provider: yfinance, symbol: "URTH"}]}   # ETF MSCI World coté (proxy déclaré)
+    calendar: {currencies: ["EUR", "USD"], impacts: ["High", "Medium"]}
   quote_at_each_analysis: true             # R19 : cours relevé au moment de chaque analyse, horodatage de marché et statut enregistrés
   plausibility_max_gap_pct: 0.05           # écart entre sources ou vs dernière clôture sans nouvelle → « à vérifier »
   paid_max_cost_pct_of_net_gains: 0.10     # docs/22 §22.7 : abonnement proposé seulement si coût ≤ 10 % des gains nets annualisés
@@ -490,6 +504,9 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   portfolio_sync: {cron: "0 19 * * 1-5", misfire_grace_min: 240, market_days_only: true}
   backup: {cron: "0 23 * * *", tz: "Indian/Reunion", market_days_only: false}
   kpi_snapshot: {cron: "10 18 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/17 §17.5 : équité du jour → kpi_daily
+  fx_refresh: {cron: "45 16 * * *", misfire_grace_min: 720, market_days_only: false}      # docs/22 §22.7 : taux de référence BCE → fx_rates
+  macro_snapshot: {cron: "40 7,18 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # tableau macro gratuit (Brent, VIX, taux…)
+  macro_calendar: {cron: "50 6 * * *", misfire_grace_min: 720, market_days_only: false}   # calendrier économique (BCE, Fed, inflation, emploi)
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h
   weekly_review: {cron: "0 8 * * 6", misfire_grace_min: 600, market_days_only: false}   # docs/18 §18.6 : revue IA, questions et propositions
   watchlist_refresh: {cron: "15 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/18 §18.2 : après eod_backfill_check

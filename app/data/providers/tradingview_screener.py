@@ -22,7 +22,8 @@ BASE = "https://scanner.tradingview.com"
 DEFAULT_COLUMNS = [
     "name", "close", "open", "gap", "change", "change_from_open", "volume", "relative_volume_10d_calc",
     "average_volume_10d_calc", "market_cap_basic", "Perf.1M", "Perf.3M", "Perf.6M", "Perf.Y", "SMA20", "SMA50",
-    "SMA200", "ATR", "High.All", "price_52_week_high", "sector", "earnings_release_next_date",
+    "SMA200", "ATR", "High.All", "price_52_week_high", "sector", "earnings_release_next_date", "currency",
+    "fundamental_currency_code",
 ]  # fmt: skip
 MARKETS_BY_EODHD = {
     "PA": "france",
@@ -31,6 +32,31 @@ MARKETS_BY_EODHD = {
     "BR": "belgium",
     "MI": "italy",
     "MC": "spain",
+    # docs/22 §22.6 (22/10/2026) — places PEA restantes ; préfixes TradingView à qualifier (A0.7)
+    "ST": "sweden",
+    "CO": "denmark",
+    "HE": "finland",
+    "OL": "norway",
+    "LS": "portugal",
+    "IR": "ireland",
+    "VI": "austria",
+    "WAR": "poland",
+}
+TV_EXCHANGE = {
+    "france": "EURONEXT",
+    "netherlands": "EURONEXT",
+    "belgium": "EURONEXT",
+    "portugal": "EURONEXT",
+    "ireland": "EURONEXT",
+    "germany": "XETR",
+    "italy": "MIL",
+    "spain": "BME",
+    "sweden": "OMXSTO",
+    "denmark": "OMXCOP",
+    "finland": "OMXHEX",
+    "norway": "OSL",
+    "austria": "VIE",
+    "poland": "GPW",
 }
 
 

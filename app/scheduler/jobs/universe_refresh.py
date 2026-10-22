@@ -1,10 +1,11 @@
-"""``universe_refresh`` (Monday 06:30, every week): EODHD symbol lists of the P0/P1 exchanges +
+"""``universe_refresh`` (Monday 06:30, every week): EODHD symbol lists of the P0/P1/P2 exchanges +
 screener facts (market cap, sector, next earnings) → referential, flags, snapshot, watchlist."""
 
 from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import date
 
 from app.data.base import ProviderError
@@ -90,12 +91,14 @@ def _country(name: object) -> str | None:
     return table.get(str(name or "").strip().lower())
 
 
-def enrich_with_screener(rows: list[SymbolRow], config) -> list[SymbolRow]:  # type: ignore[no-untyped-def]
+def enrich_with_screener(  # type: ignore[no-untyped-def]
+    rows: list[SymbolRow], config, fx_to_eur: dict[str, float | None] | None = None
+) -> list[SymbolRow]:
     """Market cap, sector, earnings date from the delayed screener (facts only, no prices used)."""
     tv_cfg = config.params.data.tradingview_screener or {}
     if not tv_cfg or not config.params.data.screener:
         return rows
-    from app.data.providers.tradingview_screener import MARKETS_BY_EODHD, TradingViewScreener
+    from app.data.providers.tradingview_screener import MARKETS_BY_EODHD, TV_EXCHANGE, TradingViewScreener
 
     markets = sorted({MARKETS_BY_EODHD[r.exchange] for r in rows if r.exchange in MARKETS_BY_EODHD})
     try:
@@ -104,29 +107,29 @@ def enrich_with_screener(rows: list[SymbolRow], config) -> list[SymbolRow]:  # t
             max_requests_per_scan=int(tv_cfg.get("max_requests_per_scan", 6)),
             limit_per_request=int(tv_cfg.get("limit_per_request", 1500)),
         )
-        scan = tv.scan(markets[: tv.max_requests])
+        scan = []
+        for i in range(0, len(markets), tv.max_requests):  # all markets, in polite batches (docs/04 §4.7)
+            if i:
+                time.sleep(tv.min_interval)
+            scan += tv.scan(markets[i : i + tv.max_requests])
     except Exception as exc:  # noqa: BLE001
         log.warning("screener indisponible, univers sans capitalisation/secteur : %s", exc)
         for r in rows:
             r.extra["screener_error"] = exc.__class__.__name__
         return rows
-    tv_exchange = {
-        "france": "EURONEXT",
-        "netherlands": "EURONEXT",
-        "belgium": "EURONEXT",
-        "germany": "XETR",
-        "italy": "MIL",
-        "spain": "BME",
-    }
+    fx = fx_to_eur or {}
     by_key = {r.ticker: r for r in scan}  # EXCHANGE:SYMBOL — never merged across venues (M21)
     for r in rows:
         market = MARKETS_BY_EODHD.get(r.exchange)
-        sr = by_key.get(f"{tv_exchange.get(market or '', '')}:{r.code}") if market else None
+        sr = by_key.get(f"{TV_EXCHANGE.get(market or '', '')}:{r.code}") if market else None
         if sr is None:
             continue
-        # market_cap_basic is expressed in the instrument's quote currency (to be confirmed in
-        # qualification, docs/providers/tradingview_screener.md); non-EUR caps are left unset.
-        r.market_cap_eur = sr.market_cap if r.currency == "EUR" else None
+        # market_cap_basic is expressed in the fundamental currency when the screener gives it, else
+        # in the quote currency (to be confirmed in qualification A0.7). Non-euro caps are converted
+        # at the stored ECB reference rate; no rate → left unset ("capitalisation inconnue").
+        cap_ccy = str(sr.extra.get("fundamental_currency_code") or sr.extra.get("currency") or r.currency)
+        rate = 1.0 if cap_ccy == "EUR" else fx.get(cap_ccy)
+        r.market_cap_eur = sr.market_cap * rate if sr.market_cap is not None and rate else None
         r.sector = sr.sector
         r.earnings_next_date = sr.earnings_release_next_date
         r.tv_ticker = sr.ticker
@@ -142,7 +145,7 @@ def run(ctx: JobContext) -> int:
 
     provider = eodhd_from(ctx.config)
     exchanges, skipped = [], []
-    for ex in list(u.get("markets_p0", [])) + list(u.get("markets_p1", [])):
+    for ex in list(u.get("markets_p0", [])) + list(u.get("markets_p1", [])) + list(u.get("markets_p2", [])):
         mic = ctx.calendars.eodhd_to_mic.get(ex)
         if mic in ctx.calendars.venues:
             exchanges.append(ex)
@@ -151,7 +154,14 @@ def run(ctx: JobContext) -> int:
     if skipped:
         log.warning("places sans calendrier, non chargées : %s (encoder market_calendars.yaml)", ", ".join(skipped))
     errors: dict[str, str] = {}
-    rows = enrich_with_screener(symbol_rows_from_eodhd(provider, exchanges, errors), ctx.config)
+    rows = symbol_rows_from_eodhd(provider, exchanges, errors)
+    with db_session() as s:
+        from app.services.market_data import fx_to_eur
+
+        fx = {
+            c: fx_to_eur(s, c) for c in {r.currency for r in rows} | {"SEK", "DKK", "NOK", "PLN", "GBP", "CHF", "USD"}
+        }
+    rows = enrich_with_screener(rows, ctx.config, fx)
     if errors:
         _log_exchange_hints(provider, errors)
     if not rows:

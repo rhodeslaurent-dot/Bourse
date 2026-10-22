@@ -81,6 +81,19 @@ def sell_fills_from_closed(closed: list[dict], cash_id: int, srd_id: int) -> lis
     return out
 
 
+def remember_saxo_uics(s, pairs: list[tuple[str | None, str]]) -> int:  # type: ignore[no-untyped-def]
+    """Learn the Saxo Uic of mapped instruments, so that the quote at each analysis can come from
+    Saxo (docs/07 §7.9.6, R19). Only pairs already resolved to an ISIN are kept."""
+    from app.db.models import Instrument
+
+    n = 0
+    for isin, uic in pairs:
+        inst = s.get(Instrument, isin) if isin else None
+        if inst is not None and uic and inst.saxo_uic != uic:
+            inst.saxo_uic, n = uic, n + 1
+    return n
+
+
 def sync_saxo(
     portfolio: SaxoPortfolio, tolerance: MatchTolerance, alerts=None, mode: str = "reunion"
 ) -> dict[str, object]:  # type: ignore[no-untyped-def]
@@ -97,6 +110,7 @@ def sync_saxo(
         log.warning("closedpositions indisponible : %s", exc)
         closed = []
     with db_session() as s:
+        remember_saxo_uics(s, [(p.isin, p.uic) for p in positions] + [(o.isin, o.uic) for o in orders])
         cash_acc = account_by_type(s, "cto_cash")
         srd_acc = account_by_type(s, "cto_srd")
         fills = fills_from_positions([p for p in positions if not p.srd], cash_acc.id) + fills_from_positions(

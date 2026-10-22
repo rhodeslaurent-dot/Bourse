@@ -119,7 +119,9 @@ def universe_decision(f: InstrumentFacts, filt: UniverseFilters) -> UniverseDeci
         reasons.append("OPA en cours")
     if f.price is None or f.price < filt.min_price:
         reasons.append(f"prix < {filt.min_price} €")
-    if f.market_cap_eur is None or f.market_cap_eur < filt.min_market_cap_eur:
+    if f.market_cap_eur is None:
+        reasons.append("capitalisation inconnue")  # e.g. non-euro cap without an ECB rate: never guessed
+    elif f.market_cap_eur < filt.min_market_cap_eur:
         reasons.append(f"capitalisation < {filt.min_market_cap_eur / 1e6:.0f} M€")
     if f.history_sessions < filt.min_history_sessions:
         reasons.append(f"historique < {filt.min_history_sessions} séances")

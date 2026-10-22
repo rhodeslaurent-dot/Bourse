@@ -20,6 +20,9 @@ class FakeProvider:
             {"Code": "X", "Name": "sans isin", "Isin": "", "Currency": "EUR", "Country": "France"},
         ]
 
+    def exchanges(self):
+        return [{"Code": "MI", "Name": "Borsa Italiana", "Country": "Italy", "Currency": "EUR"}]
+
 
 def test_failed_exchange_is_recorded_and_skipped():
     errors: dict[str, str] = {}
@@ -43,7 +46,8 @@ def test_markets_without_calendar_are_not_requested(config, calendars, monkeypat
     fake = FakeProvider()
     monkeypatch.setenv("EODHD_API_TOKEN", "t")
     monkeypatch.setattr("app.data.providers.eodhd.eodhd_from", lambda cfg: fake)
-    monkeypatch.setattr(job, "enrich_with_screener", lambda rows, cfg: rows)
+    monkeypatch.setattr(job, "enrich_with_screener", lambda rows, cfg, fx=None: rows)
     ctx = JobContext(config, calendars, date(2026, 10, 20), ("XPAR",), "normal")
     assert job.run(ctx) >= 0
-    assert set(fake.calls) == {"PA", "AS", "BR", "XETRA"}  # MI, MC, ST, CO, HE, OL: no calendar yet → skipped
+    p0_p1_p2 = {"PA", "AS", "BR", "XETRA", "MI", "MC", "ST", "CO", "HE", "OL", "LS", "IR", "VI", "WAR"}
+    assert set(fake.calls) == p0_p1_p2  # toutes les places PEA ont un calendrier depuis le 22/10/2026

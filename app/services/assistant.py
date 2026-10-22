@@ -419,7 +419,8 @@ def unsupported_numbers(answer: str, context: dict[str, Any], question: str = ""
         tol = 0.5 * 10 ** (-decimals) + 1e-9
         if v <= 10 and decimals == 0:
             continue  # small counts ("3 nouvelles", "2 propositions") are not market figures
-        if any(abs(p - v) <= tol or abs(p * 100 - v) <= tol for p in pool):
+        # a percentage matches a stored *fraction* only (0.034 ↔ 3,4 %), never an integer (9 ↛ 900)
+        if any(abs(p - v) <= tol or (abs(p) < 2 and abs(p * 100 - v) <= tol) for p in pool):
             continue
         bad.append(tok)
     return bad

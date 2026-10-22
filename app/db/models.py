@@ -15,6 +15,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Index,
     Integer,
     String,
     Text,
@@ -312,6 +313,7 @@ class Instrument(Base):
     ticker_local: Mapped[str | None] = mapped_column(String(24), nullable=True)
     ticker_eodhd: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     ticker_saxo: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    saxo_uic: Mapped[str | None] = mapped_column(String(16), nullable=True)  # R19, learned from portfolio sync
     ticker_tv: Mapped[str | None] = mapped_column(String(32), nullable=True)
     exchange: Mapped[str | None] = mapped_column(String(16), nullable=True)
     mic: Mapped[str] = mapped_column(String(8), index=True)
@@ -474,6 +476,41 @@ class FxRate(Base):
     rate: Mapped[float] = mapped_column()
     source: Mapped[str] = mapped_column(String(32))
     __table_args__ = (UniqueConstraint("pair", "day", name="uq_fx_rates_pair_day"),)
+
+
+class MacroPoint(Base):
+    """One daily value of a macro dashboard series (docs/22 §22.7), with its source and status."""
+
+    __tablename__ = "macro_points"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    indicator: Mapped[str] = mapped_column(String(32))
+    day: Mapped[date] = mapped_column(Date)
+    value: Mapped[float] = mapped_column()
+    source: Mapped[str] = mapped_column(String(32))
+    symbol: Mapped[str] = mapped_column(String(32))
+    market_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    data_status: Mapped[str] = mapped_column(String(12))
+    __table_args__ = (
+        UniqueConstraint("indicator", "day", name="uq_macro_points_indicator_day"),
+        Index("ix_macro_points_indicator_day", "indicator", "day"),
+    )
+
+
+class MacroEvent(Base):
+    """Economic calendar entry (central banks, inflation, employment…), time in UTC."""
+
+    __tablename__ = "macro_events"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    currency: Mapped[str] = mapped_column(String(8))
+    title: Mapped[str] = mapped_column(String(160))
+    impact: Mapped[str] = mapped_column(String(12))
+    forecast: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    previous: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source: Mapped[str] = mapped_column(String(32))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("ts", "currency", "title", name="uq_macro_events_ts_ccy_title"),)
 
 
 class EarningsCalendarRow(Base):
