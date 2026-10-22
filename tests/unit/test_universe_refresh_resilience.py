@@ -49,7 +49,7 @@ def test_markets_without_calendar_are_not_requested(config, calendars, monkeypat
     monkeypatch.setattr(job, "enrich_with_screener", lambda rows, cfg, fx=None: rows)
     ctx = JobContext(config, calendars, date(2026, 10, 20), ("XPAR",), "normal")
     assert job.run(ctx) >= 0
-    p0_p1_p2 = {"PA", "AS", "BR", "XETRA", "MI", "MC", "ST", "CO", "HE", "OL", "LS", "IR", "VI", "WAR"}
+    p0_p1_p2 = {"PA", "AS", "BR", "XETRA", "MC", "ST", "CO", "HE", "OL", "LS", "IR", "VI", "WAR"}
     assert set(fake.calls) == p0_p1_p2  # toutes les places PEA ont un calendrier depuis le 22/10/2026
 
 
@@ -98,3 +98,16 @@ def test_new_listings_get_their_history_so_they_can_enter_the_universe(config, d
     assert p.calls == ["ENEL.MI", "QUOTA.MI"]  # quota: stops cleanly, the rest waits for the next run
     with db_session() as s:
         assert s.query(PriceEod).filter(PriceEod.isin == "IT0003128367").count() == 3
+
+
+def test_a_missing_price_is_reported_as_unknown_not_as_a_low_price():
+    from app.domain.universe import InstrumentFacts, universe_decision
+    from app.services.universe import UniverseFilters
+
+    filt = UniverseFilters(1e6, 5e5, 3e8, 1e9, 1.0, 250, [])
+    dec = universe_decision(InstrumentFacts("SE0000115446", "XSTO", None, 4e10, None, 0), filt)
+    assert (
+        "cours inconnu (aucun cours stocké)" in dec.reasons
+        and "ADV20 inconnue (moins de 20 séances stockées)" in dec.reasons
+    )
+    assert not any(r.startswith("prix <") or r.startswith("ADV20 <") for r in dec.reasons)

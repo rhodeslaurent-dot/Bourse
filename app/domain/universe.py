@@ -130,7 +130,9 @@ def universe_decision(f: InstrumentFacts, filt: UniverseFilters, kind: str = "st
         reasons.append("suspendu")
     if f.takeover:
         reasons.append("OPA en cours")
-    if f.price is None or f.price < filt.min_price:
+    if f.price is None:
+        reasons.append("cours inconnu (aucun cours stocké)")  # not « prix < 1 € »: a missing price is not a low one
+    elif f.price < filt.min_price:
         reasons.append(f"prix < {filt.min_price} €")
     if f.market_cap_eur is None:
         reasons.append("capitalisation inconnue")  # e.g. non-euro cap without an ECB rate: never guessed
@@ -140,7 +142,9 @@ def universe_decision(f: InstrumentFacts, filt: UniverseFilters, kind: str = "st
         reasons.append(f"historique < {filt.min_history_sessions} séances")
     cto_ok = f.adv_eur_20 is not None and f.adv_eur_20 >= filt.min_adv_eur_cto
     pea_ok = f.adv_eur_20 is not None and f.adv_eur_20 >= filt.min_adv_eur_pea
-    if not pea_ok:
+    if f.adv_eur_20 is None:
+        reasons.append("ADV20 inconnue (moins de 20 séances stockées)")
+    elif not pea_ok:
         reasons.append(f"ADV20 < {filt.min_adv_eur_pea / 1e6:.1f} M€")
     small = f.market_cap_eur is not None and f.market_cap_eur < filt.small_cap_threshold_eur
     return UniverseDecision(not reasons, reasons, cto_ok, pea_ok, small)
@@ -150,7 +154,9 @@ def _etf_decision(f: InstrumentFacts, filt: UniverseFilters) -> UniverseDecision
     reasons: list[str] = []
     if f.isin in filt.blacklist:
         reasons.append("liste noire")
-    if f.price is None or f.price < filt.min_price:
+    if f.price is None:
+        reasons.append("cours inconnu (aucun cours stocké)")
+    elif f.price < filt.min_price:
         reasons.append(f"prix < {filt.min_price} €")
     if f.history_sessions < filt.min_history_sessions:
         reasons.append(f"historique < {filt.min_history_sessions} séances")
