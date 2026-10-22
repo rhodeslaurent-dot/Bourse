@@ -49,7 +49,7 @@ def test_markets_without_calendar_are_not_requested(config, calendars, monkeypat
     monkeypatch.setattr(job, "enrich_with_screener", lambda rows, cfg, fx=None: rows)
     ctx = JobContext(config, calendars, date(2026, 10, 20), ("XPAR",), "normal")
     assert job.run(ctx) >= 0
-    p0_p1_p2 = {"PA", "AS", "BR", "XETRA", "MC", "ST", "CO", "HE", "OL", "LS", "IR", "VI", "WAR"}
+    p0_p1_p2 = {"PA", "AS", "BR", "XETRA", "MI", "MC", "ST", "CO", "HE", "OL", "LS", "IR", "VI", "WAR"}
     assert set(fake.calls) == p0_p1_p2  # toutes les places PEA ont un calendrier depuis le 22/10/2026
 
 
@@ -111,3 +111,51 @@ def test_a_missing_price_is_reported_as_unknown_not_as_a_low_price():
         and "ADV20 inconnue (moins de 20 séances stockées)" in dec.reasons
     )
     assert not any(r.startswith("prix <") or r.startswith("ADV20 <") for r in dec.reasons)
+
+
+def test_milan_from_the_official_euronext_list_with_yahoo_history(config, db_engine, tmp_path, monkeypatch):
+    """docs/23 S3 — EODHD refuses MI: the Euronext list loaded with exchange-list-load provides the shares,
+    Yahoo the history (ticker ENI.MI) — never an invented ISIN or price."""
+    from datetime import UTC, date, datetime, timedelta
+
+    import pytest
+
+    from app.data.dto import DataStatus, EodBar, MarketPerimeter
+    from app.data.providers import exchange_list
+    from app.scheduler.jobs import universe_refresh as job
+
+    csv = (
+        b"Name;ISIN;Symbol;Market;Currency;Open Price\n"
+        b"European Equities;;;;;\n"
+        b"ENI;IT0003132476;ENI;Euronext Milan;EUR;14,1\n"
+        b"TOTALENERGIES;FR0000120271;TTE;Euronext Paris;EUR;60\n"
+        b"ENI;IT0003132476;ENI;Euronext Milan;EUR;14,1\n"
+    )
+    shares = exchange_list.parse_list(csv, "euronext.csv", "Milan")
+    assert [(x.isin, x.code, x.currency) for x in shares] == [("IT0003132476", "ENI", "EUR")]
+    monkeypatch.setattr(exchange_list, "LIST_DIR", tmp_path)
+    exchange_list.save("MI", shares, "test")
+    errors = {"MI": "EODHD 404", "XX": "EODHD 404"}
+    rows = job.rows_from_local_lists(errors)
+    assert [r.isin for r in rows] == ["IT0003132476"] and list(errors) == ["XX"]  # MI no longer in error
+
+    class Yahoo:
+        name = "yfinance"
+
+        def __init__(self):
+            self.calls = []
+
+        def fetch_eod(self, symbols, start, end):
+            self.calls.append(symbols[0])
+            now = datetime.now(UTC)
+            return [EodBar(source="yfinance", market_perimeter=MarketPerimeter.PRIMARY, received_at=now,
+                           processed_at=now, data_status=DataStatus.EOD, symbol=symbols[0],
+                           day=start + timedelta(days=1), open=14, high=14.2, low=13.9, close=14.1,
+                           volume=10)]  # fmt: skip
+
+    rows[0].market_cap_eur = 4e10
+    y = Yahoo()
+    assert job.backfill_new_listings(object(), rows, config, date(2026, 10, 23), alt={"MI": y}) == 1
+    assert y.calls == ["ENI.MI"]
+    with pytest.raises(exchange_list.ProviderError):
+        exchange_list.parse_list(b"a;b\n1;2\n")

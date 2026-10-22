@@ -79,7 +79,47 @@ def symbol_rows_from_eodhd(
     return out
 
 
-def backfill_new_listings(provider, rows: list[SymbolRow], config, today: date, max_items: int = 1000) -> int:  # type: ignore[no-untyped-def]
+def rows_from_local_lists(errors: dict[str, str]) -> list[SymbolRow]:
+    """Shares of the venues EODHD refused, from the official list loaded with ``exchange-list-load``
+    (docs/23 S3); the venue then leaves the error list. No list → the venue stays absent."""
+    from app.data.providers.exchange_list import load
+
+    out: list[SymbolRow] = []
+    for ex in list(errors):
+        listed = load(ex)
+        if not listed:
+            continue
+        out += [SymbolRow(isin=x.isin, name=x.name, code=x.code, exchange=ex, currency=x.currency) for x in listed]
+        errors.pop(ex)
+        log.info("place %s : %d actions lues dans la liste officielle locale (EODHD ne la couvre pas)", ex, len(listed))
+    return out
+
+
+def history_providers(config) -> dict:  # type: ignore[no-untyped-def,type-arg]
+    """Exchange code → EOD provider when it is not EODHD (``universe.history_sources``, e.g. MI: yfinance)."""
+    from app.data.providers.yfinance_eod import YFinanceProvider
+
+    src = (config.params.universe or {}).get("history_sources") or {}
+    return {ex: YFinanceProvider() for ex, name in src.items() if name == "yfinance"}
+
+
+def history_symbol(code: str, exchange: str, provider) -> str:  # type: ignore[no-untyped-def]
+    """Ticker in the provider's own notation (Yahoo: ``ENI.MI``; EODHD: ``ENI.MI`` too, by chance)."""
+    if getattr(provider, "name", "") == "yfinance":
+        from app.data.providers.yahoo_fundamentals import yahoo_symbol
+
+        return yahoo_symbol(f"{code}.{exchange}") or f"{code}.{exchange}"
+    return f"{code}.{exchange}"
+
+
+def backfill_new_listings(  # type: ignore[no-untyped-def]
+    provider,
+    rows: list[SymbolRow],
+    config,
+    today: date,
+    max_items: int = 1000,
+    alt: dict | None = None,  # type: ignore[type-arg]
+) -> int:
     """History for listings that could enter the universe but lack the ``min_history_sessions`` it
     requires (a market just enabled, a new listing): without it they would stay excluded for a year.
     Only stocks whose market cap is known and above the market's floor are fetched (quota-friendly);
@@ -109,9 +149,12 @@ def backfill_new_listings(provider, rows: list[SymbolRow], config, today: date, 
     n = 0
     with db_session() as s:
         for k, r in enumerate(todo, 1):
-            ticker = f"{r.code}.{r.exchange}"
+            p = (alt or {}).get(r.exchange, provider)
+            ticker = history_symbol(r.code, r.exchange, p)
+            if p is not provider and k > 1:
+                time.sleep(0.5)  # unofficial source (Yahoo): polite pace, 429 otherwise
             try:
-                n += upsert_eod(s, provider.fetch_eod([ticker], start, today), {ticker: r.isin})
+                n += upsert_eod(s, p.fetch_eod([ticker], start, today + timedelta(days=1)), {ticker: r.isin})
             except QuotaExceeded as exc:
                 log.warning("quota EODHD atteint après %d valeurs : %s — suite au prochain passage", k - 1, exc)
                 break
@@ -243,6 +286,7 @@ def run(ctx: JobContext) -> int:
     rows = symbol_rows_from_eodhd(
         provider, exchanges, errors, include_etf=bool(u.get("include_etf", False)), crypto_isins=crypto
     )
+    rows += rows_from_local_lists(errors)  # docs/23 S3: a venue EODHD refuses (Milan) from its official list
     with db_session() as s:
         from app.services.market_data import fx_to_eur
 
@@ -255,7 +299,12 @@ def run(ctx: JobContext) -> int:
     if not rows:
         raise ProviderError("aucun symbole chargé : " + " ; ".join(f"{k}: {v}" for k, v in errors.items()))
     fetched = backfill_new_listings(
-        provider, rows, ctx.config, date.today(), int(u.get("history_backfill_max_per_run", 1000))
+        provider,
+        rows,
+        ctx.config,
+        date.today(),
+        int(u.get("history_backfill_max_per_run", 1000)),
+        history_providers(ctx.config),
     )
     log.info("%d symboles chargés depuis EODHD (%s)", len(rows), ", ".join(e for e in exchanges if e not in errors))
     with db_session() as s:

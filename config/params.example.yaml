@@ -160,7 +160,8 @@ pockets:                                # R17 — poche sanctuarisée (hors capi
 
 universe:
   markets_p0: ["PA", "AS", "BR", "XETRA"]
-  markets_p1: ["MC", "ST", "CO", "HE", "OL"]   # Milan (MI) absent du catalogue EODHD du compte (404, 23/10/2026) : docs/15-status
+  markets_p1: ["MI", "MC", "ST", "CO", "HE", "OL"]   # MI : absente d'EODHD (404) → liste officielle Euronext (`exchange-list-load`) + historique Yahoo (docs/23 S3)
+  history_sources: {MI: "yfinance"}    # places dont l'historique et la clôture quotidienne viennent d'un autre fournisseur qu'EODHD
   markets_p2: ["LS", "IR", "VI", "WAR"]
   min_adv_eur_cto: 1000000
   min_adv_eur_pea: 500000

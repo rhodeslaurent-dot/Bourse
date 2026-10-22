@@ -49,12 +49,34 @@ def backfill_history(provider: EodhdProvider, start: date, end: date, isins: lis
     return n
 
 
+def _eod_from_alt(s, provider, ex: str, group: list[Instrument], day: date, alerts: list[str], min_cap: float) -> int:  # type: ignore[no-untyped-def]
+    """Previous session of the universe values and candidates (known cap ≥ floor) of a venue served by
+    another provider than EODHD; a failure is reported, never filled."""
+    from app.scheduler.jobs.universe_refresh import history_symbol
+
+    n = 0
+    for i in group:
+        if not i.ticker_eodhd or not (i.in_universe or (i.market_cap_eur or 0) >= min_cap):
+            continue
+        code, _, exch = i.ticker_eodhd.rpartition(".")
+        sym = history_symbol(code, exch or ex, provider)
+        try:
+            n += upsert_eod(s, provider.fetch_eod([sym], day, day + timedelta(days=1)), {sym: i.isin})
+        except Exception as exc:  # noqa: BLE001
+            alerts.append(f"EOD {ex} {sym} du {day}: {exc.__class__.__name__}")
+    return n
+
+
 def run(ctx: JobContext) -> int:
     if not os.environ.get("EODHD_API_TOKEN"):
         return 0
     from app.data.providers.eodhd import eodhd_from
 
     provider = eodhd_from(ctx.config)
+    from app.scheduler.jobs.universe_refresh import history_providers
+
+    alt_providers = history_providers(ctx.config)
+    min_cap = float((ctx.config.params.universe or {}).get("min_market_cap_eur") or 0)
     n = 0
     gaps: dict[str, bool] = {}
     alerts = []
@@ -73,6 +95,10 @@ def run(ctx: JobContext) -> int:
                 continue
             venue = ctx.calendars.get(mic)
             prev = venue.previous_session(ctx.run_date)
+            alt = alt_providers.get(ex)
+            if alt is not None:  # docs/23 S3: venue without EODHD (Milan) — one Yahoo request per candidate
+                n += _eod_from_alt(s, alt, ex, group, prev, alerts, min_cap)
+                continue
             try:
                 bars = provider.fetch_eod_bulk(ex, prev)
             except Exception as exc:  # noqa: BLE001

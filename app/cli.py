@@ -907,6 +907,29 @@ def cmd_shorts_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_exchange_list_load(args: argparse.Namespace) -> int:
+    """docs/23 S3 — official share list of a venue EODHD does not carry (Milan): Euronext equities list
+    downloaded from live.euronext.com (CSV or Excel), filtered on the market name, stored in
+    data/exchange_lists/<code>.yaml for universe_refresh."""
+    from pathlib import Path
+
+    from app.data.providers.exchange_list import parse_list, save
+
+    path = Path(args.file)
+    try:
+        shares = parse_list(path.read_bytes(), path.name, args.market)
+    except Exception as exc:  # noqa: BLE001 — explained to the user
+        print(f"liste refusée : {exc}")
+        return 1
+    if not shares:
+        print(f"aucune action « {args.market} » dans {path.name} (vérifier --market)")
+        return 1
+    out = save(args.exchange, shares, f"{path.name} ({args.market or 'toutes places'})")
+    print(f"{len(shares)} action(s) enregistrée(s) dans {out} ; exemples : " + ", ".join(s.name for s in shares[:5]))
+    print("Lancer ensuite : run-job universe_refresh (historique Yahoo chargé pour les candidates).")
+    return 0
+
+
 def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
     """docs/19 §19.6 — examine the latest matching letters (read-only): subject, link labels and
     hosts (never the content), then follow the configured link of each and print its status."""
@@ -1165,6 +1188,11 @@ def main(argv: list[str] | None = None) -> int:
     sc2.add_argument("--file", default=None, help="fichier CSV / Excel téléchargé à la main")
     sc2.add_argument("--store", action="store_true", help="enregistrer les positions lues")
     sc2.set_defaults(fn=cmd_shorts_check)
+    el = sub.add_parser("exchange-list-load", help="liste officielle d'une place absente d'EODHD (docs/23 S3)")
+    el.add_argument("--exchange", default="MI", help="code de place (MI = Milan)")
+    el.add_argument("--file", required=True, help="liste Euronext téléchargée (CSV ou Excel)")
+    el.add_argument("--market", default="Milan", help="ne garder que les lignes dont le marché contient ce mot")
+    el.set_defaults(fn=cmd_exchange_list_load)
     bf = sub.add_parser("backfill")
     bf.add_argument("--provider", default="eodhd")
     bf.add_argument("--from", dest="from_date", required=True)
