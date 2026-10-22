@@ -94,7 +94,8 @@ def test_engine_scan_creates_ranked_proposal_with_full_cost(db_engine, config):
         _seed(s, breakout_bars())
         rep = engine.scan(s, config, DAY, now=NOW)
         assert rep.setups >= 1 and rep.created >= 1
-        p = s.query(Proposal).filter(Proposal.isin == ISIN).one()
+        props = s.query(Proposal).filter(Proposal.isin == ISIN).all()
+        p = next(x for x in props if (x.details or {}).get("zones") is not None and x.horizon == "swing_2_6w")
         d = p.details
         assert d["admission"] in ("admis", "refuse") and "pea" in d["comptes"] and "cto_srd" in d["comptes"]
         pea = d["comptes"]["pea"]

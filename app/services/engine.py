@@ -56,7 +56,7 @@ from app.services.market_data import fx_to_eur, load_bars
 
 log = logging.getLogger("bourse.engine")
 
-HOLDING_DAYS = {"days": 5, "swing_2_6w": 20}
+HOLDING_DAYS = {"days": 5, "swing_2_6w": 20, "semaines": 40}
 MACRO_KEYWORDS_DEFAULT = ["Rate", "CPI", "Non-Farm", "Monetary Policy", "Refinancing", "Federal Funds", "FOMC"]
 
 
@@ -209,6 +209,7 @@ def evaluate(
     srd_mode: str | None,
     now: datetime,
     feats: FeatureDaily | None,
+    fundamentals: Any | None = None,
 ) -> Evaluation:
     p = config.params
     risk = p.risk
@@ -397,10 +398,12 @@ def evaluate(
             catalyst_age_days=_catalyst(s, inst.isin, now)[2],
             external_confirmation=bool(_letter_levels(s, inst.isin, now.date())),
             small_cap=bool(inst.small_cap),
+            fundamentals=fundamentals,
         ),
         list((p.scoring or {}).get("admission_blocks", {}).get(setup.detector, ["T", "R", "M"])),
         float((p.scoring or {}).get("c_bonus_cap", 5)),
         data_complete=price_status in ("realtime", "delayed", "eod"),
+        f_min_available=int((p.scoring or {}).get("f_min_available_subcriteria", 2)),
     )
     ev.details["score"] = sc.as_dict()
     sp = p.scoring or {}
@@ -614,7 +617,15 @@ def scan(
             float(zp.get("merge_atr_mult", 0.5)),
             int(zp.get("min_touches", 2)),
         )
-        ctx = DetectorContext(feats.rs_rank if feats else None, zones, wick, float(stop_p.buffer_atr_mult))
+        from app.services.fundamentals import analyst_target
+        from app.services.fundamentals import facts as fundamental_facts
+
+        ff, shown = fundamental_facts(s, inst)
+        d7 = (p.detectors or {}).get("d7_trend_quality") or {}
+        at = analyst_target(shown, int(d7.get("min_analysts", 3)), inst.currency) if shown else None
+        ctx = DetectorContext(
+            feats.rs_rank if feats else None, zones, wick, float(stop_p.buffer_atr_mult), [at] if at else []
+        )
         found = [(x, "moteur") for x in run_detectors(p.detectors or {}, bars, ctx)]
         found += _letter_setups(s, inst, day, ctx)
         if not found:
@@ -631,9 +642,27 @@ def scan(
         for setup, source in found:
             rep.setups += 1
             ev = evaluate(
-                s, config, inst, setup, source, price, status, book, ctxm.gate, ctxm.regime, ctxm.srd_mode, now, feats
+                s,
+                config,
+                inst,
+                setup,
+                source,
+                price,
+                status,
+                book,
+                ctxm.gate,
+                ctxm.regime,
+                ctxm.srd_mode,
+                now,
+                feats,
+                ff,
             )
             ev.details["source_cours"], ev.details["horodatage_cours"] = price_source, price_ts
+            if shown:
+                ev.details["fondamentaux"] = {
+                    **shown,
+                    "objectif_retenu": at is not None and at in (setup.targets or []),
+                }
             ev.details["contexte_marche"] = {
                 "risque_conjoncturel": ctxm.level,
                 "composantes": ctxm.components,

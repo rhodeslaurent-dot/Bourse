@@ -239,7 +239,62 @@ class D4Pullback:
         ]
 
 
-DETECTORS = {c.name: c for c in (D2Breakout, D3RangeExpansion, D4Pullback)}
+class D7TrendQuality:
+    """Swing « tendance + qualité » (docs/22 §22.4 B): a leader in a long uptrend (above a rising
+    200-day average, 50 > 200) pulling back to its 50-day average and closing up. Quality
+    (fundamentals) is scored in block F by the engine; the analyst target, when published, is passed
+    as an extra exploitable target with its source."""
+
+    name = "d7_trend_quality"
+
+    def __init__(self, params: dict[str, Any]) -> None:
+        self.params = params
+
+    def detect(self, bars: list[Bar], ctx: DetectorContext) -> list[Setup]:
+        p = self.params
+        slope = int(p.get("mm200_slope_sessions", 20))
+        if len(bars) < 200 + slope:
+            return []
+        f = compute_daily_features(bars)
+        past = compute_daily_features(bars[:-slope])
+        last, prev = bars[-1], bars[-2]
+        if None in (f.mm50, f.mm200, past.mm200, f.atr14, f.adr20):
+            return []
+        assert f.mm50 and f.mm200 and past.mm200 and f.atr14 and f.adr20
+        if ctx.rs_rank is None or ctx.rs_rank < p["rs_rank_min"]:
+            return []
+        if not (last.close > f.mm200 and f.mm200 > past.mm200 and f.mm50 > f.mm200):
+            return []
+        near = float(p.get("near_mm50_pct", 0.03))
+        if not (last.low <= f.mm50 * (1 + near) and last.close >= f.mm50 * 0.99):
+            return []
+        if not (last.close > last.open or last.close > prev.close):
+            return []
+        entry = last.high * 1.002
+        p_max = last.high * (1 + p["entry_max_pct_above_high"])
+        lb = int(p.get("stop_lookback_low", 10))
+        stop, basis, warn = _stop(
+            entry, min(b.low for b in bars[-lb:]), f.atr14, ctx, p["stop_max_adr_mult"] * f.adr20 * entry
+        )
+        targets = _targets(p_max, ctx, [f.high_52w] if f.high_52w else [])
+        return [
+            Setup(
+                self.name,
+                SetupKind.PULLBACK,
+                entry,
+                p_max,
+                stop,
+                basis,
+                min(f.mm50, min(b.low for b in bars[-lb:])),
+                targets,
+                "semaines",
+                {"mm50": f.mm50, "mm200": f.mm200, "pente_mm200": f.mm200 / past.mm200 - 1, "rs_rank": ctx.rs_rank},
+                warn,
+            )
+        ]
+
+
+DETECTORS = {c.name: c for c in (D2Breakout, D3RangeExpansion, D4Pullback, D7TrendQuality)}
 
 
 def run_detectors(params: dict[str, Any], bars: list[Bar], ctx: DetectorContext) -> list[Setup]:

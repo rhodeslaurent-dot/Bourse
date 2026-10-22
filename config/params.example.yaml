@@ -227,6 +227,16 @@ detectors:
     stop_max_adr_mult: 1.5
     min_reward_risk_t1: 2.0
     catalyst_required: false
+  d7_trend_quality:                  # docs/22 §22.4 B — swing « tendance + qualité » (quelques semaines)
+    enabled: true
+    rs_rank_min: 80
+    mm200_slope_sessions: 20
+    near_mm50_pct: 0.03
+    entry_max_pct_above_high: 0.008
+    stop_lookback_low: 10
+    stop_max_adr_mult: 3.0
+    min_analysts: 3                   # objectif des analystes retenu comme objectif s'il est publié par au moins 3 analystes
+    time_stop_sessions: 60
   d5_external:
     enabled: true
     confirm_bonus_c: 5
@@ -255,6 +265,8 @@ scoring:
     d2_breakout: ["T", "R", "M"]
     d3_range_expansion: ["T", "R", "M"]
     d4_pullback: ["T", "R", "M"]
+    d7_trend_quality: ["T", "F", "R", "M"]
+    external: ["T", "R", "M"]
   f_min_available_subcriteria: 2
   buy_min_confidence: 3
   watch_ratio_range: [0.60, 0.74]
@@ -373,6 +385,7 @@ data:
       nikkei: {valid_range: [1000, 200000], sources: [{provider: yfinance, symbol: "^N225"}]}
       msci_world: {valid_range: [1, 10000], sources: [{provider: yfinance, symbol: "URTH"}]}   # ETF MSCI World coté (proxy déclaré)
     calendar: {currencies: ["EUR", "USD"], impacts: ["High", "Medium"]}
+  fundamentals: {max_items: 800, min_interval_s: 1.0}   # Yahoo (gratuit, non officiel) : débit limité, source et date affichées
   quote_at_each_analysis: true             # R19 : cours relevé au moment de chaque analyse, horodatage de marché et statut enregistrés
   plausibility_max_gap_pct: 0.05           # écart entre sources ou vs dernière clôture sans nouvelle → « à vérifier »
   paid_max_cost_pct_of_net_gains: 0.10     # docs/22 §22.7 : abonnement proposé seulement si coût ≤ 10 % des gains nets annualisés
@@ -524,6 +537,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   opportunity_scan: {cron: "50 7 * * 1-5", misfire_grace_min: 180, market_days_only: true}   # docs/22 §22.4 : moteur de propositions classées
   portfolio_review: {cron: "30 8 * * 6", misfire_grace_min: 720, market_days_only: false}   # docs/22 §22.5 : revue de portefeuille du samedi
   fixing_card: {cron: "15 17 * * 1-5", misfire_grace_min: 10, market_days_only: true}   # R6 : entrée au fixing de clôture sur repli qui tient (entry.fixing_card_time)
+  fundamentals_refresh: {cron: "0 9 * * 0", misfire_grace_min: 1440, market_days_only: false}   # fondamentaux et consensus gratuits (Yahoo), hebdomadaire
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h
   weekly_review: {cron: "0 8 * * 6", misfire_grace_min: 600, market_days_only: false}   # docs/18 §18.6 : revue IA, questions et propositions
   watchlist_refresh: {cron: "15 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/18 §18.2 : après eod_backfill_check

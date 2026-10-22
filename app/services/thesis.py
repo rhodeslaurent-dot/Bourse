@@ -105,6 +105,14 @@ def facts_for(s: Session, p: Proposal, now: datetime | None = None) -> list[dict
         select(LetterOpinion).where(LetterOpinion.isin == p.isin, LetterOpinion.day >= since.date()).limit(5)
     ):
         facts.append(f"Lettre {o.source} du {o.day:%d/%m} ({o.stance}) : {o.summary or ''} « {o.quote or ''} »")
+    fd = d.get("fondamentaux") or {}
+    if fd.get("objectif_analystes") is not None:
+        facts.append(
+            f"Consensus des analystes ({fd.get('source')}, {fd.get('jour')}) : "
+            f"objectif moyen {_fmt(fd.get('objectif_analystes'))} "
+            f"{fd.get('devise') or ''} (fourchette {_fmt(fd.get('objectif_bas'))}–{_fmt(fd.get('objectif_haut'))}), "
+            f"{fd.get('nb_analystes')} analystes, recommandation {fd.get('recommandation')}"
+        )
     from app.services.press_review import macro_context
 
     for a in macro_context(s, now, 3, 3):

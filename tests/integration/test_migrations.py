@@ -38,6 +38,7 @@ def test_alembic_upgrade_head(tmp_path, monkeypatch):
         "macro_events",
         "portfolio_reviews",
         "daily_reports",
+        "fundamentals",
     ]:
         assert t in tables
     assert os.environ["DATABASE_URL"] == url

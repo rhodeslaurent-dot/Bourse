@@ -13,6 +13,54 @@ BLOCK_MAX = {"C": 30, "T": 25, "F": 20, "R": 15, "M": 10}
 
 
 @dataclass(frozen=True)
+class FundamentalFacts:
+    """Free fundamentals (docs/06 §6.5 block F); any field may be missing (never estimated)."""
+
+    revenue_growth: float | None = None  # fraction (0.12 = +12 %)
+    operating_margin: float | None = None
+    debt_to_ebitda: float | None = None
+    pe: float | None = None
+    sector_median_pe: float | None = None
+    eps_revisions_positive: bool | None = None  # no free source yet → None
+
+
+def fundamentals_block(f: FundamentalFacts | None, min_available: int) -> tuple[float | None, int, int, list[str]]:
+    """(points, attainable maximum, available sub-criteria, explanations); points ``None`` when
+    fewer than ``min_available`` sub-criteria are available (F « non attribué »)."""
+    if f is None:
+        return None, 0, 0, ["fondamentaux non attribués (aucune donnée)"]
+    pts, mx, ex, n = 0.0, 0, [], 0
+    if f.revenue_growth is not None:
+        n, mx = n + 1, mx + 5
+        if f.revenue_growth > 0.10:
+            pts += 5
+            ex.append(f"croissance du chiffre d'affaires {f.revenue_growth:+.0%} → +5")
+    if f.operating_margin is not None:
+        n, mx = n + 1, mx + 4
+        if f.operating_margin > 0.10:
+            pts += 4
+            ex.append(f"marge opérationnelle {f.operating_margin:.0%} → +4")
+    if f.eps_revisions_positive is not None:
+        n, mx = n + 1, mx + 5
+        if f.eps_revisions_positive:
+            pts += 5
+    if f.debt_to_ebitda is not None:
+        n, mx = n + 1, mx + 3
+        if f.debt_to_ebitda < 2:
+            pts += 3
+            ex.append(f"dette / EBITDA {f.debt_to_ebitda:.1f} → +3")
+    if f.pe is not None and f.sector_median_pe:
+        n, mx = n + 1, mx + 3
+        if 0 < f.pe < 2 * f.sector_median_pe:
+            pts += 3
+            ex.append(f"PER {f.pe:.0f} < 2 × médiane du secteur {f.sector_median_pe:.0f} → +3")
+    if n < min_available:
+        return None, 0, n, [f"fondamentaux non attribués ({n} critère(s) disponible(s) sur 5)"]
+    ex.append(f"fondamentaux : {n}/5 critères disponibles (source gratuite)")
+    return pts, mx, n, ex
+
+
+@dataclass(frozen=True)
 class ScoreInput:
     rs_rank: float | None
     above_mm50_mm200: bool
@@ -37,6 +85,7 @@ class ScoreInput:
     catalyst_age_days: int | None = None
     external_confirmation: bool = False
     small_cap: bool = False
+    fundamentals: FundamentalFacts | None = None
 
 
 @dataclass
@@ -65,7 +114,13 @@ def _clamp(v: float, hi: float) -> float:
     return max(0.0, min(hi, v))
 
 
-def score(inp: ScoreInput, admission_blocks: list[str], c_bonus_cap: float, data_complete: bool = True) -> Score:
+def score(
+    inp: ScoreInput,
+    admission_blocks: list[str],
+    c_bonus_cap: float,
+    data_complete: bool = True,
+    f_min_available: int = 2,
+) -> Score:
     ex: list[str] = []
     # C — catalysts
     c = 0.0
@@ -135,17 +190,20 @@ def score(inp: ScoreInput, admission_blocks: list[str], c_bonus_cap: float, data
     if inp.same_sector_positions >= 2:
         m -= 3
     m = _clamp(m, 10)
-    blocks: dict[str, float | None] = {"C": c, "T": t, "F": None, "R": r, "M": m}
-    attainable = sum(BLOCK_MAX[k] for k, v in blocks.items() if v is not None)
+    f_pts, f_max, f_n, f_ex = fundamentals_block(inp.fundamentals, f_min_available)
+    ex += f_ex
+    blocks: dict[str, float | None] = {"C": c, "T": t, "F": f_pts, "R": r, "M": m}
+    maxima = {**BLOCK_MAX, "F": f_max}
+    attainable = sum(maxima[k] for k, v in blocks.items() if v is not None)
     total = sum(v for v in blocks.values() if v is not None) / attainable * 100
-    denom = sum(BLOCK_MAX[k] for k in admission_blocks if blocks.get(k) is not None)
+    denom = sum(maxima[k] for k in admission_blocks if blocks.get(k) is not None)
     num = sum(blocks[k] or 0 for k in admission_blocks if blocks.get(k) is not None)
     if "C" not in admission_blocks:
         num += min(c, c_bonus_cap)
     ratio = min(1.0, num / denom) if denom else 0.0
-    ex.append("fondamentaux non attribués (aucune source gratuite qualifiée)")
     confidence = 4 if data_complete else 3
-    confidence -= 1  # F unavailable (docs/06 §6.5: confidence −1 under 3/5 sub-criteria)
+    if f_pts is None or f_n < 3:
+        confidence -= 1  # docs/06 §6.5: confidence −1 under 3/5 fundamental sub-criteria
     if inp.external_confirmation or (inp.catalyst_strength and inp.catalyst_positive):
         confidence += 1
     confidence = max(1, min(5, confidence))

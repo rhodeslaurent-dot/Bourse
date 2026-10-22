@@ -906,3 +906,17 @@ class DailyReport(Base):
     day: Mapped[date] = mapped_column(Date, unique=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     content: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class Fundamentals(Base):
+    """Free fundamentals / analyst consensus of an instrument on a day (source and date kept)."""
+
+    __tablename__ = "fundamentals"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    day: Mapped[date] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(16))
+    symbol: Mapped[str] = mapped_column(String(32))
+    data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("isin", "day", name="uq_fundamentals_isin_day"),)

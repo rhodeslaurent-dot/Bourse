@@ -270,3 +270,13 @@ def test_ranking_orders_by_expectation_then_ratio():
     ]
     order = [it.key for _, it, _ in rank(items)]
     assert order == ["c", "b", "a", "d"]
+
+
+def test_fundamentals_block_partial_and_unattributed():
+    from app.domain.scoring import FundamentalFacts, fundamentals_block
+
+    pts, mx, n, ex = fundamentals_block(FundamentalFacts(revenue_growth=0.15, operating_margin=0.08), 2)
+    assert (pts, mx, n) == (5, 9, 2)
+    assert fundamentals_block(FundamentalFacts(revenue_growth=0.15), 2)[0] is None
+    full = fundamentals_block(FundamentalFacts(0.2, 0.2, 1.5, 12, 15), 2)
+    assert full[:3] == (15, 15, 4)
