@@ -87,10 +87,13 @@ class EodhdProvider(MarketDataProvider):
         rows = self._get("/exchanges-list/")
         return list(rows) if isinstance(rows, list) else []
 
-    def exchange_symbols(self, exchange: str) -> list[dict[str, str]]:
-        """``exchange-symbol-list``: Code, Name, Country, Exchange, Currency, Type, Isin."""
+    def exchange_symbols(
+        self, exchange: str, types: tuple[str, ...] = ("common stock", "stock", "")
+    ) -> list[dict[str, str]]:
+        """``exchange-symbol-list``: Code, Name, Country, Exchange, Currency, Type, Isin (``types``
+        lower-cased: add ``"etf"`` to include ETFs)."""
         rows = self._get(f"/exchange-symbol-list/{exchange}")
-        return [r for r in rows if str(r.get("Type", "")).lower() in ("common stock", "stock", "")]  # type: ignore[union-attr]
+        return [r for r in rows if str(r.get("Type", "")).lower() in types]  # type: ignore[union-attr]
 
     def fetch_eod_bulk(self, exchange: str, day: date | None = None) -> list[EodBar]:
         """One call for a whole exchange (``eod-bulk-last-day``)."""

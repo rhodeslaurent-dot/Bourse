@@ -165,6 +165,9 @@ universe:
   opening_list_max: 15
   realtime_symbols_max: 150
   blacklist: []
+  include_etf: true                    # docs/22 §22.5 rang 2 : ETF des places chargées (liquidité seule, sans capitalisation)
+  min_adv_eur_etf: 1000000
+  etf_pea_isins: []                    # ETF éligibles au PEA confirmés (sinon présumés par « PEA » dans le nom, à confirmer)
 
 regime:
   red_min_components: 2               # rouge si >= 2 composantes rouges ; orange si >= 1 orange ou 1 rouge

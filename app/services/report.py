@@ -80,7 +80,8 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         {
             "titre": RUBRICS[1],
             "faits": mk + ([f"Régime {reg.regime} au {reg.day:%d/%m}"] if reg else []),
-            "analyse": [f"Risque conjoncturel {ctxm.level} · portail {ctxm.gate} ({ctxm.gate_reason})"],
+            "analyse": [f"Risque conjoncturel {ctxm.level} · portail {ctxm.gate} ({ctxm.gate_reason})"]
+            + _rotation_lines(s, day),
         }
     )
     # 3 — portfolio
@@ -194,6 +195,19 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         "rubriques": r,
         "synthese_portefeuille": syn,
     }
+
+
+def _rotation_lines(s: Session, day: date) -> list[str]:
+    from app.services.rotation import etf_ranking, sector_strength
+
+    sec = list(sector_strength(s, day).items())[:3]
+    etf = etf_ranking(s, day, 3)
+    out = []
+    if sec:
+        out.append("Secteurs les plus forts : " + ", ".join(f"{k} (rang médian {v['median_rang']})" for k, v in sec))
+    if etf:
+        out.append("ETF en tête : " + ", ".join(f"{e['nom']} (rang {e['rang']:.0f})" for e in etf))
+    return out
 
 
 def store(s: Session, day: date, content: dict[str, Any]) -> DailyReport:

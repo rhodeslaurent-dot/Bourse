@@ -86,6 +86,17 @@ class UniverseFilters:
     min_price: float
     min_history_sessions: int
     blacklist: list[str] = field(default_factory=list)
+    min_adv_eur_etf: float | None = None  # docs/22 §22.5 rank 2 — ETFs: liquidity only, no market cap
+
+
+def etf_pea_status(isin: str, name: str, pea_isins: list[str]) -> tuple[bool, float, str]:
+    """PEA eligibility of an ETF (its domicile says nothing: many PEA ETFs are Irish or Luxembourg
+    swaps). Listed by the user → eligible; « PEA » in the name → presumed (to confirm); else not."""
+    if isin in pea_isins:
+        return True, 1.0, "liste_utilisateur"
+    if " PEA" in f" {name.upper()} ":
+        return True, 0.6, "nom_etf"
+    return False, 0.7, "etf_hors_pea"
 
 
 @dataclass(frozen=True)
@@ -109,7 +120,9 @@ class UniverseDecision:
     small_cap: bool
 
 
-def universe_decision(f: InstrumentFacts, filt: UniverseFilters) -> UniverseDecision:
+def universe_decision(f: InstrumentFacts, filt: UniverseFilters, kind: str = "stock") -> UniverseDecision:
+    if kind == "etf":
+        return _etf_decision(f, filt)
     reasons: list[str] = []
     if f.isin in filt.blacklist:
         reasons.append("liste noire")
@@ -131,6 +144,21 @@ def universe_decision(f: InstrumentFacts, filt: UniverseFilters) -> UniverseDeci
         reasons.append(f"ADV20 < {filt.min_adv_eur_pea / 1e6:.1f} M€")
     small = f.market_cap_eur is not None and f.market_cap_eur < filt.small_cap_threshold_eur
     return UniverseDecision(not reasons, reasons, cto_ok, pea_ok, small)
+
+
+def _etf_decision(f: InstrumentFacts, filt: UniverseFilters) -> UniverseDecision:
+    reasons: list[str] = []
+    if f.isin in filt.blacklist:
+        reasons.append("liste noire")
+    if f.price is None or f.price < filt.min_price:
+        reasons.append(f"prix < {filt.min_price} €")
+    if f.history_sessions < filt.min_history_sessions:
+        reasons.append(f"historique < {filt.min_history_sessions} séances")
+    min_adv = filt.min_adv_eur_etf if filt.min_adv_eur_etf is not None else filt.min_adv_eur_pea
+    ok = f.adv_eur_20 is not None and f.adv_eur_20 >= min_adv
+    if not ok:
+        reasons.append(f"ETF : ADV20 < {min_adv / 1e6:.1f} M€")
+    return UniverseDecision(not reasons, reasons, ok, ok, False)
 
 
 @dataclass(frozen=True)

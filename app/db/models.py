@@ -314,6 +314,7 @@ class Instrument(Base):
     ticker_eodhd: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     ticker_saxo: Mapped[str | None] = mapped_column(String(32), nullable=True)
     saxo_uic: Mapped[str | None] = mapped_column(String(16), nullable=True)  # R19, learned from portfolio sync
+    kind: Mapped[str] = mapped_column(String(8), default="stock")  # stock | etf (docs/22 §22.5)
     ticker_tv: Mapped[str | None] = mapped_column(String(32), nullable=True)
     exchange: Mapped[str | None] = mapped_column(String(16), nullable=True)
     mic: Mapped[str] = mapped_column(String(8), index=True)

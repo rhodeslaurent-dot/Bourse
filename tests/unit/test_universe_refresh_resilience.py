@@ -11,7 +11,7 @@ class FakeProvider:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def exchange_symbols(self, exchange: str):
+    def exchange_symbols(self, exchange: str, types=None):
         self.calls.append(exchange)
         if exchange == "MI":
             raise ProviderError("EODHD 404 on /exchange-symbol-list/MI: Exchange Not Found.")

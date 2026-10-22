@@ -54,6 +54,7 @@ class SymbolRow:
     earnings_next_date: date | None = None
     tv_ticker: str | None = None
     extra: dict = field(default_factory=dict)
+    kind: str = "stock"  # stock | etf
 
 
 @dataclass
@@ -77,6 +78,7 @@ def filters_from(config: LoadedConfig) -> UniverseFilters:
         u["min_price"],
         u["min_history_sessions"],
         list(u.get("blacklist", [])),
+        float(u["min_adv_eur_etf"]) if u.get("min_adv_eur_etf") is not None else None,
     )
 
 
@@ -115,10 +117,18 @@ def refresh_universe(
         facts = InstrumentFacts(
             r.isin, mic, price * fx if (price is not None and fx) else None, inst.market_cap_eur, adv, len(bars)
         )
-        dec = universe_decision(facts, filt)
+        inst.kind = r.kind
+        dec = universe_decision(facts, filt, r.kind)
         for reason in dec.reasons:
             rep.reasons[reason] = rep.reasons.get(reason, 0) + 1
         pea = pea_regulatory_eligibility(r.isin, inst.country_of_domicile, countries, inst.pea_available_boursobank)
+        if r.kind == "etf":
+            from app.domain.universe import PeaEligibility, etf_pea_status
+
+            ok, conf, src = etf_pea_status(
+                r.isin, r.name, list((config.params.universe or {}).get("etf_pea_isins") or [])
+            )
+            pea = PeaEligibility(ok, conf, src, "ETF : éligibilité selon la liste ou le nom (à confirmer)")
         if inst.pea_eligible != pea.eligible or inst.pea_source != pea.source:
             s.add(
                 PeaEligibilityRow(

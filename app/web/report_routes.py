@@ -69,3 +69,17 @@ def run_review_now(request: Request) -> RedirectResponse:
         rev = run_review(s, request.app.state.config, trigger="manual")
         rid = rev.id
     return RedirectResponse(f"/revue?rid={rid}", status_code=303)
+
+
+@router.get("/rotation", response_class=HTMLResponse)
+def rotation_page(request: Request) -> HTMLResponse:
+    """docs/22 §22.4 C — sector strength (median rank of their stocks) and ETF ranking."""
+    from app.services.rotation import etf_ranking, sector_strength
+
+    day = today_paris()
+    with db_session() as s:
+        sectors = sector_strength(s, day)
+        etfs = etf_ranking(s, day, 40)
+    return templates.TemplateResponse(
+        request, "rotation.html", {"request": request, "sectors": sectors, "etfs": etfs, "day": day}
+    )

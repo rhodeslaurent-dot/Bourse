@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, empty %}
+{% block title %}Rotation — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="text-2xl font-bold">Rotation sectorielle et ETF</h1>
+  <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Force relative des secteurs (rang médian de leurs actions) et classement des ETF de l'univers. Un secteur au 60e centile ou plus ajoute des points au bloc « contexte » du score ; les ETF passent par les mêmes détecteurs et les mêmes règles que les actions. Données stockées uniquement.</p>
+</section>
+<section class="card">
+  <h2 class="font-semibold">Secteurs</h2>
+  {% if sectors %}
+  <div class="mt-2 overflow-x-auto"><table class="w-full text-sm tabular">
+    <thead class="text-xs text-slate-500"><tr><th class="text-left">Secteur</th><th class="text-right">Rang médian</th><th class="text-right">Centile</th><th class="text-right">Valeurs</th></tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">{% for k, v in sectors.items() %}<tr><td class="py-1">{{ k }} {% if v.centile >= 60 %}{{ badge('porteur', 'green') }}{% endif %}</td><td class="text-right">{{ v.median_rang }}</td><td class="text-right">{{ v.centile }}</td><td class="text-right">{{ v.membres }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}{{ empty('Pas encore de force relative par secteur (univers et indicateurs à charger).', 'slate') }}{% endif %}
+</section>
+<section class="card">
+  <h2 class="font-semibold">ETF</h2>
+  {% if etfs %}
+  <div class="mt-2 overflow-x-auto"><table class="w-full text-sm tabular">
+    <thead class="text-xs text-slate-500"><tr><th class="text-left">ETF</th><th class="text-right">Rang</th><th class="text-right">1 mois</th><th class="text-right">3 mois</th><th class="text-right">6 mois</th><th class="text-left pl-3">PEA</th></tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">{% for e in etfs %}<tr><td class="py-1"><a href="/valeur/{{ e.isin }}" class="hover:underline">{{ e.nom }}</a> {% if e.porteur %}{{ badge('premier quintile', 'green') }}{% endif %}</td><td class="text-right">{{ '%.0f'|format(e.rang) }}</td><td class="text-right">{{ '%+.1f %%'|format(e.perf_1m * 100) if e.perf_1m is not none else '—' }}</td><td class="text-right">{{ '%+.1f %%'|format(e.perf_3m * 100) if e.perf_3m is not none else '—' }}</td><td class="text-right">{{ '%+.1f %%'|format(e.perf_6m * 100) if e.perf_6m is not none else '—' }}</td><td class="pl-3 text-xs">{% if e.pea %}{{ badge('oui' if e.pea_source == 'liste_utilisateur' else 'présumé', 'green' if e.pea_source == 'liste_utilisateur' else 'amber', e.pea_source) }}{% else %}non{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}{{ empty('Aucun ETF dans l\'univers (universe.include_etf, puis rafraîchissement du lundi).', 'slate') }}{% endif %}
+</section>
+{% endblock %}

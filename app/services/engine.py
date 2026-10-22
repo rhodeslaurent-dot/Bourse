@@ -210,6 +210,7 @@ def evaluate(
     now: datetime,
     feats: FeatureDaily | None,
     fundamentals: Any | None = None,
+    sector_rs_pct: float | None = None,
 ) -> Evaluation:
     p = config.params
     risk = p.risk
@@ -399,6 +400,7 @@ def evaluate(
             external_confirmation=bool(_letter_levels(s, inst.isin, now.date())),
             small_cap=bool(inst.small_cap),
             fundamentals=fundamentals,
+            sector_rs_pct=sector_rs_pct,
         ),
         list((p.scoring or {}).get("admission_blocks", {}).get(setup.detector, ["T", "R", "M"])),
         float((p.scoring or {}).get("c_bonus_cap", 5)),
@@ -599,6 +601,9 @@ def scan(
     stop_p = p.risk.stop
     wick = float(getattr(stop_p, "wick_buffer_pct", None) or 0.005)
     evals: list[Evaluation] = []
+    from app.services.rotation import sector_strength
+
+    sectors = sector_strength(s, day)
     for inst in _candidates(s, isins):
         rep.scanned += 1
         bars = load_bars(s, inst.isin, end=day, limit=int(zp.get("lookback_sessions", 250)) + 10)
@@ -656,6 +661,7 @@ def scan(
                 now,
                 feats,
                 ff,
+                (sectors.get(inst.sector or "") or {}).get("centile"),
             )
             ev.details["source_cours"], ev.details["horodatage_cours"] = price_source, price_ts
             if shown:

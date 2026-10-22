@@ -12,6 +12,7 @@
       <form method="get" action="/rapport" class="flex gap-2"><input type="date" name="day" value="{{ day.isoformat() }}" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-sm">{{ button('Afficher', 'ghost') }}</form>
       {% if not archived %}<form method="post" action="/rapport/archiver" data-busy="Construction du rapport…">{{ button('Archiver le rapport du jour') }}</form>{% endif %}
       <a href="/revue" class="text-sm underline decoration-dotted text-sky-700 dark:text-sky-300">Revue de portefeuille</a>
+      <a href="/rotation" class="text-sm underline decoration-dotted text-sky-700 dark:text-sky-300">Rotation</a>
     </div>
   </div>
 </section>

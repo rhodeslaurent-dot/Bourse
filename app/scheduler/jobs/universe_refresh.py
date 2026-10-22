@@ -18,14 +18,15 @@ log = logging.getLogger("bourse.jobs.universe_refresh")
 
 
 def symbol_rows_from_eodhd(
-    provider: EodhdProvider, exchanges: list[str], errors: dict[str, str] | None = None
+    provider: EodhdProvider, exchanges: list[str], errors: dict[str, str] | None = None, include_etf: bool = False
 ) -> list[SymbolRow]:
     """Symbol lists of the given EODHD exchange codes. An exchange that fails (unknown code, outage)
     is recorded in ``errors`` and skipped: one market never blocks the others."""
     out: list[SymbolRow] = []
     for ex in exchanges:
         try:
-            symbols = provider.exchange_symbols(ex)
+            types = ("common stock", "stock", "", "etf") if include_etf else ("common stock", "stock", "")
+            symbols = provider.exchange_symbols(ex, types) if include_etf else provider.exchange_symbols(ex)
         except ProviderError as exc:
             if errors is None:
                 raise
@@ -44,6 +45,7 @@ def symbol_rows_from_eodhd(
                     exchange=ex,
                     currency=str(r.get("Currency") or "EUR"),
                     country=_country(r.get("Country")),
+                    kind="etf" if str(r.get("Type", "")).lower() == "etf" else "stock",
                 )
             )
     return out
@@ -154,7 +156,7 @@ def run(ctx: JobContext) -> int:
     if skipped:
         log.warning("places sans calendrier, non chargées : %s (encoder market_calendars.yaml)", ", ".join(skipped))
     errors: dict[str, str] = {}
-    rows = symbol_rows_from_eodhd(provider, exchanges, errors)
+    rows = symbol_rows_from_eodhd(provider, exchanges, errors, include_etf=bool(u.get("include_etf", False)))
     with db_session() as s:
         from app.services.market_data import fx_to_eur
 
