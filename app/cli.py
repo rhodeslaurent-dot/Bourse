@@ -968,7 +968,7 @@ def main(argv: list[str] | None = None) -> int:
     nh.set_defaults(fn=cmd_newsletters_history)
     tl = sub.add_parser("ttf-list-load", help="télécharge la liste officielle des sociétés soumises à la TTF")
     tl.add_argument("--year", type=int, required=True)
-    tl.add_argument("--url", default="https://bofip.impots.gouv.fr/bofip/ANNX-000467")
+    tl.add_argument("--url", default="https://bofip.impots.gouv.fr/bofip/9789-PGP.html")
     tl.add_argument("--file", help="page BOFiP enregistrée depuis le navigateur (si le téléchargement est refusé)")
     tl.add_argument("--out", default="data/ttf_list.yaml")
     tl.set_defaults(fn=cmd_ttf_list_load)

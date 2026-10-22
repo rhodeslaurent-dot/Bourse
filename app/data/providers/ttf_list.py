@@ -12,7 +12,7 @@ import httpx
 from app.data.base import ProviderError
 from app.data.providers.rss import BROWSER_UA
 
-DEFAULT_URL = "https://bofip.impots.gouv.fr/bofip/ANNX-000467"
+DEFAULT_URL = "https://bofip.impots.gouv.fr/bofip/9789-PGP.html"
 ISIN_RE = re.compile(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b")
 
 
