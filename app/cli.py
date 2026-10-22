@@ -308,9 +308,13 @@ def init_params(example: str, target: str, telegram_user_id: str, email: str, up
         text, added = merge_missing_jobs(example_text, text)
         if added:
             print("jobs ajoutés depuis params.example.yaml : " + ", ".join(added))
-        text, blocks = merge_missing_blocks(example_text, text, ["workflow", "learning", "letters_review"])
+        text, blocks = merge_missing_blocks(example_text, text, NEW_TOP_BLOCKS)
         if blocks:
             print("blocs ajoutés depuis params.example.yaml : " + ", ".join(blocks))
+        for parent in NEW_CHILD_PARENTS:
+            text, children = merge_missing_children(example_text, text, parent)
+            if children:
+                print(f"clés ajoutées sous {parent} : " + ", ".join(children))
         text, steps = merge_missing_workflow_steps(example_text, text)
         if steps:
             print("étapes de la journée ajoutées : " + ", ".join(steps))
@@ -353,6 +357,83 @@ def merge_missing_workflow_steps(example: str, target: str) -> tuple[str, list[s
     last = max(i for i, ln in enumerate(lines) if step_re.match(ln))
     lines[last + 1 : last + 1] = [ln + "\n" for _, ln in missing]
     return "".join(lines), [k for k, _ in missing]
+
+
+# Blocks / keys added to params.example.yaml after a user's params.yaml was created: copied
+# verbatim (with their comments) by ``params-init --update``; existing values are never touched.
+NEW_TOP_BLOCKS = [
+    "workflow",
+    "learning",
+    "letters_review",
+    "admission",  # docs/07 §7.9 — référentiel de gestion du 22/10/2026
+    "market_gate",
+    "conjuncture",
+    "events",
+    "entry",
+    "zones",
+    "ranking",
+    "pockets",
+]
+NEW_CHILD_PARENTS = ["risk", "risk.stop", "srd", "data"]
+
+
+def _block_range(lines: list[str], path: str) -> tuple[int, int, int]:
+    """(start, end, indent) of the mapping at dotted ``path`` (2-space YAML); (-1, -1, 0) if absent."""
+    import re
+
+    lo, hi, indent = 0, len(lines), 0
+    start = -1
+    for seg in path.split("."):
+        pat = re.compile(rf"^{' ' * indent}{re.escape(seg)}:")
+        start = next((i for i in range(lo, hi) if pat.match(lines[i])), -1)
+        if start < 0:
+            return -1, -1, 0
+        end = hi
+        for i in range(start + 1, hi):
+            ln = lines[i]
+            if ln.strip() and not ln.lstrip().startswith("#") and len(ln) - len(ln.lstrip(" ")) <= indent:
+                end = i
+                break
+        lo, hi, indent = start + 1, end, indent + 2
+    return start, hi, indent
+
+
+def merge_missing_children(example: str, target: str, path: str) -> tuple[str, list[str]]:
+    """Append to the target's mapping at ``path`` (e.g. ``risk.stop``) the direct child keys of the
+    example that it lacks, with their indented continuation lines. Existing keys are untouched."""
+    import re
+
+    ex = example.splitlines(keepends=True)
+    tg = target.splitlines(keepends=True)
+    es, ee, ind = _block_range(ex, path)
+    ts, te, _ = _block_range(tg, path)
+    if es < 0 or ts < 0:
+        return target, []
+    child = re.compile(rf"^{' ' * ind}([A-Za-z0-9_]+):")
+    have = {m.group(1) for ln in tg[ts + 1 : te] if (m := child.match(ln))}
+    add: list[str] = []
+    added: list[str] = []
+    i = es + 1
+    while i < ee:
+        m = child.match(ex[i])
+        if not m:
+            i += 1
+            continue
+        j = i + 1
+        while j < ee and (not ex[j].strip() or len(ex[j]) - len(ex[j].lstrip(" ")) > ind) and not child.match(ex[j]):
+            j += 1
+        if m.group(1) not in have:
+            add.extend(ln if ln.endswith("\n") else ln + "\n" for ln in ex[i:j] if ln.strip())
+            added.append(m.group(1))
+        i = j
+    if not add:
+        return target, []
+    insert_at = te
+    while insert_at > ts + 1 and not tg[insert_at - 1].strip():
+        insert_at -= 1
+    if insert_at > 0 and not tg[insert_at - 1].endswith("\n"):
+        tg[insert_at - 1] += "\n"
+    return "".join(tg[:insert_at] + add + tg[insert_at:]), added
 
 
 def merge_missing_blocks(example: str, target: str, keys: list[str]) -> tuple[str, list[str]]:

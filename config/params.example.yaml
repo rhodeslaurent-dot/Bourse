@@ -421,7 +421,7 @@ availability:
 
 config_validation:
   required_groups: ["timezones", "capital", "risk", "accounts", "notifications", "data", "jobs"]
-  optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers", "learning", "letters_review"]   # manquant → fonctionnalité désactivée, mention sur /sante
+  optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers", "learning", "letters_review", "admission", "market_gate", "conjuncture", "events", "entry", "zones", "ranking", "pockets"]   # manquant → fonctionnalité désactivée, mention sur /sante
 
 review:
   human_delay_minutes: 5              # délai humain appliqué en rejeu entre alerte et ordre

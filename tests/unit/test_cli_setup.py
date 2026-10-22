@@ -165,3 +165,41 @@ def test_init_params_update_adds_learning_block_and_new_workflow_steps(tmp_path)
     assert data["workflow"]["steps"][0]["label"] == "Mes décisions"  # user edits kept
     out = target.read_text(encoding="utf-8")
     assert cli.merge_missing_workflow_steps(out, out) == (out, [])
+
+
+def test_merge_missing_children_nested_and_idempotent():
+    example = (
+        "risk:\n  a: 1\n  stop:\n    x: 1\n    wick: 0.005   # tampon\n  override:\n    min: 85\n    max: 1.5\n"
+        "data:\n  q: true\n"
+    )
+    target = "risk:\n  a: 2\n  stop:\n    x: 3\n\ndata:\n  q: false\n"
+    out, added = cli.merge_missing_children(example, target, "risk")
+    assert added == ["override"] and "  a: 2\n" in out
+    out, added = cli.merge_missing_children(example, out, "risk.stop")
+    assert added == ["wick"] and "    x: 3\n    wick: 0.005   # tampon\n" in out
+    import yaml
+
+    d = yaml.safe_load(out)
+    assert d["risk"]["override"] == {"min": 85, "max": 1.5} and d["risk"]["stop"] == {"x": 3, "wick": 0.005}
+    assert d["data"] == {"q": False}
+    assert cli.merge_missing_children(example, out, "risk") == (out, [])
+
+
+def test_params_update_adds_new_rules_to_an_old_params(tmp_path):
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    example = (root / "config" / "params.example.yaml").read_text(encoding="utf-8")
+    import yaml
+
+    old = yaml.safe_load(example)
+    for k in ("admission", "market_gate", "conjuncture"):
+        old.pop(k)
+    old["risk"].pop("override")
+    old["risk"]["stop"].pop("wick_buffer_pct")
+    target = tmp_path / "params.yaml"
+    target.write_text(yaml.safe_dump(old, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    assert cli.init_params(str(root / "config" / "params.example.yaml"), str(target), "1", "a@b.c", update=True)
+    d = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert d["admission"]["min_reward_risk"] == 2.0 and d["risk"]["override"]["min_score"] == 85
+    assert d["risk"]["stop"]["wick_buffer_pct"] == 0.005 and d["market_gate"]["mode"] == "double"
