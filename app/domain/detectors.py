@@ -84,7 +84,8 @@ class D2Breakout:
         last = bars[-1]
         if None in (f.mm50, f.mm200, f.mm20, f.atr14, f.adr20, f.pivot_60, f.rvol, f.consolidation_20):
             return []
-        assert f.mm50 and f.mm200 and f.mm20 and f.atr14 and f.adr20 and f.pivot_60 and f.rvol
+        if not (f.mm50 and f.mm200 and f.mm20 and f.atr14 and f.adr20 and f.pivot_60 and f.rvol):
+            return []  # a zero value (flat prices, no volume) makes the setup meaningless
         if not (f.mm50 > f.mm200 and last.close > f.mm50):
             return []
         if ctx.rs_rank is None or ctx.rs_rank < p["rs_rank_min"] or f.rvol < p["rvol_min"]:
@@ -145,7 +146,8 @@ class D3RangeExpansion:
         last, prev = bars[-1], bars[-2]
         if None in (f.atr14, f.adr20, f.rvol, f.ti65) or prev.close <= 0:
             return []
-        assert f.atr14 and f.adr20 and f.rvol and f.ti65
+        if not (f.atr14 and f.adr20 and f.rvol and f.ti65):
+            return []  # a zero value (flat prices, no volume) makes the setup meaningless
         if last.close / prev.close < p["close_ratio_min"] or f.rvol < p["rvol_min"] or last.volume <= prev.volume:
             return []
         rng = last.high - last.low
@@ -192,7 +194,8 @@ class D4Pullback:
         last, prev = bars[-1], bars[-2]
         if None in (f.mm10, f.mm20, f.mm50, f.atr14, f.adr20, f.rsi14):
             return []
-        assert f.mm10 and f.mm20 and f.mm50 and f.atr14 and f.adr20 and f.rsi14
+        if not (f.mm10 and f.mm20 and f.mm50 and f.atr14 and f.adr20 and f.rsi14):
+            return []  # a zero value (flat prices, no volume) makes the setup meaningless
         if ctx.rs_rank is None or ctx.rs_rank < p["rs_rank_min"] or last.close <= f.mm50:
             return []
         recent = bars[-20:]
@@ -260,7 +263,8 @@ class D7TrendQuality:
         last, prev = bars[-1], bars[-2]
         if None in (f.mm50, f.mm200, past.mm200, f.atr14, f.adr20):
             return []
-        assert f.mm50 and f.mm200 and past.mm200 and f.atr14 and f.adr20
+        if not (f.mm50 and f.mm200 and past.mm200 and f.atr14 and f.adr20):
+            return []  # a zero value (flat prices, no volume) makes the setup meaningless
         if ctx.rs_rank is None or ctx.rs_rank < p["rs_rank_min"]:
             return []
         if not (last.close > f.mm200 and f.mm200 > past.mm200 and f.mm50 > f.mm200):

@@ -194,3 +194,28 @@ def test_fixing_card_support_holds_or_degrades(db_engine, config):
 
         a = Alerts()
         assert fixing.send_cards(s, a, "disponible", ok) == 1 and a.sent[0].kind == "fixing_card"
+
+
+def test_flat_or_zero_volume_bars_and_one_bad_value_never_stop_the_scan(db_engine, config, monkeypatch):
+    from app.domain import detectors as det
+
+    flat = [Bar(10.0, 10.0, 10.0, 10.0, 0) for _ in range(260)]  # no volume, no range (22/10/2026 crash)
+    ctx = DetectorContext(rs_rank=95, zones=[], wick_buffer_pct=0.005, stop_buffer_atr_mult=0.25)
+    assert det.run_detectors(config.params.detectors, flat, ctx) == []
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        s.add(Instrument(isin="FR0000131104", name="BNP", mic="XPAR", currency="EUR", in_universe=True))
+        for k in range(80):
+            s.add(PriceEod(isin="FR0000131104", day=DAY - timedelta(days=200 - k), open=50, high=50, low=50,
+                           close=50, volume=0, source="eodhd", received_at=NOW, data_status="eod"))  # fmt: skip
+        s.flush()
+        real = det.run_detectors
+
+        def boom(params, bars, c):
+            if bars and bars[-1].close == 50:
+                raise ValueError("donnée corrompue")
+            return real(params, bars, c)
+
+        monkeypatch.setattr("app.services.engine.run_detectors", boom)
+        rep = engine.scan(s, config, DAY, now=NOW)
+        assert rep.errors == ["FR0000131104: ValueError"] and rep.setups >= 1 and "en erreur" in rep.note()

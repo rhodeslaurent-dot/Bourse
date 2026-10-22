@@ -540,10 +540,12 @@ class ScanReport:
     created: int = 0
     skipped_existing: int = 0
     by_action: dict[str, int] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
 
     def note(self) -> str:
         acts = ", ".join(f"{k} {v}" for k, v in sorted(self.by_action.items()))
-        return f"{self.scanned} valeurs, {self.setups} configurations, {self.created} propositions ({acts})"
+        err = f" · {len(self.errors)} valeur(s) en erreur : {', '.join(self.errors[:3])}" if self.errors else ""
+        return f"{self.scanned} valeurs, {self.setups} configurations, {self.created} propositions ({acts}){err}"
 
 
 def _candidates(s: Session, isins: list[str] | None) -> list[Instrument]:
@@ -620,87 +622,94 @@ def scan(
 
     sectors = sector_strength(s, day)
     for inst in _candidates(s, isins):
-        rep.scanned += 1
-        bars = load_bars(s, inst.isin, end=day, limit=int(zp.get("lookback_sessions", 250)) + 10)
-        if len(bars) < 60:
-            continue
-        feats = s.scalar(
-            select(FeatureDaily)
-            .where(FeatureDaily.isin == inst.isin, FeatureDaily.day <= day)
-            .order_by(FeatureDaily.day.desc())
-        )
-        f = compute_daily_features(bars)
-        zones = detect_zones(
-            bars[-int(zp.get("lookback_sessions", 250)) :],
-            f.atr14 or 0.0,
-            int(zp.get("pivot_window", 5)),
-            float(zp.get("merge_atr_mult", 0.5)),
-            int(zp.get("min_touches", 2)),
-        )
-        from app.services.fundamentals import analyst_target
-        from app.services.fundamentals import facts as fundamental_facts
-
-        ff, shown = fundamental_facts(s, inst)
-        d7 = (p.detectors or {}).get("d7_trend_quality") or {}
-        at = analyst_target(shown, int(d7.get("min_analysts", 3)), inst.currency) if shown else None
-        ctx = DetectorContext(
-            feats.rs_rank if feats else None, zones, wick, float(stop_p.buffer_atr_mult), [at] if at else []
-        )
-        found = [(x, "moteur") for x in run_detectors(p.detectors or {}, bars, ctx)]
-        found += _letter_setups(s, inst, day, ctx)
-        if not found:
-            continue
-        q = (quotes or {}).get(inst.isin)
-        live = q is not None and getattr(q, "last", None) is not None
-        price = float(q.last) if live else bars[-1].close
-        status = q.data_status.value if live else "eod"
-        last_day = s.scalar(
-            select(PriceEod.day).where(PriceEod.isin == inst.isin, PriceEod.day <= day).order_by(PriceEod.day.desc())
-        )
-        price_source = q.source if live else "clôture officielle stockée"
-        price_ts = q.market_timestamp if live else last_day
-        for setup, source in found:
-            rep.setups += 1
-            ev = evaluate(
-                s,
-                config,
-                inst,
-                setup,
-                source,
-                price,
-                status,
-                book,
-                ctxm.gate,
-                ctxm.regime,
-                ctxm.srd_mode,
-                now,
-                feats,
-                ff,
-                (sectors.get(inst.sector or "") or {}).get("centile"),
+        try:
+            rep.scanned += 1
+            bars = load_bars(s, inst.isin, end=day, limit=int(zp.get("lookback_sessions", 250)) + 10)
+            if len(bars) < 60:
+                continue
+            feats = s.scalar(
+                select(FeatureDaily)
+                .where(FeatureDaily.isin == inst.isin, FeatureDaily.day <= day)
+                .order_by(FeatureDaily.day.desc())
             )
-            ev.details["source_cours"], ev.details["horodatage_cours"] = price_source, price_ts
-            if shown:
-                ev.details["fondamentaux"] = {
-                    **shown,
-                    "objectif_retenu": at is not None and at in (setup.targets or []),
+            f = compute_daily_features(bars)
+            zones = detect_zones(
+                bars[-int(zp.get("lookback_sessions", 250)) :],
+                f.atr14 or 0.0,
+                int(zp.get("pivot_window", 5)),
+                float(zp.get("merge_atr_mult", 0.5)),
+                int(zp.get("min_touches", 2)),
+            )
+            from app.services.fundamentals import analyst_target
+            from app.services.fundamentals import facts as fundamental_facts
+
+            ff, shown = fundamental_facts(s, inst)
+            d7 = (p.detectors or {}).get("d7_trend_quality") or {}
+            at = analyst_target(shown, int(d7.get("min_analysts", 3)), inst.currency) if shown else None
+            ctx = DetectorContext(
+                feats.rs_rank if feats else None, zones, wick, float(stop_p.buffer_atr_mult), [at] if at else []
+            )
+            found = [(x, "moteur") for x in run_detectors(p.detectors or {}, bars, ctx)]
+            found += _letter_setups(s, inst, day, ctx)
+            if not found:
+                continue
+            q = (quotes or {}).get(inst.isin)
+            live = q is not None and getattr(q, "last", None) is not None
+            price = float(q.last) if live else bars[-1].close
+            status = q.data_status.value if live else "eod"
+            last_day = s.scalar(
+                select(PriceEod.day)
+                .where(PriceEod.isin == inst.isin, PriceEod.day <= day)
+                .order_by(PriceEod.day.desc())
+            )
+            price_source = q.source if live else "clôture officielle stockée"
+            price_ts = q.market_timestamp if live else last_day
+            for setup, source in found:
+                rep.setups += 1
+                ev = evaluate(
+                    s,
+                    config,
+                    inst,
+                    setup,
+                    source,
+                    price,
+                    status,
+                    book,
+                    ctxm.gate,
+                    ctxm.regime,
+                    ctxm.srd_mode,
+                    now,
+                    feats,
+                    ff,
+                    (sectors.get(inst.sector or "") or {}).get("centile"),
+                )
+                ev.details["source_cours"], ev.details["horodatage_cours"] = price_source, price_ts
+                if shown:
+                    ev.details["fondamentaux"] = {
+                        **shown,
+                        "objectif_retenu": at is not None and at in (setup.targets or []),
+                    }
+                ev.details["contexte_marche"] = {
+                    "risque_conjoncturel": ctxm.level,
+                    "composantes": ctxm.components,
+                    "portail": ctxm.gate,
+                    "raison_portail": ctxm.gate_reason,
+                    "publication_lettres": published_why,
+                    "mode_srd": ctxm.srd_mode,
                 }
-            ev.details["contexte_marche"] = {
-                "risque_conjoncturel": ctxm.level,
-                "composantes": ctxm.components,
-                "portail": ctxm.gate,
-                "raison_portail": ctxm.gate_reason,
-                "publication_lettres": published_why,
-                "mode_srd": ctxm.srd_mode,
-            }
-            ev.details["zones"] = [
-                {"bas": z.low, "haut": z.high, "contacts": z.touches, "type": z.kind} for z in zones[-8:]
-            ]
-            if ev.admitted:
-                track = comparable_history(s, config, SimpleNamespace(detector=setup.detector, source=source), now)
-                if track is not None and track.verdict != "insuffisant":
-                    ev.expected_r = track.shrunk_r
-                ev.details["historique"] = track.as_dict() if track is not None else None
-            evals.append(ev)
+                ev.details["zones"] = [
+                    {"bas": z.low, "haut": z.high, "contacts": z.touches, "type": z.kind} for z in zones[-8:]
+                ]
+                if ev.admitted:
+                    track = comparable_history(s, config, SimpleNamespace(detector=setup.detector, source=source), now)
+                    if track is not None and track.verdict != "insuffisant":
+                        ev.expected_r = track.shrunk_r
+                    ev.details["historique"] = track.as_dict() if track is not None else None
+                evals.append(ev)
+        except Exception as exc:  # noqa: BLE001 — one bad instrument never stops the scan
+            rep.errors.append(f"{inst.isin}: {exc.__class__.__name__}")
+            log.warning("moteur : %s ignorée (%s)", inst.isin, exc.__class__.__name__, exc_info=True)
+
     _persist(s, config, day, now, evals, rep)
     return rep
 

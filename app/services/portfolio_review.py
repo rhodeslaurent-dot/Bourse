@@ -7,6 +7,7 @@ new ideas of the day. Deterministic; the review is stored once written (never co
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -34,6 +35,7 @@ from app.domain.zones import detect_zones
 from app.services.instruments import name_of
 from app.services.market_data import fx_to_eur, load_bars
 
+log = logging.getLogger("bourse.review")
 ACCOUNT_LABELS = {"pea": "PEA", "cto_cash": "CTO comptant", "cto_srd": "CTO SRD"}
 
 
@@ -127,70 +129,80 @@ def review_lines(s: Session, config: LoadedConfig, day: date, now: datetime) -> 
             line.update({"verdict": "À VÉRIFIER", "signaux": ["aucun cours stocké : revue impossible"]})
             out.append(line)
             continue
-        closes = [b.close for b in bars]
-        below = 0
-        for k in range(1, 6):
-            if len(closes) >= 20 + k - 1:
-                m = sma(closes[: len(closes) - k + 1], 20)
-                if m is not None and closes[-k] < m:
-                    below += 1
-                    continue
-            break
-        f = compute_daily_features(bars)
-        zones = detect_zones(
-            bars,
-            f.atr14 or 0.0,
-            int(zp.get("pivot_window", 5)),
-            float(zp.get("merge_atr_mult", 0.5)),
-            int(zp.get("min_touches", 2)),
-        )
-        targets, detector = _origin(s, pos.isin)
-        opened = pos.opened_at.replace(tzinfo=UTC) if pos.opened_at and pos.opened_at.tzinfo is None else pos.opened_at
-        held = (
-            len(list(s.scalars(select(PriceEod.day).where(PriceEod.isin == pos.isin, PriceEod.day > opened.date()))))
-            if opened
-            else 0
-        )
-        feats = s.scalar(select(FeatureDaily).where(FeatureDaily.isin == pos.isin).order_by(FeatureDaily.day.desc()))
-        earn_h = None
-        if inst and inst.earnings_next_date:
-            earn_h = (
-                datetime.combine(inst.earnings_next_date, datetime.min.time(), tzinfo=PARIS) - now
-            ).total_seconds() / 3600
-        rv = review_position(
-            PositionFacts(
-                entry_price=pos.avg_price,
-                stop=pos.stop_current,
-                stop_initial=pos.stop_initial,
-                close=closes[-1],
-                closes_below_mm20=below,
-                rs_rank=feats.rs_rank if feats else None,
-                targets=targets,
-                sessions_held=held,
-                detector=detector,
-                obstacles=[z.high for z in zones if z.low > pos.avg_price],
-                supports=[Zone(z.low, z.high) for z in zones if z.high < closes[-1]],
-                earnings_in_hours=earn_h,
-                macro_event_in_hours=macro_h,
-            ),
-            params,
-        )
-        line.update(
-            {
-                "cours": closes[-1],
-                "gain_pct": round(rv.gain_pct, 4),
-                "r": round(rv.r_multiple, 2) if rv.r_multiple is not None else None,
-                "verdict": rv.verdict,
-                "alleger_pct": rv.reduce_pct,
-                "stop_propose": round(rv.stop.stop, 4) if rv.stop else None,
-                "stop_change": bool(rv.stop and rv.stop.changed),
-                "stop_raison": rv.stop.reason if rv.stop else None,
-                "signaux": rv.signals,
-                "notes": rv.notes + (rv.stop.notes if rv.stop else []),
-                "objectifs": targets,
-                "seances": held,
-            }
-        )
+        try:
+            closes = [b.close for b in bars]
+            below = 0
+            for k in range(1, 6):
+                if len(closes) >= 20 + k - 1:
+                    m = sma(closes[: len(closes) - k + 1], 20)
+                    if m is not None and closes[-k] < m:
+                        below += 1
+                        continue
+                break
+            f = compute_daily_features(bars)
+            zones = detect_zones(
+                bars,
+                f.atr14 or 0.0,
+                int(zp.get("pivot_window", 5)),
+                float(zp.get("merge_atr_mult", 0.5)),
+                int(zp.get("min_touches", 2)),
+            )
+            targets, detector = _origin(s, pos.isin)
+            opened = (
+                pos.opened_at.replace(tzinfo=UTC) if pos.opened_at and pos.opened_at.tzinfo is None else pos.opened_at
+            )
+            held = (
+                len(
+                    list(s.scalars(select(PriceEod.day).where(PriceEod.isin == pos.isin, PriceEod.day > opened.date())))
+                )
+                if opened
+                else 0
+            )
+            feats = s.scalar(
+                select(FeatureDaily).where(FeatureDaily.isin == pos.isin).order_by(FeatureDaily.day.desc())
+            )
+            earn_h = None
+            if inst and inst.earnings_next_date:
+                earn_h = (
+                    datetime.combine(inst.earnings_next_date, datetime.min.time(), tzinfo=PARIS) - now
+                ).total_seconds() / 3600
+            rv = review_position(
+                PositionFacts(
+                    entry_price=pos.avg_price,
+                    stop=pos.stop_current,
+                    stop_initial=pos.stop_initial,
+                    close=closes[-1],
+                    closes_below_mm20=below,
+                    rs_rank=feats.rs_rank if feats else None,
+                    targets=targets,
+                    sessions_held=held,
+                    detector=detector,
+                    obstacles=[z.high for z in zones if z.low > pos.avg_price],
+                    supports=[Zone(z.low, z.high) for z in zones if z.high < closes[-1]],
+                    earnings_in_hours=earn_h,
+                    macro_event_in_hours=macro_h,
+                ),
+                params,
+            )
+            line.update(
+                {
+                    "cours": closes[-1],
+                    "gain_pct": round(rv.gain_pct, 4),
+                    "r": round(rv.r_multiple, 2) if rv.r_multiple is not None else None,
+                    "verdict": rv.verdict,
+                    "alleger_pct": rv.reduce_pct,
+                    "stop_propose": round(rv.stop.stop, 4) if rv.stop else None,
+                    "stop_change": bool(rv.stop and rv.stop.changed),
+                    "stop_raison": rv.stop.reason if rv.stop else None,
+                    "signaux": rv.signals,
+                    "notes": rv.notes + (rv.stop.notes if rv.stop else []),
+                    "objectifs": targets,
+                    "seances": held,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad position never stops the review
+            log.warning("revue : %s ignorée (%s)", pos.isin, exc.__class__.__name__, exc_info=True)
+            line.update({"verdict": "À VÉRIFIER", "signaux": [f"revue impossible ({exc.__class__.__name__})"]})
         out.append(line)
     return out
 
