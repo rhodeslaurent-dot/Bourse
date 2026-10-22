@@ -165,6 +165,12 @@ universe:
   opening_list_max: 15
   realtime_symbols_max: 150
   blacklist: []
+  markets_ex_pea: []                   # docs/22 §22.6 M2 — ex. ["LSE", "SW"] (Londres, Zurich ; CTO seulement)
+  markets_us: []                       # M3 — ex. ["US"] (NYSE / NASDAQ, jamais l'OTC ; CTO seulement)
+  market_overrides:                    # filtres propres à une place (sinon ceux ci-dessus)
+    US: {min_market_cap_eur: 2000000000, min_adv_eur_cto: 20000000, min_adv_eur_pea: 20000000}
+    LSE: {min_market_cap_eur: 1000000000}
+    SW: {min_market_cap_eur: 1000000000}
   include_etf: true                    # docs/22 §22.5 rang 2 : ETF des places chargées (liquidité seule, sans capitalisation)
   min_adv_eur_etf: 1000000
   etf_pea_isins: []                    # ETF éligibles au PEA confirmés (sinon présumés par « PEA » dans le nom, à confirmer)
@@ -358,6 +364,7 @@ pea:
 
 brokers:
   saxo:
+    fx_fee_pct: 0.0025                 # frais de conversion de devise par sens (à confirmer sur relevé Saxo) — coût complet hors euro
     commission_pct: 0.0008
     commission_min_eur: 2
     market_data: {euronext_l1_eur: 7, refunded_if_trades_per_month: 4, xetra_l1_eur: 7}

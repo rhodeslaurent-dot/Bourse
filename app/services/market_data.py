@@ -168,9 +168,13 @@ def upsert_fx(s: Session, pair: str, day: date, rate: float, source: str) -> Non
 
 
 def fx_to_eur(s: Session, currency: str, day: date | None = None) -> float | None:
-    """EUR per unit of ``currency``; ``None`` if unknown (never guessed)."""
+    """EUR per unit of ``currency``; ``None`` if unknown (never guessed). London quotes in pence
+    (``GBX`` / ``GBp``) are converted through the pound."""
     if currency == "EUR":
         return 1.0
+    if currency in ("GBX", "GBp"):
+        gbp = fx_to_eur(s, "GBP", day)
+        return gbp / 100 if gbp is not None else None
     q = select(FxRate).where(FxRate.pair == f"EUR{currency}")
     if day:
         q = q.where(FxRate.day <= day)

@@ -82,6 +82,14 @@ def filters_from(config: LoadedConfig) -> UniverseFilters:
     )
 
 
+def _filters_for(base: UniverseFilters, config: LoadedConfig, exchange: str) -> UniverseFilters:
+    """``universe.market_overrides.<EODHD code>`` (e.g. US: larger caps and liquidity)."""
+    from dataclasses import replace
+
+    ov = ((config.params.universe or {}).get("market_overrides") or {}).get(exchange) or {}
+    return replace(base, **{k: v for k, v in ov.items() if k in base.__dataclass_fields__}) if ov else base
+
+
 def refresh_universe(
     s: Session, config: LoadedConfig, calendars: MarketCalendars, rows: list[SymbolRow], day: date
 ) -> RefreshReport:
@@ -118,7 +126,7 @@ def refresh_universe(
             r.isin, mic, price * fx if (price is not None and fx) else None, inst.market_cap_eur, adv, len(bars)
         )
         inst.kind = r.kind
-        dec = universe_decision(facts, filt, r.kind)
+        dec = universe_decision(facts, _filters_for(filt, config, r.exchange), r.kind)
         for reason in dec.reasons:
             rep.reasons[reason] = rep.reasons.get(reason, 0) + 1
         pea = pea_regulatory_eligibility(r.isin, inst.country_of_domicile, countries, inst.pea_available_boursobank)

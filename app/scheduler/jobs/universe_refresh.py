@@ -15,6 +15,7 @@ from app.scheduler.runner import JobContext
 from app.services.universe import RefreshReport, SymbolRow, refresh_universe
 
 log = logging.getLogger("bourse.jobs.universe_refresh")
+VENUE_FILTER = {"US": {"NYSE", "NASDAQ", "NYSE ARCA", "NYSE MKT", "BATS"}}
 
 
 def symbol_rows_from_eodhd(
@@ -33,7 +34,10 @@ def symbol_rows_from_eodhd(
             errors[ex] = str(exc)[:160]
             log.warning("place EODHD %s ignorée : %s", ex, errors[ex])
             continue
+        venues = VENUE_FILTER.get(ex)
         for r in symbols:
+            if venues and str(r.get("Exchange", "")).upper() not in venues:
+                continue  # e.g. US: NYSE / NASDAQ only, never OTC
             isin = str(r.get("Isin") or "").strip().upper()
             if len(isin) != 12:
                 continue
@@ -123,7 +127,11 @@ def enrich_with_screener(  # type: ignore[no-untyped-def]
     by_key = {r.ticker: r for r in scan}  # EXCHANGE:SYMBOL — never merged across venues (M21)
     for r in rows:
         market = MARKETS_BY_EODHD.get(r.exchange)
-        sr = by_key.get(f"{TV_EXCHANGE.get(market or '', '')}:{r.code}") if market else None
+        sr = None
+        for prefix in (TV_EXCHANGE.get(market or "", "") or "").split("|") if market else []:
+            sr = by_key.get(f"{prefix}:{r.code.replace('_', '.')}") or by_key.get(f"{prefix}:{r.code}")
+            if sr is not None:
+                break
         if sr is None:
             continue
         # market_cap_basic is expressed in the fundamental currency when the screener gives it, else
@@ -147,7 +155,9 @@ def run(ctx: JobContext) -> int:
 
     provider = eodhd_from(ctx.config)
     exchanges, skipped = [], []
-    for ex in list(u.get("markets_p0", [])) + list(u.get("markets_p1", [])) + list(u.get("markets_p2", [])):
+    markets = list(u.get("markets_p0", [])) + list(u.get("markets_p1", [])) + list(u.get("markets_p2", []))
+    markets += list(u.get("markets_ex_pea", [])) + list(u.get("markets_us", []))  # docs/22 §22.6 M2, M3
+    for ex in markets:
         mic = ctx.calendars.eodhd_to_mic.get(ex)
         if mic in ctx.calendars.venues:
             exchanges.append(ex)

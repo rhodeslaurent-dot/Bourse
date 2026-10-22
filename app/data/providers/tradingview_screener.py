@@ -41,6 +41,10 @@ MARKETS_BY_EODHD = {
     "IR": "ireland",
     "VI": "austria",
     "WAR": "poland",
+    # docs/22 §22.6 M2/M3 — Europe hors PEA et États-Unis (désactivés tant que non listés dans universe.*)
+    "LSE": "uk",
+    "SW": "switzerland",
+    "US": "america",
 }
 TV_EXCHANGE = {
     "france": "EURONEXT",
@@ -57,6 +61,9 @@ TV_EXCHANGE = {
     "norway": "OSL",
     "austria": "VIE",
     "poland": "GPW",
+    "uk": "LSE",
+    "switzerland": "SIX",
+    "america": "NASDAQ|NYSE",  # several venues: every prefix is tried
 }
 
 
