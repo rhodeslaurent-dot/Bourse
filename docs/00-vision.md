@@ -23,7 +23,7 @@ Cette mécanique est conservée. L'outil l'industrialise et l'enrichit ; il ne l
 |---|---|---|---|
 | 1 | Maximiser les gains | Détection précoce, univers élargi, sélection par score, entrées sur pullback des leaders momentum | Espérance par trade (R), profit factor, performance vs CAC 40 / STOXX 600, **gain de précocité** (écart entre le prix d'entrée obtenu et le prix au moment de la newsletter) |
 | 2 | Minimiser les pertes | Stops systématiques, taille par le risque, filtre de régime, coupe-circuit, interdiction de trade avant publication | Perte moyenne en R ≤ 1,1 R, drawdown max, % de trades sans stop = 0 |
-| 3 | ≤ 1 h de travail manuel/jour | Disponibilité de l'utilisateur intégrée au moteur (modes disponible / réunion / absent), écran « 3 décisions du jour », entrées préparées la veille (ordres à plage de déclenchement), fiches d'ordre prêtes à saisir, déclaration des exécutions en 2 clics | Temps déclaré par créneau (saisie optionnelle), nombre d'actions manuelles/jour, propositions par jour ≤ 3 |
+| 3 | ≤ 1 h de travail manuel/jour | Disponibilité de l'utilisateur intégrée au moteur (modes disponible / réunion / absent), écran « 3 décisions du jour », entrées préparées la veille (ordres à plage de déclenchement), fiches d'ordre prêtes à saisir, déclaration des exécutions en 2 clics | Temps déclaré par créneau (saisie optionnelle), nombre d'actions manuelles/jour ; toutes les opportunités sont classées, seules les `ranking.notify_top_n` premières sont notifiées (décision du 22/10/2026, docs/22) |
 | 4 | Utilisable à distance | Web mobile-first derrière Cloudflare Access + bot Telegram ; PC pro sans droits admin = navigateur uniquement | Disponibilité ≥ 99 % en heures de marché, temps de chargement mobile < 2 s |
 | 5 | Pas de passage d'ordre automatique | Connecteurs courtiers en lecture seule, fiches d'ordre manuelles | Test automatisé « aucun endpoint de trading » |
 | 6 | Gestion des risques par les stops | Stop initial obligatoire sur toute proposition, suivi du stop, alerte de franchissement, rappel de saisie du stop chez le courtier | 100 % des positions ont un stop enregistré et un stop « courtier » confirmé |
@@ -36,7 +36,13 @@ Cette mécanique est conservée. L'outil l'industrialise et l'enrichit ; il ne l
 3. **P3 — KPI de suivi fiscal** (docs/11) : PMP, plus/moins-values CTO, moins-values reportables, estimation d'impôt paramétrée, PEA (ancienneté, versements, 5 ans), fait générateur SRD.
 4. **P4 — Analyse et retour d'expérience** (docs/12) : journal, R-multiples, MAE/MFE, expectancy par détecteur/source/heure, post-mortem des signaux non pris, revue hebdomadaire assistée par LLM.
 
-Hors périmètre (v1) : produits dérivés, crypto, vente à découvert, passage d'ordre, multi-utilisateurs, hébergement cloud.
+Hors périmètre : vente à découvert, passage d'ordre, multi-utilisateurs, hébergement cloud.
+
+**Mise à jour du 22/10/2026 (décisions utilisateur, docs/22 §22.0)** — l'objectif final est de proposer, sur plusieurs marchés, des opportunités **argumentées et classées** (thèse, entrée et prix maximal, sortie, gain et risque **nets du coût complet**, timing), de la journée à quelques semaines, sans dépendre des seules lettres :
+- **produits**, par priorité : actions, puis ETF, puis cryptos (ETP cotés d'abord), puis dérivés (acheteur seulement) ;
+- **marchés**, par priorité : pays éligibles au PEA, puis Europe hors PEA, puis États-Unis, puis reste du monde (Asie comprise) ;
+- **données** : sources gratuites ou déjà payées d'abord ; tout abonnement nouveau exige un retour sur investissement démontré (docs/22 §22.7) ;
+- **pas de nombre maximal d'idées** : toutes les opportunités sont classées (espérance nette, ratio gain/risque net, gain net à l'objectif) ; seules les premières sont notifiées (`ranking.notify_top_n`).
 
 ## 0.5 Utilisateur et contraintes
 
