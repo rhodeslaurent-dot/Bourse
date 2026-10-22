@@ -41,6 +41,19 @@ def Items(item: Any, n: int) -> Any:  # noqa: N802
     ]
 
 
+THEMES = (
+    "taux", "inflation", "banques_centrales", "croissance", "emploi", "devises", "matieres_premieres", "energie",
+    "geopolitique", "fiscalite_reglementation", "secteur", "resultats", "m_and_a", "autre",
+)  # fmt: skip
+Themes = Annotated[
+    list[Literal[THEMES]],  # type: ignore[valid-type]
+    BeforeValidator(
+        lambda v: list(dict.fromkeys(x if x in THEMES else "autre" for x in v))[:4] if isinstance(v, list) else v
+    ),
+    Field(json_schema_extra={"maxItems": 4}),
+]
+
+
 class NewsClassification(BaseModel):
     type: Literal[
         "resultats",
@@ -59,6 +72,9 @@ class NewsClassification(BaseModel):
     ampleur_annoncee: float = Field(ge=0, le=1)
     resume: Text(300)
     confiance: float = Field(ge=0, le=1)
+    # docs/21 §21.5 — scope and themes (press review); defaults keep the v1 answers valid
+    portee: Literal["macro", "secteur", "valeur"] = "valeur"
+    themes: Themes = Field(default_factory=list)
 
 
 class NewsletterValue(BaseModel):

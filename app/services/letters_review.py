@@ -204,6 +204,7 @@ def build_dossier(
                     for isin in cited_isins(s, items)[: (p.max_values if p else 15)]
                 },
                 "marche": market_facts(s),
+                "contexte_macro": _press_context(s, config, now),
                 "contexte": {
                     "propositions": proposals[:60],
                     "positions": positions,
@@ -216,6 +217,15 @@ def build_dossier(
             ensure_ascii=False,
         )
     )
+
+
+def _press_context(s: Session, config: LoadedConfig, now: datetime) -> list[dict[str, Any]]:
+    """docs/21 §21.6 — macro / sector articles of the press reviews of the last days."""
+    from app.services.press_review import macro_context
+
+    lr = getattr(config.params, "letters_review", None)
+    extra = (lr.model_extra or {}) if lr is not None and hasattr(lr, "model_extra") else {}
+    return macro_context(s, now, int(extra.get("macro_days", 3)), int(extra.get("max_macro_items", 10)))
 
 
 def _resolve_isin(s: Session, isin: str | None, name: str) -> str | None:

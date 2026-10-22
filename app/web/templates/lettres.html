@@ -88,6 +88,17 @@
   {% else %}{{ empty('Aucun avis pour cette revue.', 'slate') }}{% endif %}
 </section>
 
+{% if macro_press %}
+<section class="card">
+  <h2 class="font-semibold">Contexte macro (revue de presse)</h2>
+  <p class="text-xs text-slate-500 dark:text-slate-400">Articles macro et sectoriels liés en fin de lettre, lus à la réception et classés ; transmis à Claude pour situer les idées du jour. Titre, résumé et lien seulement.</p>
+  <ul class="mt-2 divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+    {% for a in macro_press %}<li class="py-1.5"><span class="text-xs text-slate-500 tabular">{{ a.date[:10] }}{% if a.date_source == 'lettre' %}*{% endif %} · {{ a.editeur }}</span> {% for t in a.themes %}{{ badge(t, 'slate') }}{% endfor %}<br><span class="font-medium">{{ a.titre }}</span>{% if a.resume %} — <span class="text-slate-600 dark:text-slate-300">{{ a.resume }}</span>{% endif %}</li>{% endfor %}
+  </ul>
+  <p class="mt-1 text-[11px] text-slate-400">* date de la lettre (date de publication de l'article absente).</p>
+</section>
+{% endif %}
+
 <section class="card">
   <h2 class="font-semibold">Lettres reçues (veille et jour)</h2>
   <ul class="mt-2 divide-y divide-slate-100 dark:divide-slate-800 text-sm">
@@ -96,6 +107,7 @@
       <span class="text-xs text-slate-500 tabular w-36 shrink-0">{{ it.received_at|dual }}</span>
       {{ badge(it.source, 'slate') }}
       <span class="flex-1 min-w-0">{{ it.subject }}</span>
+      {% set rp = (it.parsed or {}).get('revue_presse') or [] %}{% if rp %}{{ badge('revue de presse : ' ~ rp|length ~ ' lien(s), ' ~ (rp|selectattr('statut', 'equalto', 'ok')|list|length) ~ ' lu(s), ' ~ (rp|selectattr('statut', 'equalto', 'reserve')|list|length) ~ ' réservé(s), ' ~ (rp|selectattr('statut', 'equalto', 'refuse')|list|length) ~ ' refusé(s)', 'slate', (rp|map(attribute='url')|join(' · '))) }}{% endif %}
       {% if pl %}{% if pl.statut == 'ok' and pl.url %}<a href="{{ pl.url }}" target="_blank" rel="noopener noreferrer" class="text-xs underline decoration-dotted text-sky-700 dark:text-sky-300">article lu</a>{% else %}{{ badge({'reserve': 'article réservé aux abonnés', 'refuse': 'lien refusé', 'erreur': 'article illisible', 'absent': 'sans lien'}.get(pl.statut, pl.statut), 'amber' if pl.statut in ('reserve', 'refuse', 'erreur') else 'slate', pl.detail or '') }}{% endif %}{% endif %}
     </li>
   {% else %}<li class="py-2 text-slate-500">Aucune lettre sur la période.</li>{% endfor %}

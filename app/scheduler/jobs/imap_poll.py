@@ -10,6 +10,7 @@ from app.data.providers.imap_gmail import GmailImap
 from app.db.session import db_session
 from app.scheduler.runner import JobContext
 from app.services.newsletters import ingest_mail
+from app.services.press_review import press_rules
 from app.services.quotes import plausible_quotes
 
 log = logging.getLogger("bourse.jobs.imap_poll")
@@ -81,6 +82,9 @@ def run(ctx: JobContext) -> int:
             n += rep.signals
             if rep.new:
                 new_hashes.append(mail.dedup_hash)
+                press = press_rules(ctx.config).get(mail.source)
+                if press is not None:
+                    read_press_review(s, ctx, mail, press)
         if new_hashes:
             review_at_reception(s, ctx, new_hashes)
             engine_at_reception(s, ctx, new_hashes)
@@ -118,6 +122,24 @@ def engine_at_reception(s, ctx: JobContext, dedup_hashes: list[str]) -> None:  #
         ctx.note = " · ".join(x for x in (ctx.note, f"moteur à réception : {rep.note()}") if x)
     except Exception as exc:  # noqa: BLE001 — the morning scan recalculates what is left
         log.warning("moteur à réception en échec (%s)", exc.__class__.__name__)
+
+
+def read_press_review(s, ctx: JobContext, mail, rule) -> None:  # type: ignore[no-untyped-def]
+    """docs/21 §21.7 — articles of the letter's press review, read before the reception review."""
+    from sqlalchemy import select
+
+    from app.db.models import NewsletterItem
+    from app.services.press_review import ingest_press_review
+
+    item = s.scalar(select(NewsletterItem).where(NewsletterItem.dedup_hash == mail.dedup_hash))
+    if item is None or not mail.html:
+        return
+    try:
+        res = ingest_press_review(s, mail.html, item, rule, ctx.llm)
+        ok = sum(1 for r in res if r["statut"] == "ok")
+        log.info("revue de presse %s : %d lien(s), %d article(s) lu(s)", mail.source, len(res), ok)
+    except Exception as exc:  # noqa: BLE001 — the letter and its review never depend on the press review
+        log.warning("revue de presse en échec (%s)", exc.__class__.__name__)
 
 
 def review_at_reception(s, ctx: JobContext, dedup_hashes: list[str]) -> None:  # type: ignore[no-untyped-def]

@@ -4,6 +4,7 @@ Tu reçois un dossier JSON (entre <dossier> et </dossier>) :
 - `lettres` : identifiant, source, objet, heure, texte de la lettre et de l'article lié ;
 - `valeurs` : pour chaque valeur citée, toutes les données de l'outil — identité, dernières clôtures (avec statut et date), indicateurs du jour (force relative, moyennes 50/200 j, plus haut 60 j, amplitude, RSI…), cours à la réception (avec son statut : temps réel, différé, clôture…), écart d'ouverture et dérive depuis l'ouverture, position détenue, propositions récentes, nouvelles des 7 derniers jours, avis des lettres précédentes, notes de l'utilisateur ;
 - `marche` : régime de marché et dernières clôtures des indices ;
+- `contexte_macro` : articles macro et sectoriels de la revue de presse des derniers jours (titre, éditeur, date, thèmes, résumé) — à utiliser pour situer les idées des lettres dans le contexte (taux, banques centrales, matières premières…), en citant l'article ;
 - `contexte` : propositions en cours avec leur identifiant, positions détenues, watchlist, leçons de l'utilisateur.
 
 Règles impératives :

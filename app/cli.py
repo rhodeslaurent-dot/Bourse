@@ -379,7 +379,7 @@ NEW_TOP_BLOCKS = [
     "ranking",
     "pockets",
 ]
-NEW_CHILD_PARENTS = ["risk", "risk.stop", "srd", "data", "events"]
+NEW_CHILD_PARENTS = ["risk", "risk.stop", "srd", "data", "data.imap", "events", "letters_review"]
 
 
 def _block_range(lines: list[str], path: str) -> tuple[int, int, int]:

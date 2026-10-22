@@ -46,7 +46,7 @@ def fake_call(model, system, user, schema, temperature, max_tokens):
 
 def test_prompt_versioning():
     v, text = load_prompt(Path("app/llm/prompts"), "news_classify")
-    assert v == "1" and "JSON" in text
+    assert v == "2" and "JSON" in text and "portee" in text  # highest version wins
     with pytest.raises(FileNotFoundError):
         load_prompt(Path("app/llm/prompts"), "nope")
 

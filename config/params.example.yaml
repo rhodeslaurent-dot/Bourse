@@ -402,6 +402,15 @@ data:
       abc_premium: ["@abcbourse.com"]
     subject_includes:                    # facultatif : par source, ne garder que les lettres dont l'objet contient l'un de ces mots (vide/absent = toutes)
       zonebourse: []
+    press_review:                        # docs/21 : liens de la revue de presse en fin de lettre ; désactivé tant que allowed_domains est vide
+      momentum_capital:
+        start_after: ["Revue de presse"]  # à confirmer sur une lettre réelle (newsletter-link-check --all-links)
+        exclude_texts: ["désinscri", "desinscri", "préférences", "mentions légales", "Lire la suite", "facebook", "twitter", "linkedin"]
+        allowed_domains: []               # domaines de presse à autoriser après repérage (https)
+        tracking_domains: []              # redirections de suivi de clics du routeur de la lettre (http toléré, jamais de cookie)
+        max_links: 10
+        min_interval_s: 3
+        timeout_s: 15
     follow_links:                        # docs/19 §19.6 : lettres dont le détail est derrière « Lire la suite »
       - source: zonebourse
         link_texts: ["Lire la suite"]
@@ -457,6 +466,8 @@ letters_review:                          # docs/20 — revue des lettres par Cla
   max_values: 15                         # valeurs citées dont le dossier complet (cours, indicateurs, nouvelles…) est joint
   max_news_per_value: 5
   telegram_digest: true
+  macro_days: 3                         # docs/21 §21.6 : « contexte macro » de la revue de presse dans le dossier
+  max_macro_items: 10
 
 learning:                                # docs/18 — retour d'expérience ; aucune optimisation automatique
   effective_from: 2026-10-22

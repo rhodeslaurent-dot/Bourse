@@ -44,6 +44,9 @@ def letters_page(request: Request, day: date | None = None) -> HTMLResponse:
         ctx["items"] = items
         ctx["names"] = {o.isin: name_of(o.isin) for o in ops if o.isin}
         ctx["llm_on"] = bool(getattr(st, "llm", None) and st.llm.enabled)
+        from app.services.press_review import macro_context
+
+        ctx["macro_press"] = macro_context(s, until, 3, 12)
     return templates.TemplateResponse(request, "lettres.html", ctx)
 
 

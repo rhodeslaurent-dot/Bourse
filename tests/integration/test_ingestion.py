@@ -145,7 +145,7 @@ def test_rss_ingest_classifies_attaches_and_premarket(client):
             alpha.isins == ["FR0000120271"]
             and alpha.classification["direction"] == "positif"
             and alpha.classified_by == "llm"
-            and alpha.llm_prompt_version == "1"
+            and alpha.llm_prompt_version == "2"
         )
         pw = s.scalars(select(PremarketWatch)).all()
         assert len(pw) == 1 and pw[0].isin == "FR0000120271" and pw[0].day == DAY

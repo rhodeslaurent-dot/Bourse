@@ -243,3 +243,144 @@ def enrich_mail(mail, rule: dict, cookie: str | None = None, client: httpx.Clien
     if page.status == "ok" and page.text:
         body = f"{body}\n\n--- Contenu de la page liée ({page.url}) ---\n{page.text}"
     return replace(mail, body_text=body, linked=page.as_dict()), page
+
+
+# --- press review of a letter (docs/21) ------------------------------------------------------
+
+
+class _OrderedAnchors(HTMLParser):
+    """Anchors in document order, each flagged when it comes after one of ``markers`` in the text."""
+
+    def __init__(self, markers: list[str]) -> None:
+        super().__init__(convert_charrefs=True)
+        self.markers = [m.lower() for m in markers]
+        self.after = not self.markers
+        self.links: list[tuple[str, str, bool]] = []
+        self._href: str | None = None
+        self._text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = dict(attrs)
+        if tag == "a":
+            self._href = a.get("href") or None
+            self._text = [a.get("title") or ""]
+        elif tag == "img" and self._href is not None:
+            self._text += [" ", a.get("alt") or ""]
+
+    def handle_data(self, data: str) -> None:
+        if self._href is not None:
+            self._text.append(data)
+        elif not self.after and any(m in data.lower() for m in self.markers):
+            self.after = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._href is not None:
+            label = " ".join("".join(self._text).split())
+            if not self.after and any(m in label.lower() for m in self.markers):
+                self.after = True  # the marker may itself be a link
+            else:
+                self.links.append((self._href, label, self.after))
+            self._href = None
+
+
+def press_links(html: str, start_after: list[str], exclude_texts: list[str], max_links: int) -> list[tuple[str, str]]:
+    """(href, label) of the links placed after the press-review heading, service links excluded,
+    duplicates removed, at most ``max_links`` (docs/21 §21.2)."""
+    p = _OrderedAnchors(start_after)
+    p.feed(html or "")
+    excl = [x.lower() for x in exclude_texts]
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for href, label, after in p.links:
+        if not after or not href or href.startswith(("mailto:", "#")):
+            continue
+        if any(x in label.lower() or x in href.lower() for x in excl):
+            continue
+        if href in seen:
+            continue
+        seen.add(href)
+        out.append((href, label))
+        if len(out) >= max_links:
+            break
+    return out
+
+
+class _Meta(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.meta: dict[str, str] = {}
+        self.title: list[str] = []
+        self._in_title = False
+        self.time: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = {k: v or "" for k, v in attrs}
+        if tag == "meta":
+            key = a.get("property") or a.get("name") or ""
+            if key and a.get("content"):
+                self.meta.setdefault(key.lower(), a["content"])
+        elif tag == "title":
+            self._in_title = True
+        elif tag == "time" and a.get("datetime") and self.time is None:
+            self.time = a["datetime"]
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "title":
+            self._in_title = False
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            self.title.append(data)
+
+
+def page_meta(html: str) -> dict[str, str | None]:
+    """Title, publication time and lead of an article (docs/21 §21.4); absent stays absent."""
+    m = _Meta()
+    m.feed(html or "")
+    title = m.meta.get("og:title") or " ".join("".join(m.title).split()) or None
+    published = m.meta.get("article:published_time") or m.time
+    return {"titre": title, "publie": published, "chapo": m.meta.get("og:description") or m.meta.get("description")}
+
+
+def fetch_article(
+    url: str,
+    allowed: list[str],
+    tracking: list[str] | None = None,
+    client: httpx.Client | None = None,
+    timeout: float = 15.0,
+) -> tuple[LinkedPage, dict[str, str | None]]:
+    """Like :func:`fetch_linked` (same hop-by-hop checks, no cookie), plus the article's meta."""
+    tracking = tracking or []
+    now = datetime.now(UTC)
+    c = client or httpx.Client(timeout=timeout, follow_redirects=False)
+    current = url
+    try:
+        for _ in range(MAX_HOPS + 1):
+            why = check_url(current, allowed, tracking)
+            if why:
+                return LinkedPage("refuse", current, detail=why, fetched_at=now), {}
+            r = c.get(current, headers={"User-Agent": BROWSER_UA, "Accept": "text/html"})
+            if r.is_redirect and r.headers.get("location"):
+                current = urljoin(current, r.headers["location"])
+                continue
+            if not _host_allowed(urlparse(current).hostname or "", allowed):
+                return LinkedPage("refuse", current, r.status_code, detail="destination hors liste", fetched_at=now), {}
+            meta = page_meta(r.text) if r.status_code < 400 else {}
+            if r.status_code in (401, 402, 403):
+                return LinkedPage("reserve", current, r.status_code, detail="accès refusé", fetched_at=now), meta
+            if r.status_code >= 400:
+                return LinkedPage(
+                    "erreur", current, r.status_code, detail=f"HTTP {r.status_code}", fetched_at=now
+                ), meta
+            text = main_text(r.text)
+            if looks_reserved(current, text):
+                return LinkedPage(
+                    "reserve", current, r.status_code, detail="article réservé aux abonnés", fetched_at=now
+                ), meta
+            return LinkedPage("ok", current, r.status_code, text=text, fetched_at=now), meta
+        return LinkedPage("erreur", current, detail="trop de redirections", fetched_at=now), {}
+    except httpx.HTTPError as exc:
+        return LinkedPage("erreur", current, detail=exc.__class__.__name__, fetched_at=now), {}
+    finally:
+        if client is None:
+            c.close()

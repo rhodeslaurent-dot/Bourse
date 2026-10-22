@@ -105,6 +105,10 @@ def facts_for(s: Session, p: Proposal, now: datetime | None = None) -> list[dict
         select(LetterOpinion).where(LetterOpinion.isin == p.isin, LetterOpinion.day >= since.date()).limit(5)
     ):
         facts.append(f"Lettre {o.source} du {o.day:%d/%m} ({o.stance}) : {o.summary or ''} « {o.quote or ''} »")
+    from app.services.press_review import macro_context
+
+    for a in macro_context(s, now, 3, 3):
+        facts.append(f"Contexte macro ({a['editeur']}, {a['date'][:10]}) : {a['titre']} — {a.get('resume') or ''}")
     blocked = (p.gates or {}).get("blocked") or []
     facts += [f"Règle : {b}" for b in blocked[:5]]
     facts.append("Fondamentaux : non attribués (aucune source gratuite qualifiée)")

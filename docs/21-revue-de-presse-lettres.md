@@ -1,6 +1,6 @@
 # 21 — Revue de presse des lettres : contexte macro et micro pour Claude
 
-Statut : spécification **proposée le 22/10/2026**, à valider (demande utilisateur : « dans la newsletter Momentum il y a en fin de mail plusieurs liens avec une revue de presse ; aller les consulter et en récupérer les infos macro et micro pour alimenter Claude contextuellement pour ses propositions »). Complète docs/19 §19.6 (page liée unique), docs/20 (revue des lettres) et docs/06 D6 (nouvelles). Règles absolues de `CLAUDE.md` intégralement applicables : le LLM classe et résume, il ne calcule rien ; aucune donnée inventée ; un article inaccessible reste « indisponible ».
+Statut : **codée le 22/10/2026** (inactive tant que les domaines de presse ne sont pas renseignés) (demande utilisateur : « dans la newsletter Momentum il y a en fin de mail plusieurs liens avec une revue de presse ; aller les consulter et en récupérer les infos macro et micro pour alimenter Claude contextuellement pour ses propositions »). Complète docs/19 §19.6 (page liée unique), docs/20 (revue des lettres) et docs/06 D6 (nouvelles). Règles absolues de `CLAUDE.md` intégralement applicables : le LLM classe et résume, il ne calcule rien ; aucune donnée inventée ; un article inaccessible reste « indisponible ».
 
 ## 21.1 Objectif
 
