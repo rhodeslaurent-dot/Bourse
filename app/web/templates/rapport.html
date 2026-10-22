@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, empty, button %}
+{% block title %}Rapport — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="max-w-3xl">
+      <h1 class="text-2xl font-bold">Rapport du {{ day.strftime('%d/%m/%Y') }}</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Les 10 rubriques du projet, construites par l'outil à partir des données stockées. Faits, <span class="text-sky-700 dark:text-sky-300">sources externes</span> et <span class="italic">analyse</span> sont séparés. {% if archived %}{{ badge('archivé', 'slate', 'figé au moment de sa construction') }}{% else %}{{ badge('calculé à l\'instant', 'amber', 'non archivé : se construit chaque matin à 08:45 Paris') }}{% endif %}</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <form method="get" action="/rapport" class="flex gap-2"><input type="date" name="day" value="{{ day.isoformat() }}" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-sm">{{ button('Afficher', 'ghost') }}</form>
+      {% if not archived %}<form method="post" action="/rapport/archiver" data-busy="Construction du rapport…">{{ button('Archiver le rapport du jour') }}</form>{% endif %}
+      <a href="/revue" class="text-sm underline decoration-dotted text-sky-700 dark:text-sky-300">Revue de portefeuille</a>
+    </div>
+  </div>
+</section>
+{% for rb in c.rubriques %}
+<section class="card">
+  <h2 class="font-semibold">{{ loop.index }}. {{ rb.titre }}</h2>
+  {% if rb.faits %}<ul class="mt-2 list-disc ml-5 space-y-0.5 text-sm">{% for x in rb.faits %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+  {% if rb.sources_externes %}<ul class="mt-2 space-y-1 text-sm text-sky-800 dark:text-sky-200">{% for x in rb.sources_externes %}<li class="border-l-2 border-sky-300 pl-2">{{ x }}</li>{% endfor %}</ul>{% endif %}
+  {% if rb.analyse %}<ul class="mt-2 list-disc ml-5 space-y-0.5 text-sm italic text-slate-600 dark:text-slate-300">{% for x in rb.analyse %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+  {% if rb.ordres %}
+  <div class="mt-2 overflow-x-auto"><table class="w-full text-sm tabular">
+    <thead class="text-xs text-slate-500"><tr><th class="text-left">Sens</th><th class="text-left">Valeur</th><th class="text-left">Compte</th><th class="text-left">Type</th><th class="text-right">Quantité</th><th class="text-right">Limite</th><th class="text-right">Stop</th></tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">{% for o in rb.ordres %}<tr><td class="py-1">{{ o.sens }}</td><td><a href="/valeur/{{ o.isin }}" class="hover:underline">{{ o.valeur }}</a></td><td>{{ o.compte }}</td><td>{{ o.type }}</td><td class="text-right">{{ o.quantite or '—' }}</td><td class="text-right">{{ '%.4g'|format(o.limite) if o.limite else '—' }}</td><td class="text-right">{{ '%.4g'|format(o.stop) if o.stop else '—' }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="mt-1 text-xs text-slate-500">Aucun ordre n'est passé par l'outil : à saisir vous-même chez le courtier, puis « Ordre saisi ».</p>
+  {% endif %}
+</section>
+{% endfor %}
+{% if days %}<section class="card text-sm">Rapports archivés : {% for d in days %}<a href="/rapport?day={{ d.isoformat() }}" class="underline decoration-dotted mr-2">{{ d.strftime('%d/%m') }}</a>{% endfor %}</section>{% endif %}
+{% endblock %}

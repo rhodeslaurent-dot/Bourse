@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, empty, button %}
+{% block title %}Revue de portefeuille — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="max-w-3xl">
+      <h1 class="text-2xl font-bold">Revue de portefeuille</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Chaque samedi à 08:30 Paris et à la demande : chaque ligne passée aux règles de sortie (stop, objectif, thèse, temps, résultats, annonces), stop proposé selon l'ordre invariant → placement → cliquet (jamais abaissé), puis la synthèse du portefeuille. Une ligne perdante n'est jamais renforcée.</p>
+    </div>
+    <form method="post" action="/revue/lancer" data-busy="Revue de toutes les positions…" data-busy-eta="quelques secondes">{{ button('Revue complète maintenant') }}</form>
+  </div>
+</section>
+{% if rev %}
+{% set syn = rev.syn %}
+<section class="card">
+  <div class="flex flex-wrap items-center gap-2"><h2 class="font-semibold">Revue du {{ rev.day.strftime('%d/%m/%Y') }}</h2><span class="text-xs text-slate-500">{{ rev.ts|dual }} · {{ {'weekly': 'hebdomadaire', 'manual': 'à la demande'}.get(rev.trigger, rev.trigger) }}</span>{% for k, v in (syn.verdicts or {}).items() %}{{ badge(k ~ ' ' ~ v, 'red' if k == 'VENDRE' else 'amber' if k == 'ALLÉGER' else 'green' if k == 'CONSERVER' else 'slate') }}{% endfor %}</div>
+  {% if rev.lines %}
+  <ul class="mt-3 space-y-3">
+  {% for ln in rev.lines %}
+    <li class="rounded-xl border p-3 {% if ln.verdict == 'VENDRE' %}border-rose-300 dark:border-rose-500/40{% elif ln.verdict == 'ALLÉGER' %}border-amber-300 dark:border-amber-500/40{% else %}border-slate-200 dark:border-slate-800{% endif %}">
+      <div class="flex flex-wrap items-center gap-2"><a href="/valeur/{{ ln.isin }}" class="font-semibold hover:underline">{{ ln.nom }}</a>{{ badge(ln.verdict, 'red' if ln.verdict == 'VENDRE' else 'amber' if ln.verdict == 'ALLÉGER' else 'green' if ln.verdict == 'CONSERVER' else 'slate') }}{% if ln.alleger_pct %}{{ badge('alléger ' ~ (ln.alleger_pct * 100)|round|int ~ ' %', 'amber') }}{% endif %}<span class="text-xs text-slate-500">{{ ln.compte }} · {{ ln.quantite }} titres · PRU {{ ln.pru }}{% if ln.cours %} · cours {{ ln.cours }}{% endif %}{% if ln.r is not none and ln.r is defined %} · {{ ln.r }} R{% endif %}{% if ln.seances is defined %} · {{ ln.seances }} séances{% endif %}</span></div>
+      <p class="mt-1 text-sm tabular">Stop {{ ln.stop or '—' }}{% if ln.stop_change %} → <b>{{ ln.stop_propose }}</b> <span class="text-xs text-slate-500">({{ ln.stop_raison }})</span>{% elif ln.stop_raison %} <span class="text-xs text-slate-500">({{ ln.stop_raison }})</span>{% endif %}{% if ln.objectifs %} · objectifs {{ ln.objectifs|join(' / ') }}{% endif %}</p>
+      {% if ln.signaux %}<ul class="mt-1 list-disc ml-5 text-sm">{% for x in ln.signaux %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+      {% if ln.notes %}<ul class="mt-1 text-xs text-slate-500">{% for x in ln.notes %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  {% else %}{{ empty('Aucune position ouverte.', 'slate') }}{% endif %}
+</section>
+<section class="card grid md:grid-cols-2 gap-4 text-sm">
+  {% set rk = syn.risque or {} %}
+  <div>
+    <h2 class="font-semibold">Risque</h2>
+    <p class="mt-1">Risque ouvert (convention B) <b>{{ rk.convention_b_eur|eur }}</b> pour un plafond de {{ rk.plafond_eur|eur }} (portail {{ rk.portail }}) ; gains exposés (convention A) {{ rk.convention_a_eur|eur }} / plafond souple {{ rk.plafond_souple_a_eur|eur }}.</p>
+    {% for a in rk.alertes or [] %}<p class="text-amber-700 dark:text-amber-300">{{ a }}</p>{% endfor %}
+    <h2 class="mt-3 font-semibold">Trésorerie</h2>
+    <ul class="mt-1">{% for k, v in (syn.tresorerie or {}).items() %}<li>{{ k }} : {{ v|eur if v is not none else 'non renseignée' }}</li>{% endfor %}</ul>
+    <p class="text-xs text-slate-500">{{ syn.tresorerie_note }}</p>
+    {% set dca = syn.poche_dca or {} %}
+    <h2 class="mt-3 font-semibold">Poche ETF sanctuarisée</h2>
+    <p>{{ dca.isins|length if dca.isins else 0 }} ligne(s), hors capital pilote et plafonds.{% if dca.msci_world_repli_pct is not none %} MSCI World à {{ '%+.1f %%'|format(dca.msci_world_repli_pct * 100) }} de son plus haut sur un an.{% endif %}{% if dca.acceleration %} <b class="text-amber-700">Clause d'accélération déclenchée : doubler les versements pendant deux mois.</b>{% endif %}</p>
+    {% if syn.positions_fiscales %}<h2 class="mt-3 font-semibold">Positions fiscales</h2><ul>{% for isin, d in syn.positions_fiscales.items() %}<li>{{ isin }} : cession prévue {{ d or 'date à fixer' }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  <div>
+    <h2 class="font-semibold">Exposition</h2>
+    {% for k, m in (syn.exposition or {}).items() %}<p class="mt-1"><span class="text-slate-500">{{ k }} :</span> {% for n, v in m.items() %}{{ n }} {{ v|eur }}{% if not loop.last %} · {% endif %}{% else %}—{% endfor %}</p>{% endfor %}
+    <h2 class="mt-3 font-semibold">Idées du jour</h2>
+    {% if syn.idees_du_jour %}<ul>{% for i in syn.idees_du_jour %}<li>#{{ i.rang }} <a href="/valeur/{{ i.isin }}" class="hover:underline">{{ i.nom }}</a> — {{ label('action', i.action) }}{% if i.compte %} · {{ label('account', i.compte) }}{% endif %}</li>{% endfor %}</ul>{% else %}<p class="text-slate-500">Aucune idée classée aujourd'hui.</p>{% endif %}
+    <p class="mt-3 text-xs text-slate-500">Contexte : risque conjoncturel {{ (syn.contexte or {}).risque_conjoncturel }} · portail {{ (syn.contexte or {}).portail }}.</p>
+  </div>
+</section>
+{% if history|length > 1 %}<section class="card text-sm">Revues précédentes : {% for h in history %}<a href="/revue?rid={{ h.id }}" class="underline decoration-dotted mr-2">{{ h.day.strftime('%d/%m') }}{% if h.trigger == 'manual' %}*{% endif %}</a>{% endfor %}</section>{% endif %}
+{% else %}
+<section class="card">{{ empty('Aucune revue encore : lancez « Revue complète maintenant » ou attendez samedi 08:30.', 'slate') }}</section>
+{% endif %}
+{% endblock %}

@@ -884,3 +884,25 @@ class LetterValidation(Base):
     verdict: Mapped[str] = mapped_column(String(12))  # confirme | contredit | sans_avis
     justification: Mapped[str | None] = mapped_column(Text, nullable=True)
     item_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+
+class PortfolioReview(Base):
+    """docs/22 §22.5 — weekly / on-demand review of every position, frozen once written."""
+
+    __tablename__ = "portfolio_reviews"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    trigger: Mapped[str] = mapped_column(String(12))  # weekly | manual
+    lines: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    synthesis: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class DailyReport(Base):
+    """docs/09 §9.2 — the 10-rubric report of a day, archived as built (never corrected)."""
+
+    __tablename__ = "daily_reports"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, unique=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    content: Mapped[dict | None] = mapped_column(JSON, nullable=True)

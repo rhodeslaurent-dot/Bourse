@@ -148,6 +148,7 @@ pockets:                                # R17 — poche sanctuarisée (hors capi
     isins: []                           # ETF de l'investissement progressif (à renseigner dans params.yaml)
     acceleration_index: "MSCI World"
     acceleration_drawdown_pct: 0.15
+  tax_harvest: []                       # R18 — ex. [{isin: "FR00…", target_date: "2026-11-27"}] : hors plafonds, rappel de cession
 
 universe:
   markets_p0: ["PA", "AS", "BR", "XETRA"]
@@ -510,6 +511,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   macro_snapshot: {cron: "40 7,18 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # tableau macro gratuit (Brent, VIX, taux…)
   macro_calendar: {cron: "50 6 * * *", misfire_grace_min: 720, market_days_only: false}   # calendrier économique (BCE, Fed, inflation, emploi)
   opportunity_scan: {cron: "50 7 * * 1-5", misfire_grace_min: 180, market_days_only: true}   # docs/22 §22.4 : moteur de propositions classées
+  portfolio_review: {cron: "30 8 * * 6", misfire_grace_min: 720, market_days_only: false}   # docs/22 §22.5 : revue de portefeuille du samedi
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h
   weekly_review: {cron: "0 8 * * 6", misfire_grace_min: 600, market_days_only: false}   # docs/18 §18.6 : revue IA, questions et propositions
   watchlist_refresh: {cron: "15 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/18 §18.2 : après eod_backfill_check

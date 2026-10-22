@@ -208,6 +208,9 @@ def create_app(
 
     app.include_router(notes_router)
     app.include_router(opportunities_router)
+    from app.web.report_routes import router as report_router
+
+    app.include_router(report_router)
     from app.web.performance_routes import router as performance_router
 
     app.include_router(performance_router)

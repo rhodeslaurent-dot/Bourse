@@ -83,7 +83,12 @@ Non fait : fondamentaux (bloc F), protocole « fixing de clôture » (fiche 17:1
 - dérogation (R21) : bouton seulement si le moteur l'a jugée proposable, motif obligatoire, enregistrée comme décision ; refus sinon ;
 - Telegram : P2 pour les `ranking.notify_top_n` premiers achats non bloqués (≤ 12 lignes), boutons Vu / Watch / Ordre saisi / Ignorer enregistrés sur la proposition ;
 - correctif du 22/10 : longueurs des réponses de Claude rendues souples (texte trop long raccourci, citation coupée sans ellipse) — l'erreur « avis.1.resume … 300 caractères » de la revue des lettres ne bloque plus.
-**Prochain lot** : 2.5 (revue de portefeuille du samedi et rapport du jour).
+**Lot 2.5 fait le 22/10/2026** (migration 0012) — revue de portefeuille et rapport du jour :
+- règles de sortie en Python pur (`app/domain/exits.py`) : S1 stop franchi, S2 objectif 1 (allègement + stop au prix de revient), S4 thèse invalidée (clôtures sous la MM20, force relative), S5 sortie temps, S6 résultats imminents, R14 annonce macro avec stop proche (sortie avant l'événement) ; stop proposé invariant → placement → cliquet, jamais abaissé ; une ligne perdante n'est jamais renforcée ;
+- revue (`portfolio_review`, samedi 08:30, et bouton « Revue complète maintenant » sur `/revue`) : verdict par ligne, synthèse (risque B/A et plafond selon le portail, exposition par compte, secteur, pays, devise, trésorerie R20, poche ETF sanctuarisée R17 avec la clause d'accélération sur le MSCI World, positions fiscales R18 via `pockets.tax_harvest`, idées du jour), résumé Telegram P3 ;
+- rapport du jour en 10 rubriques (`brief_premarket`, 08:45 Paris, archivé dans `daily_reports`, page `/rapport`, résumé Telegram P3, e-mail complet si SMTP configuré) : faits, sources externes et analyse séparés ; rubrique 9 = tableau des ordres manuels à saisir ;
+- navigation : entrée « Rapport » ; libellés du menu masqués sous 1 280 px (icônes + info-bulle) pour éviter le débordement.
+**Phase 2 : lots 2.1 à 2.5 faits.** Suite : revue de presse (docs/21), protocole « fixing de clôture » (R6), phase 3 (swing « tendance + qualité », ETF, rotation).
 - **Dépôt GitHub public** : le dépôt contient des éléments personnels (adresses, symboles de positions) ; passage en **privé** recommandé. Le référentiel de gestion n'est pas versionné.
 - **docs/21 (revue de presse Momentum)** : à valider ; liens à repérer avec `newsletter-link-check --all-links` sur une lettre Momentum réelle (domaines de presse à autoriser).
 - ADR-000 et ADR-001 : **acceptés** le 15/09/2026 (« ok allons y ») ; ADR-003, ADR-004, ADR-005 à relire.
