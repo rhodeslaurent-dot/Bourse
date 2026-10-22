@@ -1,5 +1,8 @@
 # 15 — Roadmap par phases et critères d'acceptation (v1.1.1)
 
+> **Feuille de route révisée le 22/10/2026** (docs/22 §22.10, acceptée), elle prime sur les phases ci-dessous :
+> **2** moteur de propositions sur les actions éligibles au PEA (règles du référentiel R1–R21, zones, coût complet, classement, thèse LLM, carnet d'ordres préparés, revue de portefeuille, tableau et calendrier macro gratuits) ; **3** swing « tendance + qualité », ETF et rotation ; **4** Europe hors PEA puis États-Unis ; **5** ouverture (D1, ancienne phase 3) ; **6** cryptos (ETP) et reste du monde via ETF ; **7** dérivés. KPI P&L et fiscal, journal et post-mortem (anciennes phases 4 et 5) avancent au fil des besoins.
+
 Chaque phase = une ou plusieurs sessions Claude Code, un tag Git, des critères vérifiables. L'utilisateur valide chaque phase avant la suivante. Les durées sont indicatives (soirées/week-ends). Principe de l'ordre : **d'abord des données qualifiées et un portefeuille opérationnel avec ses protections, puis quelques décisions exploitables par jour, puis la détection d'ouverture, enfin les tableaux de bord.** L'enregistrement minimal des décisions et de leurs résultats commence dès la phase 1.
 
 ## Phase 0 — Socle technique, accès distant, qualification des données, reprise après incident (2 semaines)

@@ -111,3 +111,17 @@ Chaque score est stocké avec ses sous-scores et ses `explanations[]` (« RS ran
 - `pivot_60` : plus haut des 60 séances précédentes (hors jour courant). `consolidation_20` : (max(high,20) − min(low,20)) / min(low,20).
 - `distribution_day` : clôture indice ≤ −0,2 % et volume > veille. `breadth_mm50` : part des instruments de l'univers avec close > MM50.
 - `R` : (entrée − stop) en € par action ; les objectifs et le P&L sont exprimés en multiples de R.
+
+## 6.7 Compléments du 22/10/2026 (référentiel de gestion, docs/22)
+
+- **Zones de support et de résistance détectées** (`domain/zones`) :
+  - **Construction** : plus hauts et plus bas pivots (fenêtre `zones.pivot_window`, 5) sur 250 séances, regroupés lorsqu'ils sont distants de moins de `zones.merge_atr_mult` × ATR14 (0,5).
+  - **Zone retenue** si elle compte au moins `zones.min_touches` contacts (2). Les gaps non comblés sont aussi des zones.
+  - **Usage** : ces zones servent au stop (docs/07 §7.9.2), aux objectifs exploitables (R4) et au cliquet (R3). Une zone publiée par une lettre prime sur une zone détectée et reste sourcée.
+- **Protocoles d'entrée (R6)** : `repli_support` (le cours teste la zone et elle tient en clôture → entrée au fixing de clôture du jour, fiche émise à `entry.fixing_card_time` 17:15 Paris) ; `franchissement` (clôture nette au-dessus de l'obstacle → entrée à la clôture qui confirme ou sur retest, au meilleur ratio net). L'ordre à plage de déclenchement J+1 reste possible.
+- **Carnet d'ordres préparés (R7)** : les dossiers admissibles sont triés par distance au prix maximal. Chaque matin, un rappel « ordres limites à reposer » porte sur les `entry.standing_orders_max` (4) plus proches. Validité jour, péremption après `entry.expiry_sessions` (3) séances, puis recalcul.
+- **Objectifs (R4)** : objectif 1 = premier niveau exploitable au-dessus du prix maximal (zone de résistance, plus haut 20/60 j/52 s, objectif publié) ; objectif 2 = niveau exploitable suivant. **Remplace** « objectif 1 = 2R / 3R » dans D1 à D4. S2 se déclenche à l'objectif 1 réel.
+- **S3 (R3)** : le cliquet sur obstacle franchi en clôture devient la règle par défaut ; le trailing ATR ne sert qu'en repli, quand aucun obstacle n'est identifié.
+- **D5 (R15)** : une fiche de lettre est **testable** si elle donne un niveau d'invalidation explicite et au moins un objectif chiffré. Elle est alors recalculée (P_max, ratio net, structure intacte) et classée. Sinon, elle reste visible comme « non testable ».
+- **Classement (docs/22 §22.4)** : toutes les opportunités admissibles sont classées par espérance nette en R (si l'historique comparable est suffisant), puis par ratio gain/risque net, puis par gain net à l'objectif en %. Les refus restent consultables avec leur motif chiffré. Les notifications ne portent que sur les `ranking.notify_top_n` premières.
+- **Seuils de BUY** inchangés (ratio d'admission ≥ 0,75), avec en plus le ratio net ≥ 2 (R4), la structure intacte (R5) et l'état du portail (docs/07 §7.9.4).

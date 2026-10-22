@@ -1,7 +1,7 @@
 # config/params.example.yaml — BOURSE-PILOT
 # Copier en config/params.yaml. Chaque bloc "effective_from" est une date ISO ; le code utilise la
 # valeur en vigueur à la date du fait générateur. Aucun de ces nombres ne doit être codé en dur.
-version: "2026.09.3"   # v1.1.1
+version: "2026.10.1"   # v1.1.1 + référentiel de gestion du 22/10/2026 (docs/22)
 
 timezones:
   storage: "UTC"
@@ -73,10 +73,80 @@ risk:
     trailing_1r: {ref: "low_5d", atr_mult: 0.5}
     trailing_2r: {ref: "mm10", atr_mult: 0.5}
     move_to_breakeven_at_r: 2.0
+    wick_buffer_pct: 0.005            # R1/R3 (docs/07 §7.9.2) : stop = borne basse de zone × (1 − x) ; cliquet = obstacle × (1 − x)
+    never_lower: true                 # R2 : un stop ne descend jamais (exception : détachement de dividende)
     reduce_at_target1_pct: 0.5
+  # docs/07 §7.9.3 — plafonds du référentiel (22/10/2026), en fraction du capital pilote
+  max_open_risk_pct_by_gate: {ouvert: 0.05, restreint: 0.035}   # remplace max_open_risk_pct une fois le portail codé
+  max_line_risk_pct_of_cap: 0.30      # risque d'une ligne ≤ 30 % du plafond en vigueur
+  reserved_signal_budget_pct: 0.0075  # part du plafond inaccessible aux lignes anciennes
+  reserved_budget_age_sessions: 10
+  srd_risk_weight: 1.25               # risque SRD compté × 1,25 (gap)
+  heat_a_soft_cap_pct: 0.075          # convention A (gains exposés) : indicateur, plafond souple
+  override:                           # R21 : dérogation UNIQUEMENT sur accord explicite de l'utilisateur, par proposition
+    min_score: 85
+    min_confidence: 4
+    min_net_rr: 3.0
+    max_multiplier: 1.5               # jamais appliqué au risque par trade
   pyramiding:
     allowed: true
     min_gain_r: 1.0
+
+admission:                              # docs/07 §7.9.1 (R4, R5)
+  effective_from: "2026-10-22"
+  min_reward_risk: 2.0                  # ratio gain/risque NET de frais, sur objectif exploitable ; aucune exception
+  require_structure_intact: true        # un P_max atteint par cassure du support n'est pas une entrée
+  require_testable_letter: true         # R15 : fiche de lettre = invalidation explicite + objectif chiffré
+
+market_gate:                            # docs/07 §7.9.4 (R10) — option C, sans blocage absolu (décision du 22/10/2026)
+  effective_from: "2026-10-22"
+  mode: "double"                        # obstacle publié franchi en clôture + avis de la lettre sur l'indice
+  index_isin: "FR0003500008"            # CAC 40
+  max_age_sessions: 5                   # publication plus ancienne → condition « inconnue »
+  restricted_min_net_rr: 2.5
+  restricted_min_score: 75
+  restricted_size_multiplier: 0.5
+
+conjuncture:                            # niveau de risque conjoncturel (faible / modéré / élevé), seuils datés, sources gratuites (docs/22 §22.7)
+  effective_from: "2026-10-22"
+  vix_pct_1y: {moderate: 0.60, high: 0.85}
+  oat_bund_spread_bp: {moderate: 80, high: 120}
+  us10y_pct: {moderate: 4.5, high: 5.0}
+  index_5d_change_pct: {moderate: -0.03, high: -0.06}
+  high_min_components: 2                # « élevé » si ≥ 2 composantes élevées (ou régime rouge)
+  brent:                                # R12 : pas de blocage absolu ; SRD en mode restreint
+    srd_restrict_above: 100
+    srd_normal_below: 95
+    stable_sessions: 3
+
+events:                                 # docs/07 §7.9.5 (R14)
+  stop_distance_pct: 0.02
+  history_count: 8
+  min_history: 4
+  gap_quantile: 0.75
+  max_gap_loss_r: 1.5                   # exception « faiblement exposé » : perte au 75e centile ≤ 1,5 R
+
+entry:                                  # docs/06 §6.7 (R6, R7)
+  fixing_card_time: "17:15"             # heure de Paris : fiche « repli sur support » pour le fixing de clôture
+  standing_orders_max: 4
+  expiry_sessions: 3
+
+zones:                                  # docs/06 §6.7 — supports / résistances détectés
+  lookback_sessions: 250
+  pivot_window: 5
+  merge_atr_mult: 0.5
+  min_touches: 2
+
+ranking:                                # docs/22 §22.4 — pas de maximum d'idées ; le classement filtre
+  order: ["expected_net_r", "net_reward_risk", "net_gain_pct"]
+  notify_top_n: 3
+  home_top_n: 10
+
+pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
+  dca:
+    isins: []                           # ETF de l'investissement progressif (à renseigner dans params.yaml)
+    acceleration_index: "MSCI World"
+    acceleration_drawdown_pct: 0.15
 
 universe:
   markets_p0: ["PA", "AS", "BR", "XETRA"]
@@ -211,6 +281,8 @@ accounts:
     match_tolerance: {price_pct: 0.005, minutes: 10, unmatched_alert_hours: 24}   # déclaration non retrouvée → alerte après 24 h
 
 srd:
+  min_net_advantage_pct: 0.0           # R13 : SRD proposé si gain net > comptant, ou si la trésorerie du compte ne suffit pas
+  restricted_min_net_advantage_pct: 0.01   # Brent au-dessus du seuil (R12)
   effective_from: "2026-01-01"
   eligibility_full: {min_market_cap_eur: 1000000000, min_daily_volume_eur: 1000000}
   eligibility_long_only: {min_daily_volume_eur: 100000}
@@ -250,6 +322,9 @@ tax:
     srd_costs_deductible: null          # à confirmer
     ttf_on_srd: true                    # hypothèse prudente, à confirmer sur relevé Saxo
     pea_historic_rates: null            # taux historiques si PEA ouvert avant 2018 (à renseigner)
+    ttf_scope: "official_list"          # R11 : liste annuelle officielle des sociétés soumises (siège FR), pas la place de cotation
+    ftt_by_country: {IT: 0.001, ES: 0.002, GB: 0.005}   # à confirmer (taxes étrangères sur achats), par pays d'émetteur
+    assume_loss_offset: false           # prudence : aucun crédit d'impôt supposé sur une perte
   - effective_from: "2018-01-01"
     social_contributions_rate: 0.172
     pfu_income_tax_rate: 0.128
@@ -281,6 +356,9 @@ data:
   buy_intraday_max_market_age_minutes: 3   # âge de l'horodatage de MARCHÉ (pas du téléchargement) ; BUY EOD calculé sur EOD
   perimeter_consistency_required: true     # un indicateur ne mélange jamais deux périmètres (primaire vs Cboe)
   silent_source_switch_allowed: false
+  quote_at_each_analysis: true             # R19 : cours relevé au moment de chaque analyse, horodatage de marché et statut enregistrés
+  plausibility_max_gap_pct: 0.05           # écart entre sources ou vs dernière clôture sans nouvelle → « à vérifier »
+  paid_max_cost_pct_of_net_gains: 0.10     # docs/22 §22.7 : abonnement proposé seulement si coût ≤ 10 % des gains nets annualisés
   stale_after_minutes: {realtime: 3, delayed: 20}
   eodhd: {plan: "eod_intraday", daily_quota: 100000, ws_symbols_per_connection: 50}
   declared_delay_minutes:                  # délai DÉCLARÉ par source (le statut en découle, jamais de l'heure de téléchargement) ; à confirmer par A0.7

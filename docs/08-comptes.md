@@ -54,3 +54,14 @@ Comportement de l'outil : à J−3 de la liquidation, chaque position SRD reçoi
 - Cash par compte : valeur Saxo automatique ; valeur PEA saisie/importée, avec date de dernière mise à jour affichée.
 - **Valorisation avec SRD** : valeur liquidative CTO = cash + valeur des positions au comptant + **P&L latent des positions SRD** (jamais le notionnel financé, qui est un engagement, pas un actif payé) − CRD courue ; les engagements SRD (notionnel) et la couverture requise sont affichés à part. Cette formule sert à l'équité (docs/10), au levier et aux plafonds de risque.
 - **Priorité 1** : la synchronisation opérationnelle (positions, cash, ordres en attente dont stops, exécutions) est livrée en **phase 1** (docs/15) ; les tableaux de performance viennent après. Sans cash, engagements et stops réels, le moteur de risque ne peut pas fonctionner.
+
+## 8.7 Coût complet et choix du compte (22/10/2026, docs/22 R11, R13)
+
+- **Gain net à l'objectif et perte nette au stop**, par compte possible, depuis le prix maximal :
+  - **Frais de transaction** : courtage achat et vente (`brokers.*`) ; TTF française selon la **liste officielle annuelle** des sociétés concernées (siège en France et capitalisation > 1 Md€, fichier daté) ; taxes étrangères (`tax.ftt_by_country` : Italie, Espagne, droit de timbre britannique) ; change aller et retour (`brokers.<b>.fx_fee_pct`) ; portage SRD (CRD × durée de l'horizon).
+  - **Impôt de l'enveloppe** (`tax.*` daté) : PFU en CTO, prélèvements sociaux en PEA selon son ancienneté.
+  - **Pertes** : le crédit d'impôt d'une perte n'est pas supposé (`tax.assume_loss_offset: false`).
+- **SRD (décision du 22/10)** : proposé si son gain net dépasse celui du comptant (`srd.min_net_advantage_pct`, 0 par défaut), **ou** si la trésorerie du compte cible ne permet pas l'achat au comptant. Toujours dans les limites de levier et de couverture (§8.5), et en mode restreint quand le Brent dépasse son seuil (docs/07 §7.9.4).
+- **Poche sanctuarisée** (R17, `pockets.dca`) : ETF d'investissement progressif exclus du capital pilote, des plafonds de risque et des liquidités mobilisables ; rappel mensuel de versement ; alerte de la clause d'accélération (indice de référence en recul ≥ `pockets.dca.acceleration_drawdown_pct` depuis son plus haut).
+- **Position fiscale** (R18, statut `tax_harvest`) : exclue des plafonds de risque, avec une date cible de cession et un rappel.
+- **Trésorerie non rémunérée** (R20) : montant et durée affichés dans le rapport ; aucun produit n'est proposé.

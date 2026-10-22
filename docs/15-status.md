@@ -52,7 +52,7 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 
 ## Décisions en attente de l'utilisateur
 
-- **docs/22 (objectif final)** : Q1–Q5 tranchées le 22/10/2026. Reste à valider : tableau R1–R20 (§22.3), arbitrages propres au référentiel (R9 plafond notionnel 15 %, R10 option A ou C du portail de marché), feuille de route révisée (§22.10).
+- ~~docs/22 (objectif final)~~ — **accepté le 22/10/2026** : Q1–Q5, R1–R21 (R9 = 20 % ; R10 = option C modulée par le risque conjoncturel, sans blocage absolu ; R12 idem ; R13 SRD si gain net > comptant ou trésorerie insuffisante ; R14 exception si intéressant et faiblement exposé ; R19 cours relevé à chaque analyse), feuille de route révisée. Reporté dans docs/06 §6.7, docs/07 §7.9, docs/08 §8.7, `config/params.example.yaml` (v2026.10.1). **Prochaine étape** : plan de code de la phase 2 à valider.
 - **Dépôt GitHub public** : le dépôt contient des éléments personnels (adresses, symboles de positions) ; passage en **privé** recommandé. Le référentiel de gestion n'est pas versionné.
 - **docs/21 (revue de presse Momentum)** : à valider ; liens à repérer avec `newsletter-link-check --all-links` sur une lettre Momentum réelle (domaines de presse à autoriser).
 - ADR-000 et ADR-001 : **acceptés** le 15/09/2026 (« ok allons y ») ; ADR-003, ADR-004, ADR-005 à relire.

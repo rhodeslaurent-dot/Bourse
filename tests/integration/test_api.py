@@ -22,7 +22,7 @@ def client(config, calendars, db_engine, monkeypatch):
 def test_health_and_api_health(client):
     assert client.get("/health").json() == {"status": "ok"}
     body = client.get("/api/health").json()
-    assert body["version"] == "2026.09.3" and body["disabled_features"] == []
+    assert body["version"] == "2026.10.1" and body["disabled_features"] == []
 
 
 def test_sante_page_renders(client):
