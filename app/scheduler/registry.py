@@ -38,6 +38,7 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "macro_calendar": "app.scheduler.jobs.macro_calendar:run",
     "opportunity_scan": "app.scheduler.jobs.opportunity_scan:run",
     "portfolio_review": "app.scheduler.jobs.portfolio_review:run",
+    "fixing_card": "app.scheduler.jobs.fixing_card:run",
     "brief_premarket": "app.scheduler.jobs.daily_report:run",
 }
 

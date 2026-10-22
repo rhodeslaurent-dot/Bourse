@@ -159,3 +159,37 @@ def test_index_view_guard_rejects_invented_levels(db_engine):
     assert _index_view(good, texts, DAY, rejected)["obstacle_haut"] == 7980
     bad = IndexViewOut(obstacle_bas=8100, obstacle_haut=8120, citation="franchir 7 960 - 7 980 points")
     assert _index_view(bad, texts, DAY, rejected) is None and "niveaux absents" in rejected[-1]["motif"]
+
+
+def test_fixing_card_support_holds_or_degrades(db_engine, config):
+    from types import SimpleNamespace
+
+    from app.services import fixing
+
+    with db_session() as s:
+        _seed(s, breakout_bars()[:-1])
+        it = NewsletterItem(source="momentum_capital", message_id="m2", dedup_hash="h2", subject="Momentum",
+                            received_at=NOW - timedelta(hours=20), body_text="x")  # fmt: skip
+        s.add(it)
+        s.flush()
+        s.add(NewsletterValue(item_id=it.id, isin=ISIN, name="TotalEnergies", direction="buy",
+                              levels={"achat": 98.0, "support": 96.0, "stop": 93.0, "objectif": 110.0}))  # fmt: skip
+        s.flush()
+        engine.scan(s, config, DAY, isins=[ISIN], now=NOW)
+        p = s.query(Proposal).filter(Proposal.isin == ISIN, Proposal.stop == 93.0).one()
+        pmax = p.details["p_max"]
+        ok = fixing.check(s, config, {ISIN: SimpleNamespace(last=pmax - 0.5)})
+        assert ok[0]["statut"] == "fixing"
+        bad = fixing.check(s, config, {ISIN: SimpleNamespace(last=95.0)})
+        assert bad[0]["statut"] == "degradee" and "R5" in bad[0]["motif"]
+        assert [x["statut"] for x in p.details["fixing"]] == ["fixing", "degradee"]
+
+        class Alerts:
+            sent: list = []
+
+            def emit(self, s, ev, mode, intraday=True):
+                self.sent.append(ev)
+                return True
+
+        a = Alerts()
+        assert fixing.send_cards(s, a, "disponible", ok) == 1 and a.sent[0].kind == "fixing_card"
