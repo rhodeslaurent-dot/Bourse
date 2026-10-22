@@ -159,3 +159,19 @@ class LettersReviewOut(BaseModel):
     indice: IndexViewOut | None = None
     avis: Items(LetterOpinionOut, 40) = Field(default_factory=list)
     validations: Items(LetterValidationOut, 30) = Field(default_factory=list)
+
+
+class ThesisArgument(BaseModel):
+    texte: Text(220)
+    faits: Items(str, 6) = Field(default_factory=list)  # identifiers of the facts (F1, F2…)
+    nature: Literal["fait", "analyse", "opinion"] = "analyse"
+
+
+class ThesisOut(BaseModel):
+    """docs/22 §22.8 — investment thesis written from numbered facts; the LLM computes nothing."""
+
+    arguments: Items(ThesisArgument, 5) = Field(default_factory=list)
+    risques: Items(Text(220), 4) = Field(default_factory=list)
+    pourquoi_maintenant: Text(300) = ""
+    incertitudes: Text(300) = ""
+    ce_qui_invaliderait: Text(300) = ""

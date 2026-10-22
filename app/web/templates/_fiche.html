@@ -1,0 +1,90 @@
+{# Fiche d'opportunité (docs/22 §22.2) — included in opportunites.html with ``p``, ``dd`` (details), ``day``. #}
+{% set th = p.thesis or {} %}
+<div class="mt-3 rounded-xl border border-slate-200 dark:border-slate-800 p-3 text-sm space-y-3">
+  <div>
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Thèse d'investissement</h3>
+      <form method="post" action="/opportunites/these" data-busy="Claude rédige la thèse à partir des faits vérifiés…" data-busy-eta="15 à 40 s">
+        <input type="hidden" name="proposal_id" value="{{ p.id }}"><input type="hidden" name="day" value="{{ day.isoformat() }}">
+        <button class="text-xs underline decoration-dotted text-sky-700 dark:text-sky-300">{{ 'Réécrire' if th.arguments else 'Rédiger' }} la thèse</button>
+      </form>
+    </div>
+    {% if th.arguments %}
+    <ol class="mt-1 space-y-1 list-decimal ml-5">
+      {% for a in th.arguments %}<li>{{ a.texte }} <span class="text-[11px] text-slate-400" title="faits utilisés">({{ {'fait': 'fait', 'analyse': 'analyse', 'opinion': 'opinion'}.get(a.nature, a.nature) }} · {{ a.faits|join(', ') }})</span></li>{% endfor %}
+    </ol>
+    {% if th.pourquoi_maintenant %}<p class="mt-1"><b>Pourquoi maintenant :</b> {{ th.pourquoi_maintenant }}</p>{% endif %}
+    {% if th.risques %}<p class="mt-1"><b>Risques :</b> {{ th.risques|join(' · ') }}</p>{% endif %}
+    {% if th.ce_qui_invaliderait %}<p class="mt-1"><b>Invalidation :</b> {{ th.ce_qui_invaliderait }}</p>{% endif %}
+    {% if th.incertitudes %}<p class="mt-1 text-slate-500"><b>Incertitudes :</b> {{ th.incertitudes }}</p>{% endif %}
+    <details class="mt-1 text-xs text-slate-500"><summary class="cursor-pointer">{{ th.faits|length }} faits transmis{% if th.ecartes %} · {{ th.ecartes|length }} élément(s) écarté(s) par les garde-fous{% endif %}{% if th.modele %} · {{ th.modele }}{% endif %}</summary>
+      <ul class="mt-1 space-y-0.5">{% for f in th.faits %}<li><b>{{ f.id }}</b> {{ f.texte }}</li>{% endfor %}</ul>
+      {% if th.ecartes %}<ul class="mt-1 list-disc ml-4">{% for r in th.ecartes %}<li>{{ r.element }} — {{ r.motif }}</li>{% endfor %}</ul>{% endif %}
+    </details>
+    {% elif th.motif %}<p class="mt-1 text-slate-500">{{ th.motif }}</p>
+    {% else %}<p class="mt-1 text-slate-500">Thèse rédigée automatiquement pour le haut du classement ; sinon, cliquez sur « Rédiger la thèse ».</p>{% endif %}
+  </div>
+
+  {% if dd.comptes %}
+  <div>
+    <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Gain et risque nets, par compte (coût complet)</h3>
+    <div class="mt-1 overflow-x-auto"><table class="w-full text-xs tabular">
+      <thead class="text-slate-500"><tr><th class="text-left">Compte</th><th class="text-right">Limite</th><th class="text-right">Titres</th><th class="text-right">Montant</th><th class="text-right">Risque</th><th class="text-right">Frais A/R</th><th class="text-right">Impôt</th><th class="text-right">Gain net</th><th class="text-right">Perte nette</th><th class="text-right">Ratio net</th></tr></thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+      {% for acc_key, r in dd.comptes.items() %}
+        <tr class="{% if acc_key == p.account_recommended %}font-semibold{% endif %}">
+          <td class="py-0.5">{{ label('account', acc_key) }}{% if acc_key == p.account_recommended %} ★{% endif %}{% if not r.frais_courtage_connus %} <span class="text-amber-600" title="grille de courtage non renseignée (brokers.*)">⚠</span>{% endif %}</td>
+          <td class="text-right">{{ '%.4g'|format(r.p_max) if r.p_max else '—' }}</td>
+          <td class="text-right">{{ r.titres or '—' }}</td>
+          <td class="text-right">{{ r.montant_eur|eur if r.montant_eur is defined and r.montant_eur is not none else '—' }}</td>
+          <td class="text-right">{{ r.risque_eur|eur if r.risque_eur is defined and r.risque_eur is not none else '—' }}</td>
+          <td class="text-right">{{ '%.2f %%'|format(r.frais_aller_retour_pct * 100) }}</td>
+          <td class="text-right">{{ r.impot_eur|eur if r.impot_eur is defined and r.impot_eur is not none else '—' }}</td>
+          <td class="text-right text-emerald-700 dark:text-emerald-300">{% if r.gain_net_eur is defined %}{{ r.gain_net_eur|eur }} ({{ '%+.1f %%'|format(r.gain_net_pct * 100) }}){% else %}—{% endif %}</td>
+          <td class="text-right text-rose-700 dark:text-rose-300">{% if r.perte_nette_eur is defined %}{{ r.perte_nette_eur|eur }} ({{ '%.1f %%'|format(r.perte_nette_pct * 100) }}){% else %}—{% endif %}</td>
+          <td class="text-right">{{ r.ratio_net if r.ratio_net is defined else '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <p class="mt-1 text-[11px] text-slate-500">TTF : {{ 'due' if (dd.ttf or {}).due else 'non due' }} ({{ (dd.ttf or {}).base }}). Impôt de l'enveloppe sur le gain (PFU en CTO ; prélèvements sociaux en PEA de plus de 5 ans), aucun crédit d'impôt supposé sur une perte. Ce ne sont pas des promesses : objectif {{ 'publié par la lettre' if it.sig and it.sig.detector == 'external' else 'technique (résistance, plus haut, mesure de la base)' }}, jamais un multiple du risque.</p>
+  </div>
+  {% endif %}
+
+  <div class="grid md:grid-cols-2 gap-3">
+    {% set sc = dd.score or {} %}
+    {% if sc %}
+    <div>
+      <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Score {{ '%.0f'|format(sc.total) }}/100 · confiance {{ sc.confiance }}/5 · risque {{ sc.risque }}</h3>
+      <p class="text-xs text-slate-500">Blocs : {% for k, v in sc.blocs.items() %}{{ k }} {{ '%.0f'|format(v) if v is not none else 'n.a.' }}{% if not loop.last %} · {% endif %}{% endfor %} · ratio d'admission {{ sc.ratio_admission }}</p>
+      <ul class="mt-1 list-disc ml-4 text-xs text-slate-600 dark:text-slate-300">{% for e in sc.explications %}<li>{{ e }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    <div>
+      {% set cm = dd.contexte_marche or {} %}
+      <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Contexte et calendrier</h3>
+      <ul class="mt-1 list-disc ml-4 text-xs text-slate-600 dark:text-slate-300">
+        {% if cm %}<li>Risque conjoncturel {{ cm.risque_conjoncturel or 'non calculé' }} · portail {{ cm.portail or '—' }} ({{ cm.raison_portail }})</li><li>{{ cm.publication_lettres }}</li>{% if cm.mode_srd %}<li>SRD {{ cm.mode_srd }}</li>{% endif %}{% endif %}
+        {% for a in dd.annonces or [] %}<li>{{ a.devise }} {{ a.titre }} ({{ a.ts[:16] if a.ts is string else a.ts }}) — {{ a.exposition }}</li>{% endfor %}
+        {% if dd.historique %}<li>Historique comparable : {{ dd.historique.n }} cas, espérance rétrécie {{ '%+.2f R'|format(dd.historique.shrunk_r) if dd.historique.shrunk_r is not none else 'non calculée' }} ({{ label('track_verdict', dd.historique.verdict) }})</li>{% endif %}
+        {% if dd.zones %}<li>Zones : {% for z in dd.zones %}{{ '%.4g'|format(z.bas) }}–{{ '%.4g'|format(z.haut) }}{% if not loop.last %} · {% endif %}{% endfor %}</li>{% endif %}
+      </ul>
+    </div>
+  </div>
+
+  {% set gates = p.gates or {} %}
+  {% if gates.passed %}<p class="text-xs text-emerald-700 dark:text-emerald-300">✓ {{ gates.passed|join(' · ') }}</p>{% endif %}
+  {% set dg = dd.derogation or {} %}
+  {% if dg %}
+  <div class="rounded-lg {% if dg.proposable %}bg-amber-50 dark:bg-amber-500/10{% else %}bg-slate-50 dark:bg-slate-800/40{% endif %} p-2 text-xs">
+    {% if dg.proposable %}
+    <p class="font-semibold text-amber-900 dark:text-amber-200">Opportunité exceptionnelle bloquée par un plafond : une dérogation peut être accordée, pour cette seule proposition, avec votre accord motivé (R21). Le risque par trade n'est jamais relevé.</p>
+    <form method="post" action="/opportunites/derogation" class="mt-1 flex flex-wrap gap-2">
+      <input type="hidden" name="proposal_id" value="{{ p.id }}"><input type="hidden" name="day" value="{{ day.isoformat() }}">
+      <input name="reason" required minlength="5" placeholder="motif de la dérogation" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1 text-xs" style="width:18rem">
+      <button class="rounded-lg px-3 py-1 text-xs bg-amber-700 hover:bg-amber-800 text-white">Accorder une dérogation</button>
+    </form>
+    {% else %}<p class="text-slate-500">Dérogation non proposable : {{ (dg.manque or [])|join(' · ') }}.</p>{% endif %}
+  </div>
+  {% endif %}
+</div>

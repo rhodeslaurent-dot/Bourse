@@ -104,7 +104,18 @@ def _mode_store(config: LoadedConfig) -> ModeStore:
                 return f"refusé : {exc}"
 
     tg_mod.DECLARE_HOOK["fn"] = declare
-    return ModeStore(set_mode=set_mode, current_mode=current_mode, log_event=log_event)
+
+    def decide(proposal_id: int, decision: str) -> str | None:
+        from app.services.decisions import record_decision
+
+        with db_session() as s:
+            try:
+                record_decision(s, proposal_id, decision, "telegram")
+            except ValueError as exc:
+                return str(exc)
+        return None
+
+    return ModeStore(set_mode=set_mode, current_mode=current_mode, log_event=log_event, decide=decide)
 
 
 def _load_env() -> None:

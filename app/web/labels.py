@@ -91,6 +91,7 @@ LABELS: dict[str, dict[str, str]] = {
         "order_entered": "Ordre saisi",
         "ignored": "Ignorée",
         "snoozed": "Reportée",
+        "override": "Dérogation accordée",
     },
     "watch_reason": {
         "momentum": "Momentum (force relative)",

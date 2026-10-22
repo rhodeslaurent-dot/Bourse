@@ -76,7 +76,14 @@ Déployé sur le PC le 22/10/2026 : calendriers chargés (6 205 lignes), `fx_ref
 - classement du jour (espérance nette si l'historique comparable suffit, puis ratio net, puis gain net) ; un ordre limite au prix maximal ; un instantané par proposition ; une proposition par valeur, détecteur et jour ;
 - job `opportunity_scan` (07:50 Paris) et moteur à la réception des lettres.
 Non fait : fondamentaux (bloc F), protocole « fixing de clôture » (fiche 17:15) et carnet d'ordres → lot 2.4/2.5.
-**Prochain lot** : 2.4 (fiche, thèse, classement, notifications).
+**Lot 2.4 fait le 22/10/2026** — fiche, thèse, classement, notifications :
+- thèse d'investissement rédigée par Claude (prompt `thesis_v1`, Sonnet, température 0) à partir de faits numérotés construits en Python ; chaque argument cite ses faits ; un chiffre absent des faits, un fait inconnu ou un argument sans fait sont écartés et listés ; rédaction automatique pour le haut du classement (`ranking.home_top_n`) et bouton « Rédiger la thèse » ;
+- page `/opportunites` : rang du jour, limite au prix maximal, stop, objectifs, gain net / perte nette / ratio net, espérance ; tri par classement, ratio net ou gain net ; fiche complète (thèse, tableau par compte au coût complet, score détaillé, contexte et calendrier, zones, règles passées) ; écartées consultables ;
+- carnet d'ordres préparés (R7) : limites au prix maximal triées par écart au cours, les `entry.standing_orders_max` plus proches « à poser ce matin » ;
+- dérogation (R21) : bouton seulement si le moteur l'a jugée proposable, motif obligatoire, enregistrée comme décision ; refus sinon ;
+- Telegram : P2 pour les `ranking.notify_top_n` premiers achats non bloqués (≤ 12 lignes), boutons Vu / Watch / Ordre saisi / Ignorer enregistrés sur la proposition ;
+- correctif du 22/10 : longueurs des réponses de Claude rendues souples (texte trop long raccourci, citation coupée sans ellipse) — l'erreur « avis.1.resume … 300 caractères » de la revue des lettres ne bloque plus.
+**Prochain lot** : 2.5 (revue de portefeuille du samedi et rapport du jour).
 - **Dépôt GitHub public** : le dépôt contient des éléments personnels (adresses, symboles de positions) ; passage en **privé** recommandé. Le référentiel de gestion n'est pas versionné.
 - **docs/21 (revue de presse Momentum)** : à valider ; liens à repérer avec `newsletter-link-check --all-links` sur une lettre Momentum réelle (domaines de presse à autoriser).
 - ADR-000 et ADR-001 : **acceptés** le 15/09/2026 (« ok allons y ») ; ADR-003, ADR-004, ADR-005 à relire.

@@ -22,7 +22,9 @@ router = APIRouter()
 
 
 @router.get("/opportunites", response_class=HTMLResponse)
-def opportunities_page(request: Request, day: date | None = None, action: str | None = None) -> HTMLResponse:
+def opportunities_page(
+    request: Request, day: date | None = None, action: str | None = None, sort: str = "rang"
+) -> HTMLResponse:
     cfg = request.app.state.config
     capital = float(cfg.params.capital.capital_pilote_eur) or None
     day = day or datetime.now(UTC).date()
@@ -86,17 +88,38 @@ def opportunities_page(request: Request, day: date | None = None, action: str | 
                     "decisions": decisions.get(p.id, []),
                     "note": notes.get(str(p.id)),
                     "letters": letters.get(p.id, {}),
+                    "snapshot_price": ((snaps.get(p.id).quotes or {}).get(p.isin) if snaps.get(p.id) else None),
                 }
             )
-        # docs/18 §18.5: at equal action, favourable history first, unfavourable last (stable otherwise)
-        action_rank = {"BUY": 0, "WATCH": 1}
-        items.sort(
-            key=lambda it: (
-                action_rank.get(it["p"].action, 2),
+        # docs/22 §22.4: the engine's ranking first (or net ratio / net gain on request); then the
+        # proposals without rank (letters not testable, refusals), favourable history first (docs/18)
+        action_rank = {"BUY": 0, "WATCH": 1, "NO_TRADE": 3}
+
+        def acc_metric(it: dict, key: str) -> float:
+            p = it["p"]
+            row = ((p.details or {}).get("comptes") or {}).get(p.account_recommended or "", {})
+            v = row.get(key)
+            return -float(v) if isinstance(v, int | float) else 1e9
+
+        def sort_key(it: dict) -> tuple:
+            p = it["p"]
+            primary = (
+                acc_metric(it, "ratio_net")
+                if sort == "ratio"
+                else acc_metric(it, "gain_net_pct")
+                if sort == "gain"
+                else (p.rank if p.rank is not None else 1e9)
+            )
+            return (
+                p.rank is None,
+                primary,
+                action_rank.get(p.action, 2),
                 VERDICT_ORDER.get((it["explain"].track or {}).get("verdict", "insuffisant"), 1),
             )
-        )
-        counts = {a: sum(1 for it in items if it["p"].action == a) for a in ("BUY", "WATCH")}
+
+        items.sort(key=sort_key)
+        counts = {a: sum(1 for it in items if it["p"].action == a) for a in ("BUY", "WATCH", "NO_TRADE")}
+        book = order_book(items)
     return templates.TemplateResponse(
         request,
         "opportunites.html",
@@ -106,6 +129,8 @@ def opportunities_page(request: Request, day: date | None = None, action: str | 
             "day": day,
             "action": action,
             "counts": counts,
+            "sort": sort,
+            "book": book,
             "today": datetime.now(UTC).date(),
         },
     )
@@ -122,4 +147,64 @@ def decide(
             record_decision(s, proposal_id, decision, "web", reason.strip() or None)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
+    return RedirectResponse(f"/opportunites{'?day=' + day if day else ''}", status_code=303)
+
+
+def order_book(items: list[dict]) -> list[dict]:
+    """R7 (docs/06 §6.7): open admitted proposals sorted by distance from the last price to the
+    maximum entry price; the closest ``entry.standing_orders_max`` are the limit orders to re-post
+    this morning (validity day, expiry after ``entry.expiry_sessions`` sessions)."""
+    rows = []
+    for it in items:
+        p = it["p"]
+        d = p.details or {}
+        if p.status != "open" or p.action not in ("BUY", "WATCH") or d.get("admission") not in ("admis", "refuse"):
+            continue
+        pmax = d.get("p_max")
+        acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
+        price = (it.get("snapshot_price") or {}).get("last")
+        if not pmax:
+            continue
+        rows.append(
+            {
+                "p": p,
+                "name": it["name"],
+                "p_max": pmax,
+                "titres": acc.get("titres"),
+                "stop": p.stop,
+                "distance": (price / pmax - 1) if price else None,
+                "blocked": [b for b in (p.gates or {}).get("blocked", []) if b.startswith("BLOQUÉ")],
+            }
+        )
+    rows.sort(key=lambda r: (r["blocked"] != [], abs(r["distance"]) if r["distance"] is not None else 9))
+    return rows
+
+
+@router.post("/opportunites/derogation")
+def grant_override(proposal_id: int = Form(...), reason: str = Form(""), day: str = Form("")) -> RedirectResponse:
+    """R21: a cap may be exceeded only with the user's explicit, motivated agreement, for this
+    proposal only, when the engine marked it as eligible. Recorded as a decision; the snapshot of
+    the proposal is never modified (rule 10)."""
+    if len(reason.strip()) < 5:
+        raise HTTPException(400, "motif obligatoire pour une dérogation")
+    with db_session() as s:
+        p = s.get(Proposal, proposal_id)
+        if p is None:
+            raise HTTPException(404, "proposition inconnue")
+        if not ((p.details or {}).get("derogation") or {}).get("proposable"):
+            raise HTTPException(400, "dérogation non proposable pour cette proposition (R21)")
+        record_decision(s, proposal_id, "override", "web", reason.strip())
+    return RedirectResponse(f"/opportunites{'?day=' + day if day else ''}", status_code=303)
+
+
+@router.post("/opportunites/these")
+def write_thesis_now(request: Request, proposal_id: int = Form(...), day: str = Form("")) -> RedirectResponse:
+    """Write (or rewrite) the thesis of one proposal on demand (docs/22 §22.8)."""
+    from app.services.thesis import write_thesis
+
+    with db_session() as s:
+        p = s.get(Proposal, proposal_id)
+        if p is None:
+            raise HTTPException(404, "proposition inconnue")
+        write_thesis(s, getattr(request.app.state, "llm", None), p)
     return RedirectResponse(f"/opportunites{'?day=' + day if day else ''}", status_code=303)

@@ -38,7 +38,13 @@ def explain_proposal(
     detector = getattr(signal, "detector", None) if signal else None
     source = getattr(signal, "source", None) if signal else None
     entry = getattr(proposal, "entry_zone", None) or {}
-    entry_px = entry.get("achat") or entry.get("low") or entry.get("entry_low") or getattr(signal, "entry_low", None)
+    entry_px = (
+        entry.get("achat")
+        or entry.get("limite")
+        or entry.get("low")
+        or entry.get("entry_low")
+        or getattr(signal, "entry_low", None)
+    )
     stop = getattr(proposal, "stop", None)
     targets = getattr(proposal, "targets", None) or []
     shares = getattr(proposal, "shares", None)
@@ -46,7 +52,9 @@ def explain_proposal(
 
     parts: list[str] = []
     who = label("detector", detector) if detector else "signal"
-    if detector == "external" and source:
+    if detector == "external" and ev.get("lettre"):
+        who = f"{ev['lettre']} (lettre, recalculée par l'outil)"
+    elif detector == "external" and source:
         who = f"{source} (lettre / analyste)"
     parts.append(f"{label('action', getattr(proposal, 'action', ''))} · {who}")
     if ev.get("direction"):
@@ -54,7 +62,7 @@ def explain_proposal(
             {"buy": "avis achat", "sell": "avis vente", "watch": "à surveiller"}.get(ev["direction"], ev["direction"])
         )
     if entry_px:
-        parts.append(f"entrée {_fmt(entry_px)} €")
+        parts.append(f"{'limite' if entry.get('limite') else 'entrée'} {_fmt(entry_px)} €")
     if stop and entry_px:
         try:
             parts.append(f"stop {_fmt(stop)} € ({(1 - float(stop) / float(entry_px)):.1%} sous l'entrée)")
@@ -93,11 +101,11 @@ def explain_proposal(
     for k, v in (ev.get("levels") or {}).items():
         bullets.append(f"Niveau « {k} » cité par la source : {_fmt(v)} €")
     if getattr(proposal, "account_recommended", None):
-        bullets.append(f"Compte recommandé : {label('account', proposal.account_recommended)}")
+        bullets.append(f"Compte conseillé : {label('account', proposal.account_recommended)}")
     if getattr(proposal, "size_eur", None):
         bullets.append(f"Taille {_fmt(proposal.size_eur, 0)} €")
     cost = getattr(proposal, "cost_estimate", None) or {}
-    if cost:
+    if cost and not any(isinstance(v, dict) for v in cost.values()):  # per-account costs: table of the fiche
         bullets.append("Coût estimé : " + ", ".join(f"{k} {_fmt(v)}" for k, v in cost.items()))
     for g in gates.get("passed") or []:
         bullets.append(f"Porte passée : {g}")

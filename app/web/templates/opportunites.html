@@ -6,17 +6,43 @@
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div>
       <h1 class="text-2xl font-bold">Opportunités</h1>
-      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Propositions du {{ day.strftime('%d/%m/%Y') }} : {{ counts.BUY }} achat(s), {{ counts.WATCH }} à surveiller. Une ligne d'explication par proposition ; le détail s'ouvre d'un clic. Aucun ordre n'est passé : vous décidez chez le courtier.</p>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Propositions du {{ day.strftime('%d/%m/%Y') }} : {{ counts.BUY }} achat(s), {{ counts.WATCH }} à surveiller, {{ counts.NO_TRADE }} écartée(s). Classées par l'outil (espérance nette, puis ratio gain/risque net, puis gain net au coût complet). Le détail s'ouvre d'un clic : thèse, comptes, coûts, règles. Aucun ordre n'est passé : vous décidez chez le courtier.</p>
     </div>
     <form method="get" action="/opportunites" class="flex flex-wrap items-center gap-2 text-sm">
       {{ field('day', '', 'date', day.isoformat()) }}
       <select name="action" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-sm">
-        <option value="" {% if not action %}selected{% endif %}>toutes</option><option value="BUY" {% if action == 'BUY' %}selected{% endif %}>achats</option><option value="WATCH" {% if action == 'WATCH' %}selected{% endif %}>à surveiller</option>
+        <option value="" {% if not action %}selected{% endif %}>toutes</option><option value="BUY" {% if action == 'BUY' %}selected{% endif %}>achats</option><option value="WATCH" {% if action == 'WATCH' %}selected{% endif %}>à surveiller</option><option value="NO_TRADE" {% if action == 'NO_TRADE' %}selected{% endif %}>écartées</option>
+      </select>
+      <select name="sort" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-sm" title="ordre d'affichage">
+        <option value="rang" {% if sort == 'rang' %}selected{% endif %}>classement</option><option value="ratio" {% if sort == 'ratio' %}selected{% endif %}>ratio net</option><option value="gain" {% if sort == 'gain' %}selected{% endif %}>gain net</option>
       </select>
       {{ button('Afficher', 'ghost') }}
     </form>
   </div>
 </section>
+
+{% if book %}
+<section class="card">
+  <h2 class="font-semibold">Carnet d'ordres préparés</h2>
+  <p class="text-xs text-slate-500 dark:text-slate-400">Ordres limites au prix maximal, à reposer chaque matin (validité jour) sur les dossiers les plus proches de leur limite ; stop à poser dès l'exécution ; péremption après {{ request.app.state.config.params.entry.expiry_sessions if request.app.state.config.params.entry else 3 }} séances. Un prix maximal atteint par une cassure du support n'est pas une entrée.</p>
+  <div class="mt-2 overflow-x-auto"><table class="w-full text-sm">
+    <thead class="text-xs text-slate-500"><tr><th class="text-left py-1">Valeur</th><th class="text-right">Limite</th><th class="text-right">Titres</th><th class="text-right">Stop</th><th class="text-right">Écart au cours</th><th class="text-left pl-3">Statut</th></tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+    {% set n_orders = request.app.state.config.params.entry.standing_orders_max if request.app.state.config.params.entry else 4 %}
+    {% for r in book %}
+      <tr class="{% if loop.index > n_orders or r.blocked %}text-slate-400{% endif %}">
+        <td class="py-1"><a href="/valeur/{{ r.p.isin }}" class="hover:underline">{{ r.name }}</a></td>
+        <td class="text-right tabular">{{ '%.4g'|format(r.p_max) }}</td>
+        <td class="text-right tabular">{{ r.titres or '—' }}</td>
+        <td class="text-right tabular">{{ '%.4g'|format(r.stop) if r.stop else '—' }}</td>
+        <td class="text-right tabular">{{ '%+.2f %%'|format(r.distance * 100) if r.distance is not none else '—' }}</td>
+        <td class="pl-3 text-xs">{% if r.blocked %}{{ badge('bloqué', 'red', r.blocked|join(' · ')) }}{% elif loop.index <= n_orders %}{{ badge('à poser ce matin', 'green') }}{% else %}{{ badge('en attente', 'slate') }}{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
 
 {% for it in items %}
 {% set p = it.p %}{% set ex = it.explain %}
@@ -24,6 +50,7 @@
   <div class="flex flex-wrap items-start justify-between gap-2">
     <div class="min-w-0">
       <div class="flex flex-wrap items-center gap-2">
+        {% if p.rank %}<span class="rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-2 py-0.5 text-xs font-bold tabular" title="rang du jour (docs/22 §22.4)">#{{ p.rank }}</span>{% endif %}
         <h2 class="text-lg font-semibold"><a href="/valeur/{{ p.isin }}" class="hover:underline">{{ it.name }}</a></h2>
         <a href="/assistant?isin={{ p.isin }}" data-ai-isin="{{ p.isin }}" data-ai-name="{{ it.name }}" class="inline-flex items-center gap-1 rounded-full border border-sky-200 dark:border-sky-800 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10" title="Poser une question sur cette valeur"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Demander</a>
         {{ badge(label('action', p.action), 'green' if p.action == 'BUY' else 'blue' if p.action == 'WATCH' else 'slate') }}
@@ -35,6 +62,11 @@
         {% if p.account_recommended %}{{ badge(label('account', p.account_recommended), 'slate') }}{% endif %}
       </div>
       <p class="mt-1 text-sm">{{ ex.headline }}</p>
+      {% set dd = p.details or {} %}{% set acc = (dd.comptes or {}).get(p.account_recommended or '', {}) %}
+      {% if dd and dd.p_max %}
+      <p class="mt-1 text-sm tabular text-slate-700 dark:text-slate-300">Limite <b>{{ '%.4g'|format(dd.p_max) }}</b> · stop {{ '%.4g'|format(p.stop) if p.stop else '—' }} · objectif{{ 's' if (p.targets or [])|length > 1 }} {{ (p.targets or [])|join(' / ') or '—' }}{% if acc.gain_net_pct is not none and acc.gain_net_pct is defined %} · gain net <b class="text-emerald-700 dark:text-emerald-300">{{ '%+.1f %%'|format(acc.gain_net_pct * 100) }}</b> · perte nette <b class="text-rose-700 dark:text-rose-300">{{ '%.1f %%'|format(acc.perte_nette_pct * 100) }}</b> · ratio net {{ acc.ratio_net }}{% endif %}{% if dd.esperance_nette_r is not none and dd.esperance_nette_r is defined %} · espérance {{ '%+.2f'|format(dd.esperance_nette_r) }} R{% endif %}</p>
+      {% endif %}
+      {% if p.thesis and p.thesis.arguments %}<p class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{ p.thesis.arguments[0].texte }}</p>{% endif %}
       {% for b in ex.blocked %}<p class="mt-1 text-sm font-semibold text-rose-700 dark:text-rose-300 [overflow-wrap:anywhere]">{{ b }}</p>{% endfor %}
     </div>
     <div class="shrink-0 sm:text-right text-xs text-slate-500 dark:text-slate-400"><span class="font-mono">{{ p.isin }}</span><br>{{ p.created_at|dual }}{% if p.expires_at %}<br>expire {{ p.expires_at|dual }}{% endif %}</div>
@@ -42,11 +74,12 @@
 
   <details class="mt-3 group">
     <summary class="list-none cursor-pointer select-none text-xs font-medium text-sky-700 dark:text-sky-300"><span class="inline-block transition-transform group-open:rotate-90">▸</span> détail : fiche, données utilisées, portes, décisions, note</summary>
+    {% if dd %}{% include "_fiche.html" %}{% endif %}
     <div class="mt-3 grid md:grid-cols-2 gap-4 text-sm">
       <div>
         <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Fiche de proposition</h3>
         <dl class="mt-1 grid grid-cols-2 gap-y-1">
-          <dt class="text-slate-500">Zone d'entrée</dt><dd class="tabular">{% if p.entry_zone %}{% for k, v in p.entry_zone.items() %}{{ k }} {{ v }} €{% if not loop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</dd>
+          <dt class="text-slate-500">Zone d'entrée</dt><dd class="tabular">{% if p.entry_zone %}{% for k, v in p.entry_zone.items() if v is number %}{{ {'declencheur': 'déclencheur', 'limite': 'limite'}.get(k, k) }} {{ '%.4g'|format(v) }} €{% if not loop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</dd>
           <dt class="text-slate-500">Stop initial</dt><dd class="tabular">{{ p.stop if p.stop is not none else '—' }}{% if p.stop is not none %} €{% endif %}</dd>
           <dt class="text-slate-500">Objectifs</dt><dd class="tabular">{% if p.targets %}{{ p.targets|join(' / ') }} €{% else %}—{% endif %}</dd>
           <dt class="text-slate-500">Quantité · taille</dt><dd class="tabular">{% if p.shares %}{{ p.shares }} titres{% else %}—{% endif %}{% if p.size_eur %} · {{ p.size_eur|eur }}{% endif %}</dd>

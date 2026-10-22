@@ -41,6 +41,16 @@ class ModeStore:
     set_mode: Callable[[str, datetime | None, str], None]
     current_mode: Callable[[], str]
     log_event: Callable[[int, bool, str, str | None, str | None, bool], None]
+    decide: Callable[[int, str], str | None] | None = None  # (proposal id, decision) → error or None
+
+
+PROPOSAL_BUTTONS = {"vu": "seen", "watch": "watch", "ordre_saisi": "order_entered", "ignorer": "ignored"}
+
+
+def proposal_buttons(proposal_id: int) -> list[Button]:
+    """Buttons of a proposal card: the decision is recorded on the proposal (docs/22 §22.2)."""
+    labels = {"vu": "Vu", "watch": "Watch", "ordre_saisi": "Ordre saisi", "ignorer": "Ignorer"}
+    return [Button(labels[k], f"p{proposal_id}:{k}") for k in PROPOSAL_BUTTONS]
 
 
 @dataclass
@@ -144,6 +154,13 @@ def handle_callback(data: str, user_id: int, allowed_user_id: int, store: ModeSt
     store.log_event(user_id, auth, "callback", None, data, auth)
     if not auth:
         return Reply("", False)
+    import re
+
+    m = re.search(r"(?:^|:)p(\d+):(vu|watch|ordre_saisi|ignorer)$", data)
+    if m and store.decide is not None:
+        err = store.decide(int(m.group(1)), PROPOSAL_BUTTONS[m.group(2)])
+        if err:
+            return Reply(f"Non enregistré : {err}", True)
     label = next((b.label for b in STANDARD_BUTTONS if data.endswith(b.data)), data)
     return Reply(f"Enregistré : {label}", True)
 

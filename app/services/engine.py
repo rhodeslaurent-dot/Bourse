@@ -620,13 +620,20 @@ def scan(
         if not found:
             continue
         q = (quotes or {}).get(inst.isin)
-        price = float(q.last) if q is not None and getattr(q, "last", None) else bars[-1].close
-        status = q.data_status.value if q is not None and getattr(q, "last", None) else "eod"
+        live = q is not None and getattr(q, "last", None) is not None
+        price = float(q.last) if live else bars[-1].close
+        status = q.data_status.value if live else "eod"
+        last_day = s.scalar(
+            select(PriceEod.day).where(PriceEod.isin == inst.isin, PriceEod.day <= day).order_by(PriceEod.day.desc())
+        )
+        price_source = q.source if live else "clôture officielle stockée"
+        price_ts = q.market_timestamp if live else last_day
         for setup, source in found:
             rep.setups += 1
             ev = evaluate(
                 s, config, inst, setup, source, price, status, book, ctxm.gate, ctxm.regime, ctxm.srd_mode, now, feats
             )
+            ev.details["source_cours"], ev.details["horodatage_cours"] = price_source, price_ts
             ev.details["contexte_marche"] = {
                 "risque_conjoncturel": ctxm.level,
                 "composantes": ctxm.components,
@@ -708,7 +715,15 @@ def _persist(
             s,
             sig,
             e.action,
-            {e.isin: {"cours": e.price, "statut": e.price_status, "releve_a": now}},
+            {
+                e.isin: {
+                    "last": e.price,
+                    "data_status": e.price_status,
+                    "source": e.details.get("source_cours"),
+                    "market_timestamp": e.details.get("horodatage_cours"),
+                    "releve_a": now,
+                }
+            },
             {"passed": e.passed, "blocked": e.blocked},
             p.version,
             to_verify=e.price_status not in ("realtime", "delayed", "eod"),
@@ -741,3 +756,55 @@ def todays_ranked(s: Session, day: date) -> list[Proposal]:
     start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
     rows = list(s.scalars(select(Proposal).where(Proposal.created_at >= start, Proposal.deleted_at.is_(None))))
     return sorted(rows, key=lambda x: (x.rank is None, x.rank or 0, x.id))
+
+
+ACTION_LABEL = {"BUY": "ACHAT", "WATCH": "À SURVEILLER", "NO_TRADE": "PAS DE TRADE"}
+
+
+def notify_top(s: Session, config: LoadedConfig, alerts: Any, mode: str, day: date) -> int:
+    """P2 for the top ``ranking.notify_top_n`` unblocked BUY of the day (docs/22 §22.4): ≤ 12 lines,
+    decision buttons; deduplicated per value, kind and day by the alert service."""
+    from app.notify.base import Event
+    from app.notify.telegram import proposal_buttons
+    from app.services.instruments import name_of
+
+    top_n = int((getattr(config.params, "ranking", None) or {}).get("notify_top_n", 3))
+    sent = 0
+    for p in todays_ranked(s, day):
+        if sent >= top_n:
+            break
+        blocked = [b for b in (p.gates or {}).get("blocked", []) if b.startswith("BLOQUÉ")]
+        if p.action != "BUY" or p.rank is None or blocked or p.sent_at is not None:
+            continue
+        d = p.details or {}
+        acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
+        th = (p.thesis or {}).get("arguments") or []
+        lines = [
+            f"Compte : {p.account_recommended} · {acc.get('titres')} titres · limite {d.get('p_max'):.4g}"
+            if d.get("p_max")
+            else f"Compte : {p.account_recommended}",
+            f"Stop {p.stop:.4g} · objectif {(p.targets or [None])[0]}",
+            f"Gain net {(acc.get('gain_net_pct') or 0) * 100:.1f} % · perte nette "
+            f"{(acc.get('perte_nette_pct') or 0) * 100:.1f} % · ratio net {acc.get('ratio_net')}",
+            f"Portail {d.get('portail')} · horizon {p.horizon}",
+        ]
+        if th:
+            lines.append("Thèse : " + th[0]["texte"][:180])
+        lines.append("Pas un ordre : à saisir vous-même · fiche complète sur /opportunites")
+        ok = alerts.emit(
+            s,
+            Event(
+                "P2",
+                "proposal_buy",
+                f"#{p.rank} {name_of(p.isin)} — {ACTION_LABEL.get(p.action, p.action)}",
+                lines,
+                proposal_buttons(p.id),
+                isin=p.isin,
+            ),
+            mode,
+        )
+        if ok:
+            p.sent_at, p.channels = datetime.now(UTC), ["telegram"]
+            sent += 1
+    s.flush()
+    return sent
