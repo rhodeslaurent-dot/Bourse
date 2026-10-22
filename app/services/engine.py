@@ -84,6 +84,23 @@ def _letter_levels(s: Session, isin: str, day: date, window_days: int = 5) -> li
     return out
 
 
+REGULATORY_TYPES = ("transaction_dirigeant", "franchissement_seuil", "rachat_actions")
+
+
+def _insider_buy_days(s: Session, isin: str, now: datetime, window_days: int) -> int | None:
+    """Days since the latest purchase by a manager of the company within the window (docs/23 §23.3)."""
+    best: int | None = None
+    for n in s.scalars(select(NewsItem).where(NewsItem.fetched_at >= now - timedelta(days=window_days))):
+        c = n.classification or {}
+        if isin not in (n.isins or []) or c.get("type") != "transaction_dirigeant" or c.get("direction") != "positif":
+            continue
+        ts = n.published_at or n.fetched_at
+        ts = ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
+        days = max(0, (now - ts).days)
+        best = days if best is None else min(best, days)
+    return best
+
+
 def _catalyst(s: Session, isin: str, now: datetime) -> tuple[str | None, bool, int | None]:
     best: tuple[str | None, bool, int | None] = (None, False, None)
     order = {"forte": 3, "moyenne": 2, "faible": 1}
@@ -91,8 +108,8 @@ def _catalyst(s: Session, isin: str, now: datetime) -> tuple[str | None, bool, i
         if isin not in (n.isins or []):
             continue
         c = n.classification or {}
-        if c.get("direction") != "positif":
-            continue
+        if c.get("direction") != "positif" or c.get("type") in REGULATORY_TYPES:
+            continue  # a manager's purchase scores on its own (docs/23 §23.3), a buyback is a fact, not a catalyst
         mag = c.get("magnitude")
         if mag in order and order[mag] > order.get(best[0] or "", 0):
             ts = n.published_at or n.fetched_at
@@ -428,6 +445,10 @@ def evaluate(
             same_sector_positions=book.sectors.get(inst.sector or "", 0),
             catalyst_strength=_catalyst(s, inst.isin, now)[0],
             catalyst_positive=_catalyst(s, inst.isin, now)[1],
+            insider_buy_days=_insider_buy_days(
+                s, inst.isin, now, int((p.scoring or {}).get("insider_window_days", 30))
+            ),
+            insider_buy_points=float((p.scoring or {}).get("insider_buy_points", 5)),
             catalyst_age_days=_catalyst(s, inst.isin, now)[2],
             external_confirmation=bool(_letter_levels(s, inst.isin, now.date())),
             small_cap=bool(inst.small_cap),

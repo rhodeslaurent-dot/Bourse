@@ -64,6 +64,9 @@ class NewsClassification(BaseModel):
         "augmentation_capital",
         "gouvernance",
         "reco_broker",
+        "transaction_dirigeant",  # docs/23 §23.3 (MAR art. 19)
+        "franchissement_seuil",
+        "rachat_actions",
         "reglementaire",
         "autre",
     ]

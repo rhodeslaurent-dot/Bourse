@@ -92,12 +92,16 @@ def facts_for(s: Session, p: Proposal, now: datetime | None = None) -> list[dict
             f"{_fmt(hist.get('shrunk_r'))} R, verdict {hist.get('verdict')}"
         )
     since = now - timedelta(days=7)
-    for n in s.scalars(select(NewsItem).where(NewsItem.fetched_at >= since).order_by(NewsItem.fetched_at.desc())):
-        if p.isin in (n.isins or []):
-            c = n.classification or {}
+    since_reg = now - timedelta(days=30)  # docs/23 §23.3: managers' dealings, thresholds, buybacks over 30 days
+    regulatory = ("transaction_dirigeant", "franchissement_seuil", "rachat_actions")
+    for n in s.scalars(select(NewsItem).where(NewsItem.fetched_at >= since_reg).order_by(NewsItem.fetched_at.desc())):
+        c = n.classification or {}
+        fetched = n.fetched_at.replace(tzinfo=UTC) if n.fetched_at.tzinfo is None else n.fetched_at
+        if p.isin in (n.isins or []) and (fetched >= since or c.get("type") in regulatory):
+            kind = "Publication réglementaire" if c.get("type") in regulatory else "Nouvelle"
             facts.append(
-                f"Nouvelle du {(n.published_at or n.fetched_at):%d/%m} ({n.source}) : {n.title} — "
-                f"{c.get('resume') or ''} [{c.get('direction')}, {c.get('magnitude')}]"
+                f"{kind} du {(n.published_at or n.fetched_at):%d/%m} ({n.source}) : {n.title} — "
+                f"{c.get('resume') or ''} [{c.get('type')}, {c.get('direction')}, {c.get('magnitude')}]"
             )
             if len(facts) > 40:
                 break

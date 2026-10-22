@@ -286,6 +286,8 @@ scoring:
     d7_trend_quality: ["T", "F", "R", "M"]
     external: ["T", "R", "M"]
   f_min_available_subcriteria: 2
+  insider_window_days: 30              # docs/23 §23.3 : achat d'un dirigeant (MAR art. 19) pris en compte pendant 30 jours
+  insider_buy_points: 5                # points du bloc C (dans la limite de c_bonus_cap hors D1)
   buy_min_confidence: 3
   watch_ratio_range: [0.60, 0.74]
   exceptional_min_ratio: 0.85
@@ -419,11 +421,33 @@ data:
     tradingview_screener: 15
     yfinance: 15
   tradingview_screener: {min_interval_seconds: 60, max_requests_per_scan: 6, limit_per_request: 1500, fallback: "eodhd_rest_delayed"}
-  rss_feeds:
-    - {name: "actusnews", url: "https://www.actusnews.com/fr/rss", user_agent: "browser"}
-    - {name: "abc_bourse", url: "https://www.abcbourse.com/rss/displaynewsrss"}
-    - {name: "tradingsat", url: "https://www.tradingsat.com/rssbourse.xml"}
-    - {name: "globenewswire_fr", url: "à renseigner"}
+  rss_feeds:                             # docs/23 : catalogue par place ; « à renseigner » = ignoré tant que sources-discover / sources-check n'ont pas donné l'adresse
+    - {name: "actusnews", url: "https://www.actusnews.com/fr/rss", user_agent: "browser", market: "FR", kind: "reglementaire", reconnu: "diffuseur agréé de l'information réglementée"}
+    - {name: "abc_bourse", url: "https://www.abcbourse.com/rss/displaynewsrss", market: "FR", kind: "actualites"}
+    - {name: "tradingsat", url: "https://www.tradingsat.com/rssbourse.xml", market: "FR", kind: "actualites", reconnu: "BFM Bourse"}
+    - {name: "globenewswire_fr", url: "à renseigner", homepage: "https://www.globenewswire.com/", market: "FR", kind: "reglementaire"}
+    - {name: "amf_dirigeants", url: "à renseigner", homepage: "https://www.amf-france.org/fr/abonnements-flux-rss", market: "FR", kind: "reglementaire", reconnu: "AMF — BDIF, déclarations des dirigeants (MAR art. 19)"}
+    - {name: "investir", url: "à renseigner", homepage: "https://investir.lesechos.fr/", market: "FR", kind: "presse_conseil", reconnu: "Investir (Les Echos), conseils"}
+    - {name: "le_revenu", url: "à renseigner", homepage: "https://www.lerevenu.com/", market: "FR", kind: "presse_conseil"}
+    - {name: "boursier", url: "à renseigner", homepage: "https://www.boursier.com/", market: "FR", kind: "actualites"}
+    - {name: "eqs_news", url: "à renseigner", homepage: "https://www.eqs-news.com/", market: "DE", kind: "reglementaire", reconnu: "EQS (ex-DGAP) : EQS-DD, communiqués réglementés"}
+    - {name: "der_aktionaer", url: "à renseigner", homepage: "https://www.deraktionaer.de/", market: "DE", kind: "presse_conseil"}
+    - {name: "boerse_online", url: "à renseigner", homepage: "https://www.boerse-online.de/", market: "DE", kind: "presse_conseil"}
+    - {name: "finanzen_net", url: "à renseigner", homepage: "https://www.finanzen.net/", market: "DE", kind: "reco_analystes", reconnu: "analyses de brokers (dpa-AFX Analyser)"}
+    - {name: "iex", url: "à renseigner", homepage: "https://www.iex.nl/", market: "NL", kind: "presse_conseil"}
+    - {name: "de_tijd", url: "à renseigner", homepage: "https://www.tijd.be/", market: "BE", kind: "presse_conseil"}
+    - {name: "expansion", url: "à renseigner", homepage: "https://www.expansion.com/", market: "ES", kind: "actualites"}
+    - {name: "cinco_dias", url: "à renseigner", homepage: "https://cincodias.elpais.com/", market: "ES", kind: "actualites"}
+    - {name: "affarsvarlden", url: "à renseigner", homepage: "https://www.affarsvarlden.se/", market: "SE", kind: "presse_conseil"}
+    - {name: "placera", url: "à renseigner", homepage: "https://www.avanza.se/placera/", market: "SE", kind: "actualites"}
+    - {name: "borsen", url: "à renseigner", homepage: "https://borsen.dk/", market: "DK", kind: "actualites"}
+    - {name: "kauppalehti", url: "à renseigner", homepage: "https://www.kauppalehti.fi/", market: "FI", kind: "actualites"}
+    - {name: "e24", url: "à renseigner", homepage: "https://e24.no/", market: "NO", kind: "actualites"}
+    - {name: "newsweb_oslo", url: "à renseigner", homepage: "https://newsweb.oslobors.no/", market: "NO", kind: "reglementaire"}
+    - {name: "bankier", url: "à renseigner", homepage: "https://www.bankier.pl/", market: "PL", kind: "actualites"}
+    - {name: "jornal_negocios", url: "à renseigner", homepage: "https://www.jornaldenegocios.pt/", market: "PT", kind: "actualites"}
+    - {name: "irish_times_business", url: "à renseigner", homepage: "https://www.irishtimes.com/business/", market: "IE", kind: "actualites"}
+    - {name: "boersen_kurier", url: "à renseigner", homepage: "https://www.boersen-kurier.at/", market: "AT", kind: "actualites"}
   imap:
     host: "imap.gmail.com"
     mailbox: "INBOX"                     # ou un libellé Gmail (ex. "Bourse") ; seuls les non-lus des expéditeurs ci-dessous sont lus

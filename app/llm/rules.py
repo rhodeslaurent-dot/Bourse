@@ -90,3 +90,64 @@ def classify_by_rules(title: str, body: str) -> NewsClassification:
         resume=title[:240],
         confiance=0.35,
     )
+
+
+# docs/23 §23.3 — regulatory notices follow fixed wordings: classified by rules (no LLM), high confidence
+_INSIDER = (
+    "déclaration des dirigeants", "declaration des dirigeants", "transactions des dirigeants",
+    "transaction de dirigeant",
+    "eqs-dd", "directors' dealings", "directors dealings", "director's dealings", "managers' transactions",
+    "managers transactions", "managerial transactions", "pdmr", "art. 19 mar", "article 19 mar",
+    "personnes exerçant des responsabilités dirigeantes", "führungsaufgaben wahrnehmen", "eigengeschäfte",
+    "insynshandel", "johdon liiketoimet", "ledende medarbejderes", "primærinnsider", "transakcje osób",
+)  # fmt: skip
+_BUY = r"\b(acquisition|achat|souscription|kauf|erwerb|purchase|buy|bought|köp|osto|køb|kjøp|zakup)\b"
+_SELL = r"\b(cession|vente|verkauf|veräußerung|sale|sell|sold|försäljning|myynti|salg|sprzedaż)\b"
+_THRESHOLD = (
+    "franchissement de seuil", "franchissements de seuil", "déclaration de franchissement", "stimmrechtsmitteilung",
+    "major shareholding", "major holdings", "flaggningsmeddelande", "liputusilmoitus",
+    "major shareholder announcement",
+)  # fmt: skip
+_BUYBACK = (
+    "rachat d'actions", "rachat d’actions", "programme de rachat", "aktienrückkauf", "share buyback",
+    "share repurchase",
+    "återköp av aktier", "tilbakekjøp av egne aksjer",
+)  # fmt: skip
+
+
+def classify_regulatory(title: str, body: str) -> NewsClassification | None:
+    """Insider transaction, threshold crossing or buyback notice recognised from its official wording,
+    else ``None`` (the LLM or the keyword rules classify it). A purchase by a manager is positive
+    (moderate), a sale negative but weak (often a personal reason; docs/23 §23.1)."""
+    import re
+
+    head = f"{title} {(body or '')[:600]}".lower()
+    if any(w in head for w in _INSIDER):
+        buy, sell = re.search(_BUY, head) is not None, re.search(_SELL, head) is not None
+        direction, magnitude = (
+            ("positif", "moyenne")
+            if buy and not sell
+            else ("negatif", "faible")
+            if sell and not buy
+            else ("neutre", "faible")
+        )
+        nature = {"positif": "achat", "negatif": "vente"}.get(direction, "nature non précisée")
+        return NewsClassification(
+            type="transaction_dirigeant",
+            direction=direction,
+            magnitude=magnitude,
+            ampleur_annoncee=0.4 if direction == "positif" else 0.1,
+            resume=f"Transaction de dirigeant ({nature}) : {title}"[:240],
+            confiance=0.9,
+        )
+    if any(w in head for w in _THRESHOLD):
+        return NewsClassification(
+            type="franchissement_seuil", direction="neutre", magnitude="faible", ampleur_annoncee=0.0,
+            resume=f"Franchissement de seuil : {title}"[:240], confiance=0.9,
+        )  # fmt: skip
+    if any(w in head for w in _BUYBACK):
+        return NewsClassification(
+            type="rachat_actions", direction="positif", magnitude="faible", ampleur_annoncee=0.2,
+            resume=f"Rachat d'actions : {title}"[:240], confiance=0.9,
+        )  # fmt: skip
+    return None

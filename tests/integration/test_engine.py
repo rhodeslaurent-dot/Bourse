@@ -273,3 +273,17 @@ def test_a_limit_waiting_for_a_pullback_has_an_account_and_a_quantity(db_engine,
             objs = p.details["objectifs"]  # each target: origin, gross % from the limit, net for the account
             assert len(objs) == len(p.targets) and all(o["origine"] and o["brut_pct"] > 0 for o in objs)
             assert all(o["gain_net_pct"] < o["brut_pct"] for o in objs)
+
+
+def test_a_recent_managers_purchase_is_detected_and_not_counted_as_a_catalyst(db_engine, config):
+    from app.db.models import NewsItem
+
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        s.add(NewsItem(source="eqs_news", guid="dd", dedup_hash="dd", fetched_at=NOW - timedelta(days=6),
+                       published_at=NOW - timedelta(days=6), title="Déclaration des dirigeants — achat", body="",
+                       url="u", isins=[ISIN], classified_by="rules",
+                       classification={"type": "transaction_dirigeant", "direction": "positif", "magnitude": "moyenne"}))  # fmt: skip  # noqa: E501
+        s.flush()
+        assert engine._insider_buy_days(s, ISIN, NOW, 30) == 6 and engine._insider_buy_days(s, ISIN, NOW, 5) is None
+        assert engine._catalyst(s, ISIN, NOW)[0] is None  # docs/23 §23.3: scored on its own, not as a catalyst

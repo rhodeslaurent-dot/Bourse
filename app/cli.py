@@ -390,6 +390,7 @@ NEW_CHILD_PARENTS = [
     "events",
     "letters_review",
     "detectors",
+    "scoring",
     "scoring.admission_blocks",
 ]
 
@@ -794,6 +795,69 @@ def cmd_ttf_list_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def _feeds(cfg, name: str | None) -> list[dict]:  # type: ignore[no-untyped-def]
+    return [f for f in cfg.params.data.rss_feeds if not name or f.get("name") == name]
+
+
+def cmd_sources_discover(args: argparse.Namespace) -> int:
+    """docs/23 §23.4 — list the feeds a site announces (homepage of the sources still « à renseigner »,
+    or the given URL). Read-only; the address to keep is then copied into params.yaml."""
+    import httpx
+
+    from app.data.providers.feed_discovery import discover_feeds
+    from app.data.providers.rss import BROWSER_UA
+
+    if args.url:
+        targets = [("(adresse donnée)", args.url)]
+    else:
+        cfg = load_params(args.params)
+        targets = [
+            (str(f["name"]), str(f["homepage"]))
+            for f in _feeds(cfg, args.name)
+            if f.get("homepage") and (args.name or "renseigner" in str(f.get("url", "")))
+        ]
+    if not targets:
+        print("aucune source à découvrir (toutes les adresses sont renseignées, ou --name inconnu)")
+        return 1
+    with httpx.Client(timeout=20, follow_redirects=True, headers={"User-Agent": BROWSER_UA}) as c:
+        for name, url in targets:
+            try:
+                r = c.get(url)
+                found = discover_feeds(r.text, str(r.url)) if r.status_code < 400 else []
+                print(f"\n{name} — {url} : HTTP {r.status_code}, {len(found)} flux trouvé(s)")
+            except httpx.HTTPError as exc:
+                print(f"\n{name} — {url} : inaccessible ({exc.__class__.__name__})")
+                continue
+            for feed, label in found:
+                print(f"  {feed}   [{label}]")
+    print("\nRecopier l'adresse retenue dans config/params.yaml (data.rss_feeds), puis lancer sources-check.")
+    return 0
+
+
+def cmd_sources_check(args: argparse.Namespace) -> int:
+    """docs/23 §23.4 — read every configured feed once and report status, item count, newest date and
+    first title. Nothing is written to the database."""
+    from app.data.providers.rss import fetch_feed
+
+    cfg = load_params(args.params)
+    feeds = [f for f in _feeds(cfg, args.name) if f.get("url") and "renseigner" not in str(f.get("url"))]
+    pending = [str(f["name"]) for f in _feeds(cfg, args.name) if "renseigner" in str(f.get("url", ""))]
+    ok = 0
+    for f in feeds:
+        try:
+            items = fetch_feed(str(f["name"]), str(f["url"]))
+        except Exception as exc:  # noqa: BLE001 — a diagnostic: every failure is printed, none stops the others
+            print(f"ÉCHEC  {f['name']:<22} {str(exc)[:100]}")
+            continue
+        dates = [i.published_at for i in items if i.published_at]
+        newest = max(dates).strftime("%d/%m/%Y %H:%M") if dates else "sans date"
+        first = items[0].title[:70] if items else "—"
+        print(f"OK     {f['name']:<22} {len(items):>3} article(s), plus récent {newest} · {first}")
+        ok += 1
+    print(f"\n{ok}/{len(feeds)} flux lisible(s)" + (f" ; à renseigner : {', '.join(pending)}" if pending else ""))
+    return 0 if ok == len(feeds) else 1
+
+
 def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
     """docs/19 §19.6 — examine the latest matching letters (read-only): subject, link labels and
     hosts (never the content), then follow the configured link of each and print its status."""
@@ -1035,6 +1099,13 @@ def main(argv: list[str] | None = None) -> int:
     lc.add_argument("--count", type=int, default=5, help="nombre de lettres récentes examinées")
     lc.add_argument("--all-links", action="store_true", help="liste tous les liens (libellé complet, hôte)")
     lc.set_defaults(fn=cmd_newsletter_link_check)
+    sd = sub.add_parser("sources-discover", help="flux RSS annoncés par le site d'une source (docs/23)")
+    sd.add_argument("url", nargs="?", default=None, help="page à examiner (défaut : sources « à renseigner »)")
+    sd.add_argument("--name", default=None, help="une seule source du catalogue")
+    sd.set_defaults(fn=cmd_sources_discover)
+    sk = sub.add_parser("sources-check", help="lit chaque flux configuré et affiche son état (docs/23)")
+    sk.add_argument("--name", default=None)
+    sk.set_defaults(fn=cmd_sources_check)
     bf = sub.add_parser("backfill")
     bf.add_argument("--provider", default="eodhd")
     bf.add_argument("--from", dest="from_date", required=True)

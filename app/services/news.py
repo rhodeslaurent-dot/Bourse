@@ -15,7 +15,7 @@ from app.data.providers.imap_gmail import ISIN_RE
 from app.data.providers.rss import NewsItem as RssItem
 from app.db.models import Instrument, InstrumentAlias, NewsItem, PremarketWatch
 from app.llm.gateway import ClaudeGateway, LlmUnavailable
-from app.llm.rules import classify_by_rules
+from app.llm.rules import classify_by_rules, classify_regulatory
 from app.llm.schemas import NewsClassification
 
 log = logging.getLogger("bourse.news")
@@ -61,6 +61,9 @@ def classify_item(
     s: Session, item: NewsItem, gateway: ClaudeGateway | None
 ) -> tuple[NewsClassification, str, str | None, float]:
     text = f"Titre : {item.title}\n\nTexte : {(item.body or '')[:4000]}"
+    official = classify_regulatory(item.title, item.body or "")  # docs/23 §23.3: fixed wordings, no LLM
+    if official is not None:
+        return official, "rules", None, 0.0
     if gateway is not None:
         try:
             parsed, usage = gateway.parse(s, "news_classify", "news_classify", text, NewsClassification)

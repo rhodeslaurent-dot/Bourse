@@ -84,6 +84,8 @@ class ScoreInput:
     catalyst_positive: bool = False
     catalyst_age_days: int | None = None
     external_confirmation: bool = False
+    insider_buy_days: int | None = None  # docs/23 §23.3: days since the latest purchase by a manager (window)
+    insider_buy_points: float = 5.0
     small_cap: bool = False
     fundamentals: FundamentalFacts | None = None
 
@@ -135,6 +137,9 @@ def score(
     if inp.external_confirmation:
         c += 5
         ex.append("confirmation par une lettre → +5")
+    if inp.insider_buy_days is not None and inp.insider_buy_points:
+        c += inp.insider_buy_points
+        ex.append(f"achat d'un dirigeant il y a {inp.insider_buy_days} j → +{inp.insider_buy_points:g}")
     c = _clamp(c, 30)
     # T — technique
     t = 0.0
