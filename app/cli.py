@@ -858,6 +858,55 @@ def cmd_sources_check(args: argparse.Namespace) -> int:
     return 0 if ok == len(feeds) else 1
 
 
+def cmd_tv_columns_check(args: argparse.Namespace) -> int:
+    """docs/23 S4 — which analyst columns the TradingView screener accepts (largest caps of a market),
+    with sample values; the accepted ones go into data.tradingview_screener.analyst_columns."""
+    from app.data.providers.tradingview_screener import ANALYST_COLUMN_CANDIDATES, check_columns
+
+    cols = [c.strip() for c in args.columns.split(",")] if args.columns else ANALYST_COLUMN_CANDIDATES
+    res = check_columns(args.market, cols)
+    for col, (ok, info) in res.items():
+        print(f"{'OK    ' if ok else 'REFUS '} {col:<24} {info[:110]}")
+    print(f"\n{sum(ok for ok, _ in res.values())}/{len(res)} colonne(s) acceptée(s) sur {args.market}")
+    return 0
+
+
+def cmd_shorts_check(args: argparse.Namespace) -> int:
+    """docs/23 S2 — read one authority's short-position file (configured URL, given URL or local file) and
+    show what is recognised; ``--store`` keeps it (manual load when the site refuses the download)."""
+    from pathlib import Path
+
+    from app.data.providers.short_positions import fetch, read_table, rows_from_table
+
+    cfg = load_params(args.params)
+    sources = ((getattr(cfg.params.data, "short_positions", None) or {}).get("sources")) or []
+    src = next((x for x in sources if x.get("authority") == args.authority), {"authority": args.authority})
+    try:
+        if args.file:
+            path = Path(args.file)
+            rows, url = rows_from_table(read_table(path.read_bytes(), path.name)), f"fichier {path.name}"
+        else:
+            rows, url = fetch({**src, **({"url": args.url} if args.url else {})})
+    except Exception as exc:  # noqa: BLE001 — a diagnostic
+        print(f"{args.authority} : échec — {exc}")
+        return 1
+    by_isin: dict[str, float] = {}
+    for r in rows:
+        by_isin[r.isin] = by_isin.get(r.isin, 0.0) + r.pct
+    print(f"{args.authority} : {len(rows)} position(s) lue(s) depuis {url}")
+    if rows:
+        print(f"dates : {min(r.position_date for r in rows)} → {max(r.position_date for r in rows)}")
+        for isin, pct in sorted(by_isin.items(), key=lambda kv: -kv[1])[:5]:
+            print(f"  {isin}  {pct * 100:.2f} % (somme des lignes du fichier)")
+    if args.store and rows:
+        from app.db.session import db_session
+        from app.services.short_positions import store
+
+        with db_session() as s:
+            print(f"{store(s, args.authority, rows, url)} position(s) nouvelle(s) enregistrée(s)")
+    return 0
+
+
 def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
     """docs/19 §19.6 — examine the latest matching letters (read-only): subject, link labels and
     hosts (never the content), then follow the configured link of each and print its status."""
@@ -1106,6 +1155,16 @@ def main(argv: list[str] | None = None) -> int:
     sk = sub.add_parser("sources-check", help="lit chaque flux configuré et affiche son état (docs/23)")
     sk.add_argument("--name", default=None)
     sk.set_defaults(fn=cmd_sources_check)
+    tc = sub.add_parser("tv-columns-check", help="colonnes d'analystes acceptées par le screener TradingView")
+    tc.add_argument("--market", default="france")
+    tc.add_argument("--columns", default=None, help="liste séparée par des virgules (défaut : candidates connues)")
+    tc.set_defaults(fn=cmd_tv_columns_check)
+    sc2 = sub.add_parser("shorts-check", help="positions courtes d'une autorité : lecture et contrôle (docs/23 S2)")
+    sc2.add_argument("--authority", required=True, help="amf, bafin, afm, cnmv, fi_se…")
+    sc2.add_argument("--url", default=None, help="adresse à tester (défaut : celle du params.yaml)")
+    sc2.add_argument("--file", default=None, help="fichier CSV / Excel téléchargé à la main")
+    sc2.add_argument("--store", action="store_true", help="enregistrer les positions lues")
+    sc2.set_defaults(fn=cmd_shorts_check)
     bf = sub.add_parser("backfill")
     bf.add_argument("--provider", default="eodhd")
     bf.add_argument("--from", dest="from_date", required=True)

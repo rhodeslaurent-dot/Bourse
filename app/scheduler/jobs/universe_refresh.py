@@ -124,6 +124,31 @@ def backfill_new_listings(provider, rows: list[SymbolRow], config, today: date, 
     return len(todo)
 
 
+def store_analyst_consensus(s, rows: list[SymbolRow], day: date) -> int:  # type: ignore[no-untyped-def]
+    """docs/23 S4 — TradingView analyst fields kept per day and source, beside Yahoo (cross-check)."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import select
+
+    from app.db.models import AnalystConsensus
+
+    n = 0
+    for r in rows:
+        vals = r.extra.get("analystes_tv")
+        if not vals:
+            continue
+        row = s.scalar(
+            select(AnalystConsensus).where(
+                AnalystConsensus.isin == r.isin, AnalystConsensus.day == day, AnalystConsensus.source == "tradingview"
+            )
+        ) or AnalystConsensus(isin=r.isin, day=day, source="tradingview")
+        row.data, row.received_at = {**vals, "devise": r.currency}, datetime.now(UTC)
+        s.add(row)
+        n += 1
+    s.flush()
+    return n
+
+
 def _log_exchange_hints(provider: EodhdProvider, errors: dict[str, str]) -> None:
     """For an unknown exchange code, log the European codes EODHD actually exposes."""
     if not any("404" in v or "Not Found" in v for v in errors.values()):
@@ -155,11 +180,15 @@ def enrich_with_screener(  # type: ignore[no-untyped-def]
             max_requests_per_scan=int(tv_cfg.get("max_requests_per_scan", 6)),
             limit_per_request=int(tv_cfg.get("limit_per_request", 1500)),
         )
+        from app.data.providers.tradingview_screener import DEFAULT_COLUMNS, analyst_values
+
+        analyst_cols = {k: str(v) for k, v in (tv_cfg.get("analyst_columns") or {}).items() if v}  # docs/23 S4
+        cols = DEFAULT_COLUMNS + [c for c in analyst_cols.values() if c not in DEFAULT_COLUMNS]
         scan = []
         for i in range(0, len(markets), tv.max_requests):  # all markets, in polite batches (docs/04 §4.7)
             if i:
                 time.sleep(tv.min_interval)
-            scan += tv.scan(markets[i : i + tv.max_requests])
+            scan += tv.scan(markets[i : i + tv.max_requests], columns=cols)
     except Exception as exc:  # noqa: BLE001
         log.warning("screener indisponible, univers sans capitalisation/secteur : %s", exc)
         for r in rows:
@@ -185,6 +214,8 @@ def enrich_with_screener(  # type: ignore[no-untyped-def]
         r.sector = sr.sector
         r.earnings_next_date = sr.earnings_release_next_date
         r.tv_ticker = sr.ticker
+        if analyst_cols:
+            r.extra["analystes_tv"] = analyst_values(sr.extra, analyst_cols)
     return rows
 
 
@@ -229,6 +260,7 @@ def run(ctx: JobContext) -> int:
     log.info("%d symboles chargés depuis EODHD (%s)", len(rows), ", ".join(e for e in exchanges if e not in errors))
     with db_session() as s:
         rep: RefreshReport = refresh_universe(s, ctx.config, ctx.calendars, rows, date.today())
+        store_analyst_consensus(s, rows, date.today())
         if errors and ctx.alerts is not None:
             from app.notify.base import Event
 

@@ -86,6 +86,9 @@ class ScoreInput:
     external_confirmation: bool = False
     insider_buy_days: int | None = None  # docs/23 §23.3: days since the latest purchase by a manager (window)
     insider_buy_points: float = 5.0
+    short_interest_pct: float | None = None  # docs/23 S2: declared net short positions (floor), fraction
+    short_alert_pct: float = 0.02
+    short_penalty: float = 3.0
     small_cap: bool = False
     fundamentals: FundamentalFacts | None = None
 
@@ -185,6 +188,10 @@ def score(
         r -= 4
     if inp.non_eur:
         r -= 2
+    if inp.short_interest_pct is not None and inp.short_interest_pct >= inp.short_alert_pct:
+        r -= inp.short_penalty
+        pc, lim = inp.short_interest_pct, inp.short_alert_pct
+        ex.append(f"positions courtes déclarées {pc:.1%} ≥ {lim:.0%} → −{inp.short_penalty:g}")
     r = _clamp(r, 15)
     # M — sector / macro
     m = {"green": 5.0, "orange": 2.0}.get(inp.regime or "", 0.0)

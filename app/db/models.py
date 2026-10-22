@@ -909,6 +909,38 @@ class DailyReport(Base):
     content: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class AnalystConsensus(Base):
+    """Analyst consensus of an instrument on a day per source other than Yahoo (docs/23 S4: TradingView),
+    kept apart to cross-check the sources; never merged into one number."""
+
+    __tablename__ = "analyst_consensus"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    day: Mapped[date] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(16))
+    data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("isin", "day", "source", name="uq_analyst_consensus_isin_day_source"),)
+
+
+class ShortPosition(Base):
+    """Net short position published by a market authority (EU 236/2012, ≥ 0.5 % public; docs/23 S2)."""
+
+    __tablename__ = "short_positions"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    authority: Mapped[str] = mapped_column(String(16), index=True)  # amf | bafin | afm | cnmv | fi …
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    issuer: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    holder: Mapped[str] = mapped_column(String(200))
+    pct: Mapped[float]  # fraction of the share capital (0.012 = 1.2 %)
+    position_date: Mapped[date] = mapped_column(Date)
+    source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        UniqueConstraint("authority", "isin", "holder", "position_date", name="uq_short_positions_holder_day"),
+    )
+
+
 class Fundamentals(Base):
     """Free fundamentals / analyst consensus of an instrument on a day (source and date kept)."""
 

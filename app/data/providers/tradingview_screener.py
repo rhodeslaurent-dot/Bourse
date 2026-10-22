@@ -145,6 +145,49 @@ class TradingViewScreener:
         )
 
 
+# docs/23 §23.5 S4 — analyst columns to test (names not documented publicly: kept only once ``tv-columns-check``
+# has seen them answer from the user's PC; never assumed)
+ANALYST_COLUMN_CANDIDATES = [
+    "Recommend.All", "Recommend.MA", "Recommend.Other", "recommendation_mark", "recommendation_buy",
+    "recommendation_hold", "recommendation_sell", "recommendation_over", "recommendation_under",
+    "recommendation_total", "price_target_average", "price_target_median", "price_target_high", "price_target_low",
+    "price_target_1y", "price_target_1y_delta", "number_of_analysts",
+]  # fmt: skip
+
+
+def check_columns(
+    market: str, columns: list[str], client: httpx.Client | None = None, sample: int = 3
+) -> dict[str, tuple[bool, str]]:
+    """Ask the screener for each column alone (largest caps of the market): (accepted, sample values or
+    the error). A diagnostic for the user's PC; nothing is stored."""
+    c = client or httpx.Client(base_url=BASE, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+    out: dict[str, tuple[bool, str]] = {}
+    for col in columns:
+        payload = {
+            "columns": ["name", col],
+            "filter": [{"left": "type", "operation": "equal", "right": "stock"}],
+            "range": [0, sample],
+            "sort": {"sortBy": "market_cap_basic", "sortOrder": "desc"},
+            "markets": [market],
+        }
+        try:
+            r = c.post(f"/{market}/scan", json=payload)
+        except httpx.HTTPError as exc:
+            out[col] = (False, exc.__class__.__name__)
+            continue
+        if r.status_code >= 400:
+            out[col] = (False, f"HTTP {r.status_code} {r.text[:80]}")
+            continue
+        vals = [f"{row['d'][0]}={row['d'][1]}" for row in r.json().get("data", [])]
+        out[col] = (True, " · ".join(vals) or "aucune donnée")
+    return out
+
+
+def analyst_values(extra: dict, mapping: dict[str, str]) -> dict[str, float]:
+    """Our analyst fields (objectif_moyen, nb_analystes…) from a screener row, numeric values only."""
+    return {k: float(extra[col]) for k, col in mapping.items() if isinstance(extra.get(col), int | float)}
+
+
 def parse_earnings(value: object) -> date | None:
     if isinstance(value, int | float) and value:
         return datetime.fromtimestamp(int(value), tz=UTC).date()

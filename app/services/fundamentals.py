@@ -79,8 +79,11 @@ def sector_median_pe(s: Session, sector: str | None) -> float | None:
 def facts(s: Session, inst: Instrument) -> tuple[FundamentalFacts | None, dict[str, Any]]:
     """(block-F facts, display dict with source, date and analyst consensus)."""
     f = latest(s, inst.isin)
-    if f is None or not f.data:
+    tv = tradingview_consensus(s, inst.isin)
+    if (f is None or not f.data) and tv is None:
         return None, {}
+    if f is None or not f.data:  # TradingView only (docs/23 S4): consensus shown, no block-F facts
+        return None, with_tradingview({"source": "tradingview", "jour": tv.day.isoformat()}, tv)
     d = f.data
     debt = d.get("totalDebt")
     ebitda = d.get("ebitda")
@@ -103,14 +106,49 @@ def facts(s: Session, inst: Instrument) -> tuple[FundamentalFacts | None, dict[s
         "nb_analystes": int(d["numberOfAnalystOpinions"]) if d.get("numberOfAnalystOpinions") else None,
         "recommandation": d.get("recommendationKey"),
     }
-    return ff, shown
+    return ff, with_tradingview(shown, tv) if tv is not None else shown
+
+
+MAX_SOURCE_GAP = 0.15  # docs/23 S4: Yahoo and TradingView targets more than 15 % apart → neither is used
+
+
+def tradingview_consensus(s: Session, isin: str):  # type: ignore[no-untyped-def]
+    from app.db.models import AnalystConsensus
+
+    return s.scalar(
+        select(AnalystConsensus)
+        .where(AnalystConsensus.isin == isin, AnalystConsensus.source == "tradingview")
+        .order_by(AnalystConsensus.day.desc())
+    )
+
+
+def with_tradingview(shown: dict[str, Any], tv) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+    """Cross-check (docs/23 S4): TradingView fills a missing Yahoo consensus; when both exist and their
+    targets diverge by more than 15 %, the gap is shown and no analyst target is retained."""
+    d = tv.data or {}
+    out = {**shown, "tradingview": {**d, "jour": tv.day.isoformat()}}
+    t_tv, n_tv = d.get("objectif_moyen"), d.get("nb_analystes")
+    if out.get("objectif_analystes") is None and t_tv is not None:
+        out.update(
+            {
+                "objectif_analystes": t_tv,
+                "nb_analystes": int(n_tv) if n_tv else None,
+                "devise": d.get("devise"),
+                "source": "tradingview",
+            }
+        )
+    elif out.get("objectif_analystes") and t_tv:
+        gap = float(t_tv) / float(out["objectif_analystes"]) - 1
+        out["ecart_sources_pct"] = round(gap, 4)
+        out["sources_divergentes"] = abs(gap) > MAX_SOURCE_GAP
+    return out
 
 
 def analyst_target(shown: dict[str, Any], min_analysts: int, quote_currency: str) -> float | None:
     """The consensus target is usable as a target only when enough analysts publish it and its
     currency is the quote currency (a target in another currency is shown, never converted)."""
     t, n = shown.get("objectif_analystes"), shown.get("nb_analystes")
-    if t is None or not n or n < min_analysts:
+    if t is None or not n or n < min_analysts or shown.get("sources_divergentes"):
         return None
     if shown.get("devise") and shown["devise"] != quote_currency:
         return None

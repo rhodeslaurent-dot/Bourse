@@ -162,7 +162,7 @@ def test_non_euro_market_cap_converted(config):
         def __init__(self, **kw):
             pass
 
-        def scan(self, markets):
+        def scan(self, markets, columns=None):
             return [
                 ScreenerRow(ticker="OMXSTO:VOLV_B", market_cap=500e9, received_at=NOW,
                             extra={"currency": "SEK", "fundamental_currency_code": "SEK"}),

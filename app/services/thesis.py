@@ -109,6 +109,13 @@ def facts_for(s: Session, p: Proposal, now: datetime | None = None) -> list[dict
         select(LetterOpinion).where(LetterOpinion.isin == p.isin, LetterOpinion.day >= since.date()).limit(5)
     ):
         facts.append(f"Lettre {o.source} du {o.day:%d/%m} ({o.stance}) : {o.summary or ''} « {o.quote or ''} »")
+    pc = d.get("positions_courtes") or {}
+    if pc.get("detenteurs"):
+        top = ", ".join(f"{h['detenteur']} {h['pct'] * 100:.2f} % ({h['date']})" for h in pc["detenteurs"][:3])
+        facts.append(
+            f"Positions courtes nettes déclarées aux autorités : {pc['total_pct'] * 100:.2f} % du capital au moins "
+            f"(seules les positions ≥ 0,5 % sont publiques) — {top}"
+        )
     fd = d.get("fondamentaux") or {}
     if fd.get("objectif_analystes") is not None:
         facts.append(

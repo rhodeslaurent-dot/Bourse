@@ -40,6 +40,7 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "portfolio_review": "app.scheduler.jobs.portfolio_review:run",
     "fixing_card": "app.scheduler.jobs.fixing_card:run",
     "fundamentals_refresh": "app.scheduler.jobs.fundamentals_refresh:run",
+    "short_positions_refresh": "app.scheduler.jobs.short_positions_refresh:run",
     "brief_premarket": "app.scheduler.jobs.daily_report:run",
 }
 

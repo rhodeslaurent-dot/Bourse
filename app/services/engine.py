@@ -420,6 +420,12 @@ def evaluate(
     ev.passed.append(f"prix maximal {adm.p_max:.4g} (ratio gain/risque ≥ {k:g} net de frais, R4)")
     # the admission ratio is net of *fees* (framework §5.2); the after-tax ratio is shown and ranks, never blocks
     # --- score ---
+    from app.services.short_positions import short_interest
+
+    short_cfg = (getattr(p.data, "short_positions", None) or {}) if p.data else {}
+    shorts = short_interest(s, inst.isin, now.date())
+    if shorts.holders:
+        ev.details["positions_courtes"] = shorts.as_dict()  # docs/23 S2: a floor (public from 0.5 % only)
     bars = load_bars(s, inst.isin, limit=260)
     f = compute_daily_features(bars) if bars else None
     last = bars[-1] if bars else None
@@ -449,6 +455,9 @@ def evaluate(
                 s, inst.isin, now, int((p.scoring or {}).get("insider_window_days", 30))
             ),
             insider_buy_points=float((p.scoring or {}).get("insider_buy_points", 5)),
+            short_interest_pct=shorts.total_pct if shorts.holders else None,
+            short_alert_pct=float(short_cfg.get("alert_pct", 0.02)),
+            short_penalty=float(short_cfg.get("score_penalty", 3)),
             catalyst_age_days=_catalyst(s, inst.isin, now)[2],
             external_confirmation=bool(_letter_levels(s, inst.isin, now.date())),
             small_cap=bool(inst.small_cap),
