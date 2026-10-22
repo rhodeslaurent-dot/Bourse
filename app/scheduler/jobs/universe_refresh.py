@@ -6,9 +6,9 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import date
+from datetime import date, timedelta
 
-from app.data.base import ProviderError
+from app.data.base import ProviderError, QuotaExceeded
 from app.data.providers.eodhd import EodhdProvider
 from app.db.session import db_session
 from app.scheduler.runner import JobContext
@@ -77,6 +77,51 @@ def symbol_rows_from_eodhd(
                 )
             )
     return out
+
+
+def backfill_new_listings(provider, rows: list[SymbolRow], config, today: date, max_items: int = 1000) -> int:  # type: ignore[no-untyped-def]
+    """History for listings that could enter the universe but lack the ``min_history_sessions`` it
+    requires (a market just enabled, a new listing): without it they would stay excluded for a year.
+    Only stocks whose market cap is known and above the market's floor are fetched (quota-friendly);
+    a quota exhaustion stops cleanly with what was stored."""
+    from sqlalchemy import func, select
+
+    from app.db.models import PriceEod
+    from app.services.market_data import upsert_eod
+    from app.services.universe import _filters_for, filters_from
+
+    base = filters_from(config)
+    need = int(base.min_history_sessions)
+    with db_session() as s:
+        have = dict(s.execute(select(PriceEod.isin, func.count()).group_by(PriceEod.isin)).all())
+    todo = [
+        r
+        for r in rows
+        if r.kind == "stock"
+        and r.market_cap_eur is not None
+        and r.market_cap_eur >= _filters_for(base, config, r.exchange).min_market_cap_eur
+        and have.get(r.isin, 0) < need
+    ][:max_items]
+    if not todo:
+        return 0
+    start = today - timedelta(days=int(need * 1.6))  # ≈ 400 calendar days for 250 sessions
+    log.info("historique manquant : %d valeurs à charger depuis le %s", len(todo), start)
+    n = 0
+    with db_session() as s:
+        for k, r in enumerate(todo, 1):
+            ticker = f"{r.code}.{r.exchange}"
+            try:
+                n += upsert_eod(s, provider.fetch_eod([ticker], start, today), {ticker: r.isin})
+            except QuotaExceeded as exc:
+                log.warning("quota EODHD atteint après %d valeurs : %s — suite au prochain passage", k - 1, exc)
+                break
+            except ProviderError as exc:
+                log.info("historique %s ignoré : %s", ticker, str(exc)[:120])
+                continue
+            if k % 50 == 0:
+                s.commit()
+                log.info("historique : %d/%d valeurs", k, len(todo))
+    return len(todo)
 
 
 def _log_exchange_hints(provider: EodhdProvider, errors: dict[str, str]) -> None:
@@ -178,6 +223,9 @@ def run(ctx: JobContext) -> int:
         _log_exchange_hints(provider, errors)
     if not rows:
         raise ProviderError("aucun symbole chargé : " + " ; ".join(f"{k}: {v}" for k, v in errors.items()))
+    fetched = backfill_new_listings(
+        provider, rows, ctx.config, date.today(), int(u.get("history_backfill_max_per_run", 1000))
+    )
     log.info("%d symboles chargés depuis EODHD (%s)", len(rows), ", ".join(e for e in exchanges if e not in errors))
     with db_session() as s:
         rep: RefreshReport = refresh_universe(s, ctx.config, ctx.calendars, rows, date.today())
@@ -225,4 +273,10 @@ def run(ctx: JobContext) -> int:
         log.info("motifs d'exclusion (un instrument peut en cumuler) : %s", " ; ".join(f"{k} : {v}" for k, v in top))
     if rep.watchlist == 0 and rep.included:
         log.info("watchlist vide : les indicateurs du jour manquent — lancer eod_backfill_check puis relancer ce job")
+    top3 = sorted(rep.reasons.items(), key=lambda kv: -kv[1])[:3]
+    ctx.note = (
+        f"{len(exchanges) - len(errors)} place(s), {rep.total} titres, {rep.included} retenus"
+        + (f", historique chargé pour {fetched}" if fetched else "")
+        + (" ; exclusions : " + ", ".join(f"{k} {v}" for k, v in top3) if top3 else "")
+    )
     return rep.included

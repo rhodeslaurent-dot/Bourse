@@ -168,6 +168,7 @@ universe:
   small_cap_threshold_eur: 1000000000
   min_price: 1.0
   min_history_sessions: 250
+  history_backfill_max_per_run: 1000   # universe_refresh charge l'historique manquant des valeurs candidates (capitalisation connue ≥ seuil)
   momentum_watchlist_rs_rank_min: 80
   momentum_watchlist_max: 100
   opening_list_max: 15
