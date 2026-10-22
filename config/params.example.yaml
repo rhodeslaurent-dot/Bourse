@@ -143,6 +143,14 @@ ranking:                                # docs/22 §22.4 — pas de maximum d'id
   notify_top_n: 3
   home_top_n: 10
 
+crypto:                                 # docs/22 §22.5 rang 3 — via des ETP / ETN cotés au CTO (aucune plateforme crypto)
+  etp_isins: []                         # ETP crypto à suivre (ISIN), ajoutés à l'univers avec le filtre de liquidité des ETF
+
+derivatives:                            # docs/22 §22.5 rang 4 — critères d'un turbo / mini-future acheteur sur une action proposée
+  enabled: false                        # activer pour afficher la variante à levier sur les fiches
+  barrier_buffer_pct: 0.01              # barrière désactivante au moins 1 % sous le stop glissé
+  max_leverage: 5
+
 pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
   dca:
     isins: []                           # ETF de l'investissement progressif (à renseigner dans params.yaml)
@@ -394,6 +402,8 @@ data:
       sp500: {valid_range: [100, 100000], sources: [{provider: yfinance, symbol: "^GSPC"}]}
       nikkei: {valid_range: [1000, 200000], sources: [{provider: yfinance, symbol: "^N225"}]}
       msci_world: {valid_range: [1, 10000], sources: [{provider: yfinance, symbol: "URTH"}]}   # ETF MSCI World coté (proxy déclaré)
+      btc: {valid_range: [100, 10000000], sources: [{provider: coingecko, symbol: "bitcoin"}]}   # sous-jacent des ETP crypto (rang 3)
+      eth: {valid_range: [10, 1000000], sources: [{provider: coingecko, symbol: "ethereum"}]}
     calendar: {currencies: ["EUR", "USD"], impacts: ["High", "Medium"]}
   fundamentals: {max_items: 800, min_interval_s: 1.0}   # Yahoo (gratuit, non officiel) : débit limité, source et date affichées
   quote_at_each_analysis: true             # R19 : cours relevé au moment de chaque analyse, horodatage de marché et statut enregistrés

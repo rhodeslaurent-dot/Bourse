@@ -280,3 +280,14 @@ def test_fundamentals_block_partial_and_unattributed():
     assert fundamentals_block(FundamentalFacts(revenue_growth=0.15), 2)[0] is None
     full = fundamentals_block(FundamentalFacts(0.2, 0.2, 1.5, 12, 15), 2)
     assert full[:3] == (15, 15, 4)
+
+
+def test_turbo_criteria_barrier_under_stop_and_premium_loss():
+    from app.domain.derivatives import turbo_criteria
+
+    t = turbo_criteria(p_max=100.0, stop_exec=95.0, risk_budget_eur=300, barrier_buffer_pct=0.01, max_leverage=5)
+    assert t.barrier_max == 80.0 and t.leverage_indicative == 5.0  # capped: barrier pushed lower than 94.05
+    assert t.units_for_budget == 15  # 300 € / 20 € of premium per unit: the whole premium may be lost
+    loose = turbo_criteria(100.0, 95.0, 300, 0.01, 20)
+    assert loose.barrier_max == 94.05 and loose.leverage_indicative == 16.81
+    assert turbo_criteria(100.0, 101.0, 300, 0.01, 5) is None

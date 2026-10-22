@@ -126,11 +126,17 @@ def refresh_universe(
             r.isin, mic, price * fx if (price is not None and fx) else None, inst.market_cap_eur, adv, len(bars)
         )
         inst.kind = r.kind
-        dec = universe_decision(facts, _filters_for(filt, config, r.exchange), r.kind)
+        dec = universe_decision(
+            facts, _filters_for(filt, config, r.exchange), "etf" if r.kind == "crypto_etp" else r.kind
+        )
         for reason in dec.reasons:
             rep.reasons[reason] = rep.reasons.get(reason, 0) + 1
         pea = pea_regulatory_eligibility(r.isin, inst.country_of_domicile, countries, inst.pea_available_boursobank)
-        if r.kind == "etf":
+        if r.kind == "crypto_etp":
+            from app.domain.universe import PeaEligibility
+
+            pea = PeaEligibility(False, 1.0, "crypto_etp", "ETP crypto : compte-titres seulement")
+        elif r.kind == "etf":
             from app.domain.universe import PeaEligibility, etf_pea_status
 
             ok, conf, src = etf_pea_status(

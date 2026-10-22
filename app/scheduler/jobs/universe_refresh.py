@@ -19,15 +19,27 @@ VENUE_FILTER = {"US": {"NYSE", "NASDAQ", "NYSE ARCA", "NYSE MKT", "BATS"}}
 
 
 def symbol_rows_from_eodhd(
-    provider: EodhdProvider, exchanges: list[str], errors: dict[str, str] | None = None, include_etf: bool = False
+    provider: EodhdProvider,
+    exchanges: list[str],
+    errors: dict[str, str] | None = None,
+    include_etf: bool = False,
+    crypto_isins: set[str] | None = None,
 ) -> list[SymbolRow]:
     """Symbol lists of the given EODHD exchange codes. An exchange that fails (unknown code, outage)
     is recorded in ``errors`` and skipped: one market never blocks the others."""
     out: list[SymbolRow] = []
     for ex in exchanges:
         try:
-            types = ("common stock", "stock", "", "etf") if include_etf else ("common stock", "stock", "")
-            symbols = provider.exchange_symbols(ex, types) if include_etf else provider.exchange_symbols(ex)
+            types: tuple[str, ...] = ("common stock", "stock", "")
+            if include_etf:
+                types += ("etf",)
+            if crypto_isins:
+                types += ("etf", "etc", "etn")  # listed crypto ETPs (docs/22 §22.5 rank 3)
+            symbols = (
+                provider.exchange_symbols(ex, types)
+                if types != ("common stock", "stock", "")
+                else provider.exchange_symbols(ex)
+            )
         except ProviderError as exc:
             if errors is None:
                 raise
@@ -41,6 +53,11 @@ def symbol_rows_from_eodhd(
             isin = str(r.get("Isin") or "").strip().upper()
             if len(isin) != 12:
                 continue
+            typ = str(r.get("Type", "")).lower()
+            if typ in ("etc", "etn") and isin not in (crypto_isins or set()):
+                continue
+            if typ == "etf" and not include_etf and isin not in (crypto_isins or set()):
+                continue
             out.append(
                 SymbolRow(
                     isin=isin,
@@ -49,7 +66,13 @@ def symbol_rows_from_eodhd(
                     exchange=ex,
                     currency=str(r.get("Currency") or "EUR"),
                     country=_country(r.get("Country")),
-                    kind="etf" if str(r.get("Type", "")).lower() == "etf" else "stock",
+                    kind=(
+                        "crypto_etp"
+                        if crypto_isins and isin in crypto_isins
+                        else "etf"
+                        if str(r.get("Type", "")).lower() == "etf"
+                        else "stock"
+                    ),
                 )
             )
     return out
@@ -166,7 +189,10 @@ def run(ctx: JobContext) -> int:
     if skipped:
         log.warning("places sans calendrier, non chargées : %s (encoder market_calendars.yaml)", ", ".join(skipped))
     errors: dict[str, str] = {}
-    rows = symbol_rows_from_eodhd(provider, exchanges, errors, include_etf=bool(u.get("include_etf", False)))
+    crypto = set(((ctx.config.raw.get("crypto") or {}).get("etp_isins")) or [])
+    rows = symbol_rows_from_eodhd(
+        provider, exchanges, errors, include_etf=bool(u.get("include_etf", False)), crypto_isins=crypto
+    )
     with db_session() as s:
         from app.services.market_data import fx_to_eur
 

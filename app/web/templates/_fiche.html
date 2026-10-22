@@ -73,6 +73,11 @@
     </div>
   </div>
 
+  {% set pl = dd.produit_levier or {} %}{% if pl %}
+  <div class="text-xs rounded-lg bg-slate-50 dark:bg-slate-800/40 p-2">
+    <b>Variante à levier (turbo / mini-future, acheteur)</b> :{% if pl.barrier_max %} barrière désactivante ≤ {{ pl.barrier_max }}, levier indicatif {{ pl.leverage_indicative }}, prime ≈ {{ pl.intrinsic_per_unit }} par unité de sous-jacent, quantité pour le budget de risque {{ pl.units_for_budget }} (équivalent sous-jacent){% endif %} — {{ pl.note }}.
+  </div>
+  {% endif %}
   {% set gates = p.gates or {} %}
   {% if gates.passed %}<p class="text-xs text-emerald-700 dark:text-emerald-300">✓ {{ gates.passed|join(' · ') }}</p>{% endif %}
   {% set dg = dd.derogation or {} %}

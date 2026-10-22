@@ -378,6 +378,8 @@ NEW_TOP_BLOCKS = [
     "zones",
     "ranking",
     "pockets",
+    "crypto",
+    "derivatives",
 ]
 NEW_CHILD_PARENTS = [
     "risk",

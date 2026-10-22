@@ -72,3 +72,57 @@ def test_world_markets_venue_filter_overrides_and_pence(db_engine, config):
         upsert_fx(s, "EURGBP", date(2026, 10, 21), 0.86, "ecb")
         s.flush()
         assert round(fx_to_eur(s, "GBX"), 6) == round(1 / 0.86 / 100, 6)
+
+
+def test_crypto_etp_rows_and_coingecko():
+    import httpx
+
+    from app.data.providers.coingecko import daily_prices
+    from app.scheduler.jobs.universe_refresh import symbol_rows_from_eodhd
+
+    class P:
+        def exchange_symbols(self, ex, types=None):
+            return [
+                {"Code": "BTCE", "Name": "BTCetc", "Isin": "DE000A27Z304", "Currency": "EUR", "Country": "Germany", "Type": "ETC"},
+                {"Code": "GOLD", "Name": "Gold ETC", "Isin": "DE000A0S9GB0", "Currency": "EUR", "Country": "Germany", "Type": "ETC"},
+                {"Code": "SAP", "Name": "SAP", "Isin": "DE0007164600", "Currency": "EUR", "Country": "Germany", "Type": "Common Stock"},
+            ]  # fmt: skip
+
+    rows = symbol_rows_from_eodhd(P(), ["XETRA"], {}, include_etf=False, crypto_isins={"DE000A27Z304"})  # type: ignore[arg-type]
+    assert {(r.code, r.kind) for r in rows} == {("BTCE", "crypto_etp"), ("SAP", "stock")}  # other ETCs ignored
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"prices": [[1761004800000, 95000.0], [1761091200000, 96500.5]]})
+
+    pts = daily_prices("bitcoin", 2, httpx.Client(transport=httpx.MockTransport(handler)))
+    assert [v for _, v in pts] == [95000.0, 96500.5]
+
+
+def test_derivative_variant_on_card_when_enabled(db_engine, config):
+    from app.db.models import Proposal
+    from app.services import engine
+    from tests.integration.test_engine import DAY as D
+    from tests.integration.test_engine import ISIN, NOW, _seed, breakout_bars
+
+    config.params.derivatives["enabled"] = True
+    try:
+        from datetime import timedelta
+
+        from app.db.models import NewsletterItem, NewsletterValue
+
+        with db_session() as s:
+            _seed(s, breakout_bars()[:-1])
+            it = NewsletterItem(source="momentum_capital", message_id="m", dedup_hash="h", subject="M",
+                                received_at=NOW - timedelta(hours=20), body_text="x")  # fmt: skip
+            s.add(it)
+            s.flush()
+            s.add(NewsletterValue(item_id=it.id, isin=ISIN, name="T", direction="buy",
+                                  levels={"achat": 98.0, "stop": 93.0, "objectif": 110.0}))  # fmt: skip
+            s.flush()
+            engine.scan(s, config, D, now=NOW)
+            cards = [
+                p.details.get("produit_levier") for p in s.query(Proposal).filter(Proposal.isin == ISIN) if p.details
+            ]
+            assert any(c and c.get("barrier_max") and c["barrier_max"] < 93.0 for c in cards)
+    finally:
+        config.params.derivatives["enabled"] = False

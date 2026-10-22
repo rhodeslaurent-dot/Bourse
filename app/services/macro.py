@@ -42,6 +42,8 @@ LABELS = {
     "sp500": "S&P 500",
     "nikkei": "Nikkei 225",
     "msci_world": "MSCI World (proxy coté)",
+    "btc": "Bitcoin (€)",
+    "eth": "Ether (€)",
 }
 
 # (day, close, market timestamp) from one provider for one symbol
@@ -102,7 +104,13 @@ def default_fetchers(config: Any) -> dict[str, SeriesFetcher]:
             d -= timedelta(days=1)
         return [(d, vals[ticker])] if start <= d <= end + timedelta(days=1) else []
 
-    return {"yfinance": yf, "eodhd": eodhd, "ecb": ecb, "tradingview": tradingview}
+    def coingecko(symbol: str, start: date, end: date) -> list[tuple[date, float]]:
+        from app.data.providers.coingecko import daily_prices
+
+        days = max(2, min(400, (end - start).days + 2))
+        return [(d, v) for d, v in daily_prices(symbol, days) if start <= d <= end]
+
+    return {"yfinance": yf, "eodhd": eodhd, "ecb": ecb, "tradingview": tradingview, "coingecko": coingecko}
 
 
 @dataclass

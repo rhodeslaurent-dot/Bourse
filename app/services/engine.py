@@ -456,6 +456,21 @@ def evaluate(
     ev.blocked += _events_blocks(s, config, inst, adm.p_max, sz.stop_exec, now, ev)
     ev.action = action
     ev.details["entree"] = {"declencheur": setup.entry_level, "limite": adm.p_max, "type": "limite au prix maximal"}
+    der = getattr(p, "derivatives", None) or {}
+    if der.get("enabled") and inst.kind == "stock":
+        from app.domain.derivatives import turbo_criteria
+
+        tc = turbo_criteria(
+            adm.p_max,
+            sz.stop_exec,
+            budget,
+            float(der.get("barrier_buffer_pct", 0.01)),
+            float(der.get("max_leverage", 5)),
+            fx,
+        )
+        ev.details["produit_levier"] = (
+            tc.__dict__ if tc else {"note": "aucun produit compatible avec le stop et le levier maximal"}
+        )
     return ev
 
 
