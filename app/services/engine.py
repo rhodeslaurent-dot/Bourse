@@ -242,6 +242,7 @@ def evaluate(
     pea_open = (p.pea or {}).get("opening_date")
     pea_age = (now.date() - date.fromisoformat(str(pea_open))).days / 365.25 if pea_open else None
     per_account: dict[str, Any] = {}
+    sized: dict[str, tuple[Any, Any, float]] = {}  # account → (sizing, cost params, P_max): net gain per target
     best: tuple[str, Any, Any, Any] | None = None
     for acc in options:
         fees = _fees(config, acc)
@@ -289,6 +290,7 @@ def evaluate(
                 )
             )
             if sz.shares > 0:
+                sized[acc] = (sz, cp, adm.p_max)
                 no = net_outcome(sz.shares, adm.p_max, target, sz.stop_exec, cp, fx)
                 row.update(
                     {
@@ -331,6 +333,25 @@ def evaluate(
                 best = None
                 ev.passed.append("SRD écarté : pas d'avantage net sur le comptant (R13)")
                 ev.account = a
+
+    def objectives(account: str | None) -> list[dict[str, Any]]:
+        """Each exploitable target from the limit: gross % and, for the account, net € / % at full cost."""
+        if account not in sized:
+            return []
+        a_sz, a_cp, a_pmax = sized[account]
+        out = []
+        for lvl in setup.targets:
+            o = net_outcome(a_sz.shares, a_pmax, lvl, a_sz.stop_exec, a_cp, fx)
+            out.append(
+                {
+                    "niveau": lvl,
+                    "brut_pct": round(lvl / a_pmax - 1, 4),
+                    "gain_net_eur": round(o.gain_net_eur, 2),
+                    "gain_net_pct": round(o.gain_net_pct, 4),
+                }
+            )
+        return out
+
     primary = best[1] if best else None
     first_row = per_account.get(best[0] if best else (ev.account or options[0]), {})
     # --- admission outcome ---
@@ -364,10 +385,11 @@ def evaluate(
         ev.blocked += [f"WATCH : {r} — limite posée en attente d'un repli" for r in any_adm.reasons]
         ev.action = "WATCH"
         # the limit order waits at P_max: account and quantity sized at that limit (rule 7), cash before SRD
-        sized = [a for a in options if per_account[a].get("titres") and per_account[a].get("ratio_net") is not None]
-        cash = [a for a in sized if a != "cto_srd"] or sized
+        fit = [a for a in options if per_account[a].get("titres") and per_account[a].get("ratio_net") is not None]
+        cash = [a for a in fit if a != "cto_srd"] or fit
         if cash:
             ev.account = max(cash, key=lambda a: (per_account[a]["ratio_net"], -options.index(a)))
+        ev.details["objectifs"] = objectives(ev.account)
         return ev
     if best is None:
         ev.blocked.append("WATCH : aucune taille possible sur les comptes (budget de risque, frais)")
@@ -375,6 +397,7 @@ def evaluate(
     acc, adm, sz, no = best
     ev.admitted = True
     ev.account, ev.shares = acc, sz.shares
+    ev.details["objectifs"] = objectives(acc)
     ev.size_eur, ev.risk_eur = sz.notional_max_eur, sz.risk_if_filled_at_max_eur
     ev.net_rr, ev.net_gain_pct = no.net_reward_risk, no.gain_net_pct
     ev.passed.append(f"prix maximal {adm.p_max:.4g} (ratio gain/risque ≥ {k:g} net de frais, R4)")
@@ -693,6 +716,8 @@ def scan(
                     (sectors.get(inst.sector or "") or {}).get("centile"),
                 )
                 ev.details["source_cours"], ev.details["horodatage_cours"] = price_source, price_ts
+                for o in ev.details.get("objectifs") or []:  # docs/22 §22.2: each target with its origin
+                    o["origine"] = _target_origin(o["niveau"], setup, at, f.high_52w)
                 if shown:
                     ev.details["fondamentaux"] = {
                         **shown,
@@ -819,6 +844,21 @@ def _persist(
             rep.errors.append(f"{e.isin}: {exc.__class__.__name__}")
             log.warning("moteur : enregistrement de %s refusé (%s)", e.isin, exc.__class__.__name__, exc_info=True)
     s.flush()
+
+
+def _target_origin(level: float, setup: Setup, analysts: float | None, high_52w: float | None) -> str:
+    def same(x: Any) -> bool:
+        return isinstance(x, int | float) and abs(level - float(x)) <= 1e-6 * max(1.0, abs(level))
+
+    if setup.detector == "external" and level == setup.targets[0]:
+        return "objectif publié par la lettre"
+    if same(analysts):
+        return "objectif moyen des analystes"
+    if same(high_52w):
+        return "plus haut sur 52 semaines"
+    if same(setup.evidence.get("mesure_base")):
+        return "hauteur de la base reportée"
+    return "résistance (zone de prix)"
 
 
 def _json(obj: Any) -> Any:

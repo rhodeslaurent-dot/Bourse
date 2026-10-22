@@ -65,16 +65,26 @@ def _sdk_parse(  # noqa: UP047
     SDK 1.x no longer accepts ``temperature`` as an argument (TypeError); the API still honours it
     for the pinned Claude 4.5/4.6 models, so it is sent through ``extra_body`` (CLAUDE.md rule 3)."""
     import anthropic
+    import pydantic
 
     client = client or anthropic.Anthropic()
-    response = client.messages.parse(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-        output_format=schema,
-        extra_body={"temperature": temperature},
-    )
+    try:
+        response = client.messages.parse(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+            output_format=schema,
+            extra_body={"temperature": temperature},
+        )
+    except pydantic.ValidationError as exc:
+        # the SDK validates before returning: a JSON cut by max_tokens surfaces here, not as stop_reason
+        cut = any(e.get("type") == "json_invalid" for e in exc.errors())
+        raise LlmUnavailable(
+            f"réponse tronquée (max_tokens = {max_tokens} atteint) : augmenter la limite dans params.yaml"
+            if cut
+            else f"sortie JSON non conforme ({exc.error_count()} écart(s) au schéma)"
+        ) from exc
     if response.stop_reason == "refusal":
         raise LlmUnavailable("réponse refusée par le modèle")
     if response.stop_reason == "max_tokens":

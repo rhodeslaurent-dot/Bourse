@@ -9,13 +9,14 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
-from app.db.models import Decision, DecisionSnapshot, Proposal, Signal
+from app.db.models import Decision, DecisionSnapshot, Instrument, Proposal, Signal
 from app.db.session import db_session
 from app.domain.learning import VERDICT_ORDER
 from app.services.decisions import record_decision
 from app.services.explain import explain_proposal
 from app.services.instruments import name_of
 from app.services.notes import notes_for
+from app.services.pitch import pitch
 from app.web.routes import templates
 
 router = APIRouter()
@@ -76,9 +77,16 @@ def opportunities_page(
             k: {"text": v.text, "updated_at": v.updated_at}
             for k, v in notes_for(s, "proposal", [str(p.id) for p in props]).items()
         }
+        insts = (
+            {i.isin: i for i in s.scalars(select(Instrument).where(Instrument.isin.in_({p.isin for p in props})))}
+            if props
+            else {}
+        )
+        venues = getattr(request.app.state.calendars, "venues", {}) if hasattr(request.app.state, "calendars") else {}
         items = []
         for p in props:
             sig = sigs.get(p.signal_id)
+            inst = insts.get(p.isin)
             items.append(
                 {
                     "p": p,
@@ -89,6 +97,12 @@ def opportunities_page(
                     "note": notes.get(str(p.id)),
                     "letters": letters.get(p.id, {}),
                     "snapshot_price": ((snaps.get(p.id).quotes or {}).get(p.isin) if snaps.get(p.id) else None),
+                    "pitch": pitch(
+                        sig.detector if sig else None, sig.evidence if sig else None, sig.source if sig else None
+                    ),
+                    "place": (venues[inst.mic].name if inst and inst.mic in venues else inst.mic if inst else None),
+                    "secteur": " · ".join(x for x in (inst.sector, inst.industry) if x) if inst else None,
+                    "devise": inst.currency if inst else None,
                 }
             )
         # docs/22 §22.4: the engine's ranking first (or net ratio / net gain on request); then the

@@ -495,7 +495,7 @@ letters_review:                          # docs/20 — revue des lettres par Cla
   min_positive_sources: 2                # « à étudier » : avis positifs d'au moins N lettres/sources distinctes, aucun négatif
   max_chars_per_letter: 8000
   max_total_chars: 60000
-  max_tokens: 4000
+  max_tokens: 10000                     # 8 lettres + revue de presse ≈ 12 000 caractères de JSON : 4 000 tronquait (22/10/2026)
   max_values: 15                         # valeurs citées dont le dossier complet (cours, indicateurs, nouvelles…) est joint
   max_news_per_value: 5
   telegram_digest: true

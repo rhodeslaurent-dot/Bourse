@@ -282,7 +282,7 @@ def run_review(
             user,
             LettersReviewOut,
             model=gateway.settings.write_model,
-            max_tokens=p.max_tokens if p else 4000,
+            max_tokens=p.max_tokens if p else 10000,
         )
     except LlmUnavailable as exc:
         rev.status = "unavailable"

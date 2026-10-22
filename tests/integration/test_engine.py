@@ -270,3 +270,6 @@ def test_a_limit_waiting_for_a_pullback_has_an_account_and_a_quantity(db_engine,
         for p in waiting:  # sized at the limit (rule 7), shown in the order book (22/10/2026: « Titres — »)
             assert p.account_recommended in ("pea", "cto_cash")
             assert p.details["comptes"][p.account_recommended]["titres"] > 0
+            objs = p.details["objectifs"]  # each target: origin, gross % from the limit, net for the account
+            assert len(objs) == len(p.targets) and all(o["origine"] and o["brut_pct"] > 0 for o in objs)
+            assert all(o["gain_net_pct"] < o["brut_pct"] for o in objs)

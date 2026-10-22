@@ -46,6 +46,16 @@
     else delay = setTimeout(function () { show("Enregistrement…", ""); }, 400); // quick saves: no flash
   });
 
+  // « refermer le détail » at the bottom of a long <details>: close it and bring its card back into view
+  document.addEventListener("click", function (e) {
+    var b = e.target instanceof Element ? e.target.closest("[data-close-details]") : null;
+    if (!b) return;
+    var d = b.closest("details");
+    if (!d) return;
+    d.open = false;
+    (d.closest("section") || d).scrollIntoView({ block: "start", behavior: "smooth" });
+  });
+
   window.addEventListener("pageshow", hide); // back button (page restored from cache)
   window.BoursePilotBusy = { show: show, hide: hide };
 })();

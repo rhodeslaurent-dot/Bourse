@@ -61,10 +61,21 @@
         {% set tr = ex.track or {} %}{% if tr.get('verdict') in ('favorable', 'defavorable') %}{{ badge('historique ' ~ label('track_verdict', tr.verdict), 'green' if tr.verdict == 'favorable' else 'red', tr.n ~ ' cas comparables, espérance rétrécie ' ~ tr.shrunk_r ~ ' R') }}{% endif %}
         {% if p.account_recommended %}{{ badge(label('account', p.account_recommended), 'slate') }}{% endif %}
       </div>
+      {% if it.place or it.secteur %}<p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{{ it.place or 'place inconnue' }}{% if it.devise %} · {{ it.devise }}{% endif %} · {{ it.secteur or 'secteur non renseigné' }}</p>{% endif %}
+      {% if it.pitch %}<p class="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">{{ it.pitch }}</p>{% endif %}
       <p class="mt-1 text-sm">{{ ex.headline }}</p>
       {% set dd = p.details or {} %}{% set acc = (dd.comptes or {}).get(p.account_recommended or '', {}) %}
       {% if dd and dd.p_max %}
       <p class="mt-1 text-sm tabular text-slate-700 dark:text-slate-300">Limite <b>{{ '%.4g'|format(dd.p_max) }}</b> · stop {{ '%.4g'|format(p.stop) if p.stop else '—' }} · objectif{{ 's' if (p.targets or [])|length > 1 }} {% for t in p.targets or [] %}{{ '%.4g'|format(t) }}{% if not loop.last %} / {% endif %}{% else %}—{% endfor %}{% if acc.gain_net_pct is not none and acc.gain_net_pct is defined %} · gain net <b class="text-emerald-700 dark:text-emerald-300">{{ '%+.1f %%'|format(acc.gain_net_pct * 100) }}</b> · perte nette <b class="text-rose-700 dark:text-rose-300">{{ '%.1f %%'|format(acc.perte_nette_pct * 100) }}</b> · ratio net {{ acc.ratio_net }}{% endif %}{% if dd.esperance_nette_r is not none and dd.esperance_nette_r is defined %} · espérance {{ '%+.2f'|format(dd.esperance_nette_r) }} R{% endif %}</p>
+      {% endif %}
+      {% if dd and dd.p_max and p.targets %}
+      {% set objs = dd.objectifs or [] %}
+      <ul class="mt-1 text-xs tabular text-slate-600 dark:text-slate-300 space-y-0.5" title="gain depuis la limite (prix maximal) ; net : frais, taxes, change et impôt du compte conseillé">
+        {% for t in p.targets %}{% set o = objs[loop.index0] if loop.index0 < objs|length else {} %}
+        {% if loop.index == 3 and not loop.last %}<li class="text-slate-400">… {{ loop.length - 3 }} niveau(x) intermédiaire(s), détaillés dans la fiche</li>{% endif %}
+        {% if loop.index <= 2 or loop.last %}<li><b>{{ 'Objectif max' if loop.last and not loop.first else 'Objectif ' ~ loop.index }}</b> {{ '%.4g'|format(t) }} {{ it.devise or '€' }}{% if o.origine %} <span class="text-slate-400">({{ o.origine }})</span>{% endif %} : <span class="text-emerald-700 dark:text-emerald-300">{{ '%+.1f %%'|format(((o.brut_pct if o.brut_pct is defined else t / dd.p_max - 1)) * 100) }} brut</span>{% if o.gain_net_pct is defined %} · <span class="text-emerald-700 dark:text-emerald-300">{{ '%+.1f %%'|format(o.gain_net_pct * 100) }} net ({{ o.gain_net_eur|eur }})</span>{% endif %}</li>{% endif %}
+        {% endfor %}
+      </ul>
       {% endif %}
       {% if p.thesis and p.thesis.arguments %}<p class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{ p.thesis.arguments[0].texte }}</p>{% endif %}
       {% for b in ex.blocked %}<p class="mt-1 text-sm font-semibold text-rose-700 dark:text-rose-300 [overflow-wrap:anywhere]">{{ b }}</p>{% endfor %}
@@ -80,8 +91,8 @@
         <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Fiche de proposition</h3>
         <dl class="mt-1 grid grid-cols-2 gap-y-1">
           <dt class="text-slate-500">Zone d'entrée</dt><dd class="tabular">{% if p.entry_zone %}{% for k, v in p.entry_zone.items() if v is number %}{{ {'declencheur': 'déclencheur', 'limite': 'limite'}.get(k, k) }} {{ '%.4g'|format(v) }} €{% if not loop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</dd>
-          <dt class="text-slate-500">Stop initial</dt><dd class="tabular">{{ p.stop if p.stop is not none else '—' }}{% if p.stop is not none %} €{% endif %}</dd>
-          <dt class="text-slate-500">Objectifs</dt><dd class="tabular">{% if p.targets %}{{ p.targets|join(' / ') }} €{% else %}—{% endif %}</dd>
+          <dt class="text-slate-500">Stop initial</dt><dd class="tabular">{{ '%.4g'|format(p.stop) if p.stop is not none else '—' }}{% if p.stop is not none %} €{% endif %}</dd>
+          <dt class="text-slate-500">Objectifs</dt><dd class="tabular">{% if p.targets %}{% for t in p.targets %}{{ '%.4g'|format(t) }}{% if not loop.last %} / {% endif %}{% endfor %} €{% else %}—{% endif %}</dd>
           <dt class="text-slate-500">Quantité · taille</dt><dd class="tabular">{% if p.shares %}{{ p.shares }} titres{% else %}—{% endif %}{% if p.size_eur %} · {{ p.size_eur|eur }}{% endif %}</dd>
           <dt class="text-slate-500" title="{{ help_of('R') }}">Risque (R)</dt><dd class="tabular">{{ p.risk_eur|eur if p.risk_eur is not none else '—' }}</dd>
           <dt class="text-slate-500">Horizon</dt><dd>{{ p.horizon or '—' }}</dd>
@@ -105,6 +116,7 @@
         {{ note('proposal', p.id, it.note, '/opportunites?day=' ~ day.isoformat(), 'Pourquoi je prends ou non cette proposition…') }}
       </div>
     </div>
+    <button type="button" data-close-details class="mt-3 text-xs font-medium text-sky-700 dark:text-sky-300 hover:underline">▴ refermer le détail</button>
   </details>
 </section>
 {% else %}
