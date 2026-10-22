@@ -47,6 +47,20 @@ def letters_page(request: Request, day: date | None = None) -> HTMLResponse:
         from app.services.press_review import macro_context
 
         ctx["macro_press"] = macro_context(s, until, 3, 12)
+        from app.db.models import MediaMention
+        from app.services.media import media_params, track_record
+
+        mp = media_params(cfg)
+        ctx["media_track"] = track_record(s, mp.track_horizon_sessions, mp.track_min_samples)
+        ctx["media_params"] = mp
+        ctx["media_recent"] = list(
+            s.scalars(
+                select(MediaMention)
+                .where(MediaMention.published_at >= since)
+                .order_by(MediaMention.published_at.desc())
+                .limit(40)
+            )
+        )
     return templates.TemplateResponse(request, "lettres.html", ctx)
 
 

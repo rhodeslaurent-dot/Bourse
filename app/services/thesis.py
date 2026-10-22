@@ -109,6 +109,9 @@ def facts_for(s: Session, p: Proposal, now: datetime | None = None) -> list[dict
         select(LetterOpinion).where(LetterOpinion.isin == p.isin, LetterOpinion.day >= since.date()).limit(5)
     ):
         facts.append(f"Lettre {o.source} du {o.day:%d/%m} ({o.stance}) : {o.summary or ''} « {o.quote or ''} »")
+    for m in d.get("medias") or []:  # docs/23 §23.7: media opinions, never facts about the company
+        who = f", {m['intervenant']}" if m.get("intervenant") else ""
+        facts.append(f"Opinion média {m['source']} du {m['date']}{who} : {m['sens']} — « {m.get('extrait') or ''} »")
     pc = d.get("positions_courtes") or {}
     if pc.get("detenteurs"):
         top = ", ".join(f"{h['detenteur']} {h['pct'] * 100:.2f} % ({h['date']})" for h in pc["detenteurs"][:3])

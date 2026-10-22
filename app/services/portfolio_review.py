@@ -84,6 +84,18 @@ def _next_macro_hours(s: Session, now: datetime, keywords: list[str]) -> float |
     return None
 
 
+def _media_sells(s: Session, isin: str, now: datetime) -> list[str]:
+    """docs/23 §23.7: a sale cited by a media source on a held value (sales carry more information than
+    buys — Kerl-Walter, Lidén): shown, never acted on automatically."""
+    from app.services.media import recent
+
+    return [
+        f"vente citée par {m.source} le {m.published_at:%d/%m}" + (f" ({m.speaker})" if m.speaker else "")
+        for m in recent(s, isin, now, 28)
+        if m.stance == "vente"
+    ][:3]
+
+
 def review_lines(s: Session, config: LoadedConfig, day: date, now: datetime) -> list[dict[str, Any]]:
     from app.services.engine import MACRO_KEYWORDS_DEFAULT
 
@@ -194,7 +206,7 @@ def review_lines(s: Session, config: LoadedConfig, day: date, now: datetime) -> 
                     "stop_propose": round(rv.stop.stop, 4) if rv.stop else None,
                     "stop_change": bool(rv.stop and rv.stop.changed),
                     "stop_raison": rv.stop.reason if rv.stop else None,
-                    "signaux": rv.signals,
+                    "signaux": rv.signals + _media_sells(s, pos.isin, now),
                     "notes": rv.notes + (rv.stop.notes if rv.stop else []),
                     "objectifs": targets,
                     "seances": held,

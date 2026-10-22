@@ -941,6 +941,26 @@ class ShortPosition(Base):
     )
 
 
+class MediaMention(Base):
+    """A value cited by a media source (podcast, radio, press; docs/23 §23.7) — an opinion, with the close
+    of the session before the broadcast so that the source's own record can be measured."""
+
+    __tablename__ = "media_mentions"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    item_guid: Mapped[str] = mapped_column(String(255))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    isin: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    stance: Mapped[str] = mapped_column(String(8))  # achat | vente | neutre
+    speaker: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    snippet: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    price_ref: Mapped[float | None] = mapped_column(nullable=True)  # close of the session before the broadcast
+    price_ref_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("source", "item_guid", "name", name="uq_media_mentions_item_name"),)
+
+
 class Fundamentals(Base):
     """Free fundamentals / analyst consensus of an instrument on a day (source and date kept)."""
 

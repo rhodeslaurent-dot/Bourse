@@ -426,6 +426,27 @@ def evaluate(
     shorts = short_interest(s, inst.isin, now.date())
     if shorts.holders:
         ev.details["positions_courtes"] = shorts.as_dict()  # docs/23 S2: a floor (public from 0.5 % only)
+    # --- media opinions (docs/23 §23.7): caution after a media-driven jump; confirmation only when measured
+    from app.services.media import favourable_sources, media_params, pressure, recent
+
+    mp = media_params(config)
+    cited = recent(s, inst.isin, now, mp.reversal_window_days)
+    if cited:
+        ev.details["medias"] = [
+            {"source": m.source, "date": f"{m.published_at:%d/%m/%Y}", "sens": m.stance, "intervenant": m.speaker,
+             "extrait": m.snippet}
+            for m in cited[:6]
+        ]  # fmt: skip
+    jumped = pressure(cited, price, mp.jump_flag_pct)
+    if jumped is not None and jumped.price_ref:
+        ev.blocked.append(
+            f"WATCH : hausse médiatique {price / jumped.price_ref - 1:+.1%} depuis la citation par {jumped.source} "
+            f"le {jumped.published_at:%d/%m} — risque de retour sous {mp.reversal_window_days} jours (docs/23 §23.7)"
+        )
+    if "media_favourable" not in s.info:
+        usable = {str(f.get("name")) for f in p.data.rss_feeds if f.get("usage") == "confirmation"} if p.data else set()
+        s.info["media_favourable"] = favourable_sources(s, mp) & usable  # measured AND declared for confirmation
+    media_confirm = any(m.stance == "achat" and m.source in s.info["media_favourable"] for m in cited)
     bars = load_bars(s, inst.isin, limit=260)
     f = compute_daily_features(bars) if bars else None
     last = bars[-1] if bars else None
@@ -459,7 +480,7 @@ def evaluate(
             short_alert_pct=float(short_cfg.get("alert_pct", 0.02)),
             short_penalty=float(short_cfg.get("score_penalty", 3)),
             catalyst_age_days=_catalyst(s, inst.isin, now)[2],
-            external_confirmation=bool(_letter_levels(s, inst.isin, now.date())),
+            external_confirmation=bool(_letter_levels(s, inst.isin, now.date())) or media_confirm,
             small_cap=bool(inst.small_cap),
             fundamentals=fundamentals,
             sector_rs_pct=sector_rs_pct,

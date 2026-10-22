@@ -93,6 +93,19 @@ class NewsletterExtraction(BaseModel):
     sentiment: Literal["haussier", "baissier", "neutre"] = "neutre"
 
 
+class MediaValue(BaseModel):
+    """docs/23 §23.7 — a value cited by a podcast, a show or an article: an opinion, never a figure."""
+
+    name: Text(128)
+    stance: Literal["achat", "vente", "neutre"]
+    speaker: Text(128) | None = None
+    snippet: Text(280)
+
+
+class MediaExtraction(BaseModel):
+    values: Items(MediaValue, 15) = Field(default_factory=list)
+
+
 class AssistantAnswer(BaseModel):
     """docs/17 §17.4 — grounded answer: every figure must come from the fact pack."""
 

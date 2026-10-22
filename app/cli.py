@@ -380,6 +380,7 @@ NEW_TOP_BLOCKS = [
     "pockets",
     "crypto",
     "derivatives",
+    "media",  # docs/23 §23.7
 ]
 NEW_CHILD_PARENTS = [
     "risk",
@@ -804,22 +805,31 @@ def cmd_sources_discover(args: argparse.Namespace) -> int:
     or the given URL). Read-only; the address to keep is then copied into params.yaml."""
     import httpx
 
-    from app.data.providers.feed_discovery import discover_feeds
+    from app.data.providers.feed_discovery import discover_feeds, podcast_feeds
     from app.data.providers.rss import BROWSER_UA
 
+    podcasts: list[dict] = []
     if args.url:
         targets = [("(adresse donnée)", args.url)]
     else:
         cfg = load_params(args.params)
-        targets = [
-            (str(f["name"]), str(f["homepage"]))
-            for f in _feeds(cfg, args.name)
-            if f.get("homepage") and (args.name or "renseigner" in str(f.get("url", "")))
-        ]
-    if not targets:
+        todo = [f for f in _feeds(cfg, args.name) if args.name or "renseigner" in str(f.get("url", ""))]
+        targets = [(str(f["name"]), str(f["homepage"])) for f in todo if f.get("homepage")]
+        podcasts = [f for f in todo if f.get("apple_id") or f.get("itunes_term")]
+    if not targets and not podcasts:
         print("aucune source à découvrir (toutes les adresses sont renseignées, ou --name inconnu)")
         return 1
     with httpx.Client(timeout=20, follow_redirects=True, headers={"User-Agent": BROWSER_UA}) as c:
+        for f in podcasts:  # docs/23 §23.7: the podcast feed is read from Apple's public directory
+            country = {"DE": "de", "NL": "nl", "BE": "be", "ES": "es", "IT": "it"}.get(str(f.get("market")), "fr")
+            try:
+                found = podcast_feeds(c, f.get("apple_id"), f.get("itunes_term"), country)
+            except httpx.HTTPError as exc:
+                print(f"\n{f['name']} — annuaire Apple inaccessible ({exc.__class__.__name__})")
+                continue
+            print(f"\n{f['name']} — podcast, annuaire Apple : {len(found)} flux trouvé(s)")
+            for feed, label in found:
+                print(f"  {feed}   [{label}]")
         for name, url in targets:
             try:
                 r = c.get(url)

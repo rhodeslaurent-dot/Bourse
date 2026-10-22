@@ -151,6 +151,12 @@ derivatives:                            # docs/22 §22.5 rang 4 — critères d'
   barrier_buffer_pct: 0.01              # barrière désactivante au moins 1 % sous le stop glissé
   max_leverage: 5
 
+media:                                  # docs/23 §23.7 — opinions des médias (podcasts, radio, presse) : jamais un déclencheur
+  reversal_window_days: 28              # ≈ 20 séances : un achat cité suivi d'une hausse se retourne souvent dans ce délai
+  jump_flag_pct: 0.03                   # hausse depuis la clôture précédant la diffusion → WATCH « hausse médiatique »
+  track_horizon_sessions: 20            # bilan mesuré par source : rendement à 20 séances depuis la diffusion
+  track_min_samples: 20                 # sous ce nombre de citations mesurées : « historique insuffisant », pas de confirmation
+
 pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
   dca:
     isins: []                           # ETF de l'investissement progressif (à renseigner dans params.yaml)
@@ -448,19 +454,19 @@ data:
     - {name: "tradingsat", url: "https://www.tradingsat.com/rssbourse.xml", market: "FR", kind: "actualites", reconnu: "BFM Bourse"}
     - {name: "globenewswire_fr", url: "à renseigner", homepage: "https://www.globenewswire.com/", market: "FR", kind: "reglementaire"}
     - {name: "amf_dirigeants", url: "à renseigner", homepage: "https://www.amf-france.org/fr/abonnements-flux-rss", market: "FR", kind: "reglementaire", reconnu: "AMF — BDIF, déclarations des dirigeants (MAR art. 19)"}
-    - {name: "investir", url: "à renseigner", homepage: "https://investir.lesechos.fr/", market: "FR", kind: "presse_conseil", reconnu: "Investir (Les Echos), conseils"}
+    - {name: "investir", url: "à renseigner", homepage: "https://investir.lesechos.fr/", market: "FR", kind: "media_conseil", usage: "prudence", reconnu: "Investir (Les Echos), conseils"}
     - {name: "le_revenu", url: "à renseigner", homepage: "https://www.lerevenu.com/", market: "FR", kind: "presse_conseil"}
-    - {name: "boursier", url: "à renseigner", homepage: "https://www.boursier.com/", market: "FR", kind: "actualites"}
+    - {name: "boursier", url: "à renseigner", homepage: "https://www.boursier.com/", market: "FR", kind: "media_conseil", usage: "prudence"}
     - {name: "eqs_news", url: "à renseigner", homepage: "https://www.eqs-news.com/", market: "DE", kind: "reglementaire", reconnu: "EQS (ex-DGAP) : EQS-DD, communiqués réglementés"}
-    - {name: "der_aktionaer", url: "à renseigner", homepage: "https://www.deraktionaer.de/", market: "DE", kind: "presse_conseil"}
-    - {name: "boerse_online", url: "à renseigner", homepage: "https://www.boerse-online.de/", market: "DE", kind: "presse_conseil"}
+    - {name: "der_aktionaer", url: "à renseigner", homepage: "https://www.deraktionaer.de/", market: "DE", kind: "media_conseil", usage: "prudence"}
+    - {name: "boerse_online", url: "à renseigner", homepage: "https://www.boerse-online.de/", market: "DE", kind: "media_conseil", usage: "prudence"}
     - {name: "finanzen_net", url: "à renseigner", homepage: "https://www.finanzen.net/", market: "DE", kind: "reco_analystes", reconnu: "analyses de brokers (dpa-AFX Analyser)"}
     - {name: "iex", url: "à renseigner", homepage: "https://www.iex.nl/", market: "NL", kind: "presse_conseil"}
     - {name: "de_tijd", url: "à renseigner", homepage: "https://www.tijd.be/", market: "BE", kind: "presse_conseil"}
     - {name: "expansion", url: "à renseigner", homepage: "https://www.expansion.com/", market: "ES", kind: "actualites"}
     - {name: "cinco_dias", url: "à renseigner", homepage: "https://cincodias.elpais.com/", market: "ES", kind: "actualites"}
-    - {name: "affarsvarlden", url: "à renseigner", homepage: "https://www.affarsvarlden.se/", market: "SE", kind: "presse_conseil"}
-    - {name: "placera", url: "à renseigner", homepage: "https://www.avanza.se/placera/", market: "SE", kind: "actualites"}
+    - {name: "affarsvarlden", url: "à renseigner", homepage: "https://www.affarsvarlden.se/", market: "SE", kind: "media_conseil", usage: "prudence"}
+    - {name: "placera", url: "à renseigner", homepage: "https://www.avanza.se/placera/", market: "SE", kind: "media_conseil", usage: "prudence"}
     - {name: "borsen", url: "à renseigner", homepage: "https://borsen.dk/", market: "DK", kind: "actualites"}
     - {name: "kauppalehti", url: "à renseigner", homepage: "https://www.kauppalehti.fi/", market: "FI", kind: "actualites"}
     - {name: "e24", url: "à renseigner", homepage: "https://e24.no/", market: "NO", kind: "actualites"}
@@ -469,6 +475,15 @@ data:
     - {name: "jornal_negocios", url: "à renseigner", homepage: "https://www.jornaldenegocios.pt/", market: "PT", kind: "actualites"}
     - {name: "irish_times_business", url: "à renseigner", homepage: "https://www.irishtimes.com/business/", market: "IE", kind: "actualites"}
     - {name: "boersen_kurier", url: "à renseigner", homepage: "https://www.boersen-kurier.at/", market: "AT", kind: "actualites"}
+    # docs/23 §23.7 — médias grand public : opinions extraites par valeur ; podcasts trouvés dans l'annuaire Apple (apple_id / itunes_term)
+    - {name: "cest_votre_argent", url: "à renseigner", apple_id: "562595266", itunes_term: "C'est votre argent BFM", market: "FR", kind: "media_conseil", usage: "confirmation", reconnu: "BFM Business, Marc Fiorentino : achats et ventes de gérants nommés"}
+    - {name: "integrale_bourse", url: "à renseigner", apple_id: "328729492", itunes_term: "Intégrale Bourse BFM", market: "FR", kind: "media_conseil", usage: "attention"}
+    - {name: "alles_auf_aktien", url: "à renseigner", apple_id: "1549709271", itunes_term: "Alles auf Aktien WELT", market: "DE", kind: "media_conseil", usage: "attention"}
+    - {name: "iex_podcast", url: "à renseigner", itunes_term: "IEX BeleggersPodcast", market: "NL", kind: "media_conseil", usage: "attention"}
+    - {name: "beursvoyeurs", url: "à renseigner", itunes_term: "De Beursvoyeurs Tijd", market: "BE", kind: "media_conseil", usage: "attention"}
+    - {name: "estrategias_inversion", url: "à renseigner", homepage: "https://www.estrategiasdeinversion.com/", market: "ES", kind: "media_conseil", usage: "confirmation", reconnu: "« Los brokers recomiendan » : recommandations de courtiers"}
+    - {name: "finanzaonline", url: "à renseigner", homepage: "https://www.finanzaonline.com/", market: "IT", kind: "media_conseil", usage: "confirmation", reconnu: "consensus Buy/Hold/Sell du FTSE MIB (données Bloomberg)"}
+    - {name: "inderes", url: "à renseigner", homepage: "https://www.inderes.fi/", market: "FI", kind: "media_conseil", usage: "information", reconnu: "recherche partiellement commanditée par les sociétés couvertes"}
   imap:
     host: "imap.gmail.com"
     mailbox: "INBOX"                     # ou un libellé Gmail (ex. "Bourse") ; seuls les non-lus des expéditeurs ci-dessous sont lus

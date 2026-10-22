@@ -18,6 +18,22 @@ from app.services.news import ingest_rss_items
 log = logging.getLogger("bourse.jobs.news_scan")
 
 
+def _media(s, source: str, gateway) -> int:  # type: ignore[no-untyped-def]
+    from datetime import timedelta
+
+    from app.db.models import NewsItem
+    from app.services.media import extract_mentions
+    from app.services.news import alias_index
+
+    since = datetime.now(UTC) - timedelta(days=7)
+    rows = [
+        r
+        for r in s.scalars(select(NewsItem).where(NewsItem.source == source, NewsItem.fetched_at >= since))
+        if "media" not in (r.classification or {})
+    ]
+    return extract_mentions(s, rows, gateway, alias_index(s)) if rows else 0
+
+
 def run(ctx: JobContext) -> int:
     feeds = [f for f in ctx.config.params.data.rss_feeds if f.get("url") and "renseigner" not in str(f.get("url"))]
     max_items = int(((ctx.config.params.detectors or {}).get("d6_catalysts") or {}).get("max_items_per_cycle", 50))
@@ -32,6 +48,8 @@ def run(ctx: JobContext) -> int:
                 items = fetch_feed(name, str(f["url"]))
                 with s.begin_nested():  # savepoint: a refused row of one feed never poisons the session
                     rep = ingest_rss_items(s, items, ctx.llm, max_items=max_items)
+                    if f.get("kind") == "media_conseil":  # docs/23 §23.7: values cited, with their stance
+                        _media(s, name, ctx.llm)
                 total += rep.new
                 fresh.last_ok_at = datetime.now(UTC)
                 fresh.last_error = None
