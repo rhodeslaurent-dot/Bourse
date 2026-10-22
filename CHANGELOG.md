@@ -9,7 +9,7 @@ Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 - Revue de presse des lettres (inactive tant que les domaines de presse ne sont pas renseignés).
 - Phase 3 : fondamentaux et consensus gratuits (bloc F), D7 « tendance + qualité », ETF et rotation.
 - Phase 4, cryptos (ETP) et dérivés : prêts, désactivés par défaut.
-- Correctifs : longueurs des réponses de Claude souples ; garde-fou des chiffres (un entier n'est plus pris pour un pourcentage) ; menu sans débordement sous 1 280 px ; `opportunity_scan` ne s'arrête plus sur une valeur sans volume ni sur une ligne refusée par la base (point de sauvegarde par proposition) ; nom de détecteur jusqu'à 32 caractères.
+- Correctifs : longueurs des réponses de Claude souples ; garde-fou des chiffres (un entier n'est plus pris pour un pourcentage) ; menu sans débordement sous 1 280 px ; `opportunity_scan` ne s'arrête plus sur une valeur sans volume ni sur une ligne refusée par la base (point de sauvegarde par proposition) ; nom de détecteur jusqu'à 32 caractères. Revue de /opportunites du 22/10 : le pays de la place de cotation n'est plus pris pour le siège (AMD coté sur Xetra n'est plus proposé en PEA) ; une limite en attente d'un repli porte un compte et une quantité ; carnet d'ordres limité aux achats et attentes de repli, une ligne par valeur ; date d'expiration affichée ; objectifs arrondis.
 - Migrations 0010 à 0015.
 
 ## [Unreleased] — Revue des lettres : dossier complet — 2026-10-21

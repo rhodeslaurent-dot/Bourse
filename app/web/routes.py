@@ -24,6 +24,9 @@ from app.services.instruments import name_of
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["dual"] = lambda dt: format_dual(from_store(dt))
+templates.env.filters["dual_dated"] = lambda dt: (
+    f"{from_store(dt).astimezone(REUNION):%d/%m} {format_dual(from_store(dt))}"
+)
 
 
 def _eur(value: object, digits: int = 0) -> str:

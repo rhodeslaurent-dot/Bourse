@@ -177,7 +177,11 @@ def _fees(config: LoadedConfig, account: str) -> FeeSchedule:
 def _account_options(inst: Instrument, config: LoadedConfig) -> list[str]:
     pea = config.params.pea or {}
     out = []
-    if inst.pea_eligible or (inst.pea_eligible is None and inst.isin[:2] in (pea.get("eligible_countries") or [])):
+    eligible_prefix = inst.isin[:2] in (pea.get("eligible_countries") or [])
+    # a "domicile" presumption stored before 2026-10-23 came from the exchange country (AMD on Xetra → DE):
+    # it only counts when the ISIN prefix agrees, until the next universe refresh recomputes it
+    from_listing = (inst.pea_source or "").endswith("domicile") and not eligible_prefix
+    if (inst.pea_eligible and not from_listing) or (inst.pea_eligible is None and eligible_prefix):
         out.append("pea")
     out.append("cto_cash")
     if inst.srd_status in ("complet", "long_only") and inst.mic == "XPAR":
@@ -359,6 +363,11 @@ def evaluate(
     if any_adm.status == Status.REFUSED and best is None:
         ev.blocked += [f"WATCH : {r} — limite posée en attente d'un repli" for r in any_adm.reasons]
         ev.action = "WATCH"
+        # the limit order waits at P_max: account and quantity sized at that limit (rule 7), cash before SRD
+        sized = [a for a in options if per_account[a].get("titres") and per_account[a].get("ratio_net") is not None]
+        cash = [a for a in sized if a != "cto_srd"] or sized
+        if cash:
+            ev.account = max(cash, key=lambda a: (per_account[a]["ratio_net"], -options.index(a)))
         return ev
     if best is None:
         ev.blocked.append("WATCH : aucune taille possible sur les comptes (budget de risque, frais)")

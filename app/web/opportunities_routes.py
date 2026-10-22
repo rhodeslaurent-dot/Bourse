@@ -155,11 +155,18 @@ def order_book(items: list[dict]) -> list[dict]:
     maximum entry price; the closest ``entry.standing_orders_max`` are the limit orders to re-post
     this morning (validity day, expiry after ``entry.expiry_sessions`` sessions)."""
     rows = []
-    for it in items:
+    seen: set[str] = set()
+    for it in sorted(items, key=lambda x: (x["p"].rank is None, x["p"].rank or 0, x["p"].id)):
         p = it["p"]
         d = p.details or {}
         if p.status != "open" or p.action not in ("BUY", "WATCH") or d.get("admission") not in ("admis", "refuse"):
             continue
+        waits = [b for b in (p.gates or {}).get("blocked", []) if b.startswith("WATCH")]
+        if any("en attente d'un repli" not in b for b in waits):
+            continue  # WATCH for another reason (score, stop too wide…): no order to post
+        if p.isin in seen:
+            continue  # one order per value (best-ranked detector)
+        seen.add(p.isin)
         pmax = d.get("p_max")
         acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
         price = (it.get("snapshot_price") or {}).get("last")

@@ -255,3 +255,18 @@ def test_a_row_the_database_rejects_is_rolled_back_alone(config, monkeypatch, tm
         assert rep.errors and rep.errors[0].endswith("DataError")
         assert len(calls) == rep.created + 1 >= 2  # the scan went on after the refused row
         assert s.query(Signal).count() == s.query(Proposal).count() == rep.created  # savepoint dropped that row only
+
+
+def test_a_limit_waiting_for_a_pullback_has_an_account_and_a_quantity(db_engine, config):
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        engine.scan(s, config, DAY, now=NOW)
+        waiting = [
+            p
+            for p in s.query(Proposal).all()
+            if any("attente d'un repli" in b for b in (p.gates or {}).get("blocked", []))
+        ]
+        assert waiting
+        for p in waiting:  # sized at the limit (rule 7), shown in the order book (22/10/2026: « Titres — »)
+            assert p.account_recommended in ("pea", "cto_cash")
+            assert p.details["comptes"][p.account_recommended]["titres"] > 0

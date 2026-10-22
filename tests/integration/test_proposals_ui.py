@@ -74,7 +74,8 @@ def test_thesis_guards_and_page(db_engine, config, calendars):
         html_day = c.get("/opportunites?day=2026-10-22").text
     page = html + html_day
     assert "Thèse d'investissement" in page and "Gain et risque nets, par compte" in page
-    assert "Carnet d&#39;ordres préparés" in page or "Carnet d'ordres préparés" in page
+    assert "expire le " in page  # date shown, not only the time (22/10/2026)
+    # the order book only lists BUY and limits waiting for a pullback (tests/unit/test_pea_listing_and_order_book.py)
     assert "#1" in page and "Objectif publié 110" in page
 
 

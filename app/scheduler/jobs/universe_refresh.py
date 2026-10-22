@@ -50,6 +50,8 @@ def symbol_rows_from_eodhd(
         for r in symbols:
             if venues and str(r.get("Exchange", "")).upper() not in venues:
                 continue  # e.g. US: NYSE / NASDAQ only, never OTC
+            # r["Country"] is the country of the *exchange* (AMD on Xetra → Germany), never the issuer's
+            # domicile: it is not used, PEA eligibility falls back to the ISIN prefix (US → not eligible).
             isin = str(r.get("Isin") or "").strip().upper()
             if len(isin) != 12:
                 continue
@@ -65,7 +67,6 @@ def symbol_rows_from_eodhd(
                     code=str(r.get("Code", "")),
                     exchange=ex,
                     currency=str(r.get("Currency") or "EUR"),
-                    country=_country(r.get("Country")),
                     kind=(
                         "crypto_etp"
                         if crypto_isins and isin in crypto_isins
@@ -91,33 +92,6 @@ def _log_exchange_hints(provider: EodhdProvider, errors: dict[str, str]) -> None
         log.warning("codes de places EODHD disponibles en Europe : %s", "; ".join(codes[:40]))
     except ProviderError as exc:  # diagnostics only
         log.info("liste des places EODHD indisponible : %s", exc)
-
-
-def _country(name: object) -> str | None:
-    table = {
-        "france": "FR",
-        "germany": "DE",
-        "netherlands": "NL",
-        "belgium": "BE",
-        "italy": "IT",
-        "spain": "ES",
-        "sweden": "SE",
-        "denmark": "DK",
-        "finland": "FI",
-        "norway": "NO",
-        "portugal": "PT",
-        "ireland": "IE",
-        "austria": "AT",
-        "poland": "PL",
-        "luxembourg": "LU",
-        "switzerland": "CH",
-        "uk": "GB",
-        "united kingdom": "GB",
-        "usa": "US",
-        "jersey": "JE",
-        "bermuda": "BM",
-    }
-    return table.get(str(name or "").strip().lower())
 
 
 def enrich_with_screener(  # type: ignore[no-untyped-def]

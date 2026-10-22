@@ -111,7 +111,7 @@ def refresh_universe(
         inst.ticker_eodhd = f"{r.code}.{r.exchange}"
         inst.ticker_tv = r.tv_ticker or inst.ticker_tv
         inst.exchange, inst.mic, inst.currency = r.exchange, mic, r.currency or "EUR"
-        inst.country_of_domicile = r.country or inst.country_of_domicile
+        inst.country_of_domicile = r.country  # issuer domicile only (None from EODHD: its Country is the exchange's)
         inst.sector = r.sector or inst.sector
         inst.industry = r.industry or inst.industry
         if r.earnings_next_date:
