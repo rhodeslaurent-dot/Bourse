@@ -196,6 +196,8 @@ La vente à découvert reste exclue. docs/00 §0.4 est mis à jour en conséquen
 
 ## 22.10 Feuille de route révisée (acceptée le 22/10/2026)
 
+État au 22/10/2026 (code, en attente de déploiement sur le PC) : phase 2 faite ; phase 3 faite (fondamentaux gratuits, D7, ETF, rotation) ; phase 4 prête, désactivée ; cryptos (ETP) et dérivés prêts, désactivés ; phase 5 (ouverture D1) non commencée — elle attend la validation du flux temps réel (A0.7).
+
 | Phase | Contenu |
 |---|---|
 | **2 — Moteur de propositions, actions M1** | Règles R1 à R8 et R10 à R15 dans `params.yaml` et docs/06 et 07 ; détection des zones de support et de résistance ; familles A (D2, D3, D4) et D recalculée ; coût complet et classement ; fiche §22.2 avec thèse ; carnet d'ordres préparés ; revue de portefeuille ; tableau macro gratuit et calendrier macro ; correctif des capitalisations hors euro et calendriers M1 |

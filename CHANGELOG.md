@@ -2,6 +2,16 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Objectif final : moteur de propositions multi-marchés — 2026-10-22
+
+- Cahier des charges : `docs/22` (objectif final, décisions Q1–Q5, règles du référentiel R1–R21, feuille de route révisée), `docs/21` (revue de presse), docs/06 §6.7, docs/07 §7.9, docs/08 §8.7, ADR-010.
+- Phase 2 : règles de gestion en Python pur (coût complet, prix maximal net, structure intacte, stops, zones, plafonds par portail, dérogation, conjoncture, annonces, classement) ; données gratuites (BCE, tableau macro, calendrier économique, liste TTF, calendriers des places, cours à chaque analyse) ; moteur de propositions (D2, D3, D4, lettres testables, portail option C) ; thèse rédigée par Claude sous garde-fous, fiche complète, carnet d'ordres, notifications du haut du classement ; revue de portefeuille et rapport du jour en 10 rubriques ; fiche « entrée au fixing ».
+- Revue de presse des lettres (inactive tant que les domaines de presse ne sont pas renseignés).
+- Phase 3 : fondamentaux et consensus gratuits (bloc F), D7 « tendance + qualité », ETF et rotation.
+- Phase 4, cryptos (ETP) et dérivés : prêts, désactivés par défaut.
+- Correctifs : longueurs des réponses de Claude souples ; garde-fou des chiffres (un entier n'est plus pris pour un pourcentage) ; menu sans débordement sous 1 280 px.
+- Migrations 0010 à 0014.
+
 ## [Unreleased] — Revue des lettres : dossier complet — 2026-10-21
 
 - Chaque analyse joint, pour les 15 valeurs les plus citées (`letters_review.max_values`), toutes les données de l'outil : dossier de l'assistant (clôtures, indicateurs, position, propositions, nouvelles 7 j, avis précédents, notes), cours à l'analyse avec son statut et son horodatage de marché, ouverture, écart et dérive mesurés à la réception ; plus le régime et les indices. Prompt `letters_review_v2` : croiser lettres et données sans rien calculer.

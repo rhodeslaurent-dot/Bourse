@@ -211,3 +211,25 @@ def test_reset_block_replaces_only_the_named_block():
     out, done = cli.reset_block(example, target, "data.macro")
     assert done and out == "data:\n  a: 5\n  macro:\n    series:\n      x: new\n  b: 7\njobs:\n  j: 9\n"
     assert cli.reset_block(example, target, "data.absent") == (target, False)
+
+
+def test_archive_mentions_dry_run_then_apply(db_engine, capsys):
+    from datetime import UTC, datetime
+
+    from app.db.models import NewsletterValue, Proposal, Signal
+    from app.db.session import db_session
+
+    with db_session() as s:
+        sig = Signal(isin="FR0000120271", detector="external", source="momentum_capital", ts=datetime.now(UTC),
+                     timeframe="eod", data_status="eod", params_version="t")  # fmt: skip
+        s.add(sig)
+        s.flush()
+        s.add(NewsletterValue(item_id=1, isin="FR0000120271", direction="neutral", signal_id=sig.id))
+        s.add(Proposal(signal_id=sig.id, isin="FR0000120271", action="WATCH", status="expired"))
+    assert cli.main(["archive-mentions"]) == 0
+    assert "aperçu seulement" in capsys.readouterr().out
+    with db_session() as s:
+        assert s.query(Proposal).one().deleted_at is None
+    assert cli.main(["archive-mentions", "--apply"]) == 0
+    with db_session() as s:
+        assert s.query(Proposal).one().deleted_at is not None

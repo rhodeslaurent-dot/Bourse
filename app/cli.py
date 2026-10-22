@@ -714,6 +714,47 @@ def ingest_known(s, mail) -> bool:  # type: ignore[no-untyped-def]
     return s.scalar(select(NewsletterItem.id).where(NewsletterItem.dedup_hash == mail.dedup_hash)) is not None
 
 
+def cmd_archive_mentions(args: argparse.Namespace) -> int:
+    """Pending decision (docs/15-status): soft-archive (``deleted_at``) the proposals created from a
+    mere *mention* (direction « neutral ») during the historical import of the letters. Dry run by
+    default; nothing is deleted; ``--apply`` is required to archive."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import select
+
+    from app.db.models import NewsletterValue, Proposal, Signal
+    from app.db.session import db_session
+
+    with db_session() as s:
+        sig_ids = {
+            v.signal_id
+            for v in s.scalars(select(NewsletterValue).where(NewsletterValue.direction == "neutral"))
+            if v.signal_id
+        }
+        props = (
+            [
+                p
+                for p in s.scalars(
+                    select(Proposal).where(Proposal.signal_id.in_(sig_ids), Proposal.deleted_at.is_(None))
+                )
+                if (s.get(Signal, p.signal_id) or Signal()).detector == "external"
+            ]
+            if sig_ids
+            else []
+        )
+        print(f"{len(props)} proposition(s) issues de simples mentions (sens « neutre »)")
+        for p in props[:10]:
+            print(f"  #{p.id} {p.isin} {p.created_at:%d/%m/%Y} statut {p.status}")
+        if not args.apply:
+            print("aperçu seulement : relancer avec --apply pour les archiver (réversible : deleted_at)")
+            return 0
+        now = datetime.now(UTC)
+        for p in props:
+            p.deleted_at = now
+        print(f"{len(props)} proposition(s) archivée(s)")
+    return 0
+
+
 def cmd_ttf_list_load(args: argparse.Namespace) -> int:
     """docs/22 R11 — download the official BOFiP list of companies subject to the French TTF and
     write ``data/ttf_list.yaml`` (year, source, ISINs). Nothing is guessed: no ISIN found → error."""
@@ -978,6 +1019,9 @@ def main(argv: list[str] | None = None) -> int:
     nh.add_argument("--dry-run", action="store_true", help="repérage : compte expéditeurs et dates, n'enregistre rien")
     nh.add_argument("--no-llm", action="store_true", help="extraction par règles seules (gratuite)")
     nh.set_defaults(fn=cmd_newsletters_history)
+    am = sub.add_parser("archive-mentions", help="aperçu / archivage des propositions issues de simples mentions")
+    am.add_argument("--apply", action="store_true", help="archiver réellement (sinon aperçu)")
+    am.set_defaults(fn=cmd_archive_mentions)
     tl = sub.add_parser("ttf-list-load", help="télécharge la liste officielle des sociétés soumises à la TTF")
     tl.add_argument("--year", type=int, required=True)
     tl.add_argument("--url", default="https://bofip.impots.gouv.fr/bofip/9789-PGP.html")
