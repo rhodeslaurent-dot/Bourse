@@ -119,7 +119,11 @@ def rows_from_table(table: list[list[object]]) -> list[ShortRow]:
             issuer = str(cell("issuer")).strip() if cell("issuer") else None
             out.append(ShortRow(isin, issuer, str(cell("holder") or "").strip()[:200] or "?", pct, day))
         return out
-    raise ProviderError("colonnes non reconnues (ISIN, détenteur, position, date) : fichier refusé")
+    seen = [" | ".join(str(c) for c in row if c not in (None, ""))[:160] for row in table[:6] if any(row)]
+    raise ProviderError(
+        "colonnes non reconnues (ISIN, détenteur, position, date) : fichier refusé — premières lignes : "
+        + " // ".join(seen[:3])
+    )
 
 
 def read_table(content: bytes, name: str = "") -> list[list[object]]:
@@ -173,4 +177,7 @@ def fetch(source: dict, client: httpx.Client | None = None) -> tuple[list[ShortR
     r = c.get(url)
     if r.status_code >= 400:
         raise ProviderError(f"HTTP {r.status_code}")
-    return rows_from_table(read_table(r.content, url)), url
+    try:
+        return rows_from_table(read_table(r.content, url)), url
+    except ProviderError as exc:
+        raise ProviderError(f"{exc} — fichier lu : {url}") from exc
