@@ -48,6 +48,77 @@ def close_before(s: Session, isin: str, day: date) -> PriceEod | None:
     return s.scalar(select(PriceEod).where(PriceEod.isin == isin, PriceEod.day < day).order_by(PriceEod.day.desc()))
 
 
+_LEGAL = {"sa", "se", "nv", "ag", "plc", "spa", "sca", "ab", "asa", "oyj", "as", "inc", "corp", "co", "ltd"}
+_LEGAL2 = {"s a", "s e", "n v", "a s", "s p a"}  # « S.A. », « N.V. », « S.p.A. » once punctuation is removed
+
+
+def norm_name(name: str) -> str:
+    """« Maurel & Prom S.A. » → « maurel et prom »: accents, punctuation and legal forms removed."""
+    import unicodedata
+
+    txt = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode().lower().replace("&", " et ")
+    words = re.sub(r"[^a-z0-9]+", " ", txt).split()
+    while len(words) > 1:
+        if len(words) > 3 and " ".join(words[-3:]) in _LEGAL2:
+            words = words[:-3]
+        elif len(words) > 2 and " ".join(words[-2:]) in _LEGAL2:
+            words = words[:-2]
+        elif words[-1] in _LEGAL:
+            words = words[:-1]
+        else:
+            break
+    return " ".join(words)
+
+
+def name_matcher(aliases: dict[str, str]) -> dict[str, str]:
+    """Normalised name → ISIN; a name shared by two ISINs is dropped (never matched by guess)."""
+    out: dict[str, str] = {}
+    clash: set[str] = set()
+    for alias, isin in aliases.items():
+        n = norm_name(alias)
+        if not n:
+            continue
+        if n in out and out[n] != isin:
+            clash.add(n)
+        out.setdefault(n, isin)
+    return {k: v for k, v in out.items() if k not in clash}
+
+
+_MANAGER = re.compile(
+    r"^[A-ZÉÈÀÂÎÔÛÇ][a-zéèêëàâîïôöûüç'’\-]+(?:[ -][A-ZÉÈ][a-zéèêëàâîïôöûüç'’\-]+)* [A-ZÉÈÀÂÎÔÛÇ][A-ZÉÈÀÂÎÔÛÇ'’\- ]+$"
+)
+_SECTION = {"achat": "achat", "achats": "achat", "renforcement": "achat", "vente": "vente", "ventes": "vente",
+            "allegement": "vente", "allègement": "vente"}  # fmt: skip
+
+
+def parse_manager_writeup(text: str) -> list[dict[str, Any]]:
+    """Rules for a write-up organised by manager (« Julie JOURDAN » / « Achat : » / one value per line /
+    « Vente : »…), e.g. bourse-portefeuille-conseil.fr: names, stance and manager copied as written, no LLM.
+    Reading stops at « Retrouvez » (links to other portfolios); prose lines are never taken as values."""
+    out: list[dict[str, Any]] = []
+    speaker: str | None = None
+    stance: str | None = None
+    for raw in (text or "").splitlines():
+        ln = raw.strip()
+        if not ln:
+            continue
+        key = ln.rstrip(" :").strip().lower()
+        if key.startswith("retrouvez"):
+            break
+        if key in _SECTION:
+            stance = _SECTION[key]
+            continue
+        if _MANAGER.match(ln):
+            speaker, stance = ln, None
+            continue
+        if stance and speaker and len(ln) <= 60 and not ln.endswith((".", "!", "?")):
+            label = "Achat" if stance == "achat" else "Vente"
+            out.append({"name": ln, "stance": stance, "speaker": speaker, "snippet": f"{speaker} — {label} : {ln}"})
+        elif ln.endswith((".", "!", "?")):
+            stance = None  # a sentence closes the list
+    return out
+
+
 _TITLE_DATE = re.compile(r"\b(\d{1,2})/(\d{1,3})/(\d{4})\b")
 
 
@@ -106,7 +177,9 @@ def extract_mentions(
                 continue  # page unreadable this time: retried at the next cycle, never extracted from the excerpt
             text = f"{row.title}\n\n{page}"
         values: list[dict[str, Any]] = []
-        if gateway is not None and getattr(gateway, "enabled", True):
+        if (feed or {}).get("parser") == "gerants":
+            values = parse_manager_writeup(text)  # fixed layout read by rules (docs/23 §23.7)
+        if not values and gateway is not None and getattr(gateway, "enabled", True):
             try:
                 out, _ = gateway.parse(
                     s, "media_extract", "media_extract", text[:12000], MediaExtraction, max_tokens=3000
@@ -126,8 +199,9 @@ def extract_mentions(
         if shown is not None:
             published = datetime.combine(shown, time(18, 0), tzinfo=PARIS).astimezone(UTC)
         after_close = bool((feed or {}).get("broadcast_after_close"))
+        names = name_matcher(aliases)
         for v in values:
-            isin = aliases.get(v["name"].lower())
+            isin = aliases.get(v["name"].lower()) or names.get(norm_name(v["name"]))
             ref = (close_on_or_before if after_close else close_before)(s, isin, day) if isin else None
             exists = s.scalar(
                 select(MediaMention.id).where(

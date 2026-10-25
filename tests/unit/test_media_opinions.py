@@ -180,3 +180,56 @@ def test_excerpt_only_feed_reads_the_article_page_and_retries_when_unreadable(db
         n = extract_mentions(s, [row], Gateway(out), {"totalenergies": ISIN}, feed,
                              fetch=lambda u, f: seen.append(u) or "Julie Jourdan — Achat TotalEnergies")  # fmt: skip
         assert n == 1 and seen == ["https://site/w42"] and s.query(MediaMention).one().speaker == "Julie Jourdan"
+
+
+WRITEUP_16_10_2026 = """16/010/2026 - C'est Votre Argent - Portefeuilles Boursiers & Conseils
+16/010/2026 – C’est Votre Argent
+par Ludovic | 19/10/2026 | C'est votre Argent ! | 0 commentaire
+Conseils de mise en portefeuille cette semaine.
+Julie JOURDAN
+Nouveau portefeuille avec Julie JOURDAN de Amplegest. Certainement qu'il n'y aura que des actions américaines. Palo Alto est cité comme faisant parti du portefeuille mais pas montré à l'écran. Je le rajoute.
+Je souhaite de bonnes sélections à Julie pour nous donner des idées d'investissements.
+Achat :
+Eli Lilly And Co
+Booking.com
+Amphenol
+dynatrace
+Costco
+American Express
+RTX
+Palo Alto
+Éric BLEINES
+Toujours des mises à jour du portefeuilles entre les émissions. Je met les mouvements au moment où on les apprend donc le jour de sa venue.
+Achat :
+LDC
+Nexans
+Maurel et Prom
+Vente :
+Atos
+Stellantis
+Pernod Ricard
+Retrouvez :
+Portefeuille de Céline PIQUEMAL-PRADE
+Portefeuille de Éric BLEINES
+0 commentaire
+Envoyer un commentaire Annuler la réponse"""  # noqa: E501 — page of 19/10/2026 read by the user
+
+
+def test_manager_write_up_is_read_by_rules_with_manager_and_stance():
+    from app.services.media import name_matcher, norm_name, parse_manager_writeup
+
+    vals = parse_manager_writeup(WRITEUP_16_10_2026)
+    jourdan = [v["name"] for v in vals if v["speaker"] == "Julie JOURDAN"]
+    assert jourdan == ["Eli Lilly And Co", "Booking.com", "Amphenol", "dynatrace", "Costco", "American Express",
+                       "RTX", "Palo Alto"]  # fmt: skip
+    bleines = {(v["name"], v["stance"]) for v in vals if v["speaker"] == "Éric BLEINES"}
+    assert bleines == {("LDC", "achat"), ("Nexans", "achat"), ("Maurel et Prom", "achat"), ("Atos", "vente"),
+                       ("Stellantis", "vente"), ("Pernod Ricard", "vente")}  # fmt: skip
+    assert len(vals) == 14 and not any("PIQUEMAL" in v["name"] for v in vals)  # « Retrouvez » ends the lists
+    assert vals[-1]["snippet"] == "Éric BLEINES — Vente : Pernod Ricard"
+    names = name_matcher({"nexans s.a.": "FR0000044448", "maurel & prom sa": "FR0000051070",
+                          "ldc sa": "FR0013204336", "atos se": "FR0000051732", "atos": "FR0000051732",
+                          "duo": "X1", "duo s.a.": "X2"})  # fmt: skip
+    assert names[norm_name("Nexans")] == "FR0000044448" and names[norm_name("Maurel et Prom")] == "FR0000051070"
+    assert names[norm_name("LDC")] == "FR0013204336" and names[norm_name("Atos")] == "FR0000051732"
+    assert norm_name("duo") not in names  # two ISINs for one name: never guessed
