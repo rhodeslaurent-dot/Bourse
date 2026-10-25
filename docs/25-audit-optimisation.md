@@ -98,7 +98,7 @@ Avec L1 + L2 + L5, le coût actuel tomberait vers **0,3–0,5 $ par jour**, ce q
 
 ## 25.7 Annexe — paramètres sans effet dans le code (K13, relevé du 25/10/2026)
 
-Relevé automatique : clés de `config/params.example.yaml` qu'aucun fichier de `app/` ne lit. Tri proposé, **à valider** :
+**Tranché le 25/10/2026 (l'utilisateur a laissé la main)** : chaque clé non lue est désormais **étiquetée sur sa ligne** dans `params.example.yaml` — `[phase 3]`, `[phase 6]`, `[non codé]`, `[info]`, `[obsolète]`, `[fixé dans le code]`, `[comportement codé]`, `[à décider …]` — et un test (`tests/unit/test_params_coverage.py`) refuse toute nouvelle clé sans effet ni étiquette. Branché : les frais BoursoBank (`commission_pct`, `commission_min_eur`, `commission_cap_pct` 0,5 %, plafond réglementaire PEA en ligne) remplacent l'ancienne clé `commission_grid` jamais lue ; supprimés de l'exemple : `d6_catalysts.rss_poll_seconds_*` et `d6_catalysts.llm_model` (remplacés par le planning de `news_scan` et `llm.classify_model`). Tableau du tri initial :
 
 | Groupe | Clés | Proposition |
 |---|---|---|

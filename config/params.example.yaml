@@ -42,7 +42,7 @@ risk:
     red: 0.0                          # aucune nouvelle entrée
   size_multipliers:                   # remplacé par le niveau de risque du jour (risk.risk_dial.market_*) depuis le 25/10/2026
     regime_orange: 0.5
-    risk_high: 0.5
+    risk_high: 0.5   # [obsolète : niveau de risque du jour, docs/28]
   fx_haircut: 0.10
   max_fx_exposure_pct: 0.30
   max_positions_per_sector: 2
@@ -98,11 +98,11 @@ risk:
     max_distance_adr: 2.5             # borne générale ; chaque détecteur a la sienne (stop_max_adr_mult)
     protection_order_type_default: "a_seuil_de_declenchement"
     unconfirmed_exit_minutes: 5       # seuil franchi sans exécution confirmée → proposition SELL au marché (même incident P1)
-    trailing_1r: {ref: "low_5d", atr_mult: 0.5}
-    trailing_2r: {ref: "mm10", atr_mult: 0.5}
+    trailing_1r: {ref: "low_5d", atr_mult: 0.5}   # [à décider sur l'analyse MFE / MAE du backtest]
+    trailing_2r: {ref: "mm10", atr_mult: 0.5}   # [à décider sur l'analyse MFE / MAE du backtest]
     move_to_breakeven_at_r: 2.0
     wick_buffer_pct: 0.005            # R1/R3 (docs/07 §7.9.2) : stop = borne basse de zone × (1 − x) ; cliquet = obstacle × (1 − x)
-    never_lower: true                 # R2 : un stop ne descend jamais (exception : détachement de dividende)
+    never_lower: true                 # [comportement codé] R2 : un stop ne descend jamais (exception : détachement de dividende)
     reduce_at_target1_pct: 0.5
   # docs/07 §7.9.3 — plafonds du référentiel (22/10/2026), en fraction du capital pilote
   max_open_risk_pct_by_gate: {ouvert: 0.05, restreint: 0.05}    # 5 % ≈ 6–7 lignes à 0,75 % : la dilution est la protection (décision du 25/10/2026)
@@ -123,8 +123,8 @@ risk:
 admission:                              # docs/07 §7.9.1 (R4, R5)
   effective_from: "2026-10-22"
   min_reward_risk: 2.0                  # ratio gain/risque NET de frais, sur objectif exploitable ; aucune exception
-  require_structure_intact: true        # un P_max atteint par cassure du support n'est pas une entrée
-  require_testable_letter: true         # R15 : fiche de lettre = invalidation explicite + objectif chiffré
+  require_structure_intact: true        # [comportement codé] un P_max atteint par cassure du support n'est pas une entrée
+  require_testable_letter: true         # [comportement codé] R15 : fiche de lettre = invalidation explicite + objectif chiffré
 
 market_gate:                            # docs/07 §7.9.4 (R10) — option C, sans blocage absolu (décision du 22/10/2026)
   effective_from: "2026-10-22"
@@ -238,7 +238,7 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
 pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
   dca:
     isins: []                           # ETF de l'investissement progressif (à renseigner dans params.yaml)
-    acceleration_index: "MSCI World"
+    acceleration_index: "MSCI World"   # [non codé]
     acceleration_drawdown_pct: 0.15
   tax_harvest: []                       # R18 — ex. [{isin: "FR00…", target_date: "2026-11-27"}] : hors plafonds, rappel de cession
 
@@ -256,8 +256,8 @@ universe:
   history_backfill_max_per_run: 1000   # universe_refresh charge l'historique manquant des valeurs candidates (capitalisation connue ≥ seuil)
   momentum_watchlist_rs_rank_min: 80
   momentum_watchlist_max: 100
-  opening_list_max: 15
-  realtime_symbols_max: 150
+  opening_list_max: 15   # [phase 3]
+  realtime_symbols_max: 150   # [phase 3]
   blacklist: []
   markets_ex_pea: []                   # docs/22 §22.6 M2 — ex. ["LSE", "SW"] (Londres, Zurich ; CTO seulement)
   markets_us: []                       # M3 — ex. ["US"] (NYSE / NASDAQ, jamais l'OTC ; CTO seulement)
@@ -282,7 +282,7 @@ regime:
   index_isins: {cac40: "FR0003500008", stoxx600: "EU0009658202"}   # pseudo-instruments d'indice (EODHD .INDX)
 
 detectors:
-  d1_gap_catalyst:
+  d1_gap_catalyst:   # [phase 3]
     enabled: true
     scan_times_local: ["09:05", "09:15", "09:30", "10:00", "10:30"]
     gap_min_large_adv_eur: 5000000
@@ -298,14 +298,14 @@ detectors:
     phase: 3                          # modes autorisés : availability.d1_allowed_modes (source unique)
   d2_breakout:
     enabled: true
-    pivot_lookback: 60
+    pivot_lookback: 60   # [fixé dans le code : pivot 60 séances]
     rvol_min: 1.5
     rs_rank_min: 80
     max_extension_atr_above_mm20: 1.5
     consolidation_20_max: 0.15
     entry_buffer_pct: 0.003
     entry_max_pct_above_pivot: 0.01
-    stop_fallback_atr_mult: 1.5
+    stop_fallback_atr_mult: 1.5   # [fixé dans le code]
     stop_lookback_low: 10
     stop_max_adr_mult: 2.5
   d3_range_expansion:
@@ -313,7 +313,7 @@ detectors:
     close_ratio_min: 1.04
     rvol_min: 1.3
     close_in_top_third: true
-    consolidation_days: [3, 20]
+    consolidation_days: [3, 20]   # [fixé dans le code]
     ti65_min: 1.05
     rs_rank_min: 70
     entry_max_pct_above_high: 0.005
@@ -328,8 +328,8 @@ detectors:
     rsi_range: [40, 60]
     entry_max_pct_above_prev_high: 0.008
     stop_max_adr_mult: 1.5
-    min_reward_risk_t1: 2.0
-    catalyst_required: false
+    min_reward_risk_t1: 2.0   # [fixé dans le code : admission.min_reward_risk]
+    catalyst_required: false   # [fixé dans le code]
   d7_trend_quality:                  # docs/22 §22.4 B — swing « tendance + qualité » (quelques semaines)
     enabled: true
     rs_rank_min: 80
@@ -342,17 +342,14 @@ detectors:
     time_stop_sessions: 60
   d5_external:
     enabled: true
-    confirm_bonus_c: 5
+    confirm_bonus_c: 5   # [fixé dans le code : scoring]
     drift_since_open_max_for_buy: 0.02
     sources: ["zonebourse", "momentum_capital", "decision_bourse", "abc_premium", "abc_rss", "tradingsat_rss", "bourse_direct"]
   d6_catalysts:
     enabled: true
-    rss_poll_seconds_premarket: 300
-    rss_poll_seconds_day: 900
     max_items_per_cycle: 50
-    llm_model: "claude-haiku-4-5"
   exits:
-    d1_time_stop_sessions: 10
+    d1_time_stop_sessions: 10   # [phase 3]
     thesis_mm20_close_below_days: 2
     rs_rank_exit: 50
     time_stop_sessions_default: 40
@@ -361,10 +358,10 @@ detectors:
 scoring:
   buy_min_ratio: 0.75                 # total / total_atteignable (F non attribué si fondamentaux indisponibles)
   buy_min_ratio_orange: 0.80
-  d1_min_c: 12                        # catalyseur requis pour D1 seulement
+  d1_min_c: 12                        # [phase 3] catalyseur requis pour D1 seulement
   c_bonus_cap: 5                      # D2/D3/D4 : min(C, 5) ajouté au numérateur du ratio d'admission, pas au dénominateur
   admission_blocks:                   # blocs au dénominateur du ratio d'admission (F ajouté si >= 2 sous-critères disponibles)
-    d1_gap_catalyst: ["C", "T", "R", "M"]
+    d1_gap_catalyst: ["C", "T", "R", "M"]   # [phase 3]
     d2_breakout: ["T", "R", "M"]
     d3_range_expansion: ["T", "R", "M"]
     d4_pullback: ["T", "R", "M"]
@@ -374,10 +371,10 @@ scoring:
   insider_window_days: 30              # docs/23 §23.3 : achat d'un dirigeant (MAR art. 19) pris en compte pendant 30 jours
   insider_buy_points: 5                # points du bloc C (dans la limite de c_bonus_cap hors D1)
   buy_min_confidence: 3
-  watch_ratio_range: [0.60, 0.74]
-  exceptional_min_ratio: 0.85
-  surprise_points_with_consensus: 5
-  announced_magnitude_points: 3
+  watch_ratio_range: [0.60, 0.74]   # [fixé dans le code]
+  exceptional_min_ratio: 0.85   # [fixé dans le code]
+  surprise_points_with_consensus: 5   # [fixé dans le code]
+  announced_magnitude_points: 3   # [fixé dans le code]
 
 accounts:
   portfolio_state_max_age_minutes: 10  # âge max de l'état (cash, quantités, ordres) pour émettre une proposition
@@ -412,7 +409,7 @@ srd:
   prorogation_rate: 0.0020              # Saxo
   prorogation_min_eur: 10
   prorogation_deadline_local: null      # à renseigner (heure limite Saxo le jour de liquidation)
-  margin_call_delay_sessions: 1
+  margin_call_delay_sessions: 1   # [info]
   calendar_2026:                        # liquidation -> règlement
     - ["2026-01-27", "2026-01-30"]
     - ["2026-02-24", "2026-02-27"]
@@ -452,21 +449,23 @@ tax:
 
 pea:
   eligible_countries: ["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE","IS","LI","NO"]
-  deposit_cap_eur: 150000
-  pea_pme_cap_eur: 225000
-  srd_allowed: false
-  leverage_allowed: false
+  deposit_cap_eur: 150000   # [info]
+  pea_pme_cap_eur: 225000   # [info]
+  srd_allowed: false   # [info]
+  leverage_allowed: false   # [info]
   opening_date: null                    # à renseigner
-  deposits_total_eur: null              # à renseigner (ou import)
+  deposits_total_eur: null              # [info] à renseigner (ou import)
 
 brokers:
   saxo:
     fx_fee_pct: 0.0025                 # frais de conversion de devise par sens (à confirmer sur relevé Saxo) — coût complet hors euro
     commission_pct: 0.0008
     commission_min_eur: 2
-    market_data: {euronext_l1_eur: 7, refunded_if_trades_per_month: 4, xetra_l1_eur: 7}
-  boursobank:
-    commission_grid: "à renseigner"     # cf. relevé ; plafond PEA 0,5 %
+    market_data: {euronext_l1_eur: 7, refunded_if_trades_per_month: 4, xetra_l1_eur: 7}   # [info]
+  boursobank:                         # étape 5 : frais réels à renseigner d'après vos relevés (le code lit ces trois clés)
+    commission_pct: null                # ex. 0.005 pour 0,5 % du montant de l'ordre
+    commission_min_eur: null            # minimum par ordre, s'il existe
+    commission_cap_pct: 0.005           # plafond réglementaire des frais d'un ordre en ligne sur PEA (0,5 %)
 
 data:
   primary_eod: "eodhd"
@@ -508,14 +507,14 @@ data:
       - {authority: "ftnet_no", url: "à renseigner", homepage: "https://www.finanstilsynet.no/"}
       - {authority: "finfsa", url: "à renseigner", homepage: "https://www.finanssivalvonta.fi/"}
   fundamentals: {max_items: 800, min_interval_s: 1.0}   # Yahoo (gratuit, non officiel) : débit limité, source et date affichées
-  quote_at_each_analysis: true             # R19 : cours relevé au moment de chaque analyse, horodatage de marché et statut enregistrés
+  quote_at_each_analysis: true             # [comportement codé] R19 : cours relevé au moment de chaque analyse, horodatage de marché et statut enregistrés
   plausibility_max_gap_pct: 0.05           # écart entre sources ou vs dernière clôture sans nouvelle → « à vérifier »
-  paid_max_cost_pct_of_net_gains: 0.10     # docs/22 §22.7 : abonnement proposé seulement si coût ≤ 10 % des gains nets annualisés
+  paid_max_cost_pct_of_net_gains: 0.10     # [info] docs/22 §22.7 : abonnement proposé seulement si coût ≤ 10 % des gains nets annualisés
   stale_after_minutes: {realtime: 3, delayed: 20}
-  eodhd: {plan: "eod_intraday", daily_quota: 100000, ws_symbols_per_connection: 50}
+  eodhd: {plan: "eod_intraday", daily_quota: 100000, ws_symbols_per_connection: 50}   # [phase 3 : ws_symbols_per_connection]
   declared_delay_minutes:                  # délai DÉCLARÉ par source (le statut en découle, jamais de l'heure de téléchargement) ; à confirmer par A0.7
     eodhd_ws: 0
-    eodhd_rest: 15
+    eodhd_rest: 15   # [info]
     saxo: 0                                # si abonnement L1 ; sinon le champ DelayedByMinutes fait foi
     tradingview_screener: 15
     yfinance: 15
@@ -599,8 +598,8 @@ data:
         timeout_s: 15
 
 notifications:
-  telegram: {enabled: true, rate_limit_per_sec: 1, quiet_hours_local_display: ["22:00", "06:30"]}
-  email: {enabled: true, smtp: "smtp.gmail.com", daily_limit: 100}
+  telegram: {enabled: true, rate_limit_per_sec: 1, quiet_hours_local_display: ["22:00", "06:30"]}   # [non codé : rate_limit_per_sec, quiet_hours_local_display]
+  email: {enabled: true, smtp: "smtp.gmail.com", daily_limit: 100}   # [non codé : daily_limit]
   dedup_key: ["instrument", "account", "kind", "day"]   # P2/P3
   p1_grouping: "by_incident"          # P1 : une alerte par incident puis rappel, jamais fusionnées entre incidents distincts
   p1_repeat_minutes: 15
@@ -619,9 +618,9 @@ availability:
     - {days: "6-7", from: "08:00", to: "20:00", mode: "disponible"}
   unprotected_fill_alert_level: "P1"  # dans tous les modes
   quotas:
-    disponible: {proposals_per_slot: 3, p2_per_day: 6, p3_grouped_per_day: 3}
-    reunion: {proposals_per_slot: 0, p2_per_day: 0, p3_grouped_per_day: 1}
-    absent: {proposals_per_slot: 0, p2_per_day: 0, p3_grouped_per_day: 0}
+    disponible: {proposals_per_slot: 3, p2_per_day: 6, p3_grouped_per_day: 3}   # [non codé : proposals_per_slot, p3_grouped_per_day ; p2_per_day appliqué]
+    reunion: {proposals_per_slot: 0, p2_per_day: 0, p3_grouped_per_day: 1}   # [non codé : modes régis par docs/02 §2.3]
+    absent: {proposals_per_slot: 0, p2_per_day: 0, p3_grouped_per_day: 0}   # [non codé : modes régis par docs/02 §2.3]
   d1_allowed_modes: ["disponible"]
 
 config_validation:
@@ -629,10 +628,10 @@ config_validation:
   optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers", "learning", "letters_review", "admission", "market_gate", "conjuncture", "events", "entry", "zones", "ranking", "pockets"]   # manquant → fonctionnalité désactivée, mention sur /sante
 
 review:
-  human_delay_minutes: 5              # délai humain appliqué en rejeu entre alerte et ordre
+  human_delay_minutes: 5              # [non codé] délai humain appliqué en rejeu entre alerte et ordre
   same_bar_rule: "stop_first"         # barre touchant stop et objectif sans chronologie connue
-  technical_validation_days: 10
-  profitability_min_days: 90
+  technical_validation_days: 10   # [non codé]
+  profitability_min_days: 90   # [non codé]
   profitability_min_signals_per_detector: 60
 
 letters_review:                          # docs/20 — revue des lettres par Claude à la réception (lecture, jamais de calcul)
@@ -694,13 +693,13 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
     misfire_grace_min: 5
   daily_regime: {cron: "30 7 * * 1-5", misfire_grace_min: 60, market_days_only: true}
   imap_poll: {every_minutes: 10, window_local: ["07:30", "19:00"], days: "1-5", market_days_only: true}
-  zonebourse_lists_daily: {cron: "30 8 * * 1-5", enabled: false, market_days_only: true}   # activer si Zonebourse Premium
+  zonebourse_lists_daily: {cron: "30 8 * * 1-5", enabled: false, market_days_only: true}   # [non codé] activer si Zonebourse Premium
   brief_premarket: {cron: "45 8 * * 1-5", misfire_grace_min: 20, market_days_only: true}
-  intraday_watch_start: {cron: "55 8 * * 1-5", misfire_grace_min: 10, market_days_only: true, enabled: false}   # phase 3
-  open_scan: {times_from: "detectors.d1_gap_catalyst.scan_times_local", misfire_grace_min: 10, market_days_only: true, enabled: false}   # phase 3 ; modes : availability.d1_allowed_modes
+  intraday_watch_start: {cron: "55 8 * * 1-5", misfire_grace_min: 10, market_days_only: true, enabled: false}   # [phase 3] phase 3
+  open_scan: {times_from: "detectors.d1_gap_catalyst.scan_times_local", misfire_grace_min: 10, market_days_only: true, enabled: false}   # [phase 3] phase 3 ; modes : availability.d1_allowed_modes
   position_monitor: {every_seconds: 60, window_local: ["09:00", "17:40"], half_day_end: "14:10", market_days_only: true}
   portfolio_sync_intraday: {every_minutes_from: "accounts.cto.sync_intraday_minutes", window_local: ["09:00", "17:40"], also_after: ["declaration", "before_proposal"], market_days_only: true}
-  midday_digest: {cron: "0 12 * * 1-5", market_days_only: true}
+  midday_digest: {cron: "0 12 * * 1-5", market_days_only: true}   # [phase 3]
   eod_pipeline: {cron: "50 17 * * 1-5", half_day: "14:20", misfire_grace_min: 240, market_days_only: true}
   portfolio_sync: {cron: "0 19 * * 1-5", misfire_grace_min: 240, market_days_only: true}
   backup: {cron: "0 23 * * *", tz: "Indian/Reunion", market_days_only: false}
@@ -721,7 +720,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   watchlist_refresh: {cron: "15 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/18 §18.2 : après eod_backfill_check
   outcomes_update: {cron: "20 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}     # docs/18 §18.4 : résultat des propositions passées
   letters_review: {cron: "15 19 * * 1-5", misfire_grace_min: 240, market_days_only: true}     # docs/20 : rattrapage du soir (la revue se fait à la réception, dans imap_poll)
-  us_open_scan: {cron: "35 15 * * 1-5", enabled: false, market_days_only: true}          # phase 6
+  us_open_scan: {cron: "35 15 * * 1-5", enabled: false, market_days_only: true}          # [phase 6] phase 6
 
 workflow:                                # docs/17 §17.6 — journée guidée ; heures en Europe/Paris
   effective_from: 2026-10-21
