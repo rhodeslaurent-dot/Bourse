@@ -170,7 +170,9 @@ def create_app(
             telegram_send=app.state.telegram.send_event_sync if app.state.telegram else None,
             email_send=send_event_email if smtp_settings() else None,
         )
-        app.state.alerts = AlertService(notifier, config.params.notifications.p1_repeat_minutes)
+        quotas = ((config.raw.get("availability") or {}).get("quotas") or {}).get("disponible") or {}
+        p2 = {"disponible": int(quotas["p2_per_day"])} if quotas.get("p2_per_day") is not None else None
+        app.state.alerts = AlertService(notifier, config.params.notifications.p1_repeat_minutes, p2)
         if start_scheduler:
             app.state.scheduler = create_scheduler(
                 config, calendars, alerts=app.state.alerts, mode_fn=store.current_mode, llm=app.state.llm

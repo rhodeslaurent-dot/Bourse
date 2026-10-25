@@ -17,9 +17,10 @@ log = logging.getLogger("bourse.alerts")
 
 
 class AlertService:
-    def __init__(self, notifier: Notifier, p1_repeat_minutes: int) -> None:
+    def __init__(self, notifier: Notifier, p1_repeat_minutes: int, p2_per_day: dict[str, int] | None = None) -> None:
         self.notifier = notifier
         self.p1_repeat_minutes = p1_repeat_minutes
+        self.p2_per_day = p2_per_day or {}  # docs/02 §2.3: availability.quotas.<mode>.p2_per_day (never on P1)
 
     def emit(
         self,
@@ -77,6 +78,17 @@ class AlertService:
         )
         if dup is not None:
             return False
+        quota = self.p2_per_day.get(mode)
+        if event.level == "P2" and quota is not None:
+            sent_today = len(
+                list(
+                    s.scalars(select(Alert.id).where(Alert.level == "P2", Alert.day == day, Alert.sent_at.is_not(None)))
+                )
+            )
+            if sent_today >= quota:  # stored, visible on the pages, not pushed (no solicitation beyond the quota)
+                log.info("alerte %s non envoyée : quota P2 du mode %s atteint (%s)", event.kind, mode, quota)
+                self._store(s, event, now, day, account_id, position_id, sent=False, incident=None)
+                return False
         channels = self.notifier.notify(event)
         self._store(s, event, now, day, account_id, position_id, sent=bool(channels), incident=None, channels=channels)
         return bool(channels)
