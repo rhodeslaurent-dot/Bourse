@@ -42,6 +42,8 @@ def run(ctx: JobContext) -> int:
     feeds = [f for f in ctx.config.params.data.rss_feeds if f.get("url") and "renseigner" not in str(f.get("url"))]
     max_items = int(((ctx.config.params.detectors or {}).get("d6_catalysts") or {}).get("max_items_per_cycle", 50))
     media_cfg = getattr(ctx.config.params, "media", None) or {}
+    llm_p = ctx.config.params.llm
+    scope = str(getattr(llm_p, "news_classify_scope", "attached") or "attached") if llm_p else "attached"
     total = 0
     errors: list[str] = []
     with db_session() as s:
@@ -68,7 +70,9 @@ def run(ctx: JobContext) -> int:
                 if keep:  # docs/23 §23.7: only the show's write-ups of a site that publishes several series
                     items = [i for i in items if any(w in _norm_title(i.title) for w in keep)]
                 with s.begin_nested():  # savepoint: a refused row of one feed never poisons the session
-                    rep = ingest_rss_items(s, items, ctx.llm, max_items=max_items)
+                    # media feeds: the episode is read once by media_extract, never classified twice (docs/25 L1)
+                    media = f.get("kind") == "media_conseil"
+                    rep = ingest_rss_items(s, items, ctx.llm, max_items=max_items, scope="none" if media else scope)
                     if f.get("kind") == "media_conseil":  # docs/23 §23.7: values cited, with their stance
                         _media(s, name, ctx.llm, f)
                 total += rep.new

@@ -220,6 +220,9 @@ class Llm(_Model):
     prompt_versions_dir: str = "app/llm/prompts"
     assistant_max_tokens: int = 800
     review_max_tokens: int = 4000
+    # docs/25 L1: which news items Claude classifies — « attached » (a referential value is named, or the
+    # press review), « all », « none » (rules only). Unattached items feed no catalyst and no fiche.
+    news_classify_scope: str = "attached"
 
 
 class LettersReviewParams(_Model):

@@ -983,6 +983,24 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_llm_costs(args: argparse.Namespace) -> int:
+    """docs/25 L6 — cost of the Claude calls per purpose (same table as /sante)."""
+    from app.db.session import db_session
+    from app.services.llm_costs import cost_board
+
+    with db_session() as s:
+        b = cost_board(s)
+        print(f"{'usage':<22} {'jour $':>8} {'7 j $':>8} {'mois $':>8} {'appels':>7} {'cache':>6} {'$/appel':>8}")
+        for r in b.rows:
+            cache = f"{r.cache_share:.0%}" if r.cache_share is not None else "—"
+            per = f"{r.per_call:.4f}" if r.per_call is not None else "—"
+            print(f"{r.purpose:<22} {r.cost_today:>8.3f} {r.cost_7d:>8.3f} {r.cost_month:>8.2f} "
+                  f"{r.calls_month:>7} {cache:>6} {per:>8}")  # fmt: skip
+        proj = f" · projection du mois {b.projected_month:.2f} $" if b.projected_month is not None else ""
+        print(f"\ntotal : jour {b.today:.2f} $ · 7 jours {b.last_7d:.2f} $ · mois {b.month:.2f} ${proj}")
+    return 0
+
+
 def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
     """docs/19 §19.6 — examine the latest matching letters (read-only): subject, link labels and
     hosts (never the content), then follow the configured link of each and print its status."""
@@ -1251,6 +1269,7 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--to", default=None)
     bt.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous les actifs)")
     bt.set_defaults(fn=cmd_backtest)
+    sub.add_parser("llm-costs", help="coût de l'API Claude par usage (docs/25 L6)").set_defaults(fn=cmd_llm_costs)
     bf = sub.add_parser("backfill")
     bf.add_argument("--provider", default="eodhd")
     bf.add_argument("--from", dest="from_date", required=True)

@@ -76,8 +76,23 @@ def classify_item(
     return classify_by_rules(item.title, item.body or ""), "rules", None, 0.0
 
 
+def llm_worth(row: NewsItem, scope: str) -> bool:
+    """docs/25 L1: Claude classifies an item only when its classification is used — a value of the
+    referential is named (catalyst, fiche, thesis) or it comes from the press review (macro context needs
+    the scope and themes). The rest is classified by rules, for free."""
+    if scope == "all":
+        return True
+    if scope == "none":
+        return False
+    return bool(row.isins) or row.source == "presse"
+
+
 def ingest_rss_items(
-    s: Session, items: list[RssItem], gateway: ClaudeGateway | None, max_items: int = 50
+    s: Session,
+    items: list[RssItem],
+    gateway: ClaudeGateway | None,
+    max_items: int = 50,
+    scope: str = "attached",
 ) -> IngestReport:
     rep = IngestReport(received=len(items))
     aliases = alias_index(s)
@@ -100,7 +115,7 @@ def ingest_rss_items(
         s.flush()
         rep.new += 1
         rep.attached += bool(row.isins)
-        cls, by, version, cost = classify_item(s, row, gateway)
+        cls, by, version, cost = classify_item(s, row, gateway if llm_worth(row, scope) else None)
         row.classification = {
             **cls.model_dump(),
             "surprise": None,

@@ -43,12 +43,12 @@ Estimation actuelle (à recaler) : classement des nouvelles ≈ 0,5–0,6 $/j, r
 
 | Levier | Gain estimé | Risque | Décision |
 |---|---|---|---|
-| L1 — Ne classer par Claude que les articles **rattachés à une valeur** (ou à une position, à la watchlist) ; les autres par règles (gratuit) | −80 % sur le classement | aucun (les articles non rattachés n'alimentent ni catalyseur ni fiche) | à faire |
+| L1 — Ne classer par Claude que les articles **rattachés à une valeur** du référentiel **et la revue de presse** (source `presse` : le contexte macro a besoin de la portée et des thèmes) ; les autres par règles (gratuit). Les flux `media_conseil` ne sont **plus classés** (l'épisode est déjà lu par `media_extract`, double appel supprimé) | −80 % sur le classement (à mesurer sur `/sante`) | faible : les articles non rattachés n'alimentent ni catalyseur ni fiche ; la rubrique « à éviter » du rapport garde leur sens par règles | **fait le 25/10/2026** (`llm.news_classify_scope`) |
 | L2 — Migrer vers **Haiku 5.5** (classement, extractions, comité) et **Sonnet 5.5** (revue des lettres, thèses, président du comité), après un **jeu d'évaluation** (200 articles et 20 lettres déjà classés) | −70 à −90 % sur Haiku, −33 % sur Sonnet | changement de comportement ; **température non réglable** | **ADR + reformulation de la règle 3** (déterminisme = sortie validée + cache par empreinte + garde-fou des nombres) |
 | L3 — **API Batch** (−50 %) pour ce qui n'est pas urgent : revue hebdomadaire, rattrapage du soir, bilan des médias | −50 % sur ces postes | délai (jusqu'à 24 h) | à faire |
 | L4 — **Cache de prompt** sur les préfixes répétés (dossier commun du comité, instructions longues) | −50 à −90 % sur l'entrée répétée | aucun | avec le comité |
 | L5 — Revue des lettres **incrémentale** à la réception (seulement la nouvelle lettre et ses valeurs), revue complète le soir | −50 % sur ce poste | aucun (la revue du soir reste complète) | à faire |
-| L6 — Tableau **coût par usage et par jour**, et coût par proposition suivie / décision prise | pilotage | aucun | à faire |
+| L6 — Tableau **coût par usage et par jour**, et coût par proposition suivie / décision prise | pilotage | aucun | **fait le 25/10/2026** : tableau sur `/sante` (jour, 7 jours, mois, part du cache, $ / appel, projection) et commande `llm-costs` ; coût par décision : avec l'attribution (proposition 9) |
 
 Avec L1 + L2 + L5, le coût actuel tomberait vers **0,3–0,5 $ par jour**, ce qui finance largement le comité (≈ 0,2 $/j) et les signaux faibles.
 

@@ -598,6 +598,7 @@ llm:
   prompt_versions_dir: "app/llm/prompts"
   assistant_max_tokens: 800            # docs/17 §17.4 ; réponse ≤ 1 200 caractères, write_model, température 0
   review_max_tokens: 4000              # docs/18 §18.6 ; revue d'apprentissage (write_model), ≈ 0,06 $ au plus
+  news_classify_scope: "attached"      # docs/25 L1 : Claude ne classe que les articles rattachés à une valeur et la revue de presse (attached | all | none)
 
 jobs:                                    # heure de Paris sauf mention tz ; market_days_only => calendrier de la place de chaque instrument traité (docs/02 §2.4)
   test_job: {cron: "5 9 * * 1-5", misfire_grace_min: 10, market_days_only: true}   # job de test de la phase 0 (A0.3)

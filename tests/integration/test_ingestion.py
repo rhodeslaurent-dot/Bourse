@@ -136,7 +136,8 @@ def client(config, calendars, db_engine, monkeypatch):
 def test_rss_ingest_classifies_attaches_and_premarket(client):
     xml = (FX / "rss" / "actusnews_sample.xml").read_text(encoding="utf-8")
     rep = client.post("/api/ingest/rss", json={"source": "actusnews", "content": xml}).json()
-    assert rep["new"] == 3 and rep["classified_llm"] == 3 and rep["llm_cost_usd"] > 0
+    # docs/25 L1: only the item naming a value of the referential goes to Claude, the others by rules
+    assert rep["new"] == 3 and rep["classified_llm"] == 1 and rep["classified_rules"] == 2 and rep["llm_cost_usd"] > 0
     rep2 = client.post("/api/ingest/rss", json={"source": "actusnews", "content": xml}).json()
     assert rep2["new"] == 0  # dedup by guid
     with db_session() as s:
@@ -150,7 +151,8 @@ def test_rss_ingest_classifies_attaches_and_premarket(client):
         pw = s.scalars(select(PremarketWatch)).all()
         assert len(pw) == 1 and pw[0].isin == "FR0000120271" and pw[0].day == DAY
     assert client.post("/api/ingest/rss", json={"source": "bad_feed", "content": "<html>bad</html>"}).status_code == 400
-    assert "coût du mois" in client.get("/sante").text
+    page = client.get("/sante").text
+    assert "coût du mois" in page and "Coût de l'API Claude par usage" in page and "news_classify" in page
 
 
 def test_rss_rules_fallback_without_llm(client):

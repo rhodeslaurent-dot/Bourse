@@ -161,6 +161,9 @@ def sante(request: Request) -> HTMLResponse:
             s.scalar(select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(LlmCall.ts >= month_start)) or 0.0
         )
         llm_calls = int(s.scalar(select(func.count(LlmCall.id)).where(LlmCall.ts >= month_start)) or 0)
+        from app.services.llm_costs import cost_board
+
+        llm_board = cost_board(s, now)
     sched = getattr(st, "scheduler", None)
     scheduled = {j.id: j.next_run_time for j in (sched.get_jobs() if sched else [])}
     jobs_view = []
@@ -213,6 +216,8 @@ def sante(request: Request) -> HTMLResponse:
         "db_url_kind": st.db_kind,
         "llm_cost": llm_cost,
         "llm_calls": llm_calls,
+        "llm_board": llm_board,
+        "llm_daily_budget": getattr(cfg.params.llm, "daily_budget_usd", None) if cfg.params.llm else None,
         "llm_budget": cfg.params.llm.monthly_budget_usd if cfg.params.llm else None,
         "llm_enabled": bool(getattr(st, "llm", None) and st.llm.enabled),
         "saxo": saxo_status(),

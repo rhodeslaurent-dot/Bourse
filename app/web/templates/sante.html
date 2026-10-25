@@ -55,6 +55,24 @@
 </section>
 
 <section class="card overflow-x-auto">
+  <div class="flex flex-wrap items-baseline justify-between gap-2"><h2 class="font-semibold">Coût de l'API Claude par usage</h2>
+    <span class="text-xs text-slate-500 dark:text-slate-400">aujourd'hui {{ '%.2f'|format(llm_board.today) }} $ / {{ llm_daily_budget or '—' }} $ · 7 jours {{ '%.2f'|format(llm_board.last_7d) }} $ · mois {{ '%.2f'|format(llm_board.month) }} $ / {{ llm_budget or '—' }} ${% if llm_board.projected_month is not none %} · projection du mois au rythme des 7 derniers jours : {{ '%.2f'|format(llm_board.projected_month) }} ${% endif %}</span></div>
+  {% if llm_board.rows %}
+  <table class="mt-2 w-full text-sm">
+    <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400"><th class="py-1 pr-3 font-medium">Usage</th><th class="py-1 pr-3 font-medium text-right">Aujourd'hui</th><th class="py-1 pr-3 font-medium text-right">7 jours</th><th class="py-1 pr-3 font-medium text-right">Mois</th><th class="py-1 pr-3 font-medium text-right">Appels (cache)</th><th class="py-1 pr-3 font-medium text-right">$ / appel</th><th class="py-1 font-medium">Modèles</th></tr></thead>
+    <tbody>
+    {% for r in llm_board.rows %}
+      <tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-1 pr-3">{{ r.label }} <span class="text-xs text-slate-400">{{ r.purpose }}</span></td><td class="py-1 pr-3 text-right tabular-nums">{{ '%.3f'|format(r.cost_today) }}</td><td class="py-1 pr-3 text-right tabular-nums">{{ '%.3f'|format(r.cost_7d) }}</td><td class="py-1 pr-3 text-right tabular-nums">{{ '%.2f'|format(r.cost_month) }}</td><td class="py-1 pr-3 text-right tabular-nums">{{ r.calls_month }}{% if r.cache_share %} ({{ '%.0f'|format(100 * r.cache_share) }} %){% endif %}</td><td class="py-1 pr-3 text-right tabular-nums">{{ '%.4f'|format(r.per_call) if r.per_call is not none else '—' }}</td><td class="py-1 text-xs text-slate-500 dark:text-slate-400">{{ r.models|sort|join(', ') }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Jour et mois à l'heure de Paris, comme les plafonds. Les appels servis par le cache ne coûtent rien. Seuls les articles rattachés à une valeur et la revue de presse sont classés par Claude (docs/25 L1).</p>
+  {% else %}
+  <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Aucun appel ce mois-ci.</p>
+  {% endif %}
+</section>
+
+<section class="card overflow-x-auto">
   <div class="flex items-baseline justify-between"><h2 class="font-semibold">Jobs</h2><span class="text-xs text-slate-500 dark:text-slate-400">📅 = calendrier par place</span></div>
   <table class="mt-2 w-full text-sm">
     <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400"><th class="py-1 pr-3 font-medium">Job</th><th class="py-1 pr-3 font-medium">État</th><th class="py-1 pr-3 font-medium">Prochain</th><th class="py-1 font-medium">Dernier run</th></tr></thead>

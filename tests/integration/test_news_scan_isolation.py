@@ -33,13 +33,13 @@ def test_one_refused_feed_does_not_break_the_others(db_engine, config, calendars
     def fake_fetch(name: str, url: str) -> list[RssItem]:
         return [_item(name, "x" * 600)]  # a 600-char guid (long RSS URLs) must be accepted
 
-    def fake_ingest(s, items, gateway, max_items=50):
+    def fake_ingest(s, items, gateway, max_items=50, **kw):
         if items[0].source == "bad":
             s.add(NewsItem(source="bad", guid="g", dedup_hash="h", fetched_at=datetime.now(UTC), title=None))
             s.flush()  # NOT NULL refused by the database → IntegrityError inside the savepoint
         from app.services.news import ingest_rss_items
 
-        return ingest_rss_items(s, items, gateway, max_items)
+        return ingest_rss_items(s, items, gateway, max_items, **kw)
 
     monkeypatch.setattr(news_scan, "fetch_feed", fake_fetch)
     monkeypatch.setattr(news_scan, "ingest_rss_items", fake_ingest)
