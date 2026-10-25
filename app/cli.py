@@ -381,10 +381,14 @@ NEW_TOP_BLOCKS = [
     "crypto",
     "derivatives",
     "media",  # docs/23 §23.7
+    "weak_signals",  # docs/26
+    "committee",  # docs/24 v2
 ]
 NEW_CHILD_PARENTS = [
     "risk",
     "risk.stop",
+    "risk.circuit_breaker",  # rolling windows and peak give-back (25/10/2026)
+    "llm",
     "srd",
     "data",
     "data.imap",
