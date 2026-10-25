@@ -12,7 +12,7 @@ from app.data.base import ProviderError, QuotaExceeded
 from app.data.providers.eodhd import EodhdProvider
 from app.db.session import db_session
 from app.scheduler.runner import JobContext
-from app.services.universe import RefreshReport, SymbolRow, refresh_universe
+from app.services.universe import RefreshReport, SymbolRow, listing_overrides, primary_listings, refresh_universe
 
 log = logging.getLogger("bourse.jobs.universe_refresh")
 VENUE_FILTER = {"US": {"NYSE", "NASDAQ", "NYSE ARCA", "NYSE MKT", "BATS"}}
@@ -167,6 +167,63 @@ def backfill_new_listings(  # type: ignore[no-untyped-def]
     return len(todo)
 
 
+def repair_relisted_history(  # type: ignore[no-untyped-def]
+    provider,
+    rows: list[SymbolRow],
+    today: date,
+    alt: dict | None = None,  # type: ignore[type-arg]
+) -> tuple[int, int]:
+    """Instruments whose followed listing changes venue (Air Liquide: Xetra → Paris, 25/10/2026) had their
+    prices, volumes and features stored from the old listing: that history is never kept beside the new one
+    (another venue's volume and quotes). It is deleted, then reloaded from the new listing over the same
+    span; a reload that fails leaves the history empty (``backfill_new_listings`` and ``eod_backfill_check``
+    fill it later) — never a mix of two venues. Returns (instruments relisted, instruments reloaded)."""
+    from sqlalchemy import delete, func, select
+
+    from app.db.models import FeatureDaily, Instrument, PriceEod
+    from app.services.market_data import upsert_eod
+
+    with db_session() as s:
+        stored = dict(s.execute(select(Instrument.isin, Instrument.ticker_eodhd)).all())
+        moved = [r for r in rows if stored.get(r.isin) and str(stored[r.isin]).rpartition(".")[2] != r.exchange]
+        if not moved:
+            return 0, 0
+        log.warning(
+            "%d instrument(s) changent de cotation suivie (ex. %s) : historique rechargé depuis la cotation principale",
+            len(moved),
+            ", ".join(f"{stored[r.isin]} → {r.code}.{r.exchange}" for r in moved[:5]),
+        )
+        first = dict(
+            s.execute(
+                select(PriceEod.isin, func.min(PriceEod.day))
+                .where(PriceEod.isin.in_([r.isin for r in moved]))
+                .group_by(PriceEod.isin)
+            ).all()
+        )
+        reloaded, quota = 0, False
+        for k, r in enumerate(moved, 1):
+            s.execute(delete(PriceEod).where(PriceEod.isin == r.isin))
+            s.execute(delete(FeatureDaily).where(FeatureDaily.isin == r.isin))
+            start = first.get(r.isin)
+            if start is None or quota:
+                continue
+            p = (alt or {}).get(r.exchange, provider)
+            ticker = history_symbol(r.code, r.exchange, p)
+            if p is not provider and k > 1:
+                time.sleep(0.5)
+            try:
+                if upsert_eod(s, p.fetch_eod([ticker], start, today + timedelta(days=1)), {ticker: r.isin}):
+                    reloaded += 1
+            except QuotaExceeded as exc:
+                quota = True
+                log.warning("quota atteint pendant le rechargement (%s) : suite par backfill_new_listings", exc)
+            except ProviderError as exc:
+                log.info("rechargement %s impossible : %s", ticker, str(exc)[:120])
+            if k % 50 == 0:
+                s.commit()
+    return len(moved), reloaded
+
+
 def store_analyst_consensus(s, rows: list[SymbolRow], day: date) -> int:  # type: ignore[no-untyped-def]
     """docs/23 S4 — TradingView analyst fields kept per day and source, beside Yahoo (cross-check)."""
     from datetime import UTC, datetime
@@ -300,10 +357,12 @@ def run(ctx: JobContext) -> int:
             c: fx_to_eur(s, c) for c in {r.currency for r in rows} | {"SEK", "DKK", "NOK", "PLN", "GBP", "CHF", "USD"}
         }
     rows = enrich_with_screener(rows, ctx.config, fx)
+    rows = primary_listings(rows, listing_overrides(ctx.config))  # one listing per ISIN: the primary one
     if errors:
         _log_exchange_hints(provider, errors)
     if not rows:
         raise ProviderError("aucun symbole chargé : " + " ; ".join(f"{k}: {v}" for k, v in errors.items()))
+    relisted, reloaded = repair_relisted_history(provider, rows, date.today(), history_providers(ctx.config))
     fetched = backfill_new_listings(
         provider,
         rows,
@@ -364,6 +423,7 @@ def run(ctx: JobContext) -> int:
     ctx.note = (
         f"{len(exchanges) - len(errors)} place(s), {rep.total} titres, {rep.included} retenus"
         + (f", historique chargé pour {fetched}" if fetched else "")
+        + (f", {relisted} cotation(s) principale(s) rétablie(s) ({reloaded} rechargée(s))" if relisted else "")
         + (" ; exclusions : " + ", ".join(f"{k} {v}" for k, v in top3) if top3 else "")
     )
     return rep.included

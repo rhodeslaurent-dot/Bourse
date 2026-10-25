@@ -30,6 +30,7 @@ from app.domain.universe import (
     UniverseFilters,
     momentum_watchlist,
     pea_regulatory_eligibility,
+    primary_exchange,
     srd_status_from_rules,
     universe_decision,
 )
@@ -68,6 +69,39 @@ class RefreshReport:
     watchlist: int = 0
 
 
+def primary_listings(rows: list[SymbolRow], overrides: dict[str, str] | None = None) -> list[SymbolRow]:
+    """One row per ISIN: its primary listing (``primary_exchange``), in the order of first appearance.
+    Issuer-level facts the primary row lacks (market cap, sector, industry, next earnings) are taken from
+    another listing of the same ISIN; the tickers and the currency always stay those of the primary one."""
+    by: dict[str, list[SymbolRow]] = {}
+    for r in rows:
+        by.setdefault(r.isin, []).append(r)
+    out = []
+    for isin, group in by.items():
+        if len(group) == 1:
+            out.append(group[0])
+            continue
+        ex = primary_exchange(isin, [r.exchange for r in group], overrides)
+        main = next(r for r in group if r.exchange == ex)
+        for other in group:
+            if other is main:
+                continue
+            main.market_cap_eur = main.market_cap_eur if main.market_cap_eur is not None else other.market_cap_eur
+            main.sector = main.sector or other.sector
+            main.industry = main.industry or other.industry
+            main.earnings_next_date = main.earnings_next_date or other.earnings_next_date
+        main.extra.setdefault("autres_cotations", sorted(f"{r.code}.{r.exchange}" for r in group if r is not main))
+        out.append(main)
+    return out
+
+
+def listing_overrides(config: LoadedConfig) -> dict[str, str]:
+    """``universe.primary_listing_overrides``: ISIN → EODHD exchange code, when the home-exchange rule is
+    wrong for an issuer (e.g. a Dutch holding whose primary listing is Paris)."""
+    raw = (config.params.universe or {}).get("primary_listing_overrides") or {}
+    return {str(k).upper(): str(v) for k, v in raw.items()}
+
+
 def filters_from(config: LoadedConfig) -> UniverseFilters:
     u = config.params.universe or {}
     return UniverseFilters(
@@ -93,6 +127,7 @@ def _filters_for(base: UniverseFilters, config: LoadedConfig, exchange: str) -> 
 def refresh_universe(
     s: Session, config: LoadedConfig, calendars: MarketCalendars, rows: list[SymbolRow], day: date
 ) -> RefreshReport:
+    rows = primary_listings(rows, listing_overrides(config))  # never a secondary listing over the primary one
     rep = RefreshReport(total=len(rows))
     filt = filters_from(config)
     countries = config.params.pea["eligible_countries"] if config.params.pea else []
@@ -107,6 +142,8 @@ def refresh_universe(
             inst = Instrument(isin=r.isin, name=r.name, mic=mic)
             s.add(inst)
         inst.name = r.name or inst.name
+        if inst.exchange and inst.exchange != r.exchange:
+            inst.ticker_tv = None  # the old venue's TradingView ticker (XETR:TOTB) never follows the new listing
         inst.ticker_local = r.code
         inst.ticker_eodhd = f"{r.code}.{r.exchange}"
         inst.ticker_tv = r.tv_ticker or inst.ticker_tv

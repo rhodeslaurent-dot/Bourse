@@ -190,3 +190,28 @@ def momentum_watchlist(cands: list[MomentumCandidate], rs_rank_min: float, max_s
     ]
     ok.sort(key=lambda c: c.rs_rank, reverse=True)
     return ok[:max_size]
+
+
+# Home exchange (EODHD code) of an issuer from its ISIN prefix: a share listed on several followed venues
+# (Air Liquide on Paris and Xetra) is followed on its primary listing only — the secondary one has a thin
+# volume, no SRD and other tickers (bug of 25/10/2026: Paris large caps stored under their Xetra listing).
+HOME_EXCHANGE_BY_ISIN_PREFIX: dict[str, str] = {
+    "FR": "PA", "NL": "AS", "BE": "BR", "PT": "LS", "IE": "IR", "DE": "XETRA", "IT": "MI", "ES": "MC",
+    "SE": "ST", "DK": "CO", "FI": "HE", "NO": "OL", "AT": "VI", "PL": "WAR", "GB": "LSE", "CH": "SW", "US": "US",
+}  # fmt: skip
+SECONDARY_VENUES = frozenset({"XETRA"})  # cross-lists most European and US shares: chosen last
+
+
+def primary_exchange(isin: str, exchanges: list[str], overrides: dict[str, str] | None = None) -> str:
+    """The listing to follow among the followed ``exchanges`` (in configured priority order) where ``isin``
+    trades: the user's override, else the issuer's home exchange, else the first venue that is not a
+    cross-listing hub (Xetra), else the first one."""
+    if not exchanges:
+        raise ValueError("no exchange")
+    forced = (overrides or {}).get(isin)
+    if forced in exchanges:
+        return str(forced)
+    home = HOME_EXCHANGE_BY_ISIN_PREFIX.get(isin[:2].upper())
+    if home in exchanges:
+        return str(home)
+    return next((e for e in exchanges if e not in SECONDARY_VENUES), exchanges[0])

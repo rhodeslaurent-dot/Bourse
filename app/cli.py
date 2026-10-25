@@ -436,6 +436,7 @@ NEW_CHILD_PARENTS = [
     "detectors",
     "scoring",
     "scoring.admission_blocks",
+    "universe",  # primary_listing_overrides (25/10/2026)
     "brokers.boursobank",
     "pea",
 ]
