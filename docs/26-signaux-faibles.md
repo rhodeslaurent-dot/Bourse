@@ -49,6 +49,7 @@
   - **Base dès le premier jour** : rattrapage de 60 jours (pages anciennes du forum, recherche Reddit), automatique pour 20 valeurs chaque matin, ou manuel avec `social-backfill`. La base de 30 jours ne sert plus qu'au z quotidien (plus robuste), pas à l'alerte rapide.
 - **Mesure** : `radar-measure` dira si ces idées rapportent ; D8 a sa propre ligne dans l'historique des détecteurs.
 - Commandes : `env-setup reddit`, `env-setup bluesky`, `social-check --isins …` (contrôle de lecture des pages et du format des dates, sans afficher de message).
+- **Suite proposée (docs/30, lot S4)** : lecture du contenu des messages (thème, nature, précision, diversité des auteurs), croisement des familles de sources, vérification par l'actualité et corrélations — à valider.
 
 ## 26.4 Calculs (Python, `app/domain/weak_signals.py`)
 

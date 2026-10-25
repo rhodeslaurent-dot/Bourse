@@ -1,0 +1,147 @@
+# 30 — Contenu des messages, croisement des sources et corrélations (lot S4 du radar)
+
+> Demande de l'utilisateur (25/10/2026) : « analyser le contenu des messages pour voir si certains sont intéressants et nécessitent d'être creusés pour détection ou confirmation de signaux faibles ; croiser les sources, vérifier l'information avec l'actualité, analyser les corrélations ». Complète docs/26 (radar, lot S3 : compteurs). Statut : **proposé, à valider** (§30.10).
+
+## 30.1 Ce qui change par rapport à docs/26
+
+docs/26 §26.1 ne lit que des **compteurs**. Le lot S4 lit aussi **le contenu** : un emballement chiffré ne dit pas *de quoi* on parle. Pourtant, une rumeur précise de contrat, répétée par neuf personnes différentes, ne vaut pas un seul auteur qui publie vingt fois « ça va exploser ».
+
+Ce qui ne change pas :
+- **information publique seulement** ;
+- **jamais un déclencheur seul** (A26.1) ;
+- **le LLM classe et résume, Python compte et décide** (règle 3) ;
+- **aucun auteur ni pseudonyme conservé**.
+
+## 30.2 Quand lire le contenu (coût, politesse, bruit)
+
+Le contenu n'est pas lu pour toutes les valeurs. Il est lu :
+
+1. **sur déclenchement**, quand `social_watch` ou le job `weak_signals` détecte un `buzz_precoce`, une vitesse au-dessus de `velocity_ratio`, ou un z ≥ `social_z` : messages des dernières 24 h de la valeur, `max_messages_per_value` au plus ;
+2. **sur les positions ouvertes**, une fois par jour : nouveaux messages depuis la veille, pour capter un catalyseur négatif qui circule ;
+3. **à la demande**, avec un bouton « Lire les échanges » sur la fiche et la page radar.
+
+La lecture couvre les pages de fil (sujets récents), et non plus la seule liste des sujets. Il faut donc 1 à 3 pages de plus par valeur déclenchée, toujours une page toutes les `interval_s` secondes. Plafond : `max_values_per_day`.
+
+## 30.3 Classement de chaque message (LLM, sortie JSON validée, listes fermées)
+
+Les messages sont envoyés par lots de `batch_size` au modèle léger (Haiku 5.5 avec les options de génération 5, ADR-011). Le cache par empreinte rejoue la même réponse. Le pseudonyme n'est **jamais** envoyé au modèle. Pour chaque message :
+
+| Champ | Valeurs |
+|---|---|
+| `theme` | mêmes types que la presse (`resultats`, `guidance`, `contrat`, `m_and_a`, `augmentation_capital`, `gouvernance`, `reco_broker`, `transaction_dirigeant`, `franchissement_seuil`, `rachat_actions`, `reglementaire`, `dividende`), plus `technique` (chartisme), `sentiment` (aucun fait) et `autre` |
+| `nature` | `fait_source` (cite une source vérifiable), `relais_presse` (reprend un article publié), `rumeur` (aucune source), `opinion`, `question`, `promotion` (« va exploser », objectif irréaliste, appel à acheter), `pretendue_info_privilegiee` (« je sais de l'intérieur ») |
+| `direction` | `positif`, `negatif`, `neutre`, `ambigu` |
+| `precision` | `precise` (date, montant, contrepartie nommée), `vague` |
+| `source_citee` | `aucune`, `presse`, `communique`, `regulateur`, `reseau`, `autre` ; le domaine du lien seulement s'il y en a un |
+| `resume` | 25 mots au plus, neutre, **sans pseudonyme ni citation** ; un nombre n'y figure que s'il est dans le message (garde-fou des nombres, règle 3) |
+
+Une sortie invalide classe le message « non classé ». Rien n'est jamais deviné.
+
+## 30.4 Agrégats calculés en Python (par valeur et par fenêtre de 2 h / 24 h)
+
+- **Volumes** : nombre de messages par thème, par nature et par direction, et part des messages `precise`.
+- **Diversité des auteurs** :
+  - nombre d'auteurs **distincts**, compté en mémoire avec une empreinte salée éphémère (le sel change à chaque lecture ; ni l'empreinte ni le pseudonyme ne sont stockés) ;
+  - **concentration** : part du premier auteur dans les messages.
+
+  Un emballement porté par un ou deux comptes est le signe classique d'une manipulation.
+- **Thème dominant** et **solidité** du signal :
+  - `fort` : thème factuel (ni `technique` ni `sentiment`), au moins `min_distinct_authors` auteurs, concentration sous `author_concentration_max`, part de `promotion` sous 30 % ;
+  - `faible` : signal présent, mais une de ces conditions manque ;
+  - `bruit` : aucun thème factuel.
+
+## 30.5 Croisement des sources et vérification par l'actualité (Python, LLM seulement pour « même événement ? »)
+
+**Familles indépendantes.** Les forums et les réseaux comptent pour **une seule** famille, parce qu'ils se recopient. Les familles sont :
+
+| Famille | Sources |
+|---|---|
+| Particuliers | forum, Reddit, Bluesky |
+| Attention | consultations Wikipédia |
+| Marché | volume relatif, écart du prix au secteur |
+| Presse | `news_items` rattachées |
+| Réglementaire | transactions de dirigeants, franchissements de seuil, positions courtes AMF |
+| Lettres | lettres d'analyse |
+
+La **concordance** est le nombre de familles en anomalie dans la même fenêtre (24 h ou 3 séances).
+
+**Vérification par l'actualité.** Pour le thème dominant, Python cherche les nouvelles rattachées à la valeur entre −7 jours et maintenant, de même type :
+- `deja_publiee` : un article est paru **avant** le premier message. Ce n'est pas un signal faible, c'est un relais.
+- `confirmee` : un communiqué ou un article de même type paraît **après**. Le délai d'avance est mesuré.
+- `dementie` : la société dément.
+- `non_confirmee` : aucune trace pour l'instant.
+
+Si plusieurs candidats existent, le LLM répond seulement « même événement : oui / non / incertain » (liste fermée). Pour une rumeur `precise` non confirmée, une recherche ciblée est faite dans les flux déjà configurés (nom + thème). Aucune source nouvelle n'est ajoutée sans `sources-check`.
+
+## 30.6 Corrélations
+
+1. **Avance / retard.** Les anomalies d'échanges précèdent-elles le volume, la volatilité ou la direction ? On mesure l'excès de rendement et la volatilité réalisée à 1, 5 et 20 séances, par thème × nature × solidité. Les valeurs sont regroupées par taille et secteur, et le t est groupé par date (limites de docs/26 §26.6).
+2. **Contagion.** Un buzz sur une valeur, avec des pairs du même secteur (ρ ≥ 0,6 sur 120 séances, `aligned_correlation`) qui bougent ou s'animent aussi, donne un **thème sectoriel**. Sinon, c'est un **fait propre à la valeur**. La fiche le dit.
+3. **Retour d'expérience.** Pour chaque couple thème × nature :
+   - part des rumeurs ensuite **confirmées** par la presse ;
+   - délai médian d'avance ;
+   - R moyen des fiches D8 avec et sans contenu `fort`.
+
+   Ces mesures alimentent `radar-measure` puis `/apprentissage`. Elles n'entrent dans le score que par un ADR, avec t ≥ 3 en période de contrôle (docs/26 §26.6).
+
+## 30.7 Effets sur le moteur (règles déterministes)
+
+| Situation | Effet |
+|---|---|
+| `buzz_precoce` + solidité `fort` + concordance ≥ 2 familles + `non_confirmee` | **idée renforcée** : priorité dans le rapport et la veille, fiche D8 dimensionnée comme aujourd'hui (jamais un ordre) |
+| `buzz_precoce` + solidité `faible` ou `bruit` | idée simple (comme aujourd'hui) ou mention seule |
+| `deja_publiee` | pas une idée de signal faible : traité par le flux de nouvelles normal |
+| `promotion` majoritaire, ou concentration au-dessus du seuil, sur une petite capitalisation | **emballement** : entrée `BLOQUÉ : emballement` |
+| `pretendue_info_privilegiee` | **jamais exploité** : exclu des comptes de solidité, mention « message se réclamant d'une information privilégiée : non exploité (MAR art. 8 et 14) » |
+| Position ouverte, thème négatif `fort` `non_confirmee` | vigilance P2 sur la position (« rumeur négative, à surveiller ») ; elle passe en P1 « catalyseur négatif » seulement si la presse confirme |
+
+Les faits de la fiche et de la thèse sont numérotés et citables. Exemple : « forum : 14 messages en 2 h, 9 auteurs distincts, thème contrat, rumeur précise, non confirmée par la presse ». L'instantané de décision (règle 10) conserve ces agrégats et les résumés.
+
+## 30.8 Données conservées
+
+**Option A (recommandée).** Aucun texte de message ni auteur n'est stocké. La table `social_content` (valeur, fenêtre, source) conserve :
+- les agrégats du §30.4 et le statut de vérification ;
+- au plus `summaries_max` résumés neutres ;
+- le lien du **fil**, jamais d'un message ou d'un profil.
+
+Le cache LLM ne garde que l'empreinte et la réponse, qui ne contient pas d'auteur.
+
+**Option B.** Les textes sont conservés 30 jours, sans auteur, pour relire et réanalyser après coup. Mais le texte peut contenir des données personnelles de tiers (prénoms, signatures), et ce n'est pas nécessaire pour la mesure.
+
+## 30.9 Coûts estimés (tarifs de `llm.prices_usd_per_mtok`, tokeniseur de génération 5 ≈ +30 %)
+
+- **Classement par message** (Haiku 5.5 : 0,10 $ / 0,50 $ par million de jetons) : un lot de 20 messages représente ≈ 4 000 jetons en entrée et 1 500 en sortie, soit ≈ 0,001 $.
+  - 15 valeurs déclenchées × 60 messages ≈ 45 lots ≈ **0,05 $ par jour**.
+  - Pire cas (`max_values_per_day` 30) : ≈ 0,10 $.
+- **« Même événement ? »** (Haiku 5.5) : quelques appels par jour, moins de 0,01 $.
+- **Plafond** : `weak_signals.content.max_usd_per_day` = 0,30 $, à l'intérieur du budget LLM journalier. Au-delà, retour aux compteurs seuls, avec la mention « contenu non analysé (plafond) ».
+
+Ordre de grandeur : **≈ 1,5 à 3 $ par mois**.
+
+## 30.10 Décisions demandées à l'utilisateur
+
+1. **Données conservées** : option A (recommandée) ou option B (§30.8).
+2. **Messages se réclamant d'une information privilégiée** : exclus (recommandé : risque juridique réel, MAR art. 8, puisque celui qui « sait ou aurait dû savoir » est visé ; c'est aussi un procédé classique de manipulation), ou simple mention.
+3. **Périmètre** : lecture sur déclenchement + positions + à la demande (recommandé), ou lecture quotidienne de toutes les valeurs suivies (coût × 5, et risque de blocage du forum plus élevé).
+4. **Découpage** :
+   - S4a : lecture des fils, classement, agrégats, fiche ;
+   - S4b : vérification par l'actualité et concordance ;
+   - S4c : corrélations et mesure.
+
+   On commence par S4a, après le diagnostic de structure des pages (`social-check --structure`).
+
+## 30.11 Paramètres proposés (`weak_signals.content.*`)
+
+`enabled`, `effective_from`, `model` (par défaut `llm.classify_model`), `batch_size` 20, `max_messages_per_value` 60, `max_values_per_day` 30, `max_usd_per_day` 0,30, `min_distinct_authors` 3, `author_concentration_max` 0,4, `promotion_share_max` 0,3, `families_min_reinforced` 2, `verify_window_days` 7, `summaries_max` 3, `thread_pages_max` 3.
+
+## 30.12 Critères d'acceptation
+
+- **A30.1** Aucun auteur ni pseudonyme dans une table, un journal, un message Telegram ou une requête au LLM (test sur une page de fixture contenant des pseudonymes).
+- **A30.2** Sortie de classement validée par listes fermées ; une sortie invalide classe le message « non classé » (test).
+- **A30.3** Un nombre absent du message est retiré du résumé (garde-fou, test).
+- **A30.4** `pretendue_info_privilegiee` ne contribue jamais à une idée ni à la solidité (test).
+- **A30.5** Concentration ou promotion au-dessus du seuil sur une petite capitalisation → `BLOQUÉ : emballement` (test).
+- **A30.6** Statuts `deja_publiee` / `confirmee` / `dementie` / `non_confirmee` sur fixtures datées (test).
+- **A30.7** `radar-measure` par thème × nature × solidité, avec n, t groupé par date et délai d'avance sur la presse.
+- **A30.8** Plafond de dépense journalier respecté ; au-delà, compteurs seuls avec la mention (test).
+- **A30.9** Aucun contenu ne crée seul une proposition BUY (A26.1 étendu, test).
