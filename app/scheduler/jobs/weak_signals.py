@@ -38,6 +38,9 @@ def run(ctx: JobContext) -> int:
         except Exception as exc:  # noqa: BLE001
             log.warning("Wikimedia : %s", exc)
             notes.append(f"Wikimedia en échec ({exc.__class__.__name__})")
+        from app.services.social import collect_all
+
+        notes += collect_all(s, ctx.config, client, ctx.run_date)  # docs/26 S3: forums and social networks
         hits = compute_hits(s, ctx.config, ctx.run_date - timedelta(days=1))
         by: dict[str, int] = {}
         for h in hits:

@@ -30,10 +30,20 @@
 | **Couverture presse** (nouvelles rattachées, flux et revue de presse) | articles sur 5 jours vs 60 jours | interne | **S1 (fait)** |
 | GDELT DOC 2.0 | volume d'articles mondiaux et tonalité | API gratuite anonyme | S2 |
 | Calendrier des rééquilibrages d'indices (Euronext, STOXX, MSCI) | flux passifs datés | communiqués, saisie manuelle | S2 |
-| Reddit (API officielle, usage personnel) ; Bluesky (API ouverte) | mentions, désaccord | gratuit, compte requis | S3, si S1 mesuré utile |
-| Forums Boursorama, ABC Bourse, Zonebourse, Investing | — | **rejetés** : pas d'API, conditions d'utilisation qui interdisent la reproduction (CJUE *Ryanair*, C-30/14), risque de manipulation avéré | — |
+| Reddit (API officielle, usage personnel) ; Bluesky (API ouverte) | mentions | gratuit, compte requis | **S3 (fait le 25/10/2026)** |
+| Forum Boursorama (compteurs) | échanges des particuliers | pas d'API ; conditions d'utilisation restrictives — **risque accepté par l'utilisateur le 25/10/2026** | **S3 (fait)** ; ABC Bourse, Investing : à ajouter si utile |
 | X / Twitter, StockTwits, LinkedIn, TikTok, YouTube | — | **rejetés** : coût (≥ 200 $/mois), couverture européenne nulle ou pas d'accès légal | — |
 | Google Trends | attention bruitée | **différé** : bibliothèque non officielle archivée en 2025, API officielle en alpha sur candidature | — |
+
+## 26.3 bis Forums et réseaux sociaux (lot S3, décision de l'utilisateur du 25/10/2026)
+
+**Objectif** : repérer des **débuts de mouvement avant publication** — des échanges de particuliers qui s'emballent alors que le prix n'a pas encore bougé et qu'aucune information n'a été publiée — pour **compléter le momentum par des investissements d'opportunité**. Information publique uniquement (un forum est public) ; le radar ne cherche jamais une information non publique.
+
+- **Sources** : forum Boursorama (première page du forum de chaque valeur suivie, dates des messages), Reddit (API officielle, application « script » : nouveaux messages et commentaires de r/vosfinances, r/bourse, r/eupersonalfinance, r/Finanzen, r/wallstreetbetsGER), Bluesky (API officielle, mot de passe d'application). L'utilisateur **accepte le risque** lié aux conditions d'utilisation des forums (blocage d'accès possible) ; lecture lente (une page toutes les 2 s), 200 valeurs au plus (positions, watchlist, propositions récentes, puis meilleure force relative).
+- **Ce qui reste interdit** : stocker un message, un auteur ou un pseudonyme (données personnelles de tiers) — seuls des **compteurs par valeur et par jour** sont enregistrés (`attention_daily`, sources `forum_boursorama`, `reddit`, `bluesky`) ; un zéro n'est enregistré que si la page ou la liste couvre bien la journée (jamais d'estimation).
+- **Étiquette « buzz précoce »** : z des échanges ≥ `weak_signals.social_z` (2,5), **aucune nouvelle publiée** (48 h), **prix encore immobile** (variation sur 5 séances < 1,5 ATR) → **idée à examiner** (rapport, accueil), jamais un achat en l'état. Sur une petite capitalisation avec un volume × 3 et sans nouvelle : « emballement », entrée bloquée (protection contre la manipulation, affaire Puccio).
+- **Démarrage** : il faut 30 jours de comptes pour qu'une base existe ; la mesure (`radar-measure`) dira ensuite si ces idées rapportent.
+- Commandes : `env-setup reddit`, `env-setup bluesky`, `social-check --isins …` (contrôle de lecture des pages et du format des dates, sans afficher de message).
 
 ## 26.4 Calculs (Python, `app/domain/weak_signals.py`)
 

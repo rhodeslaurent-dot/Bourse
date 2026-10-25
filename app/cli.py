@@ -119,6 +119,8 @@ def cmd_env_setup(args: argparse.Namespace) -> int:
         "imap": ["SMTP_USER", "SMTP_PASSWORD", "EMAIL_TO", "IMAP_USER", "IMAP_PASSWORD"],
         "healthchecks": ["HEALTHCHECKS_PING_KEY"],
         "zonebourse": ["ZONEBOURSE_COOKIE"],
+        "reddit": ["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET"],  # docs/26 S3 (application « script » Reddit)
+        "bluesky": ["BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"],  # mot de passe d'application Bluesky
         "cloudflare": ["CLOUDFLARE_TUNNEL_TOKEN", "CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "CF_ACCESS_EMAIL"],
     }
     if args.group not in groups:
@@ -389,6 +391,7 @@ NEW_CHILD_PARENTS = [
     "risk.stop",
     "risk.circuit_breaker",  # rolling windows and peak give-back (25/10/2026)
     "risk.risk_dial",  # docs/28
+    "weak_signals",
     "llm",
     "llm.prices_usd_per_mtok",
     "llm.model_options",
@@ -1058,6 +1061,43 @@ def cmd_radar_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_social_check(args: argparse.Namespace) -> int:
+    """docs/26 S3 — reads the forum page of a few values and the configured networks; prints counts per day
+    and the parsing state, never a message or an author."""
+    from datetime import date as _date
+
+    import httpx
+
+    from app.data.providers import social
+    from app.db.models import Instrument
+    from app.db.session import db_session
+    from app.services.social import collect_bluesky, collect_reddit, social_params
+
+    cfg = load_params(args.params)
+    sp = social_params(cfg)
+    tpl = ((sp.get("boursorama") or {}).get("url_template_by_mic")) or {}
+    today = _date.today()
+    with httpx.Client(follow_redirects=True) as client, db_session() as s:
+        for isin in [x.strip() for x in (args.isins or "").split(",") if x.strip()]:
+            inst = s.get(Instrument, isin)
+            if inst is None or inst.mic not in tpl or not inst.ticker_local:
+                print(f"{isin} : pas d'adresse de forum (place ou ticker inconnu)")
+                continue
+            url = tpl[inst.mic].format(ticker=inst.ticker_local.split(".")[0].upper())
+            try:
+                dates = social.forum_dates(social.boursorama_page(url, client), today)
+            except Exception as exc:  # noqa: BLE001
+                print(f"{isin} : {url} → échec {exc.__class__.__name__}")
+                continue
+            counts = ", ".join(f"{c.day:%d/%m} {c.messages}" for c in social.daily_counts(dates)[-5:])
+            print(f"{isin} {inst.name} : {url} → {len(dates)} date(s) lue(s) ; par jour : {counts or 'aucune'}")
+        n, errors = collect_reddit(s, cfg, client, today)
+        print(f"Reddit : {n} couple(s) valeur × jour" + (f" ; {errors[:3]}" if errors else ""))
+        n, errors = collect_bluesky(s, cfg, client, today)
+        print(f"Bluesky : {n} valeur(s) comptée(s)" + (f" ; {errors[:3]}" if errors else ""))
+    return 0
+
+
 def cmd_radar_measure(args: argparse.Namespace) -> int:
     """docs/26 §26.6 — return after each radar label, in excess of the universe median."""
     from app.db.session import db_session
@@ -1398,6 +1438,9 @@ def main(argv: list[str] | None = None) -> int:
     rc.add_argument("--isins", default=None, help="ex. FR0000120073,FR0000120271 (défaut : tout l'univers)")
     rc.add_argument("--views", action="store_true", help="lire aussi les consultations et calculer les étiquettes")
     rc.set_defaults(fn=cmd_radar_check)
+    sc3 = sub.add_parser("social-check", help="forums et réseaux : lecture et comptage (docs/26 S3)")
+    sc3.add_argument("--isins", default="", help="valeurs dont lire le forum, ex. FR0000120073")
+    sc3.set_defaults(fn=cmd_social_check)
     sub.add_parser("radar-measure", help="rendement en excès après chaque étiquette du radar (docs/26)").set_defaults(
         fn=cmd_radar_measure
     )

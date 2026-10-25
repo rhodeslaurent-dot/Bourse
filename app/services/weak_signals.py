@@ -140,7 +140,12 @@ def _attention_z(s: Session, isin: str, day: date, p: RadarParams) -> tuple[floa
     since = day - timedelta(days=p.baseline_days + p.recent_days + 10)
     series: dict[str, dict[date, int]] = defaultdict(dict)
     for r in s.scalars(
-        select(AttentionDaily).where(AttentionDaily.isin == isin, AttentionDaily.day > since, AttentionDaily.day <= day)
+        select(AttentionDaily).where(
+            AttentionDaily.isin == isin,
+            AttentionDaily.day > since,
+            AttentionDaily.day <= day,
+            AttentionDaily.source == "wikipedia",
+        )
     ):
         series[r.lang][r.day] = r.value
     best: float | None = None
@@ -152,6 +157,33 @@ def _attention_z(s: Session, isin: str, day: date, p: RadarParams) -> tuple[floa
             continue
         z = robust_z([float(pts[d]) for d in days], p)
         per[lg] = None if z is None else round(z, 2)
+        if z is not None and (best is None or z > best):
+            best = z
+    return best, per
+
+
+def _social_z(s: Session, isin: str, day: date, p: RadarParams) -> tuple[float | None, dict[str, Any]]:
+    """Highest z over the forum / social sources (each against its own baseline; docs/26 S3)."""
+    since = day - timedelta(days=p.baseline_days + p.recent_days + 10)
+    series: dict[str, dict[date, int]] = defaultdict(dict)
+    for r in s.scalars(
+        select(AttentionDaily).where(
+            AttentionDaily.isin == isin,
+            AttentionDaily.day > since,
+            AttentionDaily.day <= day,
+            AttentionDaily.source != "wikipedia",
+        )
+    ):
+        series[r.source][r.day] = r.value
+    best: float | None = None
+    per: dict[str, Any] = {}
+    for src, pts in series.items():
+        days = sorted(pts)
+        if not days or (day - days[-1]).days > 3:
+            per[src] = "périmé"
+            continue
+        z = robust_z([float(pts[d]) for d in days], p)
+        per[src] = None if z is None else round(z, 2)
         if z is not None and (best is None or z > best):
             best = z
     return best, per
@@ -199,7 +231,15 @@ def compute_hits(s: Session, config: LoadedConfig, day: date, now: datetime | No
             else None
         )
         z, per = _attention_z(s, inst.isin, max(day, session), p)
-        lab = label(RadarInput(z, rvol, move, n_news, bool(inst.small_cap), feats.rs_rank if feats else None), p)
+        sz, per_social = _social_z(s, inst.isin, max(day, session), p)
+        move5 = (
+            abs(bars[-1].close - bars[-6].close) / feats.atr14
+            if len(bars) >= 6 and feats is not None and feats.atr14
+            else None
+        )
+        lab = label(
+            RadarInput(z, rvol, move, n_news, bool(inst.small_cap), feats.rs_rank if feats else None, sz, move5), p
+        )
         hit = s.scalar(select(WeakSignalHit).where(WeakSignalHit.isin == inst.isin, WeakSignalHit.day == session))
         if lab is None:
             if hit is not None:
@@ -211,6 +251,7 @@ def compute_hits(s: Session, config: LoadedConfig, day: date, now: datetime | No
         hit.close, hit.computed_at = bars[-1].close, now
         hit.details = {
             "z_par_langue": per,
+            "z_forums_reseaux": per_social,
             "mouvement_atr": None if move is None else round(move, 2),
             "force_relative": feats.rs_rank if feats else None,
             "source_attention": "Wikipédia (Wikimedia REST), consultations quotidiennes",

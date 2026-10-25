@@ -12,12 +12,14 @@ PUMP = "emballement"
 ATTENTION_NO_NEWS = "attention_sans_nouvelle"
 VOLUME_QUIET = "volume_sans_mouvement"
 ATTENTION_NEWS = "attention_corroboree"
+BUZZ_EARLY = "buzz_precoce"
 
 LABELS = {
     PUMP: "emballement non corroboré",
     ATTENTION_NO_NEWS: "attention anormale sans nouvelle publiée",
     VOLUME_QUIET: "volume anormal sans mouvement de prix ni nouvelle",
     ATTENTION_NEWS: "attention anormale avec nouvelle publiée",
+    BUZZ_EARLY: "les échanges des particuliers s'emballent avant toute publication et avant le prix",
 }
 
 
@@ -33,6 +35,8 @@ class RadarParams:
     volume_rvol_min: float = 2.5
     quiet_move_atr: float = 0.5
     idea_min_rs: float = 70.0
+    social_z: float = 2.5  # forums and social networks (docs/26 S3)
+    early_move_atr: float = 1.5  # « the price has not moved yet »: |5-session change| < 1.5 ATR
 
 
 def robust_z(values: list[float], p: RadarParams, log: bool = True) -> float | None:
@@ -71,6 +75,8 @@ class RadarInput:
     news_recent: int  # attached news items within ``news_hours``
     small_cap: bool
     rs_rank: float | None
+    social_z: float | None = None  # highest z of the forum / social counts
+    move_5d_atr: float | None = None  # |close − close 5 sessions ago| ÷ ATR14
 
 
 @dataclass(frozen=True)
@@ -83,12 +89,21 @@ class RadarLabel:
 def label(inp: RadarInput, p: RadarParams) -> RadarLabel | None:
     """The strongest label of the day, or None. Order: pump guard, quiet volume, attention without news,
     corroborated attention."""
-    z, rv = inp.attention_z, inp.rvol
+    z, rv, sz = inp.attention_z, inp.rvol, inp.social_z
     no_news = inp.news_recent == 0
-    if z is not None and z >= p.pump_z and inp.small_cap and no_news and rv is not None and rv >= p.pump_rvol:
+    top = max((x for x in (z, sz) if x is not None), default=None)
+    if top is not None and top >= p.pump_z and inp.small_cap and no_news and rv is not None and rv >= p.pump_rvol:
         return RadarLabel(
-            PUMP, False, f"{LABELS[PUMP]} : attention z {z:.1f}, volume × {rv:.1f}, petite capitalisation"
+            PUMP, False, f"{LABELS[PUMP]} : attention z {top:.1f}, volume × {rv:.1f}, petite capitalisation"
         )
+    if (
+        sz is not None
+        and sz >= p.social_z
+        and no_news
+        and (inp.move_5d_atr is None or inp.move_5d_atr < p.early_move_atr)
+    ):
+        vol = f", volume × {rv:.1f}" if rv is not None and rv >= 1.5 else ""
+        return RadarLabel(BUZZ_EARLY, True, f"{LABELS[BUZZ_EARLY]} (z {sz:.1f}{vol}) : mouvement possible, à examiner")
     if no_news and rv is not None and rv >= p.volume_rvol_min and inp.move_atr is not None:
         if inp.move_atr < p.quiet_move_atr:
             return RadarLabel(VOLUME_QUIET, False, f"{LABELS[VOLUME_QUIET]} : volume × {rv:.1f}")

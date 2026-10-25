@@ -216,6 +216,24 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
   max_ideas: 5
   request_interval_s: 0.05              # politesse envers l'API Wikimedia
   wiki_languages: {}                    # par place, ex. {XPAR: ["fr"]} — l'anglais est toujours lu ; défauts dans le code
+  social_z: 2.5                         # docs/26 S3 : échanges des particuliers anormaux (forums, réseaux)
+  early_move_atr: 1.5                   # « buzz précoce » : prix encore immobile (variation 5 séances < 1,5 ATR) et aucune publication → idée à examiner
+  social:                               # décision de l'utilisateur du 25/10/2026 : forums inclus, risques acceptés ; compteurs seulement, jamais de message ni d'auteur
+    boursorama:
+      enabled: true
+      url_template_by_mic: {XPAR: "https://www.boursorama.com/bourse/forum/1rP{ticker}/"}   # à vérifier avec social-check
+      region_regex: null                # facultatif : zone de la page qui contient les messages (si des dates parasites sont comptées)
+      max_values: 200                   # positions, watchlist, propositions récentes, puis meilleure force relative
+      interval_s: 2.0                   # politesse : une page toutes les 2 s
+    reddit:
+      enabled: true                     # API officielle (env-setup reddit) ; usage personnel non commercial
+      subreddits: ["vosfinances", "bourse", "eupersonalfinance", "Finanzen", "wallstreetbetsGER"]
+      max_values: 400
+      interval_s: 1.0
+    bluesky:
+      enabled: true                     # API officielle (env-setup bluesky, mot de passe d'application)
+      max_values: 80
+      interval_s: 0.5
 
 pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
   dca:
