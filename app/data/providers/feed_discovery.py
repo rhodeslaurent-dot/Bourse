@@ -4,6 +4,7 @@ so that a feed address is read from the publisher, never guessed."""
 from __future__ import annotations
 
 import re
+from html import unescape
 from urllib.parse import urljoin
 
 _LINK = re.compile(r"<link\b[^>]*>", re.I)
@@ -19,7 +20,8 @@ def discover_feeds(html: str, base_url: str, limit: int = 20) -> list[tuple[str,
     seen: set[str] = set()
 
     def add(href: str, label: str) -> None:
-        url = urljoin(base_url, href.strip())
+        url = urljoin(base_url, unescape(href.strip()))  # « &amp; » in an attribute is « & »
+        label = unescape(label)
         if url.startswith("http") and url not in seen:
             seen.add(url)
             out.append((url, " ".join(label.split())[:80]))

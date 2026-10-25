@@ -65,10 +65,12 @@ def test_feeds_are_discovered_from_the_publisher_page():
       <link rel="alternate" type="application/rss+xml" title="Toutes les news" href="/rss/news.xml">
       <link rel="stylesheet" href="/s.css"></head><body>
       <a href="https://example.org/feeds/dirigeants">Déclarations des dirigeants (RSS)</a>
-      <a href="/contact">Contact</a><a href="/rss/news.xml">doublon</a></body></html>"""
+      <a href="/contact">Contact</a><a href="/rss/news.xml">doublon</a>
+      <a href="/service/rss?a=1&amp;b=2">RSS &amp; flux</a></body></html>"""
     assert discover_feeds(html, "https://example.org/fr/") == [
         ("https://example.org/rss/news.xml", "Toutes les news"),
         ("https://example.org/feeds/dirigeants", "Déclarations des dirigeants (RSS)"),
+        ("https://example.org/service/rss?a=1&b=2", "RSS & flux"),
     ]
 
 
