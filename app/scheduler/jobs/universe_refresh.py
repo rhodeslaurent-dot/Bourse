@@ -185,7 +185,10 @@ def store_analyst_consensus(s, rows: list[SymbolRow], day: date) -> int:  # type
                 AnalystConsensus.isin == r.isin, AnalystConsensus.day == day, AnalystConsensus.source == "tradingview"
             )
         ) or AnalystConsensus(isin=r.isin, day=day, source="tradingview")
-        row.data, row.received_at = {**vals, "devise": r.currency}, datetime.now(UTC)
+        data = {**vals, "devise": r.currency}
+        if r.extra.get("devise_comptes_tv"):
+            data["devise_comptes"] = r.extra["devise_comptes_tv"]
+        row.data, row.received_at = data, datetime.now(UTC)
         s.add(row)
         n += 1
     s.flush()
@@ -259,6 +262,9 @@ def enrich_with_screener(  # type: ignore[no-untyped-def]
         r.tv_ticker = sr.ticker
         if analyst_cols:
             r.extra["analystes_tv"] = analyst_values(sr.extra, analyst_cols)
+            fcc = sr.extra.get("fundamental_currency_code")
+            if isinstance(fcc, str) and fcc:
+                r.extra["devise_comptes_tv"] = fcc  # e.g. TotalEnergies reports in USD: target currency unsure
     return rows
 
 

@@ -138,3 +138,20 @@ def test_tradingview_fills_a_missing_yahoo_target_and_divergent_sources_are_not_
     assert lv["source"] == "tradingview" and lv["objectif_analystes"] == 800.0 and analyst_target(lv, 3, "EUR") == 800.0
     assert tt["ecart_sources_pct"] == pytest.approx(80 / 62 - 1, abs=1e-4) and tt["sources_divergentes"] is True
     assert analyst_target(tt, 3, "EUR") is None  # 29 % apart: neither target is retained
+
+
+def test_tradingview_target_with_accounts_in_another_currency_is_shown_not_used(db_engine):
+    """25/10/2026: TotalEnergies' TradingView target (88.37) may be in USD, its accounts' currency."""
+    from app.db.models import AnalystConsensus, Instrument
+    from app.db.session import db_session
+    from app.services.fundamentals import analyst_target, facts
+
+    with db_session() as s:
+        s.add(Instrument(isin="FR0000120271", name="TTE", mic="XPAR", currency="EUR", in_universe=True))
+        data = {"objectif_moyen": 88.37, "nb_analystes": 26, "devise": "EUR", "devise_comptes": "USD"}
+        s.add(AnalystConsensus(isin="FR0000120271", day=date(2026, 10, 26), source="tradingview",
+                               received_at=datetime.now(UTC), data=data))  # fmt: skip
+        s.flush()
+        _, shown = facts(s, s.get(Instrument, "FR0000120271"))
+    assert shown["tradingview"]["devise_incertaine"] is True and shown.get("objectif_analystes") is None
+    assert analyst_target(shown, 3, "EUR") is None

@@ -127,6 +127,10 @@ def with_tradingview(shown: dict[str, Any], tv) -> dict[str, Any]:  # type: igno
     targets diverge by more than 15 %, the gap is shown and no analyst target is retained."""
     d = tv.data or {}
     out = {**shown, "tradingview": {**d, "jour": tv.day.isoformat()}}
+    if d.get("devise_comptes") and d.get("devise_comptes") != d.get("devise"):
+        # accounts in another currency (TotalEnergies: USD): the target's currency is not certain → shown only
+        out["tradingview"]["devise_incertaine"] = True
+        return out
     t_tv, n_tv = d.get("objectif_moyen"), d.get("nb_analystes")
     if out.get("objectif_analystes") is None and t_tv is not None:
         out.update(

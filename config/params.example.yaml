@@ -447,9 +447,14 @@ data:
     max_requests_per_scan: 6
     limit_per_request: 1500
     fallback: "eodhd_rest_delayed"
-    # docs/23 S4 : consensus des analystes en recoupement de Yahoo ; vide = désactivé. Ne renseigner que des colonnes
-    # acceptées par `tv-columns-check` (ex. objectif_moyen: "<colonne>", nb_analystes: "<colonne>", recommandation: "<colonne>")
-    analyst_columns: {}
+    # docs/23 S4 : consensus des analystes en recoupement de Yahoo ; colonnes acceptées par `tv-columns-check` le 25/10/2026
+    # (number_of_analysts existe mais renvoie toujours None : recommendation_total = achats + conservations + ventes)
+    analyst_columns:
+      objectif_moyen: "price_target_average"
+      objectif_haut: "price_target_high"
+      objectif_bas: "price_target_low"
+      nb_analystes: "recommendation_total"
+      note: "recommendation_mark"          # affichée telle quelle (échelle TradingView), jamais interprétée par l'outil
   rss_feeds:                             # docs/23 : catalogue par place ; « à renseigner » = ignoré tant que sources-discover / sources-check n'ont pas donné l'adresse
     - {name: "actusnews", url: "https://www.actusnews.com/fr/rss", user_agent: "browser", market: "FR", kind: "reglementaire", reconnu: "diffuseur agréé de l'information réglementée"}
     - {name: "abc_bourse", url: "https://www.abcbourse.com/rss/displaynewsrss", market: "FR", kind: "actualites"}
