@@ -293,7 +293,13 @@ def create_database(host: str, db: str, user: str, password: str, superuser: str
 
 
 def init_params(
-    example: str, target: str, telegram_user_id: str, email: str, update: bool = False, reset: list[str] | None = None
+    example: str,
+    target: str,
+    telegram_user_id: str,
+    email: str,
+    update: bool = False,
+    reset: list[str] | None = None,
+    sets: list[str] | None = None,
 ) -> bool:
     """Create ``config/params.yaml`` from the example and fill ``user.telegram_user_id`` / ``user.email``
     by line substitution (comments are kept). Returns False when the target already exists, unless
@@ -325,8 +331,33 @@ def init_params(
         for path in reset or []:
             text, done = reset_block(example_text, text, path)
             print(f"bloc {path} remplacé par celui de l'exemple" if done else f"bloc {path} introuvable : inchangé")
+    for item in sets or []:
+        path, _, value = item.partition("=")
+        text, done = set_scalar(text, path.strip(), value.strip())
+        print(f"{path.strip()} = {value.strip()}" if done else f"{path.strip()} introuvable : inchangé")
     dst.write_text(text, encoding="utf-8")
     return True
+
+
+def set_scalar(text: str, path: str, value: str) -> tuple[str, bool]:
+    """Set the scalar at dotted ``path`` (e.g. ``pea.opening_date``) keeping the line's comment. Dates and
+    words are quoted, numbers / true / false / null are written as is. Only an existing key is changed."""
+    import re
+
+    parent, _, key = path.rpartition(".")
+    lines = text.splitlines(keepends=True)
+    lo, hi, indent = _block_range(lines, parent) if parent else (-1, len(lines), 0)
+    start = lo + 1 if parent else 0
+    if parent and lo < 0:
+        return text, False
+    lit = value if re.fullmatch(r"-?\d+(\.\d+)?|true|false|null", value) else '"' + value.strip('"') + '"'
+    pat = re.compile(rf"^({' ' * indent}{re.escape(key)}:)\s*([^#\n]*?)(\s*#.*)?(\r?\n?)$")
+    for i in range(start, hi):
+        m = pat.match(lines[i])
+        if m:
+            lines[i] = f"{m.group(1)} {lit}{m.group(3) or ''}{m.group(4)}"
+            return "".join(lines), True
+    return text, False
 
 
 def _jobs_block(text: str) -> tuple[int, int, dict[str, str]]:
@@ -405,6 +436,8 @@ NEW_CHILD_PARENTS = [
     "detectors",
     "scoring",
     "scoring.admission_blocks",
+    "brokers.boursobank",
+    "pea",
 ]
 
 
@@ -440,7 +473,7 @@ def merge_missing_children(example: str, target: str, path: str) -> tuple[str, l
     ts, te, _ = _block_range(tg, path)
     if es < 0 or ts < 0:
         return target, []
-    child = re.compile(rf"^{' ' * ind}([A-Za-z0-9_]+):")
+    child = re.compile(rf"^{' ' * ind}([A-Za-z0-9_\-]+):")  # model names carry dashes (claude-haiku-5-5)
     have = {m.group(1) for ln in tg[ts + 1 : te] if (m := child.match(ln))}
     add: list[str] = []
     added: list[str] = []
@@ -564,7 +597,13 @@ def cmd_params_init(args: argparse.Namespace) -> int:
         print("adresse e-mail invalide")
         return 2
     if not init_params(
-        "config/params.example.yaml", "config/params.yaml", uid, email, update=args.update, reset=args.reset
+        "config/params.example.yaml",
+        "config/params.yaml",
+        uid,
+        email,
+        update=args.update,
+        reset=args.reset,
+        sets=args.sets,
     ):
         print("config/params.yaml existe déjà : rien n'est modifié (relancer avec --update pour corriger user.*)")
         return 0
@@ -1510,6 +1549,13 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         help="avec --update : remplacer ce bloc par celui de l'exemple (ex. data.macro)",
+    )
+    pi.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        dest="sets",
+        help="régler une valeur existante, ex. pea.opening_date=2026-07-08",
     )
     pi.set_defaults(fn=cmd_params_init)
     ev = sub.add_parser("env-set", help="régler une variable non secrète de .env (ex. BACKUP_HOST_DIR)")
