@@ -135,13 +135,22 @@ def build_performance(s: Session, config: LoadedConfig) -> dict[str, Any]:
             v.realized_total += res.realized_pnl
         if row.qty_held > 0 and row.closed_at is None:
             price, status, as_of = _last_price(s, row)
+            fx_now = fx_to_eur(s, row.currency or "EUR")  # latent in EUR like the realised legs
             fee = (
-                fee_schedule_for(config, BROKER_OF.get(acc_type, "saxo")).commission(row.qty_held * (price or 0.0))
+                fee_schedule_for(config, BROKER_OF.get(acc_type, "saxo")).commission(
+                    row.qty_held * price * (fx_now or 1.0)
+                )
                 if price
                 else 0.0
             )
-            lat = latent_pnl(row.qty_held, row.avg_price, price, fee)
-            if lat is None:
+            lat = (
+                latent_pnl(row.qty_held, row.avg_price * fx_now, price * fx_now, fee)
+                if fx_now is not None and price is not None
+                else None
+            )
+            if fx_now is None:
+                v.incomplete.append(f"{row.isin} : taux de change indisponible, latent exclu (jamais estimé)")
+            elif lat is None:
                 v.incomplete.append(f"{row.isin} : cours indisponible, latent exclu (jamais estimé)")
             else:
                 v.latent_total += lat

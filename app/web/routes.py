@@ -58,7 +58,8 @@ def home(request: Request) -> HTMLResponse:
     with db_session() as s:
         view = build_risk_view(s, cfg)
         try:
-            circuit = circuit_state(s, cfg)
+            with s.begin_nested():
+                circuit = circuit_state(s, cfg)
         except Exception:  # noqa: BLE001 — the page shows « indisponible », never a guess
             circuit = None
     decisions = []
@@ -131,9 +132,7 @@ def home(request: Request) -> HTMLResponse:
                 continue
             d = p.details or {}
             acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
-            cm = s.scalar(
-                select(CommitteeRun).where(CommitteeRun.proposal_id == p.id).order_by(CommitteeRun.id.desc())
-            )
+            cm = s.scalar(select(CommitteeRun).where(CommitteeRun.proposal_id == p.id).order_by(CommitteeRun.id.desc()))
             ideas.append(
                 {
                     "p": p,

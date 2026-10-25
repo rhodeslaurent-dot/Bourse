@@ -249,6 +249,9 @@ def evaluate(
         ev.details["coupe_circuit"] = circuit.as_dict()  # limits waiting for a pullback included
         if circuit.tripped:
             ev.blocked.append(f"BLOQUÉ : {circuit.reason}")
+    else:
+        ev.details["coupe_circuit"] = {"indisponible": True}
+        ev.blocked.append("WATCH : coupe-circuit indisponible (mesure en échec) — aucune entrée sans ce contrôle")
     from app.services.weak_signals import is_pump
     from app.services.weak_signals import latest as radar_latest
 
@@ -577,6 +580,7 @@ def evaluate(
             "BLOQUÉ : portail restreint + (risque conjoncturel élevé ou régime rouge) — dérogation seulement (R10, R21)"
         )
     ev.blocked += caps
+    ev.details["blocages_plafonds"] = list(caps)
     # --- events a stop does not cover (R14) ---
     ev.blocked += _events_blocks(s, config, inst, adm.p_max, sz.stop_exec, now, ev)
     ev.action = action
@@ -742,8 +746,9 @@ def scan(
     from app.services.circuit import circuit_state
 
     try:
-        circuit = circuit_state(s, config, now)
-    except Exception as exc:  # noqa: BLE001 — never a silent pass: shown as unavailable on each proposal
+        with s.begin_nested():  # a failed query never poisons the scan's transaction
+            circuit = circuit_state(s, config, now)
+    except Exception as exc:  # noqa: BLE001 — never a silent pass: WATCH « indisponible » on each proposal
         log.warning("coupe-circuit : mesure impossible (%s)", exc.__class__.__name__, exc_info=True)
         circuit = None
         rep.errors.append(f"coupe-circuit: {exc.__class__.__name__}")
@@ -890,8 +895,10 @@ def _persist(
                 r, er = ranks.get(f"{e.isin}:{e.detector}", (None, None))
                 e.details["rang"] = r
                 e.details["esperance_nette_r"] = er
-                blocked_caps = [b for b in e.blocked if b.startswith("BLOQUÉ")]
-                if op is not None and r is not None and blocked_caps and e.action == "BUY":
+                caps_only = set(e.details.get("blocages_plafonds") or [])  # R21 covers the caps only
+                blocked_caps = [b for b in e.blocked if b.startswith("BLOQUÉ") and b in caps_only]
+                other_blocks = [b for b in e.blocked if b.startswith("BLOQUÉ") and b not in caps_only]
+                if op is not None and r is not None and blocked_caps and not other_blocks and e.action == "BUY":
                     sc = e.details.get("score") or {}
                     ok, missing = override_eligible(
                         r, float(sc.get("total") or 0), int(sc.get("confiance") or 0), e.net_rr, op

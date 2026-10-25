@@ -141,7 +141,7 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         for p in props
         if p.action == "WATCH"
     ]
-    for h in radar_ideas(s, config, day - timedelta(days=1), {p.isin for p in props}):
+    for h in radar_ideas(s, config, day, {p.isin for p in props}):
         watch.append(f"Radar — idée à examiner : {name_of(h.isin)} — {h.text} (jamais un achat en l'état, docs/26)")
     n_wl = len(list(s.scalars(select(WatchlistRow.id).where(WatchlistRow.active.is_(True)))))
     r.append({"titre": RUBRICS[5], "faits": watch[:10] + [f"{n_wl} valeur(s) en watchlist active"]})
@@ -153,8 +153,9 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         if c.get("direction") == "negatif" and c.get("magnitude") in ("forte", "moyenne"):
             neg.append(f"{', '.join(name_of(i) for i in (n.isins or [])) or 'marché'} : {n.title}")
     from app.db.models import WeakSignalHit
+    from app.services.weak_signals import last_hit_day
 
-    for h in s.scalars(select(WeakSignalHit).where(WeakSignalHit.day == day - timedelta(days=1))):
+    for h in s.scalars(select(WeakSignalHit).where(WeakSignalHit.day == (last_hit_day(s, day) or day))):
         if h.label == "emballement":  # docs/26 §26.4: attention and volume without any published information
             neg.append(f"Radar — {name_of(h.isin)} : {h.text}")
     avoid = [

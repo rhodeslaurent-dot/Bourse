@@ -30,7 +30,7 @@ Passer de règles « raisonnables » à des règles **mesurées** : rejouer, sé
 
 - par segment : nombre, R net moyen et médian, part de gagnants, **t de Student**, **intervalle de confiance à 95 % par rééchantillonnage** (graine fixe, reproductible), profit factor, durée moyenne, MFE / MAE médians, répartition des sorties ;
 - **nombre d'essais** (segments testés) affiché : une règle n'est « découverte » qu'avec **t ≥ 3** (Harvey, Liu & Zhu) ; segments « apprentissage » (60 % de la période) et « contrôle » (40 %) pour juger la stabilité ;
-- **amorce du classement** : tant que l'historique réel d'un détecteur est insuffisant (docs/18), l'espérance utilisée par le classement est celle du backtest en conditions de production (admis, sans avertissement), **rétrécie** n / (n + `learning.shrinkage_k`) ; affichée sur la fiche avec la mention du biais de survie ;
+- **amorce du classement** (révisée après la contre-expertise du 25/10/2026) : tant que l'historique réel d'un détecteur est insuffisant (docs/18), l'espérance utilisée par le classement vient du backtest **sur la seule période de contrôle**, en conditions de production (admis, sans avertissement), et seulement si la borne basse de son intervalle est > 0 et que la période d'apprentissage a le même signe ; elle est **divisée par deux** (biais de survie, essais multiples) et pèse au plus 30 trades : `0,5 × μ × min(n, 30) / (min(n, 30) + learning.shrinkage_k)` ; affichée sur la fiche avec la mention du biais de survie ;
 - aucune modification automatique d'un paramètre : un recalibrage passe par un ADR daté, puis un nouveau backtest sur une période postérieure (walk-forward).
 
 ## 27.6 Commandes et planification
@@ -40,4 +40,4 @@ Passer de règles « raisonnables » à des règles **mesurées** : rejouer, sé
 
 ## 27.7 Suites prévues
 
-Analyse MFE / MAE pour les sorties (prise partielle, stop suiveur), sensibilité de quelques paramètres avec compte des essais et Sharpe déflaté, univers point-in-time si une source des radiations devient disponible.
+**Backtest au niveau du portefeuille** (plafond de risque ouvert, réductions de taille et coupe-circuit rejoués dans l'ordre chronologique : rendement ÷ recul maximal ; un garde-fou n'est adopté que s'il réduit le recul maximal d'au moins 20 % pour au plus 10 % de rendement perdu) ; t et intervalle par rééchantillonnage **par semaine** (signaux groupés) ; Sharpe déflaté ; analyse MFE / MAE pour les sorties (prise partielle, stop suiveur), sensibilité de quelques paramètres avec compte des essais et Sharpe déflaté, univers point-in-time si une source des radiations devient disponible.

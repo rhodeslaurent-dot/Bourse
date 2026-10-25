@@ -42,8 +42,9 @@ def run(ctx: JobContext) -> int:
     feeds = [f for f in ctx.config.params.data.rss_feeds if f.get("url") and "renseigner" not in str(f.get("url"))]
     max_items = int(((ctx.config.params.detectors or {}).get("d6_catalysts") or {}).get("max_items_per_cycle", 50))
     media_cfg = getattr(ctx.config.params, "media", None) or {}
-    llm_p = ctx.config.params.llm
-    scope = str(getattr(llm_p, "news_classify_scope", "attached") or "attached") if llm_p else "attached"
+    from app.services.news import configured_scope
+
+    scope = configured_scope(ctx.config)
     total = 0
     errors: list[str] = []
     with db_session() as s:

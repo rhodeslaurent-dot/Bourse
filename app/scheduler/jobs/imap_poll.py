@@ -135,7 +135,9 @@ def read_press_review(s, ctx: JobContext, mail, rule) -> None:  # type: ignore[n
     if item is None or not mail.html:
         return
     try:
-        res = ingest_press_review(s, mail.html, item, rule, ctx.llm)
+        from app.services.news import configured_scope
+
+        res = ingest_press_review(s, mail.html, item, rule, ctx.llm, scope=configured_scope(ctx.config))
         ok = sum(1 for r in res if r["statut"] == "ok")
         log.info("revue de presse %s : %d lien(s), %d article(s) lu(s)", mail.source, len(res), ok)
     except Exception as exc:  # noqa: BLE001 — the letter and its review never depend on the press review

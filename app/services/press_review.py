@@ -51,6 +51,7 @@ def ingest_press_review(
     gateway: Any | None,
     client: Any | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    scope: str = "attached",
 ) -> list[dict[str, Any]]:
     from app.services.news import ingest_rss_items
 
@@ -95,7 +96,7 @@ def ingest_press_review(
             body=body,
             dedup_hash=url_hash,
         )
-        ingest_rss_items(s, [rss], gateway, max_items=1)
+        ingest_rss_items(s, [rss], gateway, max_items=1, scope=scope)
         row = s.scalar(select(NewsItem).where(NewsItem.dedup_hash == url_hash))
         if row is not None:
             c = dict(row.classification or {})

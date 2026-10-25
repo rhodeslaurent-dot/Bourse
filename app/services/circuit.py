@@ -54,20 +54,41 @@ def _trades_before(s: Session, start: date) -> bool:
 
 
 def _start_values(s: Session, start: date) -> tuple[float, float] | None:
+    """Snapshot of the last session before ``start``: at most 4 days old and complete, else unavailable."""
     row = _baseline(s, start)
-    if row is not None and row.latent_pnl is not None and row.realized_pnl_cum is not None:
+    if (
+        row is not None
+        and row.latent_pnl is not None
+        and row.realized_pnl_cum is not None
+        and not row.incomplete
+        and (start - row.day).days <= 4
+    ):
         return float(row.realized_pnl_cum), float(row.latent_pnl)
     if not _trades_before(s, start):
         return 0.0, 0.0  # nothing held before the period: the baseline is exactly zero
     return None
 
 
-def _loss(s: Session, start: date, end: date, r_unit: float) -> float | None:
-    """Result in R between the snapshot before ``start`` and the last snapshot before ``end``."""
-    a, b = _start_values(s, start), _baseline(s, end)
-    if a is None or b is None or b.latent_pnl is None or b.realized_pnl_cum is None or b.day < start:
+def _worst(s: Session, start: date, end: date, r_unit: float, extra: tuple[float, float] | None = None) -> float | None:
+    """Worst result in R of the period [start, end) over its daily snapshots (and ``extra`` = now): once the
+    limit is passed, the period stays tripped even if the latent recovers (docs/07 §7.3 « jusqu'au lundi »)."""
+    a = _start_values(s, start)
+    if a is None:
         return None
-    return period_pnl_r(float(b.realized_pnl_cum), float(b.latent_pnl), a[0], a[1], r_unit)
+    vals = [
+        period_pnl_r(float(r.realized_pnl_cum), float(r.latent_pnl), a[0], a[1], r_unit)
+        for r in s.scalars(
+            select(KpiDaily).where(KpiDaily.account_id.is_(None), KpiDaily.day >= start, KpiDaily.day < end)
+        )
+        if r.realized_pnl_cum is not None and r.latent_pnl is not None and not r.incomplete
+    ]
+    if extra is not None:
+        vals.append(period_pnl_r(extra[0], extra[1], a[0], a[1], r_unit))
+    return min(vals) if vals else None
+
+
+def _loss(s: Session, start: date, end: date, r_unit: float) -> float | None:
+    return _worst(s, start, end, r_unit)
 
 
 def circuit_state(
@@ -102,7 +123,9 @@ def circuit_state(
         prev_month0 = (month0 - timedelta(days=1)).replace(day=1)
         pm = _loss(s, prev_month0, month0, r_unit)
         prev_tripped = prev_tripped or (pm is not None and pm <= -params.monthly_loss_r)
-    st = circuit_breaker(view.week_r or 0.0, 0.0, view.month_r or 0.0, 0.0, params, prev_tripped)
+    worst_w = _worst(s, week0, today, r_unit, current)
+    worst_m = _worst(s, month0, today, r_unit, current)
+    st = circuit_breaker(worst_w or 0.0, 0.0, worst_m or 0.0, 0.0, params, prev_tripped)
     view.tripped, view.reason, view.size_multiplier = st.tripped, st.reason, st.size_multiplier
     extra = cb.model_extra or {}
     rp = RollingParams(**{k: float(extra[k]) for k in RollingParams.__dataclass_fields__ if k in extra})

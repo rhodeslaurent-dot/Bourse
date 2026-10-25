@@ -40,7 +40,12 @@ La version 1 proposait 8 rôles et 3 tours (≈ 15 appels par proposition). La c
 
 ## 24.5 Mesure (avant toute application)
 
-`measure` regroupe les **issues définitives** des propositions (`signal_outcomes`, R net) par verdict et par (verdict, confiance) : moyenne, médiane, part de gagnants, t, intervalle par rééchantillonnage. Parce que les verdicts **n'ont rien changé**, la comparaison est propre (pas de biais de sélection). Critère pour un ADR d'application : sur ≥ 3 mois, les propositions « rejeter » / « réduire » ont une espérance nettement inférieure à « maintenir » (écart dont l'intervalle exclut 0), et le coût du comité est inférieur aux pertes évitées.
+`measure` regroupe les **issues définitives** des propositions (`signal_outcomes`, R net) par verdict et par (verdict, confiance) : moyenne, médiane, part de gagnants, t, intervalle par rééchantillonnage. Parce que les verdicts **n'ont rien changé** et que les issues sont simulées pour toutes les propositions, la comparaison est propre.
+
+**Puissance (contre-expertise du 25/10/2026)** : à 5 délibérations par jour, 3 mois donnent ≈ 250 issues, ≈ 80 à 100 cas indépendants ; l'écart minimal détectable entre « réduire / rejeter » et « maintenir » est ≈ 0,75 R, alors qu'un écart réaliste est ≈ 0,3 R (≈ 170 cas minoritaires nécessaires). **Le comité ne pourra pas conclure en 3 mois sauf effet énorme.** Protocole retenu :
+- une délibération **par montage** (valeur + détecteur) sur 7 jours (fait) ;
+- critère principal **ordinal** : corrélation de rang entre le degré de prudence du verdict et le R net, sur tous les cas ; critères secondaires : stop touché (oui / non), MAE en R ;
+- l'ADR à 3 mois décide seulement d'**arrêter ou de prolonger** ; extension possible aux WATCH avec un modèle moins cher pour gagner en nombre de cas (après l'ADR-011).
 
 ## 24.6 Coût
 

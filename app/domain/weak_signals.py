@@ -50,15 +50,17 @@ def robust_z(values: list[float], p: RadarParams, log: bool = True) -> float | N
     return (statistics.fmean(recent) - med) / max(mad, p.min_mad if log else 1e-12)
 
 
-def relative_volume(volumes: list[float], window: int = 60) -> float | None:
-    """Last session's volume ÷ median of the ``window`` sessions before it; None without enough history."""
-    if len(volumes) < window // 2 + 1:
+def relative_volume(volumes: list[float | None], window: int = 60) -> float | None:
+    """Last session's volume ÷ median of the ``window`` sessions before it; None without enough history or
+    without the last volume (never a zero by default)."""
+    if len(volumes) < window // 2 + 1 or not volumes[-1]:
         return None
     base = [v for v in volumes[-(window + 1) : -1] if v is not None and v > 0]
     if len(base) < window // 2:
         return None
     med = statistics.median(base)
-    return volumes[-1] / med if med > 0 else None
+    last = volumes[-1]
+    return last / med if med > 0 and last is not None else None
 
 
 @dataclass(frozen=True)

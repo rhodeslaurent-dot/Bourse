@@ -125,7 +125,7 @@ def bounded_effect(p: Proposal, action: str, st: CommitteeSettings) -> dict[str,
     if action == "maintenir":
         return {"action": p.action, "titres": shares, "note": "proposition inchangée"}
     if action in ("reduire_un_cran", "reduire_deux_crans"):
-        m = st.reduce_step if action == "reduire_un_cran" else 0.5
+        m = min(1.0, max(0.0, st.reduce_step)) if action == "reduire_un_cran" else 0.5  # never above the engine
         new = int(math.floor(shares * m))
         return {"action": p.action if new > 0 else "WATCH", "titres": new, "multiplicateur": m}
     if action in ("attendre_repli", "attendre_evenement"):
@@ -287,8 +287,20 @@ def candidates(s: Session, day: date, top_n: int) -> list[Proposal]:
             )
         )
     )
-    buys = sorted((p for p in rows if p.action == "BUY" and p.rank is not None), key=lambda p: p.rank or 999)[:top_n]
-    r21 = [p for p in rows if ((p.details or {}).get("derogation") or {}).get("proposable") and p not in buys]
+    # one deliberation per setup (contre-expertise du 25/10/2026): a value + detector already deliberated
+    # in the last 7 days is not counted again — repeated cases would inflate the measure
+    recent = {
+        (pp.isin, _detector(s, pp))
+        for r in s.scalars(
+            select(CommitteeRun).where(
+                CommitteeRun.status == "ok", CommitteeRun.day >= day - timedelta(days=7), CommitteeRun.day < day
+            )
+        )
+        if (pp := s.get(Proposal, r.proposal_id)) is not None
+    }
+    fresh = [p for p in rows if (p.isin, _detector(s, p)) not in recent]
+    buys = sorted((p for p in fresh if p.action == "BUY" and p.rank is not None), key=lambda p: p.rank or 999)[:top_n]
+    r21 = [p for p in fresh if ((p.details or {}).get("derogation") or {}).get("proposable") and p not in buys]
     return buys + r21
 
 
@@ -298,6 +310,13 @@ def run_day(
     st = settings(config)
     if not st.enabled:
         return []
+    if now is None:  # a replay of a past day never reads information published after that morning
+        today = datetime.now(UTC).astimezone(PARIS).date()
+        now = (
+            datetime.now(UTC)
+            if day >= today
+            else datetime.combine(day, datetime.min.time(), tzinfo=PARIS).replace(hour=8, minute=10).astimezone(UTC)
+        )
     out = []
     for p in candidates(s, day, st.top_n):
         try:

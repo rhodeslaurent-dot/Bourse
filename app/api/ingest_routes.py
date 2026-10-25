@@ -52,7 +52,9 @@ def ingest_rss(body: RssIn, request: Request) -> dict[str, object]:
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     with db_session() as s:
-        rep = ingest_rss_items(s, items, request.app.state.llm)
+        from app.services.news import configured_scope
+
+        rep = ingest_rss_items(s, items, request.app.state.llm, scope=configured_scope(request.app.state.config))
     return rep.__dict__
 
 

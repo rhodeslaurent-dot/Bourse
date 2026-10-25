@@ -58,7 +58,9 @@
 
 ## 26.6 Mesure avant tout usage dans le score
 
-Chaque étiquette est enregistrée avec le cours du jour ; `radar-measure` calcule ensuite, pour chaque étiquette, le rendement à 5 et 20 séances **en excès de la médiane de l'univers**, sa dispersion et le t de Student. Une étiquette n'entre dans le score que par un ADR, avec t ≥ 3 sur une période de contrôle (comme docs/27).
+Chaque étiquette est datée de **sa séance** (celle des cours utilisés) et la fenêtre de nouvelles va de la veille de cette séance à l'heure du calcul (une publication du vendredi compte encore le lundi matin). `radar-measure` calcule, pour chaque étiquette, le rendement **depuis la clôture de la séance suivante** (l'étiquette n'est connue que le lendemain matin) à 5 et 20 séances, en excès de la médiane de l'univers, avec n et t. Une étiquette n'entre dans le score que par un ADR, avec t ≥ 3 sur une période de contrôle (comme docs/27). Le blocage « emballement » est une **protection** : il s'applique sans attendre cette mesure.
+
+Limites signalées par la contre-expertise du 25/10/2026, à traiter au lot S2 : étiquettes d'un même jour corrélées et fenêtres qui se chevauchent (t optimiste → t groupé par date) ; médiane de l'univers favorable aux petites capitalisations (→ comparaison au même quantile de taille et de secteur) ; la littérature prédit **volume et volatilité**, pas une direction (→ cible supplémentaire : volatilité réalisée sur 5 séances ÷ ATR, et R des propositions avec ou sans étiquette).
 
 ## 26.7 Paramètres (`weak_signals.*`)
 

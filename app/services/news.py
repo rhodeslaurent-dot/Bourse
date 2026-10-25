@@ -7,6 +7,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -74,6 +75,11 @@ def classify_item(
         except LlmUnavailable as exc:
             log.warning("LLM indisponible (%s) : classification par règles", exc)
     return classify_by_rules(item.title, item.body or ""), "rules", None, 0.0
+
+
+def configured_scope(config: Any) -> str:
+    llm = getattr(getattr(config, "params", None), "llm", None) if config is not None else None
+    return str(getattr(llm, "news_classify_scope", "attached") or "attached") if llm else "attached"
 
 
 def llm_worth(row: NewsItem, scope: str) -> bool:
