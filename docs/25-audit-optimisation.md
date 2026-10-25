@@ -95,3 +95,20 @@ Avec L1 + L2 + L5, le coût actuel tomberait vers **0,3–0,5 $ par jour**, ce q
 | Pas de protection contre une série de pertes | coupe-circuit appliqué (K12) |
 | Garder le SDK épinglé (version d'API ancienne) | conservé ; à revoir avec l'ADR modèles 5.x |
 | Coûts : compter les jetons de réflexion | aucun appel n'active la réflexion étendue aujourd'hui ; à intégrer dans l'ADR 5.x |
+
+## 25.7 Annexe — paramètres sans effet dans le code (K13, relevé du 25/10/2026)
+
+Relevé automatique : clés de `config/params.example.yaml` qu'aucun fichier de `app/` ne lit. Tri proposé, **à valider** :
+
+| Groupe | Clés | Proposition |
+|---|---|---|
+| Phase 3 — D1 intraday (gap + catalyseur) | `detectors.d1_gap_catalyst.*`, `scoring.d1_min_c`, `detectors.exits.d1_time_stop_sessions`, `jobs.open_scan`, `jobs.intraday_watch_start`, `jobs.midday_digest`, `universe.opening_list_max`, `universe.realtime_symbols_max`, `data.eodhd.ws_symbols_per_connection` | marquer « phase 3 » dans l'exemple |
+| Quotas par mode de disponibilité | `availability.quotas.*` | à coder (anti-sollicitation : nombre de propositions par créneau) — utile dès maintenant |
+| Stops | `risk.stop.trailing_1r.atr_mult`, `risk.stop.trailing_2r.atr_mult`, `risk.stop.never_lower` | le cliquet R2 / R3 est codé (`domain/stops`) ; les variantes ATR : décider sur l'analyse MFE / MAE du backtest |
+| Admission | `admission.require_structure_intact`, `admission.require_testable_letter` | comportements codés sans lire la clé : brancher la clé ou la retirer |
+| Détecteurs | `d2_breakout.pivot_lookback`, `d2_breakout.stop_fallback_atr_mult`, `d3_range_expansion.consolidation_days`, `d4_pullback.min_reward_risk_t1`, `d4_pullback.catalyst_required`, `d5_external.confirm_bonus_c` | vérifier un à un : valeur en dur dans le détecteur (à brancher) ou clé obsolète (à retirer) |
+| Score | `scoring.watch_ratio_range`, `scoring.exceptional_min_ratio`, `scoring.surprise_points_with_consensus`, `scoring.announced_magnitude_points` | idem |
+| Comptes et frais | `pea.deposit_cap_eur`, `pea.pea_pme_cap_eur`, `pea.srd_allowed`, `pea.leverage_allowed`, `pea.deposits_total_eur`, `srd.margin_call_delay_sessions`, `brokers.boursobank.commission_grid`, `brokers.saxo.market_data.*` | `commission_grid` BoursoBank : **à brancher avec vos frais (étape 5)** ; plafond de versements PEA : contrôle utile à coder |
+| Données et notifications | `data.quote_at_each_analysis`, `data.paid_max_cost_pct_of_net_gains`, `data.declared_delay_minutes.eodhd_rest`, `notifications.telegram.rate_limit_per_sec`, `notifications.telegram.quiet_hours_local_display`, `notifications.email.daily_limit`, `detectors.d6_catalysts.rss_poll_seconds_*`, `detectors.d6_catalysts.llm_model` | `quote_at_each_analysis` (R19) : vérifier le comportement ; le reste : retirer ou brancher |
+| Revue | `review.human_delay_minutes`, `review.technical_validation_days`, `review.profitability_min_days` | à brancher sur la revue d'apprentissage ou retirer |
+| Jobs non codés | `jobs.zonebourse_lists_daily`, `jobs.us_open_scan` | marquer « non implémenté » (la page `/sante` le montre déjà) |
