@@ -47,7 +47,7 @@ from app.domain.heat import (
 )
 from app.domain.indicators import compute_daily_features
 from app.domain.ranking import RankItem, rank
-from app.domain.risk import EntryOrderKind, FeeSchedule, SizingInput, size_position, stop_exec_for
+from app.domain.risk import EntryOrderKind, FeeSchedule, SizingInput, size_multiplier, size_position, stop_exec_for
 from app.domain.scoring import ScoreInput, score
 from app.domain.timeutil import PARIS
 from app.domain.zones import detect_zones
@@ -232,6 +232,7 @@ def evaluate(
     feats: FeatureDaily | None,
     fundamentals: Any | None = None,
     sector_rs_pct: float | None = None,
+    circuit: Any | None = None,
 ) -> Evaluation:
     p = config.params
     risk = p.risk
@@ -244,6 +245,10 @@ def evaluate(
         ev.blocked.append(f"BLOQUÉ : taux de change {inst.currency} indisponible (fx_refresh)")
         ev.action = "NO_TRADE"
         return ev
+    if circuit is not None:  # docs/07 §7.3: losses of the week / month beyond the limit → no new entry,
+        ev.details["coupe_circuit"] = circuit.as_dict()  # limits waiting for a pullback included
+        if circuit.tripped:
+            ev.blocked.append(f"BLOQUÉ : {circuit.reason}")
     # --- costs per account (R11, R13) ---
     from app.services.ttf import ttf_status
 
@@ -253,7 +258,24 @@ def evaluate(
     ftt = float((tax.get("ftt_by_country") or {}).get(inst.isin[:2], 0.0))
     target = setup.targets[0] if setup.targets else None
     options = _account_options(inst, config)
-    budget = float(p.capital.capital_pilote_eur) * float(risk.max_risk_per_trade_pct)
+    # size reductions in force (docs/07 §7.2, §7.3, §7.9.4): they compound and only ever reduce the budget
+    factors: dict[str, float] = {}
+    if regime == "orange":
+        factors["régime orange"] = float((risk.size_multipliers or {}).get("regime_orange", 0.5))
+    if gate in ("restreint", "restreint_plus"):
+        mg0 = getattr(p, "market_gate", None) or {}
+        factors["portail restreint (R10)"] = float(mg0.get("restricted_size_multiplier", 0.5))
+    if circuit is not None and not circuit.tripped and circuit.size_multiplier < 1:
+        factors["semaine de reprise après coupe-circuit"] = float(circuit.size_multiplier)
+    srd_factor = (
+        float((p.srd.model_extra or {}).get("restricted_size_multiplier", 0.5) if p.srd else 0.5)
+        if srd_mode == "restreint"
+        else 1.0
+    )
+    common = size_multiplier(factors)
+    if factors:
+        ev.details["reductions_taille"] = {k: v for k, v in factors.items()} | {"total": round(common, 4)}
+    budget = float(p.capital.capital_pilote_eur) * float(risk.max_risk_per_trade_pct) * common
     est_shares = int(budget / max(setup.p_max_technical - stop_exec_for(setup.stop, risk.slippage_pct), 1e-9))
     est_notional = max(est_shares, 1) * setup.p_max_technical * fx
     pea_open = (p.pea or {}).get("opening_date")
@@ -304,6 +326,7 @@ def evaluate(
                     fx_rate=fx,
                     fx_haircut=float(risk.fx_haircut) if inst.currency != "EUR" else 0.0,
                     adv20_eur=inst.adv_eur_20,
+                    size_multiplier=common * (srd_factor if acc == "cto_srd" else 1.0),
                 )
             )
             if sz.shares > 0:
@@ -515,7 +538,8 @@ def evaluate(
             action = "WATCH"
             ev.blocked.append("WATCH : portail restreint — ratio net ≥ 2,5 et score ≥ 75 exigés (R10)")
         else:
-            ev.passed.append("portail restreint : sélection exigeante satisfaite, taille réduite (R10)")
+            m10 = factors.get("portail restreint (R10)", 1.0)
+            ev.passed.append(f"portail restreint : sélection exigeante satisfaite, taille × {m10:g} (R10)")
     # --- caps (R8, R9) and override (R21) ---
     heat = HeatParams(
         float(p.capital.capital_pilote_eur),
@@ -697,6 +721,14 @@ def scan(
     published, published_why = published_gate(s, config, day)
     ctxm = market_context(s, config, day, published)
     book = _book(s)
+    from app.services.circuit import circuit_state
+
+    try:
+        circuit = circuit_state(s, config, now)
+    except Exception as exc:  # noqa: BLE001 — never a silent pass: shown as unavailable on each proposal
+        log.warning("coupe-circuit : mesure impossible (%s)", exc.__class__.__name__, exc_info=True)
+        circuit = None
+        rep.errors.append(f"coupe-circuit: {exc.__class__.__name__}")
     zp = getattr(p, "zones", None) or {}
     stop_p = p.risk.stop
     wick = float(getattr(stop_p, "wick_buffer_pct", None) or 0.005)
@@ -765,6 +797,7 @@ def scan(
                     feats,
                     ff,
                     (sectors.get(inst.sector or "") or {}).get("centile"),
+                    circuit,
                 )
                 ev.details["source_cours"], ev.details["horodatage_cours"] = price_source, price_ts
                 for o in ev.details.get("objectifs") or []:  # docs/22 §22.2: each target with its origin

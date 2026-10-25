@@ -463,6 +463,26 @@ def circuit_breaker(
     return CircuitBreakerState(False, "", 1.0)
 
 
+def period_pnl_r(
+    realized_now: float, latent_now: float, realized_start: float, latent_start: float, r_unit_eur: float
+) -> float:
+    """Period result in R (docs/07 §7.3 b): realised P&L since the period start + change of the latent P&L,
+    divided by the nominal R (capital × risk per trade). Negative = loss. A position closed during the period
+    moves from latent to realised without double counting."""
+    if r_unit_eur <= 0:
+        raise ValueError("R nominal nul")
+    return ((realized_now - realized_start) + (latent_now - latent_start)) / r_unit_eur
+
+
+def size_multiplier(factors: dict[str, float]) -> float:
+    """Product of the size reductions in force (regime, market gate, SRD restricted, circuit breaker resume):
+    each answers a distinct risk, so they compound (docs/07 §7.2 « cumulables »). Never above 1."""
+    m = 1.0
+    for v in factors.values():
+        m *= max(0.0, min(1.0, v))
+    return m
+
+
 def twr_drawdown(equity: list[float], flows: list[float] | None = None) -> tuple[list[float], float, float]:
     """Time-weighted equity index (deposits/withdrawals neutralised) → (index, current dd, max dd).
     ``flows[i]`` is the net flow received *during* period i (before equity[i] is measured)."""

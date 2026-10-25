@@ -54,7 +54,7 @@ def test_thesis_guards_and_page(db_engine, config, calendars):
             {
                 "arguments": [
                     {"texte": "Objectif publié 110 au-dessus de la limite.", "faits": [ids[3]], "nature": "fait"},
-                    {"texte": "Potentiel de 25 % inventé.", "faits": [ids[0]], "nature": "analyse"},
+                    {"texte": "Potentiel de 37 % inventé.", "faits": [ids[0]], "nature": "analyse"},
                     {"texte": "Argument sans fait.", "faits": ["F999"], "nature": "opinion"},
                 ],
                 "risques": ["Annonce macro proche."],

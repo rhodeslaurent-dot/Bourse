@@ -103,6 +103,9 @@
       <div class="mt-1">{{ bar(r.open_risk_pct / view.max_open_risk_pct if view.max_open_risk_pct else 0, 'red' if over else 'green') }}</div>
       <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">courant {{ r.open_risk_current_eur|eur }} · réservé (ordres en attente) {{ r.open_risk_reserved_eur|eur }}{% if over %} · <b class="text-rose-700 dark:text-rose-300">BLOQUÉ : plafond dépassé (risk.max_open_risk_pct)</b>{% endif %}</div>
     </div>
+    <div class="text-xs text-slate-500 dark:text-slate-400">Coupe-circuit (pertes réalisées + latentes, R nominal {{ circuit.r_unit_eur|eur if circuit else '—' }}) :
+      {% if not circuit %}indisponible{% else %}semaine {{ '%+.1f R'|format(circuit.week_r) if circuit.week_r is not none else 'indisponible' }} / −{{ config_cb.weekly_loss_r if config_cb else '' }} R · mois {{ '%+.1f R'|format(circuit.month_r) if circuit.month_r is not none else 'indisponible' }} / −{{ config_cb.monthly_loss_r if config_cb else '' }} R{% if circuit.tripped %} · <b class="text-rose-700 dark:text-rose-300">BLOQUÉ : {{ circuit.reason }}</b>{% elif circuit.size_multiplier < 1 %} · <b class="text-amber-700 dark:text-amber-300">{{ circuit.reason }}</b>{% endif %}{% for n in circuit.notes %} · {{ n }}{% endfor %}{% endif %}
+    </div>
     <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-2">
       <div><dt class="text-xs text-slate-500 dark:text-slate-400">Par secteur</dt><dd>{% for k, v in r.by_sector_risk_eur.items() %}{{ k }} {{ v|eur }} ({{ r.by_sector_count.get(k, 0) }}){% if not loop.last %} · {% endif %}{% else %}—{% endfor %}</dd></div>
       <div><dt class="text-xs text-slate-500 dark:text-slate-400">Hors EUR · par place</dt><dd>{{ r.fx_exposure_pct|pct(0) }}{% for m, v in r.by_mic_exposure_pct.items() %} · {{ m }} {{ v|pct(0) }}{% endfor %}</dd></div>

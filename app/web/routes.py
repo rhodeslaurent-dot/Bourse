@@ -53,9 +53,17 @@ def home(request: Request) -> HTMLResponse:
     from app.services.risk_view import build_risk_view
 
     cfg = request.app.state.config
+    from app.services.circuit import circuit_state
+
     with db_session() as s:
         view = build_risk_view(s, cfg)
+        try:
+            circuit = circuit_state(s, cfg)
+        except Exception:  # noqa: BLE001 — the page shows « indisponible », never a guess
+            circuit = None
     decisions = []
+    if circuit is not None and circuit.tripped:
+        decisions.append({"level": "P2", "text": f"Pas de nouvelle entrée — {circuit.reason}", "href": "/performance"})
     for p in view["unprotected"]:
         decisions.append(
             {
@@ -133,6 +141,8 @@ def home(request: Request) -> HTMLResponse:
         {
             "request": request,
             "view": view,
+            "circuit": circuit,
+            "config_cb": cfg.params.risk.circuit_breaker,
             "decisions": decisions[:3],
             "mode": current_mode_payload(request),
             "summary": summary,

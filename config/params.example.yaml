@@ -326,6 +326,7 @@ accounts:
 srd:
   min_net_advantage_pct: 0.0           # R13 : SRD proposé si gain net > comptant, ou si la trésorerie du compte ne suffit pas
   restricted_min_net_advantage_pct: 0.01   # Brent au-dessus du seuil (R12)
+  restricted_size_multiplier: 0.5          # R12 : taille × 0,5 sur le SRD en mode restreint (docs/07 §7.9.4)
   effective_from: "2026-01-01"
   eligibility_full: {min_market_cap_eur: 1000000000, min_daily_volume_eur: 1000000}
   eligibility_long_only: {min_daily_volume_eur: 100000}
