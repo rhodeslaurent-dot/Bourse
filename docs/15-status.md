@@ -124,6 +124,10 @@ Non fait : fondamentaux (bloc F), protocole « fixing de clôture » (fiche 17:1
 - 5 journées passées à rejouer pour contrôler D1 (dates + gaps observés) — phase 3 (A3.3).
 - Paramètres à renseigner : `srd.coverage_rate_broker`, `srd.prorogation_deadline_local` (interface Saxo), `pea.opening_date`, `pea.deposits_total_eur`, `risk.factor_groups`, TMI pour la simulation au barème — phases 1 à 4.
 - Confirmer, à la première proposition sur chaque place, `pea_available_boursobank` et `pea_order_types_ok` — phase 2.
+- **ADR-011 (proposé le 25/10/2026)** — modèles Claude de génération 5 (Haiku 5.5 ≈ 10 fois moins cher) et règle 3 « température 0 », impossible avec ces modèles : options A (statu quo), B (reformuler la règle 3 et migrer), C (classement seul en Haiku 5.5) ; évaluation sur 200 nouvelles et 20 revues avant décision (≈ 1 à 2 $, à lancer avec votre accord). Recommandation : C puis B.
+- **Comité en observation (docs/24)** : appliquer un jour ses verdicts ? Pas avant ≥ 3 mois de mesure (`measure`), par ADR.
+- **Radar (docs/26)** : S2 (GDELT, calendrier des rééquilibrages d'indices) et S3 (Reddit, Bluesky) seulement si la mesure de S1 le justifie.
+- **K13 (docs/25)** : ≈ 70 paramètres sans effet dans le code — coder, retirer ou marquer « phase 3 » ?
 
 ## Journal des sessions
 
