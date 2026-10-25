@@ -13,7 +13,8 @@ from app.llm.schemas import NewsClassification
 from app.services.llm_eval import run_eval
 
 SETTINGS = LlmSettings("claude-haiku-4-5", "claude-sonnet-4-6", 0, 50, 5,
-                       {"claude-haiku-5-5": {"input": 0.1, "output": 0.5}, "claude-sonnet-5-5": {"input": 2, "output": 10}},
+                       {"claude-haiku-5-5": {"input": 0.1, "output": 0.5},
+                        "claude-sonnet-5-5": {"input": 2, "output": 10}},
                        Path("app/llm/prompts"), True,
                        {"claude-haiku-5-5": {"sampling": False, "thinking": {"type": "disabled"}}})  # fmt: skip
 
@@ -39,5 +40,6 @@ def test_eval_compares_fields_bypasses_the_cache_and_caps_the_cost(db_engine):
         assert rep.disagreements[0]["direction"] == ("positif", "negatif")
         assert all(o == {"sampling": False, "thinking": {"type": "disabled"}} for _, o in seen)
         assert s.query(LlmCache).count() == 0  # never stored as a cached answer
-        capped = run_eval(s, ClaudeGateway(SETTINGS, call=call), "claude-haiku-5-5", "claude-sonnet-5-5", 10, 0, 0.004)
+        gw = ClaudeGateway(SETTINGS, call=call)
+        capped = run_eval(s, gw, "claude-haiku-5-5", "claude-sonnet-5-5", 10, 0, 0.004)
         assert capped.news == 2 and "plafond" in capped.stopped
