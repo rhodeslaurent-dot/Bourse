@@ -30,13 +30,13 @@ _MONTHS = {
 }  # fmt: skip
 _NUM = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")
 _TXT = re.compile(
-    r"\b(\d{1,2})\s+(janv|jan|févr|fevr|fév|fev|mars|avr|mai|juin|juil|août|aout|sept|oct|nov|déc|dec)\.?\s+(\d{4})\b",
+    r"\b(\d{1,2})\s+(janv|jan|févr|fevr|fév|fev|mars|avr|mai|juin|juil|août|aout|sept|oct|nov|déc|dec)[^\W\d_]*\.?\s+(\d{4})\b",
     re.I,
 )  # noqa: E501
 _REL = re.compile(r"\b(aujourd'hui|aujourd’hui|hier|il y a \d+\s*(?:min|h|heure))", re.I)
 # « 24 oct. 14:32 » (Boursorama, last message of a thread): no year — the latest such date not in the future
 _TXT_NOYEAR = re.compile(
-    r"\b(\d{1,2})\s+(janv|jan|févr|fevr|fév|fev|mars|avr|mai|juin|juil|août|aout|sept|oct|nov|déc|dec)\.?\s+"
+    r"\b(\d{1,2})\s+(janv|jan|févr|fevr|fév|fev|mars|avr|mai|juin|juil|août|aout|sept|oct|nov|déc|dec)[^\W\d_]*\.?\s+"
     r"(\d{1,2})[:h](\d{2})\b",
     re.I,
 )

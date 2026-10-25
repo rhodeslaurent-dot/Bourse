@@ -3,7 +3,7 @@ closed lists of the classification."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from app.data.providers.social import forum_messages, repeated_classes, thread_links
 from app.domain.social_content import ContentParams, Message, aggregate, effect
@@ -182,3 +182,13 @@ def test_boursorama_topic_list_counts_each_topic_once():
     page = "".join(row.format(x=x) for x in ("16:05", "15:40", "24 oct. 14:32"))
     got = forum_times_in(page, now, "c-table__last-message")
     assert [(ts.day, ts.hour) for _, ts in got] == [(25, 16), (25, 15), (24, 14)]
+
+
+def test_full_month_names_are_read():
+    from app.data.providers.social import message_time
+
+    now = datetime(2026, 10, 25, 17, 0, tzinfo=PARIS)
+    assert message_time("24 octobre 2026", now)[0] == date(2026, 10, 24)
+    assert message_time("3 février 2026 08:10", now)[1] == datetime(2026, 2, 3, 8, 10, tzinfo=PARIS)
+    assert message_time("12 juillet 14:05", now)[1] == datetime(2026, 7, 12, 14, 5, tzinfo=PARIS)
+    assert message_time("24 oct. 2026", now)[0] == date(2026, 10, 24)
