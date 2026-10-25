@@ -81,6 +81,7 @@ def _observation(s) -> dict:  # type: ignore[no-untyped-def]
         "backtest": run,
         "segments": {k: v for k, v in segs.items() if k.startswith(("production:", "periode:"))},
         "essais": (run.summary or {}).get("essais") if run else None,
+        "portefeuille": (run.summary or {}).get("portefeuille") if run else None,
         "committee": committee_measure(s),
         "radar": radar,
     }

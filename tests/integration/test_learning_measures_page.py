@@ -18,7 +18,14 @@ def test_measures_section_renders_with_data(db_engine, config, calendars):
     with db_session() as s:
         s.add(BacktestRun(created_at=datetime.now(UTC), params_version="x", start=date(2018, 1, 1),
                           end=date(2026, 10, 23), instruments=784, summary={"segments": {
-                              "production:d2_breakout": seg, "detecteur:d2_breakout": seg}, "essais": 12},
+                              "production:d2_breakout": seg, "detecteur:d2_breakout": seg}, "essais": 12,
+                              "portefeuille": {
+                              "lignes_simultanees": 6, "note": "R réalisé seulement", "tout": {
+                                  "sans_coupe_circuit": {"taken": 50, "total_r": 12.0, "r_per_year": 3.0,
+                                                         "max_drawdown_r": -9.0},
+                                  "avec_coupe_circuit": {"taken": 44, "total_r": 11.0, "r_per_year": 2.8,
+                                                         "max_drawdown_r": -6.0},
+                                  "verdict_garde_fou": "adopter"}}},
                           notes=["biais de survie : optimiste"]))  # fmt: skip
         s.add(WeakSignalHit(isin="FR0000120271", day=date.today(), label="attention_corroboree", text="t",
                             computed_at=datetime.now(UTC)))  # fmt: skip
@@ -26,4 +33,5 @@ def test_measures_section_renders_with_data(db_engine, config, calendars):
     with TestClient(app) as c:
         html = c.get("/apprentissage").text
     assert "production:d2_breakout" in html and "detecteur:d2_breakout" not in html
+    assert "Portefeuille rejoué" in html and "adopter" in html
     assert "+0.120" in html and "biais de survie" in html and "attention corroboree : 1" in html

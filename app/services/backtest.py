@@ -209,6 +209,7 @@ def run_backtest(
                 )  # fmt: skip
     s.add_all(trades)
     run.summary = summarize_run(trades, start, end)
+    run.summary["portefeuille"] = portfolio_summary(trades, config, start, end)
     run.notes = [
         "biais de survie : univers actuel (les sociétés radiées depuis sont absentes) — résultats optimistes",
         "sans fondamentaux, lettres ni consensus historiques : ni bloc F, ni portail des lettres, ni score d'admission",
@@ -218,6 +219,37 @@ def run_backtest(
     ]
     s.flush()
     return run
+
+
+def portfolio_summary(trades: list[BacktestTrade], config: LoadedConfig, start: date, end: date) -> dict[str, Any]:
+    """docs/27 §27.7 — the production trades replayed as a portfolio (open-risk cap ÷ risk per trade
+    concurrent trades), without and with the rolling circuit breaker, on the whole run and the control period.
+    Adoption rule for a guard: max drawdown −20 % or better for at most 10 % of the yearly R lost."""
+    from app.domain.backtest import BreakerRule, ReplayTrade, portfolio_replay
+
+    risk = config.params.risk
+    caps = getattr(risk, "max_open_risk_pct_by_gate", None) or {"ouvert": 0.05}
+    slots = max(1, int(float(caps.get("ouvert", 0.05)) / float(risk.max_risk_per_trade_pct) + 1e-9))
+    extra = risk.circuit_breaker.model_extra or {}
+    rule = BreakerRule(
+        float(extra.get("loss_5_r", 3)), float(extra.get("loss_21_r", 6)), float(extra.get("peak_reduce_r", 8)),
+        float(extra.get("peak_block_r", 10)), float(extra.get("peak_reduce_multiplier", 0.5)),
+    )  # fmt: skip
+    mid = start + (end - start) * 3 / 5
+    prod = [t for t in trades if t.status == "admis" and not t.warned]
+    out: dict[str, Any] = {"lignes_simultanees": slots, "note": "R réalisé seulement (latent ignoré), 1 R par trade"}
+    for name, sel in (("tout", prod), ("controle", [t for t in prod if t.signal_day >= mid])):
+        rt = [ReplayTrade(t.entry_day, t.exit_day, t.r_net) for t in sel]
+        if not rt:
+            continue
+        a, b = portfolio_replay(rt, slots), portfolio_replay(rt, slots, rule)
+        verdict = None
+        if a.max_drawdown_r < 0 and a.r_per_year:
+            dd_gain = 1 - b.max_drawdown_r / a.max_drawdown_r
+            r_loss = 1 - (b.r_per_year or 0) / a.r_per_year if a.r_per_year > 0 else None
+            verdict = "adopter" if dd_gain >= 0.2 and r_loss is not None and r_loss <= 0.1 else "non démontré"
+        out[name] = {"sans_coupe_circuit": a.as_dict(), "avec_coupe_circuit": b.as_dict(), "verdict_garde_fou": verdict}
+    return out
 
 
 def summarize_run(trades: list[BacktestTrade], start: date, end: date) -> dict[str, Any]:

@@ -17,6 +17,7 @@ import math
 import random
 import statistics
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 from app.domain.indicators import Bar
 
@@ -134,4 +135,115 @@ def summarize(rs: list[float], holds: list[int] | None = None, seed: int = 7, dr
         gains / losses if losses > 0 else None,
         statistics.fmean(holds) if holds else None,
         bool(t is not None and t >= 3.0),
+    )
+
+
+# --- portfolio replay (docs/27 §27.7, contre-expertise du 25/10/2026) ---------------------------------
+
+
+@dataclass(frozen=True)
+class ReplayTrade:
+    entry_day: date
+    exit_day: date
+    r_net: float  # net R at full size
+
+
+@dataclass(frozen=True)
+class BreakerRule:
+    loss_5_r: float = 3.0
+    loss_21_r: float = 6.0
+    peak_reduce_r: float = 8.0
+    peak_block_r: float = 10.0
+    reduce_multiplier: float = 0.5
+
+
+@dataclass(frozen=True)
+class PortfolioResult:
+    taken: int
+    skipped_cap: int
+    skipped_breaker: int
+    total_r: float
+    r_per_year: float | None
+    max_drawdown_r: float
+    worst_21_sessions_r: float
+    return_over_drawdown: float | None
+
+    def as_dict(self) -> dict[str, float | int | None]:
+        return {k: (round(v, 3) if isinstance(v, float) else v) for k, v in self.__dict__.items()}
+
+
+def _change(days: list[date], vals: list[float], now: float, entry: date, sessions: int) -> float:
+    """Realised R gained since ``sessions`` sessions before ``entry`` (calendar approximation 7/5)."""
+    lim = entry - timedelta(days=sessions * 7 // 5)
+    base = [c for d, c in zip(days, vals, strict=True) if d < lim]
+    return now - (base[-1] if base else 0.0)
+
+
+def portfolio_replay(
+    trades: list[ReplayTrade], max_concurrent: int, breaker: BreakerRule | None = None
+) -> PortfolioResult:
+    """Chronological replay at 1 R per trade with at most ``max_concurrent`` open trades (the open-risk cap ÷
+    the risk per trade) and, optionally, the rolling circuit breaker on the **realised** R curve (latent
+    ignored: a simplification, stated). Trades are taken first come, first served (no look-ahead)."""
+    ts = sorted(trades, key=lambda t: (t.entry_day, t.exit_day))
+    open_: list[tuple[date, float]] = []  # (exit day, R at the size taken)
+    realised: list[tuple[date, float]] = []  # closed trades (exit day, R)
+    taken = cap = brk = 0
+
+    def curve_until(d: date) -> list[tuple[date, float]]:
+        return sorted((x for x in realised if x[0] < d), key=lambda x: x[0])
+
+    def cum_by_day(pts: list[tuple[date, float]]) -> list[tuple[date, float]]:
+        out: list[tuple[date, float]] = []
+        c = 0.0
+        for d, r in pts:
+            c += r
+            if out and out[-1][0] == d:
+                out[-1] = (d, c)
+            else:
+                out.append((d, c))
+        return out
+
+    for t in ts:
+        for x in [o for o in open_ if o[0] <= t.entry_day]:
+            open_.remove(x)
+            realised.append(x)
+        if len(open_) >= max_concurrent:
+            cap += 1
+            continue
+        size = 1.0
+        if breaker is not None:
+            cum = cum_by_day(curve_until(t.entry_day))  # only exits before the entry session are known
+            vals = [c for _, c in cum]
+            now = vals[-1] if vals else 0.0
+            days = [d for d, _ in cum]
+
+            peak = max([0.0, *[c for d, c in zip(days, vals, strict=True) if d >= t.entry_day - timedelta(days=30)]])
+            if (
+                _change(days, vals, now, t.entry_day, 5) <= -breaker.loss_5_r
+                or _change(days, vals, now, t.entry_day, 21) <= -breaker.loss_21_r
+                or now - peak <= -breaker.peak_block_r
+            ):
+                brk += 1
+                continue
+            if now - peak <= -breaker.peak_reduce_r:
+                size = breaker.reduce_multiplier
+        open_.append((t.exit_day, t.r_net * size))
+        taken += 1
+    realised += open_
+    cum = cum_by_day(sorted(realised, key=lambda x: x[0]))
+    vals = [c for _, c in cum]
+    peak, mdd = 0.0, 0.0
+    for v in vals:
+        peak = max(peak, v)
+        mdd = min(mdd, v - peak)
+    worst21 = 0.0
+    for i, (d, v) in enumerate(cum):
+        prior = [c for dd, c in cum[:i] if dd <= d - timedelta(days=30)]
+        worst21 = min(worst21, v - (prior[-1] if prior else 0.0))
+    total = vals[-1] if vals else 0.0
+    years = ((cum[-1][0] - ts[0].entry_day).days / 365.25) if cum and ts else 0.0
+    rpy = total / years if years > 0.5 else None
+    return PortfolioResult(
+        taken, cap, brk, total, rpy, mdd, worst21, (rpy / -mdd) if rpy is not None and mdd < 0 else None
     )

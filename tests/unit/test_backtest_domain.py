@@ -44,3 +44,20 @@ def test_summary_is_reproducible_and_flags_only_strong_evidence():
     assert s.ci_low < s.mean_r < s.ci_high and s.significant is (s.t_stat >= 3)
     assert summarize([1.0, -1.0, 2.0, -1.0, 0.5] * 40).as_dict() == s.as_dict() | {"avg_hold": None}
     assert summarize([]).n == 0 and summarize([]).significant is False
+
+
+def test_portfolio_replay_respects_the_cap_and_the_breaker():
+    from datetime import date, timedelta
+
+    from app.domain.backtest import BreakerRule, ReplayTrade, portfolio_replay
+
+    d0 = date(2025, 1, 6)
+    # 3 trades open at once with 2 slots: one skipped by the cap
+    same = [ReplayTrade(d0, d0 + timedelta(days=10), 1.0) for _ in range(3)]
+    r = portfolio_replay(same, 2)
+    assert r.taken == 2 and r.skipped_cap == 1 and r.total_r == 2.0
+    # a losing streak: 4 stops in a row, then more trades — the breaker skips entries after −3 R in 5 sessions
+    streak = [ReplayTrade(d0 + timedelta(days=k), d0 + timedelta(days=k + 1), -1.0) for k in range(8)]
+    plain, guarded = portfolio_replay(streak, 1), portfolio_replay(streak, 1, BreakerRule())
+    assert plain.total_r == -8.0 and guarded.skipped_breaker > 0 and guarded.total_r > plain.total_r
+    assert plain.max_drawdown_r == -8.0 and guarded.max_drawdown_r > -8.0

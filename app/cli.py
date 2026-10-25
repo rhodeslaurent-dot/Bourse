@@ -977,6 +977,19 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 flag = "  ✓ t ≥ 3" if v.get("significant") else ""
                 stats = f"{v['mean_r']:>+10.3f} {v['median_r']:>+7.2f} {v['hit_rate']:>8.0%}"
                 print(f"{k:<38} {v['n']:>5} {stats} {t:>6} {ci:>17}{flag}")
+        pf = sm.get("portefeuille") or {}
+        if pf:
+            print(f"\nPortefeuille rejoué ({pf.get('lignes_simultanees')} lignes simultanées, {pf.get('note')}) :")
+            for name in ("tout", "controle"):
+                v = pf.get(name)
+                if not v:
+                    continue
+                for variant in ("sans_coupe_circuit", "avec_coupe_circuit"):
+                    x = v[variant]
+                    print(f"  {name:<9} {variant:<20} {x['taken']:>5} trades  {x['total_r']:+8.1f} R  "
+                          f"R/an {x['r_per_year'] if x['r_per_year'] is not None else '—'}  "
+                          f"recul max {x['max_drawdown_r']:+.1f} R")  # fmt: skip
+                print(f"  {name:<9} garde-fou : {v.get('verdict_garde_fou') or '—'}")
         print("\nLimites :")
         for n in run.notes or []:
             print(f"  - {n}")
