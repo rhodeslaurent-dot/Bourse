@@ -84,6 +84,36 @@ def forum_times(html: str, now: datetime) -> list[tuple[date, datetime | None]]:
     return out
 
 
+_DATE_ANY = re.compile(f"{_NUM.pattern}|{_TXT.pattern}|{_REL.pattern}", re.I)
+_OPEN_TAG = re.compile(r"<(\w+)\b[^>]*?\bclass=[\"']([^\"']+)[\"']", re.I)
+
+
+def date_holders(html: str) -> dict[str, tuple[int, int]]:
+    """Diagnostics (``social-check --structure``): for each « tag.class » holding a date on the page, (dates,
+    dates with a time). Only markup names leave this function — never a text, an author or a pseudonym."""
+    out: dict[str, tuple[int, int]] = {}
+    for m in _DATE_ANY.finditer(html):
+        before = list(_OPEN_TAG.finditer(html, max(0, m.start() - 400), m.start()))
+        key = f"{before[-1].group(1).lower()}.{before[-1].group(2).strip()}" if before else "(sans classe)"
+        timed = _TIME.match(re.sub(r"<[^>]+>", " ", html[m.end() : m.end() + 40])) is not None
+        n, k = out.get(key, (0, 0))
+        out[key] = (n + 1, k + int(timed))
+    return dict(sorted(out.items(), key=lambda kv: -kv[1][0]))
+
+
+def forum_times_in(html: str, now: datetime, date_class: str) -> list[tuple[date, datetime | None]]:
+    """``forum_times`` restricted to the first date of each element whose class contains ``date_class`` (the
+    message date, not the thread creation or the « last reply » column)."""
+    out: list[tuple[date, datetime | None]] = []
+    for m in _OPEN_TAG.finditer(html):
+        if date_class not in m.group(2):
+            continue
+        found = forum_times(html[m.start() : m.end() + 300], now)
+        if found:
+            out.append(found[0])
+    return out
+
+
 def forum_dates(html: str, today: date) -> list[date]:
     """Dates of the messages of a forum page, in reading order."""
     now = datetime.combine(today, datetime.max.time().replace(microsecond=0))

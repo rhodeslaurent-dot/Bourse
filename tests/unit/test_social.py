@@ -57,3 +57,28 @@ def test_forum_url_falls_back_on_other_tickers():
     assert forum_url(Instrument(isin="X", name="A", mic="XPAR", ticker_eodhd="TTE.PA"), tpl).endswith("/1rPTTE/")
     assert forum_url(Instrument(isin="X", name="A", mic="XPAR", ticker_tv="EURONEXT:MC"), tpl).endswith("/1rPMC/")
     assert forum_url(Instrument(isin="X", name="A", mic="XETR", ticker_local="SAP"), tpl) is None
+
+
+def test_date_holders_and_date_class_count_one_date_per_message():
+    """25/10/2026: 41 dates read on both the Air Liquide and the TotalEnergies pages — a page of threads
+    shows a creation date and a « last reply » date per row. ``--structure`` shows where the dates sit
+    (markup names only), ``date_class`` keeps the message date alone."""
+    from datetime import datetime
+
+    from app.data.providers.social import date_holders, forum_times_in
+    from app.services.social import forum_page_dates
+
+    row = (
+        '<tr class="c-table__row"><td class="c-forum-topic"><a>Pseudo123</a> sujet</td>'
+        '<td class="c-forum-date c-forum-date--created">{c}</td>'
+        '<td class="c-forum-date--last">{l} 14:32</td></tr>'
+    )
+    html = "".join(row.format(c="20/10/2026", l=f"{d}/10/2026") for d in (23, 24, 25))
+    holders = date_holders(html)
+    assert holders == {"td.c-forum-date c-forum-date--created": (3, 0), "td.c-forum-date--last": (3, 3)}
+    assert not any("Pseudo" in k for k in holders)  # never a text or an author
+    now = datetime(2026, 10, 25, 18, 0)
+    got = forum_times_in(html, now, "c-forum-date--last")
+    assert [(d.day, ts.hour if ts else None) for d, ts in got] == [(23, 14), (24, 14), (25, 14)]
+    assert len(forum_page_dates(html, {}, TODAY)) == 6  # without date_class: both columns counted
+    assert len(forum_page_dates(html, {"date_class": "c-forum-date--last"}, TODAY)) == 3

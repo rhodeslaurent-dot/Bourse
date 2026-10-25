@@ -25,6 +25,22 @@ from app.domain.timeutil import PARIS
 log = logging.getLogger("bourse.social")
 
 
+def forum_page_times(html: str, bp: dict[str, Any], now: datetime) -> list[tuple[date, datetime | None]]:
+    """Message dates of a forum page with the configured restrictions: ``region_regex`` (part of the page)
+    and ``date_class`` (class of the element holding each message date, found with ``social-check
+    --structure``)."""
+    region = re.compile(bp["region_regex"], re.S) if bp.get("region_regex") else None
+    found = region.search(html) if region else None
+    block = found.group(0) if found else html
+    dc = bp.get("date_class")
+    return social.forum_times_in(block, now, str(dc)) if dc else social.forum_times(block, now)
+
+
+def forum_page_dates(html: str, bp: dict[str, Any], day: date) -> list[date]:
+    now = datetime.combine(day, datetime.max.time().replace(microsecond=0))
+    return [d for d, _ in forum_page_times(html, bp, now)]
+
+
 def forum_ticker(inst: Instrument) -> str | None:
     """The value's ticker for the forum address: local code, else the EODHD code, else the TradingView one."""
     for raw, sep in ((inst.ticker_local, "."), (inst.ticker_eodhd, "."), (inst.ticker_tv, ":")):
@@ -85,7 +101,6 @@ def collect_forum(s: Session, config: LoadedConfig, client: httpx.Client, day: d
     if not p.get("enabled"):
         return 0, []
     templates: dict[str, str] = p.get("url_template_by_mic") or {}
-    region = re.compile(p["region_regex"], re.S) if p.get("region_regex") else None
     now = datetime.now(UTC)
     n, errors = 0, []
     for inst in followed_values(s, int(p.get("max_values", 200)), day):
@@ -99,8 +114,7 @@ def collect_forum(s: Session, config: LoadedConfig, client: httpx.Client, day: d
             continue
         finally:
             time.sleep(float(p.get("interval_s", 2.0)))
-        block = region.search(html).group(0) if region and region.search(html) else html
-        dates = social.forum_dates(block, day)
+        dates = forum_page_dates(html, p, day)
         counts = {c.day: c.messages for c in social.daily_counts(dates)}
         for d in (day - timedelta(days=1), day):
             if d in counts:
@@ -203,10 +217,8 @@ def _recent_times_forum(
     url = forum_url(inst, p.get("url_template_by_mic") or {})
     if not p.get("enabled") or url is None:
         return []
-    region = re.compile(p["region_regex"], re.S) if p.get("region_regex") else None
     html = social.boursorama_page(url, client)
-    block = region.search(html).group(0) if region and region.search(html) else html
-    return [ts.timestamp() for _, ts in social.forum_times(block, now.astimezone(PARIS)) if ts is not None]
+    return [ts.timestamp() for _, ts in forum_page_times(html, p, now.astimezone(PARIS)) if ts is not None]
 
 
 def _reddit_times(s: Session, config: LoadedConfig, client: httpx.Client) -> dict[str, list[float]]:
@@ -364,7 +376,7 @@ def backfill(
                     break
                 finally:
                     time.sleep(float(bp.get("interval_s", 2.0)))
-                page = social.forum_dates(html, day)
+                page = forum_page_dates(html, bp, day)
                 if not page:
                     break
                 dates += page

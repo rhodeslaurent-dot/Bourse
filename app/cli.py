@@ -415,6 +415,7 @@ NEW_TOP_BLOCKS = [
     "derivatives",
     "media",  # docs/23 §23.7
     "weak_signals",
+    "weak_signals.social.boursorama",  # date_class (25/10/2026)
     "brokers.boursobank",
     "pea",  # docs/26
     "committee",  # docs/24 v2
@@ -1113,11 +1114,12 @@ def cmd_social_check(args: argparse.Namespace) -> int:
     from app.data.providers import social
     from app.db.models import Instrument
     from app.db.session import db_session
-    from app.services.social import collect_bluesky, collect_reddit, forum_url, social_params
+    from app.services.social import collect_bluesky, collect_reddit, forum_page_dates, forum_url, social_params
 
     cfg = load_params(args.params)
     sp = social_params(cfg)
-    tpl = ((sp.get("boursorama") or {}).get("url_template_by_mic")) or {}
+    bp = sp.get("boursorama") or {}
+    tpl = bp.get("url_template_by_mic") or {}
     today = _date.today()
     with httpx.Client(follow_redirects=True) as client, db_session() as s:
         for isin in [x.strip() for x in (args.isins or "").split(",") if x.strip()]:
@@ -1132,12 +1134,16 @@ def cmd_social_check(args: argparse.Namespace) -> int:
                 print(f"{isin} : pas d'adresse de forum — {why}")
                 continue
             try:
-                dates = social.forum_dates(social.boursorama_page(url, client), today)
+                html = social.boursorama_page(url, client)
             except Exception as exc:  # noqa: BLE001
                 print(f"{isin} : {url} → échec {exc.__class__.__name__}")
                 continue
+            dates = forum_page_dates(html, bp, today)
             counts = ", ".join(f"{c.day:%d/%m} {c.messages}" for c in social.daily_counts(dates)[-5:])
             print(f"{isin} {inst.name} : {url} → {len(dates)} date(s) lue(s) ; par jour : {counts or 'aucune'}")
+            if args.structure:  # markup names only: where the dates sit on the page (to set date_class)
+                for key, (n_dates, n_timed) in list(social.date_holders(html).items())[:8]:
+                    print(f"    {n_dates:>3} date(s), dont {n_timed} avec heure : {key[:90]}")
         n, errors = collect_reddit(s, cfg, client, today)
         print(f"Reddit : {n} couple(s) valeur × jour" + (f" ; {errors[:3]}" if errors else ""))
         n, errors = collect_bluesky(s, cfg, client, today)
@@ -1528,6 +1534,9 @@ def main(argv: list[str] | None = None) -> int:
     rc.set_defaults(fn=cmd_radar_check)
     sc3 = sub.add_parser("social-check", help="forums et réseaux : lecture et comptage (docs/26 S3)")
     sc3.add_argument("--isins", default="", help="valeurs dont lire le forum, ex. FR0000120073")
+    sc3.add_argument(
+        "--structure", action="store_true", help="où se trouvent les dates sur la page (balises et classes seulement)"
+    )
     sc3.set_defaults(fn=cmd_social_check)
     sb = sub.add_parser("social-backfill", help="rattrape l'historique des forums et de Reddit (docs/26 S3)")
     sb.add_argument("--days", type=int, default=60)
