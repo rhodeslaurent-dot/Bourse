@@ -115,10 +115,12 @@ def quote_at_analysis(
     return {i: check(s, i, got.get(i), max_gap, now) for i in isins}
 
 
-def plausible_quotes(s: Session, isins: list[str], config: Any, fallback: Any | None = None) -> dict[str, Quote]:
+def plausible_quotes(
+    s: Session, isins: list[str], config: Any, fallback: Any | None = None, now: datetime | None = None
+) -> dict[str, Quote]:
     """Quotes usable by an analysis: implausible ones are left out (« à vérifier »), never used."""
     out: dict[str, Quote] = {}
-    for isin, c in quote_at_analysis(s, isins, config, fallback).items():
+    for isin, c in quote_at_analysis(s, isins, config, fallback, now=now).items():
         if c.quote is not None and c.plausible:
             out[isin] = c.quote
         elif c.quote is not None:

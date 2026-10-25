@@ -129,7 +129,7 @@ def test_quote_at_analysis_plausibility(db_engine, config):
         arkema = res["FR0000120578"]  # référentiel §11.2 : 87,20 transmis pour 60,70 réel
         assert not arkema.plausible and arkema.note.startswith("à vérifier")
         assert arkema.as_fact()["statut"] == "delayed"
-        kept = plausible_quotes(s, list(quotes), config, fallback=lambda xs: {i: quotes[i] for i in xs})
+        kept = plausible_quotes(s, list(quotes), config, fallback=lambda xs: {i: quotes[i] for i in xs}, now=NOW)
         assert set(kept) == {"FR0000120271", "FR0000131104"}
 
 
