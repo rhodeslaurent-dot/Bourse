@@ -900,14 +900,22 @@ def cmd_shorts_check(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001 — a diagnostic
         print(f"{args.authority} : échec — {exc}")
         return 1
-    by_isin: dict[str, float] = {}
-    for r in rows:
-        by_isin[r.isin] = by_isin.get(r.isin, 0.0) + r.pct
+    latest: dict[tuple[str, str], object] = {}
+    for r in rows:  # same rule as the cards: latest position of each holder, counted from 0.5 %
+        k = (r.isin, r.holder)
+        if k not in latest or r.position_date > latest[k].position_date:  # type: ignore[attr-defined]
+            latest[k] = r
+    by_isin: dict[str, tuple[float, int, str]] = {}
+    for r in latest.values():
+        if r.pct >= 0.005:  # type: ignore[attr-defined]
+            tot, n, issuer = by_isin.get(r.isin, (0.0, 0, r.issuer or ""))  # type: ignore[attr-defined]
+            by_isin[r.isin] = (tot + r.pct, n + 1, issuer)  # type: ignore[attr-defined]
     print(f"{args.authority} : {len(rows)} position(s) lue(s) depuis {url}")
     if rows:
         print(f"dates : {min(r.position_date for r in rows)} → {max(r.position_date for r in rows)}")
-        for isin, pct in sorted(by_isin.items(), key=lambda kv: -kv[1])[:5]:
-            print(f"  {isin}  {pct * 100:.2f} % (somme des lignes du fichier)")
+        print("positions courtes déclarées actuelles (dernière position de chaque détenteur ≥ 0,5 %) :")
+        for isin, (pct, n, issuer) in sorted(by_isin.items(), key=lambda kv: -kv[1][0])[:5]:
+            print(f"  {isin}  {issuer[:30]:<30} {pct * 100:.2f} % ({n} détenteur(s))")
     if args.store and rows:
         from app.db.session import db_session
         from app.services.short_positions import store
