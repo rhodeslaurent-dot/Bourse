@@ -384,7 +384,8 @@ NEW_TOP_BLOCKS = [
     "derivatives",
     "media",  # docs/23 §23.7
     "weak_signals",
-    "brokers.boursobank",  # docs/26
+    "brokers.boursobank",
+    "pea",  # docs/26
     "committee",  # docs/24 v2
 ]
 NEW_CHILD_PARENTS = [

@@ -292,3 +292,10 @@ def test_turbo_criteria_barrier_under_stop_and_premium_loss():
     loose = turbo_criteria(100.0, 95.0, 300, 0.01, 20)
     assert loose.barrier_max == 94.05 and loose.leverage_indicative == 16.81
     assert turbo_criteria(100.0, 101.0, 300, 0.01, 5) is None
+
+
+def test_a_young_pea_without_planned_withdrawal_is_taxed_at_social_contributions_only():
+    assert envelope_tax_rate("pea", 0.314, 0.186, 0.4) == 0.314  # prudent default
+    assert envelope_tax_rate("pea", 0.314, 0.186, 0.4, no_withdrawal_before_5y=True) == 0.186
+    assert envelope_tax_rate("pea", 0.314, 0.186, None, no_withdrawal_before_5y=True) == 0.186
+    assert envelope_tax_rate("cto_cash", 0.314, 0.186, None, no_withdrawal_before_5y=True) == 0.314

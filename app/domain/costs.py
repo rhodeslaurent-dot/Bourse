@@ -95,10 +95,16 @@ def net_outcome(
 
 
 def envelope_tax_rate(
-    account: str, pfu_total_rate: float, pea_social_rate: float, pea_age_years: float | None
+    account: str,
+    pfu_total_rate: float,
+    pea_social_rate: float,
+    pea_age_years: float | None,
+    no_withdrawal_before_5y: bool = False,
 ) -> float:
-    """Rate applied to a gain for ranking (docs/08 §8.7): PEA ≥ 5 years → social contributions only;
-    PEA younger or of unknown age → PFU (prudent); CTO (cash or SRD) → PFU."""
-    if account == "pea" and pea_age_years is not None and pea_age_years >= 5:
+    """Rate applied to a gain for ranking (docs/08 §8.7): PEA ≥ 5 years → social contributions only; a
+    younger PEA too when the user declared no withdrawal before its 5 years (``pea.no_withdrawal_before_5y``,
+    decision of 25/10/2026: the gains stay in the envelope and only the social contributions are due at the
+    withdrawal); otherwise PFU (prudent); CTO (cash or SRD) → PFU."""
+    if account == "pea" and (no_withdrawal_before_5y or (pea_age_years is not None and pea_age_years >= 5)):
         return pea_social_rate
     return pfu_total_rate

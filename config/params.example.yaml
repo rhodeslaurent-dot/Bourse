@@ -471,7 +471,8 @@ pea:
   pea_pme_cap_eur: 225000   # [info]
   srd_allowed: false   # [info]
   leverage_allowed: false   # [info]
-  opening_date: null                    # à renseigner
+  opening_date: null                    # date du PREMIER VERSEMENT (départ du délai de 5 ans), ex. "2026-05-23"
+  no_withdrawal_before_5y: true         # décision du 25/10/2026 : aucun retrait prévu avant 5 ans → gains du PEA comptés aux seuls prélèvements sociaux (un retrait avant 5 ans clôturerait le PEA et coûterait le PFU)
   deposits_total_eur: null              # [info] à renseigner (ou import)
 
 brokers:

@@ -348,6 +348,7 @@ def evaluate(
                 float(tax.get("pfu_total_rate") or 0),
                 float(tax.get("pea_ps_rate_after_5y") or tax.get("social_contributions_rate") or 0),
                 pea_age,
+                bool((p.pea or {}).get("no_withdrawal_before_5y", False)),
             ),
             assume_loss_offset=bool(tax.get("assume_loss_offset", False)),
         )
@@ -404,6 +405,10 @@ def evaluate(
                 row["blocage_taille"] = sz.blocked
         per_account[acc] = row
     ev.details["comptes"] = per_account
+    if "pea" in per_account and (p.pea or {}).get("no_withdrawal_before_5y") and (pea_age is None or pea_age < 5):
+        ev.details["fiscalite_pea"] = (
+            "PEA imposé aux seuls prélèvements sociaux : suppose aucun retrait avant 5 ans (choix du 25/10/2026)"
+        )
     ev.details["ttf"] = {"due": ttf_due, "base": ttf_basis}
     # SRD (R13): only if better than cash, or cash short on the cash accounts; restricted on Brent (R12)
     if best and best[0] == "cto_srd":
