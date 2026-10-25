@@ -155,3 +155,20 @@ def test_tradingview_target_with_accounts_in_another_currency_is_shown_not_used(
         _, shown = facts(s, s.get(Instrument, "FR0000120271"))
     assert shown["tradingview"]["devise_incertaine"] is True and shown.get("objectif_analystes") is None
     assert analyst_target(shown, 3, "EUR") is None
+
+
+def test_amf_open_data_layout_of_25_10_2026():
+    """Headers of the AMF export read on 25/10/2026 (data.gouv.fr): the percentage column is « Ratio »."""
+    csv_text = (
+        "Detenteur de la position courte nette;Legal Entity Identifier detenteur;Emetteur / issuer;Ratio;code ISIN;"
+        "Date de debut position;Date de debut de publication position;Date de fin de publication position\n"
+        "12 WEST CAPITAL MANAGEMENT LP;549300CTKKI0FKNCD259;UBISOFT ENTERTAINMENT;0.35;FR0000054470;2015-10-06;"
+        "2015-10-07;2015-10-08\n"
+        "12 WEST CAPITAL MANAGEMENT LP;549300CTKKI0FKNCD259;UBISOFT ENTERTAINMENT;1.17;FR0000054470;2015-10-05;"
+        "2015-10-06;2015-10-08\n"
+    )
+    rows = rows_from_table(read_table(csv_text.encode()))
+    assert [(r.holder, r.issuer, r.pct, r.position_date) for r in rows] == [
+        ("12 WEST CAPITAL MANAGEMENT LP", "UBISOFT ENTERTAINMENT", pytest.approx(0.0035), date(2015, 10, 6)),
+        ("12 WEST CAPITAL MANAGEMENT LP", "UBISOFT ENTERTAINMENT", pytest.approx(0.0117), date(2015, 10, 5)),
+    ]

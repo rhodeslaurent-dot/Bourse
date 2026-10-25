@@ -30,7 +30,7 @@ HEADERS: dict[str, tuple[str, ...]] = {
     "pct": (
         "position courte", "net short position", "netto-leerverkaufsposition", "leerverkaufsposition", "posicion",
         "positie", "short position", "positionens storlek", "position in %", "position (%)", "netto short",
-        "net short", "%", "position",
+        "net short", "%", "ratio", "position",
     ),
     "date": ("date", "datum", "fecha", "dato"),
 }  # fmt: skip
