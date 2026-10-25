@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 from app.config import ConfigError, load_params
 
@@ -948,6 +948,41 @@ def cmd_exchange_list_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backtest(args: argparse.Namespace) -> int:
+    """docs/27 — replay the detectors on the stored history at full cost; prints the production segments
+    (admitted, no warning) and the run's known biases. Stored for the ranking prior and /apprentissage."""
+    from app.db.session import db_session
+    from app.services.backtest import run_backtest
+
+    cfg = load_params(args.params)
+    end = date.fromisoformat(args.to) if args.to else date.today() - timedelta(days=1)
+    start = date.fromisoformat(args.from_date) if args.from_date else end - timedelta(days=365 * 8)
+    dets = args.detectors.split(",") if args.detectors else None
+
+    def progress(k: int, n: int) -> None:
+        if k % 50 == 0 or k == n:
+            print(f"  {k}/{n} valeurs rejouées", flush=True)
+
+    with db_session() as s:
+        run = run_backtest(s, cfg, start, end, None, dets, progress)
+        seg = (run.summary or {}).get("segments", {})
+        sm = run.summary or {}
+        print(f"\nbacktest n° {run.id} : {start} → {end}, {run.instruments} valeurs, {sm.get('trades')} trades, "
+              f"{sm.get('essais')} segments testés")  # fmt: skip
+        print(f"{'segment':<38} {'n':>5} {'R net moy.':>10} {'médian':>7} {'gagnants':>8} {'t':>6} {'IC 95 %':>17}")
+        for k, v in seg.items():
+            if k.startswith(("production:", "periode:")):
+                ci = f"[{v['ci_low']:+.2f} ; {v['ci_high']:+.2f}]" if v.get("ci_low") is not None else "—"
+                t = f"{v['t_stat']:.1f}" if v.get("t_stat") is not None else "—"
+                flag = "  ✓ t ≥ 3" if v.get("significant") else ""
+                stats = f"{v['mean_r']:>+10.3f} {v['median_r']:>+7.2f} {v['hit_rate']:>8.0%}"
+                print(f"{k:<38} {v['n']:>5} {stats} {t:>6} {ci:>17}{flag}")
+        print("\nLimites :")
+        for n in run.notes or []:
+            print(f"  - {n}")
+    return 0
+
+
 def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
     """docs/19 §19.6 — examine the latest matching letters (read-only): subject, link labels and
     hosts (never the content), then follow the configured link of each and print its status."""
@@ -1211,6 +1246,11 @@ def main(argv: list[str] | None = None) -> int:
     el.add_argument("--file", required=True, help="liste Euronext téléchargée (CSV ou Excel)")
     el.add_argument("--market", default="Milan", help="ne garder que les lignes dont le marché contient ce mot")
     el.set_defaults(fn=cmd_exchange_list_load)
+    bt = sub.add_parser("backtest", help="rejoue les détecteurs sur l'historique au coût complet (docs/27)")
+    bt.add_argument("--from", dest="from_date", default=None, help="début (défaut : 8 ans)")
+    bt.add_argument("--to", default=None)
+    bt.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous les actifs)")
+    bt.set_defaults(fn=cmd_backtest)
     bf = sub.add_parser("backfill")
     bf.add_argument("--provider", default="eodhd")
     bf.add_argument("--from", dest="from_date", required=True)

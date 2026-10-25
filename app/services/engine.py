@@ -790,6 +790,14 @@ def scan(
                     if track is not None and track.verdict != "insuffisant":
                         ev.expected_r = track.shrunk_r
                     ev.details["historique"] = track.as_dict() if track is not None else None
+                    if ev.expected_r is None:  # docs/27 §27.5: the backtest seeds the ranking until live history exists
+                        from app.services.backtest import prior_expected_r
+
+                        k = int(getattr(getattr(p, "learning", None), "shrinkage_k", 20) or 20)
+                        prior = prior_expected_r(s, setup.detector, k)
+                        if prior is not None:
+                            ev.expected_r = round(prior[0], 3)
+                            ev.details["esperance_backtest"] = {"r_net_retreci": round(prior[0], 3), "n": prior[1]}
                 evals.append(ev)
         except Exception as exc:  # noqa: BLE001 — one bad instrument never stops the scan
             rep.errors.append(f"{inst.isin}: {exc.__class__.__name__}")

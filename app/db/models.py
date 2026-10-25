@@ -961,6 +961,45 @@ class MediaMention(Base):
     __table_args__ = (UniqueConstraint("source", "item_guid", "name", name="uq_media_mentions_item_name"),)
 
 
+class BacktestRun(Base):
+    """A backtest of the detectors at full cost (docs/27): settings, segments' statistics, known biases."""
+
+    __tablename__ = "backtest_runs"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    params_version: Mapped[str] = mapped_column(String(32))
+    start: Mapped[date] = mapped_column(Date)
+    end: Mapped[date] = mapped_column(Date)
+    instruments: Mapped[int] = mapped_column(Integer)
+    settings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    notes: Mapped[list | None] = mapped_column(JSON, nullable=True)  # biases and exclusions, always shown
+
+
+class BacktestTrade(Base):
+    __tablename__ = "backtest_trades"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    run_id: Mapped[int] = mapped_column(Integer, index=True)
+    isin: Mapped[str] = mapped_column(String(12))
+    detector: Mapped[str] = mapped_column(String(32))
+    signal_day: Mapped[date] = mapped_column(Date)
+    entry_day: Mapped[date] = mapped_column(Date)
+    exit_day: Mapped[date] = mapped_column(Date)
+    entry: Mapped[float]
+    exit: Mapped[float]
+    stop: Mapped[float]
+    target: Mapped[float]
+    reason: Mapped[str] = mapped_column(String(12))
+    status: Mapped[str] = mapped_column(String(12))  # admis | refuse (at the signal)
+    warned: Mapped[bool] = mapped_column(Boolean, default=False)
+    regime: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    r_gross: Mapped[float]
+    r_net: Mapped[float]
+    mfe_r: Mapped[float]
+    mae_r: Mapped[float]
+    sessions: Mapped[int] = mapped_column(Integer)
+
+
 class Fundamentals(Base):
     """Free fundamentals / analyst consensus of an instrument on a day (source and date kept)."""
 

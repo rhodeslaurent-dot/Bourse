@@ -626,6 +626,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   opportunity_scan: {cron: "50 7 * * 1-5", misfire_grace_min: 180, market_days_only: true}   # docs/22 §22.4 : moteur de propositions classées
   portfolio_review: {cron: "30 8 * * 6", misfire_grace_min: 720, market_days_only: false}   # docs/22 §22.5 : revue de portefeuille du samedi
   fixing_card: {cron: "15 17 * * 1-5", misfire_grace_min: 10, market_days_only: true}   # R6 : entrée au fixing de clôture sur repli qui tient (entry.fixing_card_time)
+  backtest_weekly: {cron: "30 10 * * 0", misfire_grace_min: 1440, market_days_only: false}   # docs/27 : rejeu des détecteurs au coût complet (≈ 20 min)
   short_positions_refresh: {cron: "40 19 * * 1-5", misfire_grace_min: 720, market_days_only: false}   # docs/23 S2 : positions courtes nettes publiées par les autorités
   fundamentals_refresh: {cron: "0 9 * * 0", misfire_grace_min: 1440, market_days_only: false}   # fondamentaux et consensus gratuits (Yahoo), hebdomadaire
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h
