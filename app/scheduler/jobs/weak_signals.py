@@ -54,6 +54,7 @@ def run(ctx: JobContext) -> int:
                     notes += backfill(s, ctx.config, client, ctx.run_date, missing)
             except Exception as exc:  # noqa: BLE001
                 notes.append(f"rattrapage en échec ({exc.__class__.__name__})")
+        notes += positions_content(s, ctx, client)  # docs/30 S4a: a negative rumour about a held value
         hits = compute_hits(s, ctx.config, ctx.run_date - timedelta(days=1))
         by: dict[str, int] = {}
         for h in hits:
@@ -61,3 +62,59 @@ def run(ctx: JobContext) -> int:
         notes.append("étiquettes : " + (", ".join(f"{k} {v}" for k, v in sorted(by.items())) or "aucune"))
     ctx.note = " ; ".join(notes)
     return len(hits)
+
+
+def positions_content(s, ctx: JobContext, client: httpx.Client) -> list[str]:  # type: ignore[no-untyped-def]
+    """Once a day, the forum messages of the open positions: a strong negative theme becomes a P2 caution
+    (« rumeur négative, à surveiller ») — a P1 only when the press confirms it (news flow, docs/30 §30.7)."""
+    from app.db.models import Instrument, PositionRow
+    from app.services.social_content import analyse, content_params, facts
+
+    if not content_params(ctx.config).get("enabled"):
+        return []
+    isins = list(
+        dict.fromkeys(
+            s.scalars(select(PositionRow.isin).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0))
+        )
+    )
+    n = 0
+    for isin in isins:
+        inst = s.get(Instrument, isin)
+        if inst is None:
+            continue
+        try:
+            with s.begin_nested():
+                row = analyse(s, ctx.config, client, inst, "position", ctx.llm)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("contenu %s : %s", isin, exc.__class__.__name__)
+            continue
+        if row is None:
+            continue
+        n += 1
+        d = row.data or {}
+        if d.get("solidite") == "fort" and d.get("direction") == "negatif" and ctx.alerts is not None:
+            from app.db.models import NewsItem
+            from app.notify.base import Event
+            from app.services.instruments import name_of
+
+            since = row.computed_at - timedelta(hours=48)
+            news = s.scalars(select(NewsItem).where(NewsItem.fetched_at >= since))
+            published = sum(1 for x in news if isin in (x.isins or []))
+            ctx.alerts.emit(
+                s,
+                Event(
+                    "P2",
+                    "forum_rumeur_negative",
+                    f"Position {name_of(isin)} : rumeur négative sur le forum",
+                    [
+                        *facts(row)[:4],
+                        f"{published} publication(s) rattachée(s) sur 48 h"
+                        if published
+                        else "Aucune publication rattachée sur 48 h : à surveiller, pas un signal de vente",
+                        "Valeur : /valeur/" + isin,
+                    ],
+                    isin=isin,
+                ),  # fmt: skip
+                ctx.mode,
+            )
+    return [f"contenu du forum lu pour {n} position(s)"] if isins else []

@@ -6,6 +6,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field
 
+from app.domain.social_content import DIRECTIONS, NATURES
+from app.domain.social_content import THEMES as FORUM_THEMES
+
 # Length limits are *soft*: an over-long text from the model is clipped (and a too-long list cut)
 # instead of failing the whole answer (22/10/2026: a 301-character summary made a letters review
 # fail). The limits stay in the JSON schema given to the model. A literal quote is clipped without
@@ -243,3 +246,26 @@ class ChairOut(BaseModel):
     motifs: Items(CommitteeArgument, 4) = Field(default_factory=list)
     dissidence_retenue_ou_ecartee: Text(300) = ""
     condition_de_revision: Text(220) = ""
+
+
+# docs/30 S4a — forum messages (closed lists; an unknown value is « non_classe », never a guess)
+def _closed(values: tuple[str, ...]) -> Any:
+    allowed = (*values, "non_classe")
+    return Annotated[
+        Literal[allowed],  # type: ignore[valid-type]
+        BeforeValidator(lambda v: v if v in allowed else "non_classe"),
+    ]
+
+
+class ForumMessageLabel(BaseModel):
+    i: int = Field(ge=0)  # index of the message in the batch
+    theme: _closed(FORUM_THEMES)  # type: ignore[valid-type]
+    nature: _closed(NATURES)  # type: ignore[valid-type]
+    direction: _closed(DIRECTIONS)  # type: ignore[valid-type]
+    precision: _closed(("precise", "vague"))  # type: ignore[valid-type]
+    source_citee: _closed(("aucune", "presse", "communique", "regulateur", "reseau", "autre"))  # type: ignore[valid-type]
+    resume: Text(200)
+
+
+class ForumBatchLabels(BaseModel):
+    messages: Items(ForumMessageLabel, 40)

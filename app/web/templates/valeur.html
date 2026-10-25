@@ -67,6 +67,19 @@
 </section>
 
 <section class="card">
+  <div class="flex flex-wrap items-baseline justify-between gap-2">
+    <h2 class="font-semibold">Échanges du forum</h2>
+    <form method="post" action="/valeur/{{ isin }}/echanges"><button class="rounded-lg px-3 py-1 text-xs bg-sky-700 hover:bg-sky-800 text-white" type="submit">Lire les échanges</button></form>
+  </div>
+  {% if forum %}
+  <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">lu {{ forum.computed_at|dual }} · {{ forum.reason }}{% if forum.effect == 'emballement' %} · {{ badge('emballement : entrée bloquée', 'red') }}{% elif forum.effect == 'renforce' %} · {{ badge('signal solide', 'green') }}{% endif %}</p>
+  <ul class="mt-2 text-sm list-disc pl-5">{% for f in forum_facts %}<li>{{ f }}</li>{% endfor %}</ul>
+  {% for t in forum.threads or [] %}<a class="mt-1 block text-xs hover:underline" href="{{ t }}" rel="noopener" target="_blank">fil {{ loop.index }}</a>{% endfor %}
+  <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Ni message ni auteur conservés : comptages et résumés neutres. Un échange de forum n'est jamais une raison d'acheter.</p>
+  {% else %}<p class="mt-2 text-sm text-slate-500">Pas de lecture récente (48 h). Lue automatiquement quand le radar s'anime ou pour une position.</p>{% endif %}
+</section>
+
+<section class="card">
   <h2 class="font-semibold">Ma note sur la valeur</h2>
   {{ note('isin', isin, note, '/valeur/' ~ isin, 'Thèse, catalyseurs, niveaux à surveiller…') }}
 </section>

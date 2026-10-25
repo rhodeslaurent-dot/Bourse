@@ -415,7 +415,8 @@ NEW_TOP_BLOCKS = [
     "derivatives",
     "media",  # docs/23 §23.7
     "weak_signals",
-    "weak_signals.social.boursorama",  # date_class (25/10/2026)
+    "weak_signals.social.boursorama",  # date_class, thread and message classes (25/10/2026)
+    "weak_signals.content",  # docs/30
     "brokers.boursobank",
     "pea",  # docs/26
     "committee",  # docs/24 v2
@@ -1144,10 +1145,80 @@ def cmd_social_check(args: argparse.Namespace) -> int:
             if args.structure:  # markup names only: where the dates sit on the page (to set date_class)
                 for key, (n_dates, n_timed) in list(social.date_holders(html).items())[:8]:
                     print(f"    {n_dates:>3} date(s), dont {n_timed} avec heure : {key[:90]}")
+            if args.threads:  # docs/30: thread pages — link shapes and repeated classes, never a text
+                _thread_diagnostic(html, url, bp, client)
         n, errors = collect_reddit(s, cfg, client, today)
         print(f"Reddit : {n} couple(s) valeur × jour" + (f" ; {errors[:3]}" if errors else ""))
         n, errors = collect_bluesky(s, cfg, client, today)
         print(f"Bluesky : {n} valeur(s) comptée(s)" + (f" ; {errors[:3]}" if errors else ""))
+    return 0
+
+
+def _thread_diagnostic(html: str, url: str, bp: dict, client) -> None:  # type: ignore[no-untyped-def,type-arg]
+    """``social-check --threads`` (docs/30 S4a): the link shapes of the list page, then the repeated classes
+    of one thread page, so that ``thread_link_regex`` and the message / author / text classes can be set.
+    Markup names, counts and lengths only — never a message, an author or a pseudonym."""
+    import re
+    import secrets
+    from datetime import UTC, datetime
+
+    from app.data.providers import social
+    from app.domain.timeutil import PARIS
+
+    print("    liens de la page (forme, nombre) :")
+    for shape, n in social.link_patterns(html):
+        print(f"      {n:>3} × {shape[:100]}")
+    rx = bp.get("thread_link_regex")
+    links = social.thread_links(html, url, rx) if rx else []
+    if not links:
+        print("    thread_link_regex non réglé ou sans correspondance : fil choisi parmi les liens du forum")
+        forum = re.escape(url.split("://", 1)[-1].split("/", 1)[-1].rstrip("/"))
+        links = social.thread_links(html, url, rf"/{forum}/.+\d") or social.thread_links(html, url, r"/forum/.+/\d+")
+    if not links:
+        print("    aucun lien de fil trouvé")
+        return
+    page = social.boursorama_page(links[0], client)
+    print(f"    fil lu : {links[0]}")
+    print("    classes répétées (élément.classe, nombre, longueur médiane du texte) :")
+    for key, n, med in social.repeated_classes(page):
+        print(f"      {n:>3} × {med:>4} car. : {key[:100]}")
+    sel = {"message": str(bp.get("message_class") or ""), "author": str(bp.get("author_class") or ""),
+           "text": str(bp.get("text_class") or ""), "date": str(bp.get("message_date_class") or "")}  # fmt: skip
+    if sel["message"] and sel["text"]:
+        msgs = social.forum_messages(page, sel, datetime.now(UTC).astimezone(PARIS), secrets.token_hex(8))
+        print(
+            f"    avec les classes réglées : {len(msgs)} message(s), {sum(1 for m in msgs if m.ts)} avec heure, "
+            f"{len({m.author_key for m in msgs if m.author_key})} auteur(s) distinct(s), "
+            f"longueur médiane {sorted(len(m.text) for m in msgs)[len(msgs) // 2] if msgs else 0} car."
+        )
+
+
+def cmd_social_content(args: argparse.Namespace) -> int:
+    """docs/30 S4a — read and label the recent forum messages of the given values now; prints the facts."""
+    import httpx
+
+    from app.db.models import Instrument
+    from app.db.session import db_session
+    from app.llm.gateway import ClaudeGateway, settings_from
+    from app.services.social_content import analyse, facts
+
+    cfg = load_params(args.params)
+    st = settings_from(cfg)
+    gw = ClaudeGateway(st) if st else None
+    with httpx.Client(follow_redirects=True) as client, db_session() as s:
+        for isin in [x.strip().upper() for x in (args.isins or "").split(",") if x.strip()]:
+            inst = s.get(Instrument, isin)
+            if inst is None:
+                print(f"{isin} : valeur absente de la base")
+                continue
+            row = analyse(s, cfg, client, inst, "demande", gw)
+            if row is None:
+                print(f"{isin} : lecture du contenu désactivée (weak_signals.content.enabled) ou plafond du jour")
+                continue
+            print(f"{isin} {inst.name} : statut {row.status}, coût {row.cost_usd:.4f} $" +
+                  (f", effet {row.effect}" if row.effect else ""))  # fmt: skip
+            for f in facts(row):
+                print(f"    {f}")
     return 0
 
 
@@ -1537,6 +1608,10 @@ def main(argv: list[str] | None = None) -> int:
     sc3.add_argument(
         "--structure", action="store_true", help="où se trouvent les dates sur la page (balises et classes seulement)"
     )
+    sc3.add_argument("--threads", action="store_true", help="pages de fil : formes des liens et classes répétées")
+    scc = sub.add_parser("social-content", help="lit et classe les messages récents du forum (docs/30)")
+    scc.add_argument("--isins", default="", help="ex. FR0000120271")
+    scc.set_defaults(fn=cmd_social_content)
     sc3.set_defaults(fn=cmd_social_check)
     sb = sub.add_parser("social-backfill", help="rattrape l'historique des forums et de Reddit (docs/26 S3)")
     sb.add_argument("--days", type=int, default=60)

@@ -26,6 +26,7 @@ def run(ctx: JobContext) -> int:
         hits = watch(s, ctx.config, client)
         buzz = [h for h in hits if h.label == "buzz_precoce"]
         created = 0
+        contents = read_contents(s, ctx, client, [h.isin for h in hits])  # docs/30: what is it about?
         if buzz:
             from app.services.engine import enabled, scan
             from app.services.quotes import plausible_quotes
@@ -46,6 +47,7 @@ def run(ctx: JobContext) -> int:
                     "Aucune publication rattachée sur 48 h · prix encore peu bougé (5 séances)"
                     if h.label == "buzz_precoce"
                     else "Petite capitalisation, volume anormal, aucune publication : entrée BLOQUÉE",
+                    *[f"Forum : {x}" for x in contents.get(h.isin, [])[:3]],
                     "Fiche et niveaux : /opportunites · valeur : /valeur/" + h.isin,
                     "Pas un ordre : signal faible public, à examiner vite",
                 ]
@@ -60,5 +62,32 @@ def run(ctx: JobContext) -> int:
                     ),  # fmt: skip
                     ctx.mode,
                 )
-    ctx.note = f"{len(hits)} étiquette(s) nouvelle(s), {created} proposition(s) préparée(s)"
+    ctx.note = f"{len(hits)} étiquette(s) nouvelle(s), {created} proposition(s) préparée(s)" + (
+        f", contenu lu pour {len(contents)} valeur(s)" if contents else ""
+    )
     return len(hits)
+
+
+def read_contents(s, ctx: JobContext, client: httpx.Client, isins: list[str]) -> dict[str, list[str]]:  # type: ignore[no-untyped-def]
+    """docs/30 S4a — the messages of the flagged values are read and labelled before the targeted scan, so
+    that the card says what the chatter is about (and a pump carried by few accounts blocks the entry)."""
+    from app.db.models import Instrument
+    from app.services.social_content import analyse, facts
+
+    out: dict[str, list[str]] = {}
+    for isin in dict.fromkeys(isins):
+        inst = s.get(Instrument, isin)
+        if inst is None:
+            continue
+        try:
+            with s.begin_nested():
+                row = analyse(s, ctx.config, client, inst, "radar", ctx.llm)
+        except Exception as exc:  # noqa: BLE001 — the alert and the scan go on without the content
+            log.warning("contenu %s : %s", isin, exc.__class__.__name__)
+            continue
+        if row is not None:
+            lines = [f for f in facts(row) if not f.startswith("résumé")][1:3] or facts(row)[:1]
+            if row.effect == "emballement":
+                lines = ["peu de comptes ou messages promotionnels : entrée BLOQUÉE (emballement)", *lines[:1]]
+            out[isin] = lines
+    return out

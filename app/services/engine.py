@@ -280,6 +280,22 @@ def evaluate(
             ev.blocked.append(
                 "BLOQUÉ : emballement non corroboré — attention et volume anormaux sans information publiée (docs/26)"
             )
+    from app.services.social_content import facts as content_facts
+    from app.services.social_content import latest as content_latest
+
+    content = content_latest(s, inst.isin, now)
+    if content is not None:  # docs/30: what the chatter is about — a fact, a block, never a reason to buy
+        ev.details["echanges_forum"] = {
+            "faits": content_facts(content),
+            "effet": content.effect,
+            "solidite": (content.data or {}).get("solidite"),
+            "lu_a": content.computed_at.isoformat(timespec="minutes"),
+        }
+        if content.effect == "emballement":
+            ev.blocked.append(
+                "BLOQUÉ : emballement — échanges portés par peu de comptes ou promotionnels sur une petite "
+                "capitalisation (docs/30)"
+            )
     # --- costs per account (R11, R13) ---
     from app.services.ttf import ttf_status
 

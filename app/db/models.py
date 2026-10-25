@@ -1119,3 +1119,24 @@ class RiskDialDaily(Base):
     @property
     def applied(self) -> float:
         return self.override if self.override is not None else self.recommended
+
+
+class SocialContent(Base):
+    """docs/30 S4a — what the forum says about a value over a window: aggregates of the classified messages,
+    up to three neutral summaries and the thread addresses. Never a message text, an author or a pseudonym
+    (option A, decision of the user of 25/10/2026)."""
+
+    __tablename__ = "social_content"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    source: Mapped[str] = mapped_column(String(32))
+    reason: Mapped[str] = mapped_column(String(16))  # radar | position | demande
+    status: Mapped[str] = mapped_column(String(16))  # ok | non_classe | plafond | structure | indisponible
+    window_hours: Mapped[float]
+    data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    summaries: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    effect: Mapped[str | None] = mapped_column(String(16), nullable=True)  # emballement | renforce
+    threads: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)

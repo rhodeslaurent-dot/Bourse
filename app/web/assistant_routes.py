@@ -212,4 +212,25 @@ def instrument_page(request: Request, isin: str) -> HTMLResponse:
             "facts": build_context(s, isin, cap),
             "assistant_isin": isin,
         }
+        from app.services.social_content import facts as content_facts
+        from app.services.social_content import latest as content_latest
+
+        ctx["forum"] = content_latest(s, isin)
+        ctx["forum_facts"] = content_facts(ctx["forum"])
         return templates.TemplateResponse(request, "valeur.html", ctx)
+
+
+@router.post("/valeur/{isin}/echanges")
+def instrument_forum(request: Request, isin: str) -> RedirectResponse:
+    """docs/30 — read and label the value's recent forum messages now (on request)."""
+    import httpx
+
+    from app.services.social_content import analyse
+
+    isin = isin.upper()
+    with db_session() as s, httpx.Client(follow_redirects=True) as client:
+        inst = s.get(Instrument, isin)
+        if inst is None:
+            raise HTTPException(404, "valeur inconnue du référentiel")
+        analyse(s, request.app.state.config, client, inst, "demande", getattr(request.app.state, "llm", None))
+    return RedirectResponse(f"/valeur/{isin}", status_code=303)

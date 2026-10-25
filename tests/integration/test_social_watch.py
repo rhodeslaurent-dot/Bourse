@@ -84,6 +84,11 @@ def test_the_job_alerts_and_prepares_a_d8_card(db_engine, config, calendars, mon
         d8 = [p for p in s.query(Proposal) if (p.details or {}).get("niveau_risque") is not None]
         assert any(s.get(Signal, p.signal_id).detector == "d8_buzz_precoce" for p in d8)
         assert s.query(WeakSignalHit).one().label == "buzz_precoce"
+        from app.db.models import SocialContent
+
+        sc = s.query(SocialContent).one()  # docs/30: the content is read too (classes not set → nothing guessed)
+        assert (sc.reason, sc.status) == ("radar", "structure")
+    assert any(line.startswith("Forum : échanges du forum : indisponibles") for line in sent[0].lines)
 
 
 def test_backfill_gives_a_baseline_from_day_one(db_engine, config, monkeypatch):

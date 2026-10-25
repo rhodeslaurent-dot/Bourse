@@ -1,6 +1,6 @@
 # 30 — Contenu des messages, croisement des sources et corrélations (lot S4 du radar)
 
-> Demande de l'utilisateur (25/10/2026) : « analyser le contenu des messages pour voir si certains sont intéressants et nécessitent d'être creusés pour détection ou confirmation de signaux faibles ; croiser les sources, vérifier l'information avec l'actualité, analyser les corrélations ». Complète docs/26 (radar, lot S3 : compteurs). Statut : **proposé, à valider** (§30.10).
+> Demande de l'utilisateur (25/10/2026) : « analyser le contenu des messages pour voir si certains sont intéressants et nécessitent d'être creusés pour détection ou confirmation de signaux faibles ; croiser les sources, vérifier l'information avec l'actualité, analyser les corrélations ». Complète docs/26 (radar, lot S3 : compteurs). Statut : **validé par l'utilisateur le 25/10/2026** (options recommandées du §30.10) ; **S4a développé le 25/10/2026** (lecture, classement, solidité, fiche) ; S4b et S4c à faire.
 
 ## 30.1 Ce qui change par rapport à docs/26
 
@@ -118,7 +118,11 @@ Le cache LLM ne garde que l'empreinte et la réponse, qui ne contient pas d'aute
 
 Ordre de grandeur : **≈ 1,5 à 3 $ par mois**.
 
-## 30.10 Décisions demandées à l'utilisateur
+## 30.10 Décisions de l'utilisateur (25/10/2026 : « je valide et suis tes préconisations »)
+
+Retenu : option A (aucun texte ni auteur conservé) ; messages se réclamant d'une information privilégiée **exclus** ; lecture sur déclenchement, positions et à la demande ; découpage S4a → S4b → S4c.
+
+Pour mémoire, les choix proposés :
 
 1. **Données conservées** : option A (recommandée) ou option B (§30.8).
 2. **Messages se réclamant d'une information privilégiée** : exclus (recommandé : risque juridique réel, MAR art. 8, puisque celui qui « sait ou aurait dû savoir » est visé ; c'est aussi un procédé classique de manipulation), ou simple mention.
@@ -145,3 +149,11 @@ Ordre de grandeur : **≈ 1,5 à 3 $ par mois**.
 - **A30.7** `radar-measure` par thème × nature × solidité, avec n, t groupé par date et délai d'avance sur la presse.
 - **A30.8** Plafond de dépense journalier respecté ; au-delà, compteurs seuls avec la mention (test).
 - **A30.9** Aucun contenu ne crée seul une proposition BUY (A26.1 étendu, test).
+
+## 30.13 Mise en œuvre de S4a (25/10/2026)
+
+- **Code** : `app/domain/social_content.py` (agrégats, solidité, effet — pur, testé), `app/data/providers/social.py` (`forum_messages` : pseudonymes de la page et mentions remplacés par « [membre] », liens réduits au domaine, auteur → empreinte salée éphémère ; `thread_links`, diagnostics `link_patterns` et `repeated_classes`), `app/llm/schemas.py` (`ForumBatchLabels`, listes fermées, valeur inconnue → `non_classe`), invite `forum_classify_v1`, `app/services/social_content.py` (lecture, plafonds, garde-fou des nombres, table `social_content`, migration 0022).
+- **Déclenchements** : `social_watch` (valeurs étiquetées, avant le passage ciblé du moteur ; lignes « Forum : … » dans l'alerte), job `weak_signals` (positions ouvertes, P2 « rumeur négative » si thème négatif solide), bouton « Lire les échanges » sur `/valeur/<isin>`, commande `social-content --isins …`.
+- **Moteur** : `echanges_forum` dans les détails de la fiche ; `BLOQUÉ : emballement — échanges portés par peu de comptes ou promotionnels sur une petite capitalisation`. L'effet `renforce` est une mention, jamais un achat (A30.9) ; la priorité « idée renforcée » attend la concordance des familles (S4b).
+- **Réglage sur le PC** : la structure des pages de fil Boursorama n'est pas connue d'avance. `social-check --isins … --threads` affiche les formes des liens et les classes répétées (jamais un texte) ; on règle ensuite `weak_signals.social.boursorama.thread_link_regex`, `message_class`, `author_class`, `text_class`, `message_date_class`. Tant que ce n'est pas fait, statut « structure » : rien n'est deviné.
+- **Critères** : A30.1 à A30.5, A30.8 et A30.9 testés (`tests/unit/test_social_content.py`, `tests/integration/test_social_content.py`) ; A30.6 et A30.7 relèvent de S4b et S4c.

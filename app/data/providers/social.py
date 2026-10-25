@@ -15,6 +15,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from html.parser import HTMLParser
 
 import httpx
 
@@ -215,3 +216,164 @@ def reddit_search(sub: str, query: str, token: str, client: httpx.Client, limit:
         if ts is not None:
             out.append(datetime.fromtimestamp(float(ts), UTC))
     return out
+
+
+# --- docs/30 S4a: message contents of a forum thread, anonymised before they leave this module -------------
+
+_VOID = frozenset(
+    {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+)
+_URL = re.compile(r"https?://(?:www\.)?([^/\s\"'<>]+)[^\s\"'<>]*", re.I)
+_MENTION = re.compile(r"@\w[\w.\-]*")
+
+
+@dataclass(frozen=True)
+class ForumMessage:
+    """One message: an ephemeral author key (salted hash — the pseudonym never leaves this module), the time
+    when shown, and the text with every pseudonym of the page and every mention replaced by « [membre] »
+    and each link reduced to its domain."""
+
+    author_key: str
+    day: date | None
+    ts: datetime | None
+    text: str
+
+
+class _Collector(HTMLParser):
+    """Text of the elements holding a message, its author, text and date — found by class (``selectors``:
+    role → class token, from ``weak_signals.social.boursorama``); tolerant of unclosed tags."""
+
+    def __init__(self, selectors: dict[str, str]) -> None:
+        super().__init__(convert_charrefs=True)
+        self.sel = {k: v for k, v in selectors.items() if v}
+        self.stack: list[tuple[str, frozenset[str]]] = []
+        self.cur: dict[str, list[str]] | None = None
+        self.items: list[dict[str, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _VOID:
+            return
+        cls = next((v or "" for k, v in attrs if k == "class"), "")
+        roles = frozenset(r for r, token in self.sel.items() if token in cls)
+        if "message" in roles and self.cur is None:
+            self.cur = {"all": [], "author": [], "text": [], "date": []}
+        self.stack.append((tag, roles))
+
+    def handle_endtag(self, tag: str) -> None:
+        for i in range(len(self.stack) - 1, -1, -1):
+            if self.stack[i][0] == tag:
+                popped = self.stack[i:]
+                del self.stack[i:]
+                break
+        else:
+            return
+        if self.cur is not None and any("message" in r for _, r in popped):
+            if not any("message" in r for _, r in self.stack):
+                self.items.append({k: " ".join(" ".join(v).split()) for k, v in self.cur.items()})
+                self.cur = None
+
+    def handle_data(self, data: str) -> None:
+        if self.cur is None:
+            return
+        self.cur["all"].append(data)
+        active = frozenset().union(*(r for _, r in self.stack))
+        for role in ("author", "text", "date"):
+            if role in active:
+                self.cur[role].append(data)
+
+
+def forum_messages(
+    html: str, selectors: dict[str, str], now: datetime, salt: str, max_chars: int = 600
+) -> list[ForumMessage]:
+    """Messages of a thread page. ``selectors`` needs at least ``message`` and ``text`` (classes found with
+    ``social-check --threads``); without them nothing is read (never a guess)."""
+    import hashlib
+
+    if not selectors.get("message") or not selectors.get("text"):
+        return []
+    c = _Collector(selectors)
+    c.feed(html)
+    c.close()
+    names = sorted({it["author"] for it in c.items if len(it["author"]) >= 3}, key=len, reverse=True)
+    out = []
+    for it in c.items:
+        text = _URL.sub(lambda m: f"[lien {m.group(1).lower()}]", it["text"])
+        text = _MENTION.sub("@[membre]", text)
+        for name in names:
+            text = re.sub(re.escape(name), "[membre]", text, flags=re.I)
+        found = forum_times(it["date"] or it["all"], now)
+        d, ts = found[0] if found else (None, None)
+        author = it["author"].strip().lower()
+        key = hashlib.sha256(f"{salt}|{author}".encode()).hexdigest()[:16] if author else ""
+        if text.strip():
+            out.append(ForumMessage(key, d, ts, text[:max_chars]))
+    return out
+
+
+def thread_links(html: str, base_url: str, pattern: str | None) -> list[str]:
+    """Thread addresses of a forum list page, in page order, without duplicates (``thread_link_regex``)."""
+    from urllib.parse import urljoin
+
+    if not pattern:
+        return []
+    rx = re.compile(pattern)
+    out: list[str] = []
+    for href in re.findall(r"href=[\"']([^\"']+)[\"']", html):
+        if rx.search(href):
+            u = urljoin(base_url, href.split("#")[0])
+            if u not in out:
+                out.append(u)
+    return out
+
+
+def link_patterns(html: str, limit: int = 12) -> list[tuple[str, int]]:
+    """Diagnostics: same-site link shapes of a page (digits → N), most frequent first — no text."""
+    from collections import Counter
+    from urllib.parse import urlparse
+
+    shapes: Counter[str] = Counter()
+    for href in re.findall(r"href=[\"']([^\"']+)[\"']", html):
+        u = urlparse(href)
+        if u.netloc and "boursorama" not in u.netloc:
+            continue
+        shapes[re.sub(r"\d+", "N", u.path)] += 1
+    return shapes.most_common(limit)
+
+
+class _Shapes(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.stack: list[list[object]] = []  # [tag.class, text length]
+        self.seen: dict[str, list[int]] = {}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _VOID:
+            return
+        cls = next((v or "" for k, v in attrs if k == "class"), "").strip()
+        self.stack.append([f"{tag}.{cls}" if cls else "", 0])
+
+    def handle_endtag(self, tag: str) -> None:
+        for i in range(len(self.stack) - 1, -1, -1):
+            if str(self.stack[i][0]).split(".")[0] == tag or (not self.stack[i][0] and i == len(self.stack) - 1):
+                for key, n in self.stack[i:]:
+                    if key:
+                        self.seen.setdefault(str(key), []).append(int(n))  # type: ignore[call-overload]
+                del self.stack[i:]
+                return
+
+    def handle_data(self, data: str) -> None:
+        n = len(data.strip())
+        for el in self.stack:
+            el[1] = int(el[1]) + n  # type: ignore[call-overload]
+
+
+def repeated_classes(html: str, min_count: int = 3, limit: int = 15) -> list[tuple[str, int, int]]:
+    """Diagnostics: elements whose class repeats on a thread page — (tag.class, count, median text length).
+    The message, author and text elements are among them; only markup names and lengths are returned."""
+    import statistics
+
+    p = _Shapes()
+    p.feed(html)
+    p.close()
+    rows = [(k, len(v), int(statistics.median(v))) for k, v in p.seen.items() if len(v) >= min_count]
+    return sorted(rows, key=lambda r: (-r[1], r[0]))[:limit]

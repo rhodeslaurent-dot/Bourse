@@ -230,6 +230,11 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
       backfill_max_pages: 15
       max_values: 200                   # positions, watchlist, propositions récentes, puis meilleure force relative
       interval_s: 2.0                   # politesse : une page toutes les 2 s
+      thread_link_regex: null           # docs/30 : liens des fils sur la page du forum (social-check --threads), ex. "/detail/\d+"
+      message_class: null               # classe de l'élément qui contient un message (social-check --threads)
+      author_class: null                # classe du pseudonyme : lu pour compter les auteurs distincts, jamais conservé
+      text_class: null                  # classe du texte du message
+      message_date_class: null          # facultatif : classe de la date dans le message
     reddit:
       enabled: true                     # API officielle (env-setup reddit) ; usage personnel non commercial
       subreddits: ["vosfinances", "bourse", "eupersonalfinance", "Finanzen", "wallstreetbetsGER"]
@@ -245,6 +250,21 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
       window_hours: 2                   # messages des 2 dernières heures…
       base_hours: 24                    # … comparés au rythme des 24 h précédentes (ou de la semaine, compteurs stockés)
       backfill_values: 60               # rattrapage automatique (forum, Reddit) des valeurs suivies sans historique
+  content:                              # docs/30 S4a (décisions de l'utilisateur du 25/10/2026) : contenu des messages lu et classé, jamais conservé
+    effective_from: "2026-10-25"
+    enabled: true                       # sans les classes du forum réglées : statut « structure », rien n'est deviné
+    model: null                         # null = llm.classify_model (modèle léger)
+    window_hours: 24                    # messages des dernières 24 h (dont 2 h pour le rythme)
+    thread_pages_max: 3                 # fils récents lus par valeur
+    max_messages_per_value: 60
+    max_values_per_day: 30              # lectures sur déclenchement (radar), positions, à la demande
+    batch_size: 20                      # messages par appel
+    max_usd_per_day: 0.30               # au-delà : comptages seuls, mention « plafond »
+    min_distinct_authors: 3             # solidité « fort » : au moins 3 auteurs sur le thème…
+    author_concentration_max: 0.4       # … aucun auteur au-delà de 40 % des messages…
+    promotion_share_max: 0.3            # … moins de 30 % de messages promotionnels
+    pump_min_messages: 5                # emballement (petite capitalisation, peu de comptes ou promotion) : à partir de 5 messages
+    summaries_max: 3                    # résumés neutres conservés (sans pseudonyme ni citation)
 
 pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
   dca:

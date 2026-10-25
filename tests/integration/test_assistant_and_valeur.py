@@ -112,6 +112,9 @@ def test_assistant_page_and_instrument_page(client):
         assert s.scalar(select(AssistantMessage)).isin == "FR0000120271"
     page = client.get("/valeur/FR0000120271").text
     assert "TotalEnergies" in page and "56.50 €" in page and "<polyline" in page and "PEA éligible" in page
+    assert "Échanges du forum" in page and "Lire les échanges" in page and "Pas de lecture récente" in page
+    r = client.post("/valeur/FR0000120271/echanges", follow_redirects=False)  # docs/30: read on request
+    assert r.status_code == 303 and "indisponibles" in client.get("/valeur/FR0000120271").text
     assert client.get("/valeur/XX0000000000").status_code == 404
     found = client.get("/recherche?q=total", follow_redirects=False)
     assert found.status_code == 303 and found.headers["location"] == "/valeur/FR0000120271"
