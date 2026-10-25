@@ -31,9 +31,9 @@ def test_eval_compares_fields_bypasses_the_cache_and_caps_the_cost(db_engine):
 
     with db_session() as s:
         for k, title in enumerate(["Résultats en hausse", "Résultats en baisse", "Contrat signé"]):
+            cls = {"type": "resultats", "direction": "positif", "magnitude": "moyenne", "portee": "valeur"}
             s.add(NewsItem(source="x", guid=str(k), dedup_hash=str(k), fetched_at=datetime.now(UTC), title=title,
-                           classified_by="llm", classification={"type": "resultats", "direction": "positif",
-                                                                "magnitude": "moyenne", "portee": "valeur"}))  # fmt: skip
+                           classified_by="llm", classification=cls))  # fmt: skip
         s.flush()
         rep = run_eval(s, ClaudeGateway(SETTINGS, call=call), "claude-haiku-5-5", "claude-sonnet-5-5", 10, 0, 1.0)
         assert rep.news == 3 and rep.agree["type"] == 3 and rep.agree["direction"] == 2
