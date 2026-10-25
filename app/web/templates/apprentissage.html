@@ -184,6 +184,14 @@
     <tbody>{% for k, v in ob.committee.items() %}<tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-1 pr-3">{{ k|replace('_', ' ')|replace(':', ' · confiance ') }}</td><td class="py-1 pr-3 text-right tabular">{{ v.n }}</td><td class="py-1 pr-3 text-right tabular">{{ '%+.2f'|format(v.mean_r) if v.mean_r is not none else '—' }}</td><td class="py-1 pr-3 text-right tabular">{{ '%.0f %%'|format(v.hit_rate * 100) if v.hit_rate is not none else '—' }}</td><td class="py-1 text-right tabular">{{ '[%+.2f ; %+.2f]'|format(v.ci_low, v.ci_high) if v.ci_low is not none else '—' }}</td></tr>{% endfor %}</tbody>
   </table>
   {% else %}<p class="text-sm text-slate-500">Pas encore d'issue définitive pour une proposition passée en comité.</p>{% endif %}
+  <h3 class="mt-4 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Coût des garde-fous, 60 derniers jours (docs/28)</h3>
+  <p class="text-xs text-slate-500 dark:text-slate-400">Propositions arrêtées ou mises en surveillance par chaque règle, et leur résultat simulé (pris ou non). ⚠ = la règle arrête surtout des gagnants : à revoir, la protection ne doit pas créer d'immobilisme.</p>
+  {% if ob.guards %}
+  <table class="mt-1 w-full text-sm">
+    <thead><tr class="text-left text-xs text-slate-500 dark:text-slate-400"><th class="py-1 pr-3 font-medium">Règle</th><th class="py-1 pr-3 font-medium text-right">Propositions</th><th class="py-1 pr-3 font-medium text-right">Issues</th><th class="py-1 pr-3 font-medium text-right">Gagnantes</th><th class="py-1 font-medium text-right">R moyen</th></tr></thead>
+    <tbody>{% for g in ob.guards[:15] %}<tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-1 pr-3">{% if g.alerte %}⚠ {% endif %}{{ g.regle }}</td><td class="py-1 pr-3 text-right tabular">{{ g.propositions }}</td><td class="py-1 pr-3 text-right tabular">{{ g.issues }}</td><td class="py-1 pr-3 text-right tabular">{{ '%.0f %%'|format(g.part_gagnantes * 100) if g.part_gagnantes is not none else '—' }}</td><td class="py-1 text-right tabular">{{ '%+.2f'|format(g.r_moyen) if g.r_moyen is not none else '—' }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="text-sm text-slate-500">Aucune proposition arrêtée sur la période.</p>{% endif %}
   <h3 class="mt-4 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Radar des signaux faibles, 30 derniers jours (docs/26)</h3>
   <p class="text-sm">{% for k, v in ob.radar.items() %}{{ k|replace('_', ' ') }} : {{ v }}{% if not loop.last %} · {% endif %}{% else %}aucune étiquette{% endfor %} <span class="text-xs text-slate-500">— rendement en excès par étiquette : commande <code>radar-measure</code></span></p>
 </section>

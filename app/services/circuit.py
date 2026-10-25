@@ -148,7 +148,7 @@ def circuit_state(
     elif not view.tripped and mult < view.size_multiplier:
         view.size_multiplier, view.reason = mult, why
     if not view.tripped and (sw is None or sm is None):  # a guard never fails open: half size until measured
-        miss = float(extra.get("missing_baseline_multiplier", 0.5))
+        miss = float(extra.get("missing_baseline_multiplier", 0.75))
         if miss < view.size_multiplier:
             view.size_multiplier = miss
             view.reason = f"mesure du coupe-circuit indisponible : tailles × {miss:g} jusqu'au prochain instantané"

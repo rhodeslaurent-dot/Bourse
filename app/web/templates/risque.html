@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, tile, field, button %}
+{% block title %}Risque — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold">Niveau de risque du jour</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Conseillé chaque matin par le moteur, appliqué par défaut à toutes les propositions du jour ; vous pouvez le changer ci-dessous. Le gain d'abord, la maîtrise du risque ensuite : la protection principale est la dilution sur 5 à 7 lignes.</p>
+    </div>
+    {% if row and row.override is not none %}{{ badge('modifié par vous', 'amber') }}{% else %}{{ badge('conseil du moteur', 'blue') }}{% endif %}
+  </div>
+  {% if msg %}<p class="mt-3 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 p-2 text-sm text-emerald-800 dark:text-emerald-200">{{ msg }}</p>{% endif %}
+  <div class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+    {{ tile('Niveau appliqué', '× %.2f'|format(level), ('conseillé × %.2f'|format(row.recommended)) if row else 'pas encore calculé (moteur de 07:50)', 'amber' if row and row.override is not none else 'blue') }}
+    {{ tile('Risque par ligne', '%.0f €'|format(ref.r_eur * level), 'unité de risque %.0f € × niveau'|format(ref.r_eur), 'slate') }}
+    {{ tile('Lignes possibles', lines_possible ~ ' lignes' if lines_possible else '—', 'plafond de risque ouvert %.1f %%'|format(cap_pct * 100), 'green') }}
+    {{ tile('Plafond par ligne', '%.0f €'|format(ref.capital_eur * ref.max_trade_pct), '%.1f %% du capital, jamais dépassé'|format(ref.max_trade_pct * 100), 'slate') }}
+  </div>
+  <h2 class="mt-5 font-semibold">Pourquoi ce niveau</h2>
+  {% if row and row.explanation %}
+  <ul class="mt-2 space-y-1 text-sm list-disc ml-5">{% for line in row.explanation %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% else %}<p class="mt-2 text-sm text-slate-500">Le niveau est calculé à chaque passage du moteur (07:50) : marché, portefeuille, résultats récents, espérance mesurée des signaux et opportunités du jour.</p>{% endif %}
+  {% if row and row.override is not none %}<p class="mt-2 text-sm text-amber-800 dark:text-amber-200">Vous avez appliqué × {{ '%.2f'|format(row.override) }}{% if row.override_reason %} : « {{ row.override_reason }} »{% endif %}.</p>{% endif %}
+</section>
+
+<section class="grid md:grid-cols-2 gap-4">
+  <div class="card">
+    <h2 class="font-semibold">Changer le niveau d'aujourd'hui</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400">De × {{ '%g'|format(dp.min_level) }} à × {{ '%g'|format(dp.max_level) }} ; valable pour la journée. Les positions ouvertes ne changent pas.</p>
+    <form method="post" action="/risque/niveau" class="mt-3 space-y-2">
+      <div class="flex flex-wrap gap-2">{{ field('level', 'niveau, ex. 1,1', 'text', '%.2f'|format(level), 'style="width:9rem"') }}{{ field('reason', 'motif (facultatif)') }}</div>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="rescan" value="1" checked> recalculer les propositions du jour sans décision</label>
+      <div class="flex flex-wrap gap-2">{{ button('Appliquer') }}<button name="reset" value="1" class="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-sm">Revenir au conseil</button></div>
+    </form>
+  </div>
+  <div class="card">
+    <h2 class="font-semibold">Unité de risque (niveau × 1)</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400">Actuellement {{ '%.0f'|format(ref.capital_eur) }} € × {{ '%.2f'|format(ref.risk_pct * 100) }} % = <b>{{ '%.0f'|format(ref.r_eur) }} €</b> par ligne — source : {{ ref.source }}. Bornes : {{ '%.2f'|format(bounds[0] * 100) }} % à {{ '%.2f'|format(bounds[1] * 100) }} % par trade.</p>
+    <form method="post" action="/risque/reference" class="mt-3 space-y-2">
+      <div class="flex flex-wrap gap-2">{{ field('capital', 'capital pilote (€)', 'text', '%.0f'|format(ref.capital_eur), 'style="width:10rem"') }}{{ field('risk_pct', '% par trade', 'text', '%.2f'|format(ref.risk_pct * 100), 'style="width:7rem"') }}</div>
+      {{ field('reason', 'motif (facultatif)') }}
+      {{ button('Enregistrer') }}
+    </form>
+    {% if settings_hist %}<ul class="mt-3 text-xs text-slate-500 dark:text-slate-400 space-y-0.5">{% for x in settings_hist %}<li>{{ x.effective_at|dual }} : {{ '%.0f'|format(x.capital_pilote_eur) }} € × {{ '%.2f'|format(x.reference_risk_pct * 100) }} %{% if x.reason %} — {{ x.reason }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+  </div>
+</section>
+
+<section class="card overflow-x-auto">
+  <h2 class="font-semibold">Historique (30 jours)</h2>
+  <table class="mt-2 w-full text-sm">
+    <thead><tr class="text-left text-xs text-slate-500 dark:text-slate-400"><th class="py-1 pr-3 font-medium">Jour</th><th class="py-1 pr-3 font-medium text-right">Conseillé</th><th class="py-1 pr-3 font-medium text-right">Appliqué</th><th class="py-1 font-medium">Composantes</th></tr></thead>
+    <tbody>{% for h in hist %}<tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-1 pr-3">{{ h.day.strftime('%d/%m') }}</td><td class="py-1 pr-3 text-right tabular">× {{ '%.2f'|format(h.recommended) }}</td><td class="py-1 pr-3 text-right tabular">× {{ '%.2f'|format(h.applied) }}{% if h.override is not none %} ✎{% endif %}</td><td class="py-1 text-xs text-slate-500">{% for c in h.components or [] %}{{ c.composante }} × {{ '%g'|format(c.facteur) }}{% if not loop.last %} · {% endif %}{% endfor %}</td></tr>{% else %}<tr><td colspan="4" class="py-2 text-slate-500">Aucun niveau calculé pour l'instant.</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+{% endblock %}

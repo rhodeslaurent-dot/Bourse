@@ -150,11 +150,11 @@ class ReplayTrade:
 
 @dataclass(frozen=True)
 class BreakerRule:
-    loss_5_r: float = 3.0
-    loss_21_r: float = 6.0
-    peak_reduce_r: float = 8.0
-    peak_block_r: float = 10.0
-    reduce_multiplier: float = 0.5
+    loss_5_r: float = 4.0
+    loss_21_r: float = 8.0
+    peak_reduce_r: float = 10.0
+    peak_block_r: float = 12.0
+    reduce_multiplier: float = 0.75
 
 
 @dataclass(frozen=True)

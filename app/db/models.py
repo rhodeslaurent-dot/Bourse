@@ -1086,3 +1086,36 @@ class CommitteeRun(Base):
     models: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     __table_args__ = (UniqueConstraint("proposal_id", "dossier_hash", name="uq_committee_runs_proposal_hash"),)
+
+
+class RiskSetting(Base):
+    """docs/28 — the reference risk set by the user in the interface (capital pilote, % per trade), dated;
+    the latest row in force overrides params.yaml, which keeps the default and the bounds."""
+
+    __tablename__ = "risk_settings"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    capital_pilote_eur: Mapped[float]
+    reference_risk_pct: Mapped[float]
+    reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    set_via: Mapped[str] = mapped_column(String(10), default="web")
+
+
+class RiskDialDaily(Base):
+    """docs/28 — the daily risk level: recommended (with its components and explanation) and, if the user
+    changed it, the override; ``applied`` is what sized the day's proposals."""
+
+    __tablename__ = "risk_dial_daily"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, unique=True)
+    recommended: Mapped[float]
+    components: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    explanation: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    override: Mapped[float | None] = mapped_column(nullable=True)
+    override_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    override_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def applied(self) -> float:
+        return self.override if self.override is not None else self.recommended

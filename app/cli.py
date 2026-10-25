@@ -388,6 +388,7 @@ NEW_CHILD_PARENTS = [
     "risk",
     "risk.stop",
     "risk.circuit_breaker",  # rolling windows and peak give-back (25/10/2026)
+    "risk.risk_dial",  # docs/28
     "llm",
     "srd",
     "data",

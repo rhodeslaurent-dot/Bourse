@@ -27,7 +27,7 @@ def test_a_tripped_week_stays_tripped_when_the_latent_recovers(db_engine, config
     with db_session() as s:
         _kpi(s, date(2026, 9, 30), 0, 0)
         _kpi(s, date(2026, 10, 16), 0, 0)
-        _kpi(s, date(2026, 10, 20), 0, -1000)  # Tuesday evening: −3.33 R
+        _kpi(s, date(2026, 10, 20), 0, -1300)  # Tuesday evening: −4.33 R
         s.flush()
         v = circuit_state(s, config, THU, current=(0.0, -800.0))  # Thursday: back to −2.67 R
         assert v.tripped and "semaine" in v.reason
@@ -40,7 +40,7 @@ def test_a_stale_or_incomplete_baseline_is_unavailable(db_engine, config):
         _kpi(s, date(2026, 7, 1), 0, 2000)  # months old: never a week's baseline
         s.flush()
         v = circuit_state(s, config, WED, current=(0.0, 1000.0))
-        assert not v.tripped and v.week_r is None and v.size_multiplier == 0.5  # half size until measured
+        assert not v.tripped and v.week_r is None and v.size_multiplier == 0.75  # reduced until measured
 
 
 def test_override_is_never_offered_against_the_circuit_breaker(db_engine, config, monkeypatch):
@@ -99,7 +99,7 @@ def test_a_correlated_open_line_caps_the_cluster_risk(db_engine, config, monkeyp
         for r in s.query(PriceEod).filter(PriceEod.isin == ISIN).all():
             s.add(PriceEod(isin=twin, day=r.day, open=r.open, high=r.high, low=r.low, close=r.close, volume=r.volume,
                            source="eodhd", received_at=NOW, data_status="eod"))  # fmt: skip
-        s.add(PositionRow(account_id=1, isin=twin, qty_held=100, avg_price=95.0, last_price=100.0, stop_current=95.0,
+        s.add(PositionRow(account_id=1, isin=twin, qty_held=100, avg_price=95.0, last_price=100.0, stop_current=93.0,
                           execution_state="filled", protection_state="protected"))  # fmt: skip
         s.flush()
         engine.scan(s, config, DAY, now=NOW)
@@ -108,7 +108,7 @@ def test_a_correlated_open_line_caps_the_cluster_risk(db_engine, config, monkeyp
         assert sized and sized[0].details["grappe_correlee"]["lignes"][0]["correlation"] == 1.0
         assert all(
             any("grappe corrélée" in b for b in p.gates["blocked"]) for p in sized
-        )  # 500 € at risk + the candidate > 1.5 R
+        )  # 700 € at risk + the candidate > 2 R
 
 
 def test_correlation_needs_enough_shared_sessions():

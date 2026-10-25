@@ -204,6 +204,22 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
     devises = {k: v for k, v in syn["exposition"]["devise"].items() if k != "EUR"}
     if devises:
         risks.append("Exposition hors euro : " + ", ".join(f"{k} {v:.0f} €" for k, v in devises.items()))
+    from app.services.risk_level import today as level_today
+
+    lv = level_today(s, day)
+    if lv is not None:  # docs/28: the day's risk level and why (applied by default, changeable on /risque)
+        risks = (
+            [*(lv.explanation or [])]
+            + (
+                [
+                    f"Niveau modifié par vous : × {lv.override:.2f}"
+                    + (f" ({lv.override_reason})" if lv.override_reason else "")
+                ]
+                if lv.override is not None
+                else []
+            )
+            + risks
+        )
     r.append({"titre": RUBRICS[9], "faits": ev or ["aucune annonce majeure à 3 jours"], "analyse": risks})
     return {
         "jour": day.isoformat(),

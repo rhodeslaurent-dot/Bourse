@@ -241,6 +241,8 @@ def evaluate(
     fundamentals: Any | None = None,
     sector_rs_pct: float | None = None,
     circuit: Any | None = None,
+    level: float = 1.0,
+    ref: Any | None = None,
 ) -> Evaluation:
     p = config.params
     risk = p.risk
@@ -281,16 +283,9 @@ def evaluate(
     ftt = float((tax.get("ftt_by_country") or {}).get(inst.isin[:2], 0.0))
     target = setup.targets[0] if setup.targets else None
     options = _account_options(inst, config)
-    # size reductions in force (docs/07 §7.2, §7.3, §7.9.4): they compound and only ever reduce the budget
-    market: dict[str, float] = {}  # one family: the strongest applies (combine_size_factors)
-    if regime == "orange":
-        market["régime orange"] = float((risk.size_multipliers or {}).get("regime_orange", 0.5))
-    if gate in ("restreint", "restreint_plus"):
-        mg0 = getattr(p, "market_gate", None) or {}
-        market["portail restreint (R10)"] = float(mg0.get("restricted_size_multiplier", 0.5))
+    # size (docs/28): reference R × the day's risk level (market, portfolio, recent results, edge — already
+    # in ``level``) × the line's own reductions (opening gaps, earnings, SRD restricted), floored, capped
     others: dict[str, float] = {}
-    if circuit is not None and not circuit.tripped and circuit.size_multiplier < 1:
-        others["coupe-circuit"] = float(circuit.size_multiplier)
     gr = getattr(risk, "gap_risk", None) or {}
     if gr.get("enabled", True):  # gap risk: the R a stop cannot bound (risk.gap_risk)
         gbars = load_bars(s, inst.isin, limit=int(gr.get("lookback_sessions", 250)) + 1)
@@ -306,23 +301,26 @@ def evaluate(
             ev.details["risque_de_saut"] = {"quantile_ecart_defavorable": round(gq, 4), "multiplicateur": round(gm, 3)}
         if gm < 1:
             others["risque de saut d'ouverture"] = gm
-    if inst.earnings_next_date is not None:  # a publication inside the holding horizon: half size
+    if inst.earnings_next_date is not None:  # a publication inside the holding horizon
         days = (inst.earnings_next_date - now.date()).days
         if 0 <= days <= HOLDING_DAYS.get(setup.horizon, 20) * 7 // 5:
             others["publication de résultats avant l'horizon"] = float(
-                getattr(risk, "earnings_in_horizon_multiplier", None) or 0.5
+                getattr(risk, "earnings_in_horizon_multiplier", None) or 0.75
             )
-    factors = {**market, **others}
     srd_factor = (
         float((p.srd.model_extra or {}).get("restricted_size_multiplier", 0.5) if p.srd else 0.5)
         if srd_mode == "restreint"
         else 1.0
     )
-    common = combine_size_factors(market, others)
-    floor = float(getattr(risk, "min_size_multiplier", None) or 0.35)
-    if factors:
-        ev.details["reductions_taille"] = {k: v for k, v in factors.items()} | {"total": round(common, 4)}
-    budget = float(p.capital.capital_pilote_eur) * float(risk.max_risk_per_trade_pct) * common
+    floor = float(getattr(risk, "min_size_multiplier", None) or 0.5)
+    line = max(floor, combine_size_factors({}, others))  # never below the floor: dilution, not immobility
+    capital = float(ref.capital_eur) if ref is not None else float(p.capital.capital_pilote_eur)
+    ref_pct = float(ref.risk_pct) if ref is not None else float(risk.max_risk_per_trade_pct)
+    cap_pct = float(ref.max_trade_pct) if ref is not None else 0.01
+    common = min(level * line, cap_pct / ref_pct) if ref_pct > 0 else 0.0
+    if others or level != 1.0:
+        ev.details["reductions_taille"] = {**others, "niveau du jour": round(level, 3), "total": round(common, 4)}
+    budget = capital * ref_pct * common
     est_shares = int(budget / max(setup.p_max_technical - stop_exec_for(setup.stop, risk.slippage_pct), 1e-9))
     est_notional = max(est_shares, 1) * setup.p_max_technical * fx
     pea_open = (p.pea or {}).get("opening_date")
@@ -360,8 +358,8 @@ def evaluate(
         if adm.p_max is not None and target is not None:
             sz = size_position(
                 SizingInput(
-                    capital_eur=float(p.capital.capital_pilote_eur),
-                    max_risk_pct=float(risk.max_risk_per_trade_pct),
+                    capital_eur=capital,
+                    max_risk_pct=ref_pct,
                     entry_level=adm.p_max,
                     stop_initial=setup.stop,
                     order_kind=EntryOrderKind.LIMIT,
@@ -373,7 +371,7 @@ def evaluate(
                     fx_rate=fx,
                     fx_haircut=float(risk.fx_haircut) if inst.currency != "EUR" else 0.0,
                     adv20_eur=inst.adv_eur_20,
-                    size_multiplier=common * (srd_factor if acc == "cto_srd" else 1.0),
+                    size_multiplier=min(common * (srd_factor if acc == "cto_srd" else 1.0), cap_pct / ref_pct),
                 )
             )
             if sz.shares > 0:
@@ -480,7 +478,7 @@ def evaluate(
         risk_wait = (per_account.get(ev.account or "", {}) or {}).get("risque_eur")
         if risk_wait:  # the waiting limit is an entry order too: the portfolio caps apply before it is placed
             ev.blocked += _portfolio_caps(
-                s, config, inst, book, float(risk_wait), ev.account or "", gate, budget / max(common, 1e-9), ev
+                s, config, inst, book, float(risk_wait), ev.account or "", gate, capital * ref_pct, ev
             )
         return ev
     if best is None:
@@ -493,9 +491,6 @@ def evaluate(
     ev.size_eur, ev.risk_eur = sz.notional_max_eur, sz.risk_if_filled_at_max_eur
     ev.net_rr, ev.net_gain_pct = no.net_reward_risk, no.gain_net_pct
     ev.passed.append(f"prix maximal {adm.p_max:.4g} (ratio gain/risque ≥ {k:g} net de frais, R4)")
-    eff = common * (srd_factor if acc == "cto_srd" else 1.0)
-    if eff < floor:  # a quarter-size line takes a slot of the open-risk cap for a fraction of the gain
-        ev.blocked.append(f"WATCH : taille réduite à × {eff:.2g} < plancher × {floor:g} (risk.min_size_multiplier)")
     # the admission ratio is net of *fees* (framework §5.2); the after-tax ratio is shown and ranks, never blocks
     # --- score ---
     from app.services.short_positions import short_interest
@@ -593,12 +588,11 @@ def evaluate(
             action = "WATCH"
             ev.blocked.append("WATCH : portail restreint — ratio net ≥ 2,5 et score ≥ 75 exigés (R10)")
         else:
-            m10 = factors.get("portail restreint (R10)", 1.0)
-            ev.passed.append(f"portail restreint : sélection exigeante satisfaite, taille × {m10:g} (R10)")
+            ev.passed.append(
+                "portail restreint : sélection exigeante satisfaite (R10) ; taille selon le niveau du jour"
+            )
     # --- caps (R8, R9) and override (R21) ---
-    caps = _portfolio_caps(
-        s, config, inst, book, sz.risk_if_filled_at_max_eur, acc, gate, budget / max(common, 1e-9), ev
-    )
+    caps = _portfolio_caps(s, config, inst, book, sz.risk_if_filled_at_max_eur, acc, gate, capital * ref_pct, ev)
     ev.blocked += caps
     ev.details["blocages_plafonds"] = list(caps)
     # --- events a stop does not cover (R14) ---
@@ -861,6 +855,8 @@ def scan(
     from app.services.rotation import sector_strength
 
     sectors = sector_strength(s, day)
+    # phase 1 — detection on the whole universe (cheap): the day's opportunities feed the risk level
+    staged: list[dict[str, Any]] = []
     for inst in _candidates(s, isins):
         try:
             rep.scanned += 1
@@ -891,8 +887,61 @@ def scan(
             )
             found = [(x, "moteur") for x in run_detectors(p.detectors or {}, bars, ctx)]
             found += _letter_setups(s, inst, day, ctx)
-            if not found:
-                continue
+            if found:
+                staged.append({"inst": inst, "bars": bars, "feats": feats, "f": f, "zones": zones, "ff": ff,
+                               "shown": shown, "at": at, "found": found})  # fmt: skip
+        except Exception as exc:  # noqa: BLE001 — one bad instrument never stops the scan
+            rep.errors.append(f"{inst.isin}: {exc.__class__.__name__}")
+            log.warning("moteur : %s ignorée (%s)", inst.isin, exc.__class__.__name__, exc_info=True)
+    # expected R per (detector, source): live history first, the backtest's control period otherwise
+    from app.services.backtest import prior_expected_r
+
+    k_shr = int(getattr(getattr(p, "learning", None), "shrinkage_k", 20) or 20)
+    expect: dict[tuple[str, str], tuple[float | None, Any, Any]] = {}
+    for st_ in staged:
+        for setup, source in st_["found"]:
+            key = (setup.detector, source)
+            if key not in expect:
+                track = comparable_history(s, config, SimpleNamespace(detector=setup.detector, source=source), now)
+                er = track.shrunk_r if track is not None and track.verdict != "insuffisant" else None
+                prior = prior_expected_r(s, setup.detector, k_shr) if er is None else None
+                expect[key] = (er if er is not None else (round(prior[0], 3) if prior else None), track, prior)
+    # the day's risk level (docs/28): market, portfolio, recent results, measured edge, opportunities
+    from app.domain.risk_dial import conviction
+    from app.services.risk_level import compute as compute_level
+    from app.services.risk_level import dial_params, reference
+
+    strong = sum(
+        1
+        for st_ in staged
+        for setup, _ in st_["found"]
+        if setup.targets
+        and setup.p_max_technical > setup.stop
+        and (setup.targets[0] - setup.p_max_technical) / (setup.p_max_technical - setup.stop) >= 2.5
+    )
+    edge = any(v[0] is not None and v[0] > 0 for v in expect.values())
+    ref = reference(s, config, now)
+    dparams = dial_params(config)
+    try:
+        with s.begin_nested():
+            level, level_row = compute_level(s, config, day, ctxm.regime, ctxm.level, circuit, strong, edge, now)
+    except Exception as exc:  # noqa: BLE001 — without a level, the normal size applies (× 1), said on the cards
+        log.warning("niveau de risque : calcul impossible (%s)", exc.__class__.__name__, exc_info=True)
+        level, level_row = 1.0, None
+    level_info = {
+        "niveau_applique": level,
+        "niveau_conseille": level_row.recommended if level_row is not None else None,
+        "modifie_par_vous": level_row is not None and level_row.override is not None,
+        "r_reference_eur": round(ref.r_eur, 2),
+        "source_reference": ref.source,
+    }
+    # phase 2 — evaluation at the day's level
+    for st_ in staged:
+        inst = st_["inst"]
+        try:
+            bars, feats, f, zones, ff, shown, at = (
+                st_[x] for x in ("bars", "feats", "f", "zones", "ff", "shown", "at")
+            )
             q = (quotes or {}).get(inst.isin)
             live = q is not None and getattr(q, "last", None) is not None
             price = float(q.last) if live else bars[-1].close
@@ -904,8 +953,13 @@ def scan(
             )
             price_source = q.source if live else "clôture officielle stockée"
             price_ts = q.market_timestamp if live else last_day
-            for setup, source in found:
+            for setup, source in st_["found"]:
                 rep.setups += 1
+                er, track, prior = expect.get((setup.detector, source), (None, None, None))
+                conv, conv_why = conviction(er, dparams)
+                line_level = (
+                    min(level * conv, dparams.max_level) if level_row is None or level_row.override is None else level
+                )
                 ev = evaluate(
                     s,
                     config,
@@ -923,7 +977,11 @@ def scan(
                     ff,
                     (sectors.get(inst.sector or "") or {}).get("centile"),
                     circuit,
+                    level=line_level,
+                    ref=ref,
                 )
+                ev.details["niveau_risque"] = {**level_info, "niveau_ligne": round(line_level, 3),
+                                               "conviction": conv_why or None}  # fmt: skip
                 ev.details["source_cours"], ev.details["horodatage_cours"] = price_source, price_ts
                 for o in ev.details.get("objectifs") or []:  # docs/22 §22.2: each target with its origin
                     o["origine"] = _target_origin(o["niveau"], setup, at, f.high_52w)
@@ -944,18 +1002,10 @@ def scan(
                     {"bas": z.low, "haut": z.high, "contacts": z.touches, "type": z.kind} for z in zones[-8:]
                 ]
                 if ev.admitted:
-                    track = comparable_history(s, config, SimpleNamespace(detector=setup.detector, source=source), now)
-                    if track is not None and track.verdict != "insuffisant":
-                        ev.expected_r = track.shrunk_r
+                    ev.expected_r = er
                     ev.details["historique"] = track.as_dict() if track is not None else None
-                    if ev.expected_r is None:  # docs/27 §27.5: the backtest seeds the ranking until live history exists
-                        from app.services.backtest import prior_expected_r
-
-                        k = int(getattr(getattr(p, "learning", None), "shrinkage_k", 20) or 20)
-                        prior = prior_expected_r(s, setup.detector, k)
-                        if prior is not None:
-                            ev.expected_r = round(prior[0], 3)
-                            ev.details["esperance_backtest"] = {"r_net_retreci": round(prior[0], 3), "n": prior[1]}
+                    if prior is not None and er is not None:  # docs/27 §27.5: control-period prior
+                        ev.details["esperance_backtest"] = {"r_net_retreci": round(prior[0], 3), "n": prior[1]}
                 evals.append(ev)
         except Exception as exc:  # noqa: BLE001 — one bad instrument never stops the scan
             rep.errors.append(f"{inst.isin}: {exc.__class__.__name__}")
@@ -965,16 +1015,40 @@ def scan(
     return rep
 
 
+def rescan_today(s: Session, config: LoadedConfig, day: date, now: datetime | None = None) -> int:
+    """docs/28 — after the user changed the day's risk level: the day's open proposals without any decision
+    are withdrawn (soft delete, snapshots kept) and the engine runs again at the new level."""
+    from app.db.models import Decision
+
+    now = now or datetime.now(UTC)
+    start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
+    decided = {d.proposal_id for d in s.scalars(select(Decision))}
+    for p_ in s.scalars(
+        select(Proposal).where(Proposal.created_at >= start, Proposal.deleted_at.is_(None), Proposal.status == "open")
+    ):
+        if p_.id not in decided:
+            p_.deleted_at = now
+    s.flush()
+    return scan(s, config, day, now=now).created
+
+
 def _persist(
     s: Session, config: LoadedConfig, day: date, now: datetime, evals: list[Evaluation], rep: ScanReport
 ) -> None:
     p = config.params
     start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
+    replaced = {  # signals whose proposal was withdrawn by a rescan at another risk level (docs/28)
+        x.signal_id
+        for x in s.scalars(select(Proposal).where(Proposal.created_at >= start, Proposal.deleted_at.is_not(None)))
+    }
     existing = {
-        (x.isin, x.detector) for x in s.scalars(select(Signal).where(Signal.ts >= start, Signal.detector != "external"))
+        (x.isin, x.detector)
+        for x in s.scalars(select(Signal).where(Signal.ts >= start, Signal.detector != "external"))
+        if x.id not in replaced
     } | {
         (x.isin, "external")
         for x in s.scalars(select(Signal).where(Signal.ts >= start, Signal.source == "moteur_lettre"))
+        if x.id not in replaced
     }
     ranked = rank(
         [
@@ -1122,6 +1196,13 @@ def notify_top(s: Session, config: LoadedConfig, alerts: Any, mode: str, day: da
             f"{(acc.get('perte_nette_pct') or 0) * 100:.1f} % · ratio net {acc.get('ratio_net')}",
             f"Portail {d.get('portail')} · horizon {p.horizon}",
         ]
+        lv = d.get("niveau_risque") or {}
+        if lv.get("niveau_applique") is not None:  # docs/28: the day's risk level, explained on /risque
+            lines.append(
+                f"Niveau de risque × {lv['niveau_applique']:.2f}"
+                + (" (modifié par vous)" if lv.get("modifie_par_vous") else " (conseillé)")
+                + " · pourquoi : /risque"
+            )
         if th:
             lines.append("Thèse : " + th[0]["texte"][:180])
         lines.append("Pas un ordre : à saisir vous-même · fiche complète sur /opportunites")

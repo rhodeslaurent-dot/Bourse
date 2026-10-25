@@ -31,7 +31,7 @@ def test_breaker_trips_on_the_week_and_resumes_at_half_size():
 def test_rolling_windows_catch_what_calendar_weeks_hide():
     from app.domain.risk import RollingParams, rolling_breaker
 
-    p = RollingParams()
+    p = RollingParams(3, 6, 8, 10, 0.5)  # the logic, on the thresholds of the first version
     # −2.9 R on Friday then −2.9 R on Monday: two calendar weeks under −3 R, but −5.8 R over 5 sessions
     totals = [0, 0, 0, 0, -870.0]
     tripped, _, why = rolling_breaker(totals, -1740.0, 300, p)

@@ -66,6 +66,7 @@ def _observation(s) -> dict:  # type: ignore[no-untyped-def]
 
     from app.db.models import BacktestRun, WeakSignalHit
     from app.services.committee import measure as committee_measure
+    from app.services.risk_level import guard_costs
 
     run = s.scalar(select(BacktestRun).order_by(BacktestRun.id.desc()))
     segs = ((run.summary or {}).get("segments") or {}) if run else {}
@@ -84,6 +85,7 @@ def _observation(s) -> dict:  # type: ignore[no-untyped-def]
         "portefeuille": (run.summary or {}).get("portefeuille") if run else None,
         "committee": committee_measure(s),
         "radar": radar,
+        "guards": guard_costs(s),
     }
 
 

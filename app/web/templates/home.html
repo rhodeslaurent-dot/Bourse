@@ -85,6 +85,11 @@
     <h2 class="font-semibold">Idées du jour</h2>
     <a href="/opportunites" class="text-xs underline decoration-dotted">toutes les opportunités →</a>
   </div>
+  <a href="/risque" class="mt-2 block rounded-xl border border-sky-200 dark:border-sky-500/30 bg-sky-50 dark:bg-sky-500/10 p-3 text-sm hover:underline">
+    <b>Niveau de risque du jour : {% if risk_level.level is not none %}× {{ '%.2f'|format(risk_level.level) }} ({{ '%.0f'|format(risk_level.r_eur * risk_level.level) }} € par ligne){% if risk_level.override %} — modifié par vous{% else %} — conseillé{% endif %}{% else %}pas encore calculé{% endif %}</b>
+    {% if risk_level.why %}<span class="block text-xs text-slate-600 dark:text-slate-300">{{ risk_level.why|join(' · ') }}</span>{% endif %}
+    <span class="block text-xs text-sky-700 dark:text-sky-300">pourquoi et modifier →</span>
+  </a>
   {% if ideas %}
   <ol class="mt-2 space-y-2 text-sm">
     {% for i in ideas %}

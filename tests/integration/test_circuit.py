@@ -41,8 +41,8 @@ def test_weekly_loss_trips_and_blocks_new_entries(db_engine, config, monkeypatch
         _kpi(s, date(2026, 9, 30), 0, 0)  # before the month
         _kpi(s, date(2026, 10, 16), 100, 200)  # Friday before the week
         s.flush()
-        v = circuit_state(s, config, NOW_WED, current=(-400.0, -300.0))  # −1 000 € = −3.33 R this week
-        assert v.tripped and "semaine" in v.reason and round(v.week_r, 2) == -3.33
+        v = circuit_state(s, config, NOW_WED, current=(-700.0, -300.0))  # −1 300 € = −4.33 R this week
+        assert v.tripped and "semaine" in v.reason and round(v.week_r, 2) == -4.33
         monkeypatch.setattr(circuit_mod, "circuit_state", lambda *a, **k: v)
         _seed(s, breakout_bars())
         engine.scan(s, config, DAY, now=NOW)
@@ -52,29 +52,32 @@ def test_weekly_loss_trips_and_blocks_new_entries(db_engine, config, monkeypatch
         )
 
 
-def test_previous_week_trip_halves_the_sizes(db_engine, config):
+def test_previous_week_trip_reduces_the_sizes(db_engine, config):
     with db_session() as s:
         _kpi(s, date(2026, 9, 30), 0, 0)
         _kpi(s, date(2026, 10, 9), 0, 0)  # before the previous week
-        _kpi(s, date(2026, 10, 16), -500, -500)  # end of the previous week: −3.33 R
+        _kpi(s, date(2026, 10, 16), -700, -600)  # end of the previous week: −4.33 R
         s.flush()
-        v = circuit_state(s, config, NOW_WED, current=(-500.0, -500.0))
-        assert not v.tripped and v.size_multiplier == 0.5 and "reprise" in v.reason
+        v = circuit_state(s, config, NOW_WED, current=(-700.0, -600.0))
+        assert not v.tripped and v.size_multiplier == 0.75 and "reprise" in v.reason
 
 
-def test_restricted_gate_halves_the_risk_budget(db_engine, config):
+def test_the_day_level_sizes_the_lines_and_the_unknown_gate_no_longer_halves(db_engine, config):
+    from app.db.models import RiskDialDaily
+
     with db_session() as s:
         _seed(s, breakout_bars())
         engine.scan(s, config, DAY, now=NOW)
         p = next(x for x in s.query(Proposal).filter(Proposal.isin == ISIN) if (x.details or {}).get("comptes"))
         assert p.details["contexte_marche"]["portail"] in ("restreint", "restreint_plus")
-        assert p.details["reductions_taille"]["portail restreint (R10)"] == 0.5
-        pea = p.details["comptes"]["pea"]
-        if pea.get("risque_eur") is not None:
-            assert pea["risque_eur"] <= 300 * 0.5 + 1e-6  # budget 0.75 % × 40 000 € × 0.5
+        lv = p.details["niveau_risque"]
+        row = s.query(RiskDialDaily).one()
+        assert lv["niveau_applique"] == row.recommended and lv["r_reference_eur"] == 300.0
+        assert "portail restreint (R10)" not in (p.details.get("reductions_taille") or {})
+        assert row.explanation and row.explanation[0].startswith("Niveau de risque conseillé")
 
 
-def test_compounded_reductions_below_the_floor_turn_the_buy_into_watch(db_engine, config, monkeypatch):
+def test_line_reductions_are_floored_and_never_turn_a_buy_into_watch(db_engine, config, monkeypatch):
     from app.services.circuit import CircuitView
 
     view = CircuitView(size_multiplier=0.5, reason="recul depuis le plus haut", r_unit_eur=300.0)
@@ -82,11 +85,8 @@ def test_compounded_reductions_below_the_floor_turn_the_buy_into_watch(db_engine
     with db_session() as s:
         _seed(s, breakout_bars())
         engine.scan(s, config, DAY, now=NOW)
-        sized = [
-            p for p in s.query(Proposal).filter(Proposal.isin == ISIN) if (p.details or {}).get("reductions_taille")
-        ]
-        assert sized
-        for p in sized:  # restricted gate × 0.5 (market) × circuit × 0.5 = × 0.25 < 0.35
-            assert p.details["reductions_taille"]["total"] == 0.25
-            if p.details.get("admission") == "admis":
-                assert p.action != "BUY" and any("plancher" in b for b in p.gates["blocked"])
+        for p in s.query(Proposal).filter(Proposal.isin == ISIN):
+            assert not any("plancher" in b for b in (p.gates or {}).get("blocked", []))
+            rt = (p.details or {}).get("reductions_taille") or {}
+            if rt:
+                assert rt["total"] >= 0.5 * 0.999  # level floor (× 0.5) — dilution, not immobility

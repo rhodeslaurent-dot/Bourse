@@ -135,8 +135,9 @@ def heat_params(config):
 def test_caps_follow_the_gate(heat_params):
     lines = [HeatLine("A", 84, 37.37, 38.0, 35.0, age_sessions=12), HeatLine("B", 100, 98.0, 99.0, 91.50, srd=True)]
     st = heat_state(lines, 0.0, "restreint", heat_params)
-    assert st.cap_eur == pytest.approx(1400) and st.heat_b_eur == pytest.approx(84 * 2.37 + 100 * 6.5 * 1.25)
-    blocked = check_new_line(st, 450, heat_params)
+    # 25/10/2026: 5 % in both gate states (dilution over 6–7 lines is the protection)
+    assert st.cap_eur == pytest.approx(2000) and st.heat_b_eur == pytest.approx(84 * 2.37 + 100 * 6.5 * 1.25)
+    blocked = check_new_line(st, 1100, heat_params)
     assert blocked and "dépassement" in blocked[0]
     assert heat_state(lines, 0.0, "ouvert", heat_params).cap_eur == pytest.approx(2000)
 

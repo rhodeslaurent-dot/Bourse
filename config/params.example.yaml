@@ -40,7 +40,7 @@ risk:
     green: 0.80
     orange: 0.50
     red: 0.0                          # aucune nouvelle entrée
-  size_multipliers:
+  size_multipliers:                   # remplacé par le niveau de risque du jour (risk.risk_dial.market_*) depuis le 25/10/2026
     regime_orange: 0.5
     risk_high: 0.5
   fx_haircut: 0.10
@@ -57,20 +57,38 @@ risk:
   srd_max_cost_pct_of_target1: 0.25
   earnings_blackout_hours: 48
   earnings_policy_on_position: "reduce_50"   # reduce_50 | sell | hold_if_gain_ge_1r
-  circuit_breaker:
-    weekly_loss_r: 3
-    monthly_loss_r: 6
-    resume_size_multiplier: 0.5
-    loss_5_r: 3                       # contre-expertise du 25/10/2026 (à valider) : fenêtres glissantes de 5 et 21 séances
-    loss_21_r: 6
-    peak_reduce_r: 8                  # recul depuis le plus haut des 21 séances (réalisé + latent) → tailles × 0,5
-    peak_block_r: 10                  # → aucune nouvelle entrée
-    peak_reduce_multiplier: 0.5
-    missing_baseline_multiplier: 0.5  # sans instantané d'équité : tailles × 0,5 (un garde-fou ne s'ouvre jamais faute de mesure)
-  gap_risk: {enabled: true, quantile: 0.95, lookback_sessions: 250, min_sessions: 120}   # contre-expertise du 25/10/2026 (à valider) : taille réduite si le 95e centile des écarts d'ouverture défavorables × prix max dépasse la distance au stop glissé
-  earnings_in_horizon_multiplier: 0.5 # publication de résultats avant la fin de l'horizon : taille × 0,5 (à valider)
-  correlation_cluster: {enabled: true, threshold: 0.6, lookback_sessions: 120, max_cluster_risk_r: 1.5}   # contre-expertise du 25/10/2026 (à valider) : risque des lignes corrélées (ρ ≥ 0,6 sur 120 séances) + la nouvelle ≤ 1,5 R — plafond, dérogeable (R21)
-  min_size_multiplier: 0.35           # réductions cumulées sous ce plancher → WATCH (ligne trop petite pour son coût de plafond)
+  circuit_breaker:                    # calibré pour un portefeuille dilué de 5 à 7 lignes (décision du 25/10/2026 : le gain d'abord, sans immobilisme)
+    weekly_loss_r: 4
+    monthly_loss_r: 8
+    resume_size_multiplier: 0.75
+    loss_5_r: 4                       # fenêtres glissantes de 5 et 21 séances
+    loss_21_r: 8
+    peak_reduce_r: 10                 # recul depuis le plus haut des 21 séances (réalisé + latent) → niveau × 0,75
+    peak_block_r: 12                  # → aucune nouvelle entrée
+    peak_reduce_multiplier: 0.75
+    missing_baseline_multiplier: 0.75 # sans instantané d'équité récent : niveau × 0,75
+  risk_dial:                          # docs/28 — niveau de risque du jour, conseillé chaque matin, appliqué par défaut, modifiable sur /risque
+    effective_from: "2026-10-25"
+    min_level: 0.5                    # jamais en dessous : la dilution sur plusieurs lignes reste la protection
+    max_level: 1.33                   # 0,75 % × 1,33 ≈ 1 % du capital par trade, seulement avec une espérance mesurée positive
+    max_trade_risk_pct: 0.01          # plafond absolu du risque d'une ligne, quel que soit le niveau
+    reference_pct_min: 0.0025         # bornes du réglage dans l'interface
+    reference_pct_max: 0.015
+    market_red: 0.5
+    market_high: 0.7                  # risque conjoncturel élevé
+    market_orange: 0.85
+    market_green_calm: 1.1            # régime vert et contexte calme
+    target_lines_min: 5               # dilution visée : 5 à 7 lignes simultanées
+    target_lines_max: 7
+    underinvested_boost: 1.1          # moins de 5 lignes et au moins 3 opportunités solides (ratio technique ≥ 2,5)
+    diversified_trim: 0.9             # 7 lignes ou plus
+    strong_setups_min: 3
+    conviction_boost: 1.15            # par ligne : espérance mesurée ≥ 0,15 R
+    conviction_min_r: 0.15
+  gap_risk: {enabled: true, quantile: 0.95, lookback_sessions: 250, min_sessions: 120}   # taille réduite si le 95e centile des écarts d'ouverture défavorables × prix max dépasse la distance au stop glissé
+  earnings_in_horizon_multiplier: 0.75 # publication de résultats avant la fin de l'horizon
+  correlation_cluster: {enabled: true, threshold: 0.6, lookback_sessions: 120, max_cluster_risk_r: 2.0}   # risque des lignes corrélées (ρ ≥ 0,6 sur 120 séances) + la nouvelle ≤ 2 R — plafond, dérogeable (R21)
+  min_size_multiplier: 0.5            # plancher des réductions propres à une ligne (jamais de WATCH pour cause de cumul)
   revenge_trade_cooldown_sessions: 5
   no_new_buy_after_local: "16:45"
   no_new_buy_before_local: "09:03"
@@ -87,7 +105,7 @@ risk:
     never_lower: true                 # R2 : un stop ne descend jamais (exception : détachement de dividende)
     reduce_at_target1_pct: 0.5
   # docs/07 §7.9.3 — plafonds du référentiel (22/10/2026), en fraction du capital pilote
-  max_open_risk_pct_by_gate: {ouvert: 0.05, restreint: 0.035}   # remplace max_open_risk_pct une fois le portail codé
+  max_open_risk_pct_by_gate: {ouvert: 0.05, restreint: 0.05}    # 5 % ≈ 6–7 lignes à 0,75 % : la dilution est la protection (décision du 25/10/2026)
   max_line_risk_pct_of_cap: 0.30      # risque d'une ligne ≤ 30 % du plafond en vigueur
   reserved_signal_budget_pct: 0.0075  # part du plafond inaccessible aux lignes anciennes
   reserved_budget_age_sessions: 10

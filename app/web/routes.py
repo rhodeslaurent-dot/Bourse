@@ -146,6 +146,16 @@ def home(request: Request) -> HTMLResponse:
             )
             if len(ideas) >= 3:
                 break
+        from app.services.risk_level import reference as risk_reference
+        from app.services.risk_level import today as level_today
+
+        lv_row = level_today(s, paris_today)
+        risk_level = {
+            "level": lv_row.applied if lv_row is not None else None,
+            "override": lv_row is not None and lv_row.override is not None,
+            "why": (lv_row.explanation or [])[1:4] if lv_row is not None else [],
+            "r_eur": risk_reference(s, cfg).r_eur,
+        }
         radar_ideas = len(
             list(
                 s.scalars(
@@ -177,6 +187,7 @@ def home(request: Request) -> HTMLResponse:
             "view": view,
             "circuit": circuit,
             "ideas": ideas,
+            "risk_level": risk_level,
             "radar_ideas": radar_ideas,
             "config_cb": cfg.params.risk.circuit_breaker,
             "decisions": decisions[:3],

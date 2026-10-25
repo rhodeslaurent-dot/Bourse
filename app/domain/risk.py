@@ -477,11 +477,11 @@ def period_pnl_r(
 
 @dataclass(frozen=True)
 class RollingParams:
-    loss_5_r: float = 3.0  # losses over the last 5 sessions (rolling, not calendar)
-    loss_21_r: float = 6.0
-    peak_reduce_r: float = 8.0  # give-back from the 21-session equity peak → sizes × peak_reduce_multiplier
-    peak_block_r: float = 10.0  # → no new entry
-    peak_reduce_multiplier: float = 0.5
+    loss_5_r: float = 4.0  # losses over the last 5 sessions (rolling, not calendar)
+    loss_21_r: float = 8.0
+    peak_reduce_r: float = 10.0  # give-back from the 21-session equity peak → sizes × peak_reduce_multiplier
+    peak_block_r: float = 12.0  # → no new entry
+    peak_reduce_multiplier: float = 0.75
 
 
 def rolling_breaker(

@@ -156,9 +156,10 @@ def test_circuit_breaker(config):
     cb = config.params.risk.circuit_breaker
     p = CircuitBreakerParams(cb.weekly_loss_r, cb.monthly_loss_r, cb.resume_size_multiplier)
     assert not circuit_breaker(-1.0, -0.5, -2.0, -0.5, p).tripped
-    assert circuit_breaker(-2.0, -1.2, -3.0, -0.2, p).tripped  # week −3.2 R
-    assert "mois" in circuit_breaker(-1.0, 0.0, -5.0, -1.5, p).reason
-    assert circuit_breaker(0.0, 0.0, 0.0, 0.0, p, previous_week_tripped=True).size_multiplier == 0.5
+    assert not circuit_breaker(-2.0, -1.2, -3.0, -0.2, p).tripped  # week −3.2 R: normal for 6–7 lines
+    assert circuit_breaker(-2.5, -1.7, -4.2, -0.2, p).tripped  # week −4.2 R
+    assert "mois" in circuit_breaker(-1.0, 0.0, -7.0, -1.5, p).reason
+    assert circuit_breaker(0.0, 0.0, 0.0, 0.0, p, previous_week_tripped=True).size_multiplier == 0.75
 
 
 def test_twr_drawdown_neutralises_deposits():

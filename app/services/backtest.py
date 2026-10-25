@@ -232,8 +232,8 @@ def portfolio_summary(trades: list[BacktestTrade], config: LoadedConfig, start: 
     slots = max(1, int(float(caps.get("ouvert", 0.05)) / float(risk.max_risk_per_trade_pct) + 1e-9))
     extra = risk.circuit_breaker.model_extra or {}
     rule = BreakerRule(
-        float(extra.get("loss_5_r", 3)), float(extra.get("loss_21_r", 6)), float(extra.get("peak_reduce_r", 8)),
-        float(extra.get("peak_block_r", 10)), float(extra.get("peak_reduce_multiplier", 0.5)),
+        float(extra.get("loss_5_r", 4)), float(extra.get("loss_21_r", 8)), float(extra.get("peak_reduce_r", 10)),
+        float(extra.get("peak_block_r", 12)), float(extra.get("peak_reduce_multiplier", 0.75)),
     )  # fmt: skip
     mid = start + (end - start) * 3 / 5
     prod = [t for t in trades if t.status == "admis" and not t.warned]
