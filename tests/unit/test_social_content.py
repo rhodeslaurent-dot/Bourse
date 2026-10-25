@@ -109,3 +109,27 @@ def test_numbers_absent_from_the_message_are_removed_from_the_summary():
 
     out = scrub_numbers("Un membre évoque un contrat de 250 millions et un objectif à 48,5", "contrat à 48,5 €")
     assert "250" not in out and "48,5" in out
+
+
+def test_short_field_shapes_show_formats_never_words():
+    from app.data.providers.social import short_field_shapes
+
+    page = "".join(
+        f'<tr><td><button class="c-source__username">Jeannot{k}</button></td>'
+        f'<td><span class="c-table__last-message">1{k}:3{k}</span></td></tr>'
+        for k in range(6)
+    )
+    rows = {k: (n, shapes) for k, n, shapes in short_field_shapes(page)}
+    assert rows["span.c-table__last-message"] == (6, ["99:99"])
+    assert rows["button.c-source__username"] == (6, ["xxxxxxx9"])
+    assert "Jeannot" not in repr(rows)
+
+
+def test_set_scalar_keeps_a_regex_backslash_valid_yaml():
+    import yaml
+
+    from app.cli import set_scalar
+
+    text = "a:\n  b:\n    rx: null   # commentaire\n"
+    out, ok = set_scalar(text, "a.b.rx", r"/detail/\d+")
+    assert ok and yaml.safe_load(out)["a"]["b"]["rx"] == r"/detail/\d+" and "# commentaire" in out

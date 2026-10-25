@@ -377,3 +377,50 @@ def repeated_classes(html: str, min_count: int = 3, limit: int = 15) -> list[tup
     p.close()
     rows = [(k, len(v), int(statistics.median(v))) for k, v in p.seen.items() if len(v) >= min_count]
     return sorted(rows, key=lambda r: (-r[1], r[0]))[:limit]
+
+
+def _shape(text: str) -> str:
+    return re.sub(r"[^\W\d_]", "x", re.sub(r"\d", "9", text))
+
+
+def short_field_shapes(html: str, max_len: int = 20, min_count: int = 5) -> list[tuple[str, int, list[str]]]:
+    """Diagnostics: for the short repeated fields of a page (dates, times, counters), the distinct shapes of
+    their text with every digit shown as 9 and every letter as x (« 99:99 », « 99/99/9999 », « xxxx ») — a
+    format, never a word: a pseudonym becomes « xxxxxxx99 »."""
+    from collections import Counter
+
+    class _P(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.stack: list[tuple[str, list[str]]] = []
+            self.out: dict[str, list[str]] = {}
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            if tag in _VOID:
+                return
+            cls = next((v or "" for k, v in attrs if k == "class"), "").strip()
+            self.stack.append((f"{tag}.{cls}" if cls else tag, []))
+
+        def handle_endtag(self, tag: str) -> None:
+            for i in range(len(self.stack) - 1, -1, -1):
+                if self.stack[i][0].split(".")[0] == tag:
+                    for key, parts in self.stack[i:]:
+                        text = " ".join(" ".join(parts).split())
+                        if "." in key and text and len(text) <= max_len:
+                            self.out.setdefault(key, []).append(text)
+                    del self.stack[i:]
+                    return
+
+        def handle_data(self, data: str) -> None:
+            for _, parts in self.stack:
+                parts.append(data)
+
+    p = _P()
+    p.feed(html)
+    p.close()
+    rows = []
+    for key, texts in p.out.items():
+        if len(texts) >= min_count:
+            shapes = [s for s, _ in Counter(_shape(x) for x in texts).most_common(4)]
+            rows.append((key, len(texts), shapes))
+    return sorted(rows, key=lambda r: -r[1])

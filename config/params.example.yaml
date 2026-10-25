@@ -230,7 +230,7 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
       backfill_max_pages: 15
       max_values: 200                   # positions, watchlist, propositions récentes, puis meilleure force relative
       interval_s: 2.0                   # politesse : une page toutes les 2 s
-      thread_link_regex: null           # docs/30 : liens des fils sur la page du forum (social-check --threads), ex. "/detail/\d+"
+      thread_link_regex: "/detail/[0-9]+"  # docs/30 : liens des fils sur la page du forum (vu le 25/10/2026 : /bourse/forum/1rPTTE/detail/N/)
       message_class: null               # classe de l'élément qui contient un message (social-check --threads)
       author_class: null                # classe du pseudonyme : lu pour compter les auteurs distincts, jamais conservé
       text_class: null                  # classe du texte du message

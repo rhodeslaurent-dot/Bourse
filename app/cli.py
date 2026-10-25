@@ -350,7 +350,12 @@ def set_scalar(text: str, path: str, value: str) -> tuple[str, bool]:
     start = lo + 1 if parent else 0
     if parent and lo < 0:
         return text, False
-    lit = value if re.fullmatch(r"-?\d+(\.\d+)?|true|false|null", value) else '"' + value.strip('"') + '"'
+    if re.fullmatch(r"-?\d+(\.\d+)?|true|false|null", value):
+        lit = value
+    elif "\\" in value:  # a regex: single quotes keep the backslashes (« \d » is not a YAML escape)
+        lit = "'" + value.strip("'").replace("'", "''") + "'"
+    else:
+        lit = '"' + value.strip('"') + '"'
     pat = re.compile(rf"^({' ' * indent}{re.escape(key)}:)\s*([^#\n]*?)(\s*#.*)?(\r?\n?)$")
     for i in range(start, hi):
         m = pat.match(lines[i])
@@ -1145,6 +1150,9 @@ def cmd_social_check(args: argparse.Namespace) -> int:
             if args.structure:  # markup names only: where the dates sit on the page (to set date_class)
                 for key, (n_dates, n_timed) in list(social.date_holders(html).items())[:8]:
                     print(f"    {n_dates:>3} date(s), dont {n_timed} avec heure : {key[:90]}")
+                print("    formes des champs courts répétés (chiffres → 9, lettres → x) :")
+                for key, n, shapes in social.short_field_shapes(html)[:10]:
+                    print(f"      {n:>3} × {key[:70]} : {' | '.join(shapes)}")
             if args.threads:  # docs/30: thread pages — link shapes and repeated classes, never a text
                 _thread_diagnostic(html, url, bp, client)
         n, errors = collect_reddit(s, cfg, client, today)
@@ -1173,7 +1181,11 @@ def _thread_diagnostic(html: str, url: str, bp: dict, client) -> None:  # type: 
     if not links:
         print("    thread_link_regex non réglé ou sans correspondance : fil choisi parmi les liens du forum")
         forum = re.escape(url.split("://", 1)[-1].split("/", 1)[-1].rstrip("/"))
-        links = social.thread_links(html, url, rf"/{forum}/.+\d") or social.thread_links(html, url, r"/forum/.+/\d+")
+        links = (
+            social.thread_links(html, url, r"/detail/[0-9]+")
+            or social.thread_links(html, url, rf"/{forum}/.+[0-9]")
+            or social.thread_links(html, url, r"/forum/.+/[0-9]+")
+        )
     if not links:
         print("    aucun lien de fil trouvé")
         return
