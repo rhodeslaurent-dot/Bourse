@@ -50,3 +50,15 @@ def test_market_reductions_take_the_strongest_others_compound():
     assert combine_size_factors({"orange": 0.5, "portail": 0.5}, {}) == 0.5
     assert combine_size_factors({"orange": 0.5}, {"coupe-circuit": 0.5}) == 0.25
     assert combine_size_factors({}, {}) == 1.0
+
+
+def test_gap_risk_reduces_the_size_only_when_a_usual_gap_exceeds_the_stop_distance():
+    from app.domain.risk import gap_risk_multiplier
+
+    closes = [10.0] * 200
+    calm = [10.0] * 200  # no gap: no reduction
+    assert gap_risk_multiplier(closes, calm, 10.0, 9.4)[0] == 1.0
+    jumpy = [9.0 if k % 10 == 0 else 10.0 for k in range(200)]  # a −10 % gap one day in ten
+    m, q = gap_risk_multiplier(closes, jumpy, 10.0, 9.6)
+    assert q > 0.09 and abs(m - 0.4 / (q * 10.0)) < 1e-9 and m < 1
+    assert gap_risk_multiplier(closes[:50], jumpy[:50], 10.0, 9.6) == (1.0, None)  # too short: no claim

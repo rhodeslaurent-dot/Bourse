@@ -47,7 +47,15 @@ from app.domain.heat import (
 )
 from app.domain.indicators import compute_daily_features
 from app.domain.ranking import RankItem, rank
-from app.domain.risk import EntryOrderKind, FeeSchedule, SizingInput, combine_size_factors, size_position, stop_exec_for
+from app.domain.risk import (
+    EntryOrderKind,
+    FeeSchedule,
+    SizingInput,
+    combine_size_factors,
+    gap_risk_multiplier,
+    size_position,
+    stop_exec_for,
+)
 from app.domain.scoring import ScoreInput, score
 from app.domain.timeutil import PARIS
 from app.domain.zones import detect_zones
@@ -283,6 +291,27 @@ def evaluate(
     others: dict[str, float] = {}
     if circuit is not None and not circuit.tripped and circuit.size_multiplier < 1:
         others["coupe-circuit"] = float(circuit.size_multiplier)
+    gr = getattr(risk, "gap_risk", None) or {}
+    if gr.get("enabled", True):  # gap risk: the R a stop cannot bound (risk.gap_risk)
+        gbars = load_bars(s, inst.isin, limit=int(gr.get("lookback_sessions", 250)) + 1)
+        gm, gq = gap_risk_multiplier(
+            [b.close for b in gbars[:-1]],
+            [b.open for b in gbars[1:]],
+            setup.p_max_technical,
+            stop_exec_for(setup.stop, float(risk.slippage_pct)),
+            float(gr.get("quantile", 0.95)),
+            int(gr.get("min_sessions", 120)),
+        )
+        if gq is not None:
+            ev.details["risque_de_saut"] = {"quantile_ecart_defavorable": round(gq, 4), "multiplicateur": round(gm, 3)}
+        if gm < 1:
+            others["risque de saut d'ouverture"] = gm
+    if inst.earnings_next_date is not None:  # a publication inside the holding horizon: half size
+        days = (inst.earnings_next_date - now.date()).days
+        if 0 <= days <= HOLDING_DAYS.get(setup.horizon, 20) * 7 // 5:
+            others["publication de résultats avant l'horizon"] = float(
+                getattr(risk, "earnings_in_horizon_multiplier", None) or 0.5
+            )
     factors = {**market, **others}
     srd_factor = (
         float((p.srd.model_extra or {}).get("restricted_size_multiplier", 0.5) if p.srd else 0.5)

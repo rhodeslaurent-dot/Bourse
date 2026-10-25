@@ -67,6 +67,8 @@ risk:
     peak_block_r: 10                  # → aucune nouvelle entrée
     peak_reduce_multiplier: 0.5
     missing_baseline_multiplier: 0.5  # sans instantané d'équité : tailles × 0,5 (un garde-fou ne s'ouvre jamais faute de mesure)
+  gap_risk: {enabled: true, quantile: 0.95, lookback_sessions: 250, min_sessions: 120}   # contre-expertise du 25/10/2026 (à valider) : taille réduite si le 95e centile des écarts d'ouverture défavorables × prix max dépasse la distance au stop glissé
+  earnings_in_horizon_multiplier: 0.5 # publication de résultats avant la fin de l'horizon : taille × 0,5 (à valider)
   min_size_multiplier: 0.35           # réductions cumulées sous ce plancher → WATCH (ligne trop petite pour son coût de plafond)
   revenge_trade_cooldown_sessions: 5
   no_new_buy_after_local: "16:45"

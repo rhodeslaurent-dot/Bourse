@@ -522,6 +522,23 @@ def size_multiplier(factors: dict[str, float]) -> float:
     return m
 
 
+def gap_risk_multiplier(
+    prev_closes: list[float], opens: list[float], p_max: float, stop_exec: float, q: float = 0.95, min_days: int = 120
+) -> tuple[float, float | None]:
+    """A stop does not protect from an opening gap (contre-expertise du 25/10/2026): when the ``q`` quantile
+    of the adverse overnight gaps (0 for a gap up) times P_max exceeds the distance to the slipped stop,
+    the size is reduced so that this gap costs at most the risk budget. Returns (multiplier ≤ 1, quantile)."""
+    gaps = [max(0.0, 1 - o / c) for c, o in zip(prev_closes, opens, strict=True) if c > 0 and o > 0]
+    if len(gaps) < min_days or p_max <= stop_exec:
+        return 1.0, None
+    s = sorted(gaps)
+    pos = (len(s) - 1) * q
+    lo, hi = int(pos), min(int(pos) + 1, len(s) - 1)
+    gq = s[lo] + (s[hi] - s[lo]) * (pos - lo)
+    r = p_max - stop_exec
+    return (min(1.0, r / (gq * p_max)) if gq * p_max > r else 1.0), gq
+
+
 def combine_size_factors(market: dict[str, float], others: dict[str, float]) -> float:
     """Market-state reductions (orange regime, restricted gate) measure the same risk: the strongest one
     applies (min); independent families (account, circuit breaker) compound (contre-expertise du 25/10/2026)."""
