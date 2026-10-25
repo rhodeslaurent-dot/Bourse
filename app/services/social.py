@@ -10,6 +10,7 @@ import os
 import re
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -61,8 +62,12 @@ def social_params(config: LoadedConfig) -> dict[str, Any]:
     return (((config.raw or {}).get("weak_signals") or {}).get("social")) or {}
 
 
-def followed_values(s: Session, limit: int, day: date) -> list[Instrument]:
-    """Positions, watchlist and the day's proposals first, then the best relative strength of the universe."""
+def followed_values(
+    s: Session, limit: int, day: date, keep: Callable[[Instrument], bool] | None = None
+) -> list[Instrument]:
+    """Positions, watchlist and the day's proposals first, then the best relative strength of the universe;
+    ``keep`` filters *before* the limit (the forum slots go to values that have a forum: 25/10/2026, only 10
+    of the 60 values had one — the others were listed on venues without a configured forum)."""
     order: list[str] = []
     for isin in s.scalars(select(PositionRow.isin).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0)):
         order.append(isin)
@@ -81,7 +86,7 @@ def followed_values(s: Session, limit: int, day: date) -> list[Instrument]:
     insts = {
         i.isin: i for i in s.scalars(select(Instrument).where(Instrument.isin.in_(seen), Instrument.active.is_(True)))
     }
-    return [insts[i] for i in seen if i in insts][:limit]
+    return [insts[i] for i in seen if i in insts and (keep is None or keep(insts[i]))][:limit]
 
 
 def _store(s: Session, isin: str, day: date, source: str, value: int, now: datetime) -> None:
@@ -103,7 +108,7 @@ def collect_forum(s: Session, config: LoadedConfig, client: httpx.Client, day: d
     templates: dict[str, str] = p.get("url_template_by_mic") or {}
     now = datetime.now(UTC)
     n, errors = 0, []
-    for inst in followed_values(s, int(p.get("max_values", 200)), day):
+    for inst in followed_values(s, int(p.get("max_values", 200)), day, lambda i: forum_url(i, templates) is not None):
         url = forum_url(inst, templates)
         if url is None:
             continue
@@ -269,7 +274,12 @@ def watch(s: Session, config: LoadedConfig, client: httpx.Client, now: datetime 
         for isin in n.isins or []:
             news[isin] += 1
     new_hits = []
-    for inst in followed_values(s, int(w.get("max_values", 60)), day):
+    tpl = (social_params(config).get("boursorama") or {}).get("url_template_by_mic") or {}
+
+    def readable(i: Instrument) -> bool:  # a forum page to read or Reddit messages already in hand
+        return forum_url(i, tpl) is not None or i.isin in reddit
+
+    for inst in followed_values(s, int(w.get("max_values", 60)), day, readable):
         times = list(reddit.get(inst.isin, []))
         try:
             times += _recent_times_forum(s, config, client, inst, now)
@@ -354,17 +364,19 @@ def backfill(
     baseline at once. The oldest day of a source is the oldest message read (never extrapolated)."""
     sp = social_params(config)
     now = datetime.now(UTC)
+    n_values = int((sp.get("watch") or {}).get("backfill_values", 60))
     values = (
         list(s.scalars(select(Instrument).where(Instrument.isin.in_(isins))))
         if isins
-        else followed_values(s, int((sp.get("watch") or {}).get("backfill_values", 60)), day)
+        else followed_values(s, n_values, day)
     )
     notes = []
     bp = sp.get("boursorama") or {}
     tpl, suffix = bp.get("url_template_by_mic") or {}, bp.get("page_suffix_template") or "page-{n}"
     if bp.get("enabled"):
         n_ok = 0
-        for inst in values:
+        forum_values = values if isins else followed_values(s, n_values, day, lambda i: forum_url(i, tpl) is not None)
+        for inst in forum_values:
             url = forum_url(inst, tpl)
             if url is None:
                 continue

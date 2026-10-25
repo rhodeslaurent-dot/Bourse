@@ -47,7 +47,11 @@ def run(ctx: JobContext) -> int:
         known = {
             r for r in s.scalars(select(AttentionDaily.isin).where(AttentionDaily.source != "wikipedia").distinct())
         }
-        missing = [i.isin for i in followed_values(s, n_back, ctx.run_date) if i.isin not in known][:20]
+        from app.services.social import forum_url
+
+        tpl = (social_params(ctx.config).get("boursorama") or {}).get("url_template_by_mic") or {}
+        has_forum = lambda i: forum_url(i, tpl) is not None  # noqa: E731 — values never read are never « missing »
+        missing = [i.isin for i in followed_values(s, n_back, ctx.run_date, has_forum) if i.isin not in known][:20]
         if missing:  # a baseline from day one, 20 values per morning at most (politeness)
             try:
                 with s.begin_nested():

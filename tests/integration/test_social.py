@@ -75,3 +75,22 @@ def test_social_spike_gives_an_early_buzz_idea(db_engine, config):
         hits = compute_hits(s, config, DAY, now=datetime(2026, 10, 24, 5, 40, tzinfo=UTC))
         assert [(h.label, h.idea) for h in hits] == [("buzz_precoce", True)]
         assert s.query(WeakSignalHit).one().details["z_forums_reseaux"]["forum_boursorama"] > 2.5
+
+
+def test_forum_slots_go_to_values_that_have_a_forum(db_engine, config):
+    """25/10/2026: social-backfill caught up 10 values of 60 — the best relative strengths were listed on
+    venues without a configured forum (Xetra, Stockholm…) and took the slots."""
+    from app.services.social import followed_values, forum_url
+
+    tpl = config.raw["weak_signals"]["social"]["boursorama"]["url_template_by_mic"]
+    with db_session() as s:
+        for k in range(3):
+            s.add(Instrument(isin=f"DE000000000{k}", name=f"Allemande {k}", ticker_local=f"D{k}", mic="XETR",
+                             currency="EUR", active=True))  # fmt: skip
+            s.add(FeatureDaily(isin=f"DE000000000{k}", day=DAY, rs_rank=99 - k, sessions=61))
+        _inst(s, ticker="EXM")
+        s.query(FeatureDaily).filter(FeatureDaily.isin == "FR0000000005").one().rs_rank = 50
+        s.flush()
+        assert [i.isin for i in followed_values(s, 1, DAY)] == ["DE0000000000"]
+        got = followed_values(s, 1, DAY, lambda i: forum_url(i, tpl) is not None)
+        assert [i.isin for i in got] == ["FR0000000005"]
