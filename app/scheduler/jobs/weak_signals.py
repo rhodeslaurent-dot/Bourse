@@ -8,6 +8,7 @@ import logging
 from datetime import timedelta
 
 import httpx
+from sqlalchemy import select
 
 from app.db.session import db_session
 from app.scheduler.runner import JobContext
@@ -38,9 +39,21 @@ def run(ctx: JobContext) -> int:
         except Exception as exc:  # noqa: BLE001
             log.warning("Wikimedia : %s", exc)
             notes.append(f"Wikimedia en échec ({exc.__class__.__name__})")
-        from app.services.social import collect_all
+        from app.db.models import AttentionDaily
+        from app.services.social import backfill, collect_all, followed_values, social_params
 
         notes += collect_all(s, ctx.config, client, ctx.run_date)  # docs/26 S3: forums and social networks
+        n_back = int((social_params(ctx.config).get("watch") or {}).get("backfill_values", 60))
+        known = {
+            r for r in s.scalars(select(AttentionDaily.isin).where(AttentionDaily.source != "wikipedia").distinct())
+        }
+        missing = [i.isin for i in followed_values(s, n_back, ctx.run_date) if i.isin not in known][:20]
+        if missing:  # a baseline from day one, 20 values per morning at most (politeness)
+            try:
+                with s.begin_nested():
+                    notes += backfill(s, ctx.config, client, ctx.run_date, missing)
+            except Exception as exc:  # noqa: BLE001
+                notes.append(f"rattrapage en échec ({exc.__class__.__name__})")
         hits = compute_hits(s, ctx.config, ctx.run_date - timedelta(days=1))
         by: dict[str, int] = {}
         for h in hits:

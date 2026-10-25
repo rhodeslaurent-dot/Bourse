@@ -241,6 +241,8 @@ def compute_hits(s: Session, config: LoadedConfig, day: date, now: datetime | No
             RadarInput(z, rvol, move, n_news, bool(inst.small_cap), feats.rs_rank if feats else None, sz, move5), p
         )
         hit = s.scalar(select(WeakSignalHit).where(WeakSignalHit.isin == inst.isin, WeakSignalHit.day == session))
+        if hit is not None and (hit.details or {}).get("veille_intraday"):
+            continue  # a label of the intraday watch is kept as recorded (docs/26 S3)
         if lab is None:
             if hit is not None:
                 s.delete(hit)  # a recomputation that no longer labels the session removes the old label

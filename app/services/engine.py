@@ -825,6 +825,7 @@ def scan(
     isins: list[str] | None = None,
     now: datetime | None = None,
     quotes: dict[str, Any] | None = None,
+    buzz_isins: set[str] | None = None,
 ) -> ScanReport:
     from app.services.letters_review import published_gate
     from app.services.macro import market_context
@@ -883,9 +884,17 @@ def scan(
             d7 = (p.detectors or {}).get("d7_trend_quality") or {}
             at = analyst_target(shown, int(d7.get("min_analysts", 3)), inst.currency) if shown else None
             ctx = DetectorContext(
-                feats.rs_rank if feats else None, zones, wick, float(stop_p.buffer_atr_mult), [at] if at else []
+                feats.rs_rank if feats else None,
+                zones,
+                wick,
+                float(stop_p.buffer_atr_mult),
+                [at] if at else [],
+                buzz=bool(buzz_isins and inst.isin in buzz_isins),
             )
-            found = [(x, "moteur") for x in run_detectors(p.detectors or {}, bars, ctx)]
+            found = [
+                (x, "radar" if x.detector == "d8_buzz_precoce" else "moteur")
+                for x in run_detectors(p.detectors or {}, bars, ctx)
+            ]
             found += _letter_setups(s, inst, day, ctx)
             if found:
                 staged.append({"inst": inst, "bars": bars, "feats": feats, "f": f, "zones": zones, "ff": ff,
@@ -922,9 +931,15 @@ def scan(
     edge = any(v[0] is not None and v[0] > 0 for v in expect.values())
     ref = reference(s, config, now)
     dparams = dial_params(config)
+    from app.services.risk_level import today as level_today
+
+    existing_level = level_today(s, day) if isins else None
     try:
-        with s.begin_nested():
-            level, level_row = compute_level(s, config, day, ctxm.regime, ctxm.level, circuit, strong, edge, now)
+        if existing_level is not None:  # a targeted scan (radar, letter) keeps the day's level as recommended
+            level, level_row = existing_level.applied, existing_level
+        else:
+            with s.begin_nested():
+                level, level_row = compute_level(s, config, day, ctxm.regime, ctxm.level, circuit, strong, edge, now)
     except Exception as exc:  # noqa: BLE001 — without a level, the normal size applies (× 1), said on the cards
         log.warning("niveau de risque : calcul impossible (%s)", exc.__class__.__name__, exc_info=True)
         level, level_row = 1.0, None

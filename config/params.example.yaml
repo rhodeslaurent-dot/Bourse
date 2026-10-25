@@ -216,13 +216,17 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
   max_ideas: 5
   request_interval_s: 0.05              # politesse envers l'API Wikimedia
   wiki_languages: {}                    # par place, ex. {XPAR: ["fr"]} — l'anglais est toujours lu ; défauts dans le code
-  social_z: 2.5                         # docs/26 S3 : échanges des particuliers anormaux (forums, réseaux)
+  social_z: 2.5                         # docs/26 S3 : échanges des particuliers anormaux (forums, réseaux), base de 30 jours
+  velocity_ratio: 3.0                   # réactif, sans historique : rythme des 2 dernières heures ≥ 3 × le rythme habituel…
+  velocity_min_messages: 5              # … et au moins 5 messages
   early_move_atr: 1.5                   # « buzz précoce » : prix encore immobile (variation 5 séances < 1,5 ATR) et aucune publication → idée à examiner
   social:                               # décision de l'utilisateur du 25/10/2026 : forums inclus, risques acceptés ; compteurs seulement, jamais de message ni d'auteur
     boursorama:
       enabled: true
       url_template_by_mic: {XPAR: "https://www.boursorama.com/bourse/forum/1rP{ticker}/"}   # à vérifier avec social-check
       region_regex: null                # facultatif : zone de la page qui contient les messages (si des dates parasites sont comptées)
+      page_suffix_template: "page-{n}"  # pages anciennes du forum (rattrapage d'historique) — à vérifier avec social-check
+      backfill_max_pages: 15
       max_values: 200                   # positions, watchlist, propositions récentes, puis meilleure force relative
       interval_s: 2.0                   # politesse : une page toutes les 2 s
     reddit:
@@ -234,6 +238,12 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
       enabled: true                     # API officielle (env-setup bluesky, mot de passe d'application)
       max_values: 80
       interval_s: 0.5
+    watch:                              # veille intraday : réactivité avant l'impact sur le marché
+      enabled: true
+      max_values: 60                    # positions, watchlist, propositions récentes, meilleures forces relatives
+      window_hours: 2                   # messages des 2 dernières heures…
+      base_hours: 24                    # … comparés au rythme des 24 h précédentes (ou de la semaine, compteurs stockés)
+      backfill_values: 60               # rattrapage automatique (forum, Reddit) des valeurs suivies sans historique
 
 pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
   dca:
@@ -330,6 +340,13 @@ detectors:
     stop_max_adr_mult: 1.5
     min_reward_risk_t1: 2.0   # [fixé dans le code : admission.min_reward_risk]
     catalyst_required: false   # [fixé dans le code]
+  d8_buzz_precoce:                   # docs/26 S3 — opportunité : échanges qui s'emballent avant publication et avant le prix (signalé par le radar)
+    enabled: true
+    entry_buffer_pct: 0.003           # limite juste au-dessus de la dernière clôture
+    entry_max_pct: 0.015              # prix maximal : +1,5 % (on ne court pas après le mouvement)
+    stop_max_adr_mult: 2.5
+    horizon: "days"                   # quelques séances
+    time_stop_sessions: 10
   d7_trend_quality:                  # docs/22 §22.4 B — swing « tendance + qualité » (quelques semaines)
     enabled: true
     rs_rank_min: 80
@@ -366,6 +383,7 @@ scoring:
     d3_range_expansion: ["T", "R", "M"]
     d4_pullback: ["T", "R", "M"]
     d7_trend_quality: ["T", "F", "R", "M"]
+    d8_buzz_precoce: ["R", "M"]          # l'opportunité vient du radar : ni tendance ni catalyseur publié exigés
     external: ["T", "R", "M"]
   f_min_available_subcriteria: 2
   insider_window_days: 30              # docs/23 §23.3 : achat d'un dirigeant (MAR art. 19) pris en compte pendant 30 jours
@@ -712,6 +730,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   fixing_card: {cron: "15 17 * * 1-5", misfire_grace_min: 10, market_days_only: true}   # R6 : entrée au fixing de clôture sur repli qui tient (entry.fixing_card_time)
   backtest_weekly: {cron: "30 10 * * 0", misfire_grace_min: 1440, market_days_only: false}   # docs/27 : rejeu des détecteurs au coût complet (≈ 20 min)
   short_positions_refresh: {cron: "40 19 * * 1-5", misfire_grace_min: 720, market_days_only: false}   # docs/23 S2 : positions courtes nettes publiées par les autorités
+  social_watch: {cron: "*/20 7-22 * * *", misfire_grace_min: 10, market_days_only: false}   # docs/26 S3 : veille des forums et réseaux toutes les 20 min, tous les jours (l'information circule aussi le soir et le week-end)
   committee_review: {cron: "10 8 * * 1-5", misfire_grace_min: 90, market_days_only: true}   # docs/24 v2 : comité d'investissement en observation (verdicts mesurés, jamais appliqués)
   weak_signals: {cron: "40 6 * * 1-5", misfire_grace_min: 60, market_days_only: true}   # docs/26 : radar des signaux faibles publics (Wikipédia, volume, presse)
   fundamentals_refresh: {cron: "0 9 * * 0", misfire_grace_min: 1440, market_days_only: false}   # fondamentaux et consensus gratuits (Yahoo), hebdomadaire

@@ -42,24 +42,52 @@ class Count:
     truncated: bool  # the page held only this day's messages: the count is a floor
 
 
-def forum_dates(html: str, today: date) -> list[date]:
-    """Dates of the messages of a forum page, in reading order. Unknown formats give no date (never a guess)."""
-    out: list[date] = []
+_TIME = re.compile(r"^\s*(?:à\s*)?(\d{1,2})[:h](\d{2})")
+_AGO = re.compile(r"il y a (\d+)\s*(min|h|heure)", re.I)
+
+
+def forum_times(html: str, now: datetime) -> list[tuple[date, datetime | None]]:
+    """(date, time when shown) of each message of a forum page, in reading order; ``now`` in the forum's
+    time zone (Paris). Unknown formats give nothing (never a guess)."""
+    out: list[tuple[date, datetime | None]] = []
     text = re.sub(r"<[^>]+>", " ", html)
+    today = now.date()
     for m in re.finditer(f"{_NUM.pattern}|{_TXT.pattern}|{_REL.pattern}", text, re.I):
         g = m.group(0).lower()
+        tail = text[m.end() : m.end() + 12]
+        tm = _TIME.match(tail)
         try:
             if m.group(1):
-                out.append(date(int(m.group(3)), int(m.group(2)), int(m.group(1))))
+                d = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
             elif m.group(4):
-                out.append(date(int(m.group(6)), _MONTHS[m.group(5).lower()], int(m.group(4))))
+                d = date(int(m.group(6)), _MONTHS[m.group(5).lower()], int(m.group(4)))
             elif g.startswith("hier"):
-                out.append(today - timedelta(days=1))
+                d = today - timedelta(days=1)
+            elif g.startswith("il y a"):
+                a = _AGO.match(g)
+                if a is None:
+                    continue
+                delta = timedelta(minutes=int(a.group(1))) if a.group(2) == "min" else timedelta(hours=int(a.group(1)))
+                ts = now - delta
+                out.append((ts.date(), ts))
+                continue
             else:
-                out.append(today)
+                d = today
         except (ValueError, KeyError):
             continue
-    return [d for d in out if today - timedelta(days=400) <= d <= today]
+        if not (today - timedelta(days=400) <= d <= today):
+            continue
+        ts = None
+        if tm is not None and int(tm.group(1)) < 24 and int(tm.group(2)) < 60:
+            ts = datetime(d.year, d.month, d.day, int(tm.group(1)), int(tm.group(2)), tzinfo=now.tzinfo)
+        out.append((d, ts))
+    return out
+
+
+def forum_dates(html: str, today: date) -> list[date]:
+    """Dates of the messages of a forum page, in reading order."""
+    now = datetime.combine(today, datetime.max.time().replace(microsecond=0))
+    return [d for d, _ in forum_times(html, now)]
 
 
 def daily_counts(dates: list[date]) -> list[Count]:
@@ -139,3 +167,21 @@ def bluesky_count(query: str, since: datetime, token: str, client: httpx.Client,
     if r.status_code != 200:
         raise ProviderError(f"Bluesky : HTTP {r.status_code}")
     return len(r.json().get("posts") or [])
+
+
+def reddit_search(sub: str, query: str, token: str, client: httpx.Client, limit: int = 100) -> list[datetime]:
+    """Timestamps of the posts of a subreddit matching ``query`` over the last year (for the baseline)."""
+    r = client.get(
+        f"https://oauth.reddit.com/r/{sub}/search",
+        params={"q": query, "restrict_sr": 1, "sort": "new", "t": "year", "limit": limit},
+        headers={"User-Agent": UA, "Authorization": f"bearer {token}"},
+        timeout=20,
+    )
+    if r.status_code != 200:
+        raise ProviderError(f"Reddit r/{sub} recherche : HTTP {r.status_code}")
+    out = []
+    for ch in (r.json().get("data") or {}).get("children") or []:
+        ts = (ch.get("data") or {}).get("created_utc")
+        if ts is not None:
+            out.append(datetime.fromtimestamp(float(ts), UTC))
+    return out

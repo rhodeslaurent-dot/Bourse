@@ -36,6 +36,8 @@ class RadarParams:
     quiet_move_atr: float = 0.5
     idea_min_rs: float = 70.0
     social_z: float = 2.5  # forums and social networks (docs/26 S3)
+    velocity_ratio: float = 3.0  # messages of the last hours ÷ the usual rate (no long history needed)
+    velocity_min_messages: int = 5
     early_move_atr: float = 1.5  # « the price has not moved yet »: |5-session change| < 1.5 ATR
 
 
@@ -77,6 +79,8 @@ class RadarInput:
     rs_rank: float | None
     social_z: float | None = None  # highest z of the forum / social counts
     move_5d_atr: float | None = None  # |close − close 5 sessions ago| ÷ ATR14
+    velocity: float | None = None  # recent rate ÷ usual rate (velocity())
+    recent_messages: int = 0
 
 
 @dataclass(frozen=True)
@@ -84,6 +88,33 @@ class RadarLabel:
     label: str
     idea: bool  # worth a look by the normal engine (never a proposal by itself)
     text: str
+
+
+def velocity(
+    times: list[float],
+    now: float,
+    window_h: float = 2.0,
+    base_h: float = 24.0,
+    usual_per_hour: float | None = None,
+) -> tuple[int, float | None]:
+    """(messages of the last ``window_h`` hours, their rate ÷ the usual rate) from POSIX timestamps.
+
+    The usual rate is the one of the ``base_h`` hours before when the timestamps reach back that far
+    (one page read is enough); otherwise ``usual_per_hour`` (from the stored daily counts) is used; without
+    either, the ratio is unknown (None) — a busy forum whose page only covers the last hour is never read as
+    an acceleration."""
+    if not times:
+        return 0, None
+    w0, b0 = now - window_h * 3600, now - (window_h + base_h) * 3600
+    recent = sum(1 for x in times if w0 <= x <= now)
+    if min(times) <= b0:
+        base = sum(1 for x in times if b0 <= x < w0)
+        if base == 0:
+            return recent, (float("inf") if recent else None)
+        return recent, (recent / window_h) / (base / base_h)
+    if usual_per_hour is not None and usual_per_hour > 0:
+        return recent, (recent / window_h) / usual_per_hour
+    return recent, None
 
 
 def label(inp: RadarInput, p: RadarParams) -> RadarLabel | None:
@@ -96,14 +127,23 @@ def label(inp: RadarInput, p: RadarParams) -> RadarLabel | None:
         return RadarLabel(
             PUMP, False, f"{LABELS[PUMP]} : attention z {top:.1f}, volume × {rv:.1f}, petite capitalisation"
         )
+    fast = (
+        inp.velocity is not None and inp.velocity >= p.velocity_ratio and inp.recent_messages >= p.velocity_min_messages
+    )
     if (
-        sz is not None
-        and sz >= p.social_z
+        ((sz is not None and sz >= p.social_z) or fast)
         and no_news
         and (inp.move_5d_atr is None or inp.move_5d_atr < p.early_move_atr)
     ):
         vol = f", volume × {rv:.1f}" if rv is not None and rv >= 1.5 else ""
-        return RadarLabel(BUZZ_EARLY, True, f"{LABELS[BUZZ_EARLY]} (z {sz:.1f}{vol}) : mouvement possible, à examiner")
+        if fast and inp.velocity is not None:
+            pace = (
+                "aucun message les 24 h précédentes" if inp.velocity == float("inf") else f"rythme × {inp.velocity:.1f}"
+            )
+            how = f"{inp.recent_messages} messages récents, {pace}"
+        else:
+            how = f"z {sz:.1f}" if sz is not None else "échanges anormaux"
+        return RadarLabel(BUZZ_EARLY, True, f"{LABELS[BUZZ_EARLY]} ({how}{vol}) : mouvement possible, à examiner")
     if no_news and rv is not None and rv >= p.volume_rvol_min and inp.move_atr is not None:
         if inp.move_atr < p.quiet_move_atr:
             return RadarLabel(VOLUME_QUIET, False, f"{LABELS[VOLUME_QUIET]} : volume × {rv:.1f}")

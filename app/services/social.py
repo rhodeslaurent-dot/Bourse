@@ -176,3 +176,218 @@ def collect_all(s: Session, config: LoadedConfig, client: httpx.Client, day: dat
             log.warning("%s : %s", name, exc.__class__.__name__)
             notes.append(f"{name} en échec ({exc.__class__.__name__})")
     return notes
+
+
+# --- intraday watch (docs/26 S3, reactivity: the signal must be caught before the market moves) ---------
+
+
+def _recent_times_forum(
+    s: Session, config: LoadedConfig, client: httpx.Client, inst: Instrument, now: datetime
+) -> list[float]:
+    p = social_params(config).get("boursorama") or {}
+    tpl = (p.get("url_template_by_mic") or {}).get(inst.mic)
+    if not p.get("enabled") or not tpl or not inst.ticker_local:
+        return []
+    region = re.compile(p["region_regex"], re.S) if p.get("region_regex") else None
+    html = social.boursorama_page(tpl.format(ticker=inst.ticker_local.split(".")[0].upper()), client)
+    block = region.search(html).group(0) if region and region.search(html) else html
+    return [ts.timestamp() for _, ts in social.forum_times(block, now.astimezone(PARIS)) if ts is not None]
+
+
+def _reddit_times(s: Session, config: LoadedConfig, client: httpx.Client) -> dict[str, list[float]]:
+    p = social_params(config).get("reddit") or {}
+    cid, secret = os.environ.get("REDDIT_CLIENT_ID"), os.environ.get("REDDIT_CLIENT_SECRET")
+    if not p.get("enabled") or not cid or not secret:
+        return {}
+    from app.services.news import alias_index, attach_instruments
+
+    aliases = alias_index(s)
+    token = social.reddit_token(cid, secret, client)
+    out: dict[str, list[float]] = defaultdict(list)
+    for sub in p.get("subreddits") or []:
+        for kind in ("new", "comments"):
+            try:
+                for ts, text in social.reddit_listing(str(sub), kind, token, client):
+                    for isin in attach_instruments(text, aliases):  # text dropped right after matching
+                        out[isin].append(ts.timestamp())
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Reddit r/%s : %s", sub, exc.__class__.__name__)
+    return out
+
+
+def watch(s: Session, config: LoadedConfig, client: httpx.Client, now: datetime | None = None) -> list[Any]:
+    """One pass of the intraday watch: message velocity (last ``window_hours`` vs the usual rate) on the
+    followed values, no published news, price not moved yet → « buzz précoce » labelled now (new labels
+    are returned for the alert and the targeted scan). Needs no history: one page read is enough."""
+    from app.db.models import NewsItem, PriceEod, WeakSignalHit
+    from app.domain.weak_signals import BUZZ_EARLY, PUMP, RadarInput, label, velocity
+    from app.services.weak_signals import settings as radar_settings
+
+    now = now or datetime.now(UTC)
+    w = social_params(config).get("watch") or {}
+    if not w.get("enabled", True):
+        return []
+    st = radar_settings(config)
+    rp = st.params
+    day = now.astimezone(PARIS).date()
+    win, base = float(w.get("window_hours", 2)), float(w.get("base_hours", 24))
+    try:
+        reddit = _reddit_times(s, config, client)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Reddit : %s", exc.__class__.__name__)
+        reddit = {}
+    news_since = now - timedelta(hours=st.news_hours)
+    news: dict[str, int] = defaultdict(int)
+    for n in s.scalars(select(NewsItem).where(NewsItem.fetched_at >= news_since)):
+        for isin in n.isins or []:
+            news[isin] += 1
+    new_hits = []
+    for inst in followed_values(s, int(w.get("max_values", 60)), day):
+        times = list(reddit.get(inst.isin, []))
+        try:
+            times += _recent_times_forum(s, config, client, inst, now)
+        except Exception as exc:  # noqa: BLE001 — one page failing never stops the pass
+            log.info("forum %s : %s", inst.isin, exc.__class__.__name__)
+        finally:
+            time.sleep(float((social_params(config).get("boursorama") or {}).get("interval_s", 2.0)))
+        hist = list(
+            s.scalars(
+                select(AttentionDaily.value).where(
+                    AttentionDaily.isin == inst.isin,
+                    AttentionDaily.source != "wikipedia",
+                    AttentionDaily.day >= day - timedelta(days=8),
+                    AttentionDaily.day < day,
+                )
+            )
+        )
+        usual = sum(hist) / (7 * 24) if hist else None  # messages per hour over the last week (all sources)
+        recent, ratio = velocity(times, now.timestamp(), win, base, usual)
+        if ratio is None:
+            continue
+        bars = list(
+            s.scalars(select(PriceEod).where(PriceEod.isin == inst.isin).order_by(PriceEod.day.desc()).limit(61))
+        )[::-1]
+        feats = s.scalar(select(FeatureDaily).where(FeatureDaily.isin == inst.isin).order_by(FeatureDaily.day.desc()))
+        move5 = abs(bars[-1].close - bars[-6].close) / feats.atr14 if len(bars) >= 6 and feats and feats.atr14 else None
+        from app.domain.weak_signals import relative_volume
+
+        rvol = relative_volume([float(b.volume) if b.volume else None for b in bars])
+        lab = label(
+            RadarInput(None, rvol, None, news.get(inst.isin, 0), bool(inst.small_cap),
+                       feats.rs_rank if feats else None, None, move5, ratio, recent), rp,
+        )  # fmt: skip
+        if lab is None or lab.label not in (BUZZ_EARLY, PUMP):
+            continue
+        hit = s.scalar(select(WeakSignalHit).where(WeakSignalHit.isin == inst.isin, WeakSignalHit.day == day))
+        if hit is not None and hit.label == lab.label:
+            continue  # already seen today: one alert per value and day
+        hit = hit or WeakSignalHit(isin=inst.isin, day=day, computed_at=now)
+        hit.label, hit.idea, hit.text, hit.rvol, hit.news_recent = (
+            lab.label,
+            lab.idea,
+            lab.text[:300],
+            rvol,
+            news.get(inst.isin, 0),
+        )
+        hit.close, hit.computed_at = (bars[-1].close if bars else None), now
+        hit.details = {
+            "veille_intraday": True,
+            "messages_recents": recent,
+            "rythme": None if ratio == float("inf") else round(ratio, 2),
+            "fenetre_heures": win,
+            "sources": [x for x, ok in (("forum", True), ("reddit", inst.isin in reddit)) if ok],
+            "releve_a": now.isoformat(timespec="minutes"),
+        }
+        s.add(hit)
+        new_hits.append(hit)
+    s.flush()
+    return new_hits
+
+
+# --- backfill: a baseline from day one (older forum pages, Reddit search) ------------------------------
+
+
+def _store_days(s: Session, isin: str, source: str, days: list[date], first: date, last: date, now: datetime) -> int:
+    """Daily counts from message dates, with true zeros on every covered day without a message."""
+    by: dict[date, int] = defaultdict(int)
+    for d in days:
+        by[d] += 1
+    n, d = 0, first
+    while d <= last:
+        _store(s, isin, d, source, by.get(d, 0), now)
+        n += 1
+        d += timedelta(days=1)
+    return n
+
+
+def backfill(
+    s: Session, config: LoadedConfig, client: httpx.Client, day: date, isins: list[str] | None = None, days: int = 60
+) -> list[str]:
+    """Rebuild ``days`` days of counts for the followed values (or ``isins``) so that the z-score has a
+    baseline at once. The oldest day of a source is the oldest message read (never extrapolated)."""
+    sp = social_params(config)
+    now = datetime.now(UTC)
+    values = (
+        list(s.scalars(select(Instrument).where(Instrument.isin.in_(isins))))
+        if isins
+        else followed_values(s, int((sp.get("watch") or {}).get("backfill_values", 60)), day)
+    )
+    notes = []
+    bp = sp.get("boursorama") or {}
+    tpl, suffix = bp.get("url_template_by_mic") or {}, bp.get("page_suffix_template") or "page-{n}"
+    if bp.get("enabled"):
+        n_ok = 0
+        for inst in values:
+            base = tpl.get(inst.mic)
+            if not base or not inst.ticker_local:
+                continue
+            url = base.format(ticker=inst.ticker_local.split(".")[0].upper())
+            dates: list[date] = []
+            for k in range(1, int(bp.get("backfill_max_pages", 15)) + 1):
+                try:
+                    html = social.boursorama_page(url if k == 1 else url.rstrip("/") + "/" + suffix.format(n=k), client)
+                except Exception:  # noqa: BLE001 — stop at the first page that fails
+                    break
+                finally:
+                    time.sleep(float(bp.get("interval_s", 2.0)))
+                page = social.forum_dates(html, day)
+                if not page:
+                    break
+                dates += page
+                if min(page) <= day - timedelta(days=days):
+                    break
+            if dates:
+                first = max(min(dates), day - timedelta(days=days))
+                _store_days(s, inst.isin, "forum_boursorama", [d for d in dates if d >= first], first, day, now)
+                n_ok += 1
+        notes.append(f"forum : {n_ok} valeur(s) rattrapée(s)")
+    rp = sp.get("reddit") or {}
+    cid, secret = os.environ.get("REDDIT_CLIENT_ID"), os.environ.get("REDDIT_CLIENT_SECRET")
+    if rp.get("enabled") and cid and secret:
+        token = social.reddit_token(cid, secret, client)
+        n_ok = 0
+        for inst in values:
+            if not inst.name or len(inst.name) < 4:
+                continue
+            stamps: list[datetime] = []
+            for sub in rp.get("subreddits") or []:
+                try:
+                    stamps += social.reddit_search(str(sub), f'"{inst.name}"', token, client)
+                except Exception:  # noqa: BLE001
+                    continue
+                finally:
+                    time.sleep(float(rp.get("interval_s", 1.0)))
+            first = day - timedelta(days=days)
+            _store_days(
+                s,
+                inst.isin,
+                "reddit",
+                [x.astimezone(PARIS).date() for x in stamps if x.astimezone(PARIS).date() >= first],
+                first,
+                day - timedelta(days=1),
+                now,
+            )  # noqa: E501
+            n_ok += 1
+        notes.append(f"Reddit : {n_ok} valeur(s) rattrapée(s)")
+    s.flush()
+    return notes

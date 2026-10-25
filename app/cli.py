@@ -1098,6 +1098,23 @@ def cmd_social_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_social_backfill(args: argparse.Namespace) -> int:
+    """docs/26 S3 — rebuild the last days of forum / Reddit counts so the radar has a baseline at once."""
+    from datetime import date as _date
+
+    import httpx
+
+    from app.db.session import db_session
+    from app.services.social import backfill
+
+    cfg = load_params(args.params)
+    isins = [x.strip() for x in (args.isins or "").split(",") if x.strip()] or None
+    with httpx.Client(follow_redirects=True) as client, db_session() as s:
+        for n in backfill(s, cfg, client, _date.today(), isins, args.days):
+            print(n)
+    return 0
+
+
 def cmd_radar_measure(args: argparse.Namespace) -> int:
     """docs/26 §26.6 — return after each radar label, in excess of the universe median."""
     from app.db.session import db_session
@@ -1441,6 +1458,10 @@ def main(argv: list[str] | None = None) -> int:
     sc3 = sub.add_parser("social-check", help="forums et réseaux : lecture et comptage (docs/26 S3)")
     sc3.add_argument("--isins", default="", help="valeurs dont lire le forum, ex. FR0000120073")
     sc3.set_defaults(fn=cmd_social_check)
+    sb = sub.add_parser("social-backfill", help="rattrape l'historique des forums et de Reddit (docs/26 S3)")
+    sb.add_argument("--days", type=int, default=60)
+    sb.add_argument("--isins", default="")
+    sb.set_defaults(fn=cmd_social_backfill)
     sub.add_parser("radar-measure", help="rendement en excès après chaque étiquette du radar (docs/26)").set_defaults(
         fn=cmd_radar_measure
     )

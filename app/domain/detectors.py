@@ -27,6 +27,7 @@ class DetectorContext:
     wick_buffer_pct: float  # risk.stop.wick_buffer_pct
     stop_buffer_atr_mult: float  # risk.stop.buffer_atr_mult
     extra_targets: list[float] = field(default_factory=list)  # published targets (letters), if any
+    buzz: bool = False  # docs/26 S3: the radar saw retail chatter accelerate before any publication
 
 
 @dataclass
@@ -298,7 +299,49 @@ class D7TrendQuality:
         ]
 
 
-DETECTORS = {c.name: c for c in (D2Breakout, D3RangeExpansion, D4Pullback, D7TrendQuality)}
+class D8BuzzEarly:
+    """Opportunity (docs/26 S3): retail chatter accelerates before any publication and before the price.
+    Fires only when the radar flagged the value (``ctx.buzz``); the entry is a limit just above the last
+    close, the stop under the recent structure, the target the next exploitable resistance — the usual
+    admission (net reward/risk), sizing and caps decide. Short horizon, time stop."""
+
+    name = "d8_buzz_precoce"
+
+    def __init__(self, params: dict[str, Any]) -> None:
+        self.params = params
+
+    def detect(self, bars: list[Bar], ctx: DetectorContext) -> list[Setup]:
+        p = self.params
+        if not ctx.buzz or len(bars) < 30:
+            return []
+        f = compute_daily_features(bars)
+        if not (f.atr14 and f.adr20):
+            return []
+        last = bars[-1]
+        entry = last.close * (1 + float(p.get("entry_buffer_pct", 0.003)))
+        p_max = last.close * (1 + float(p.get("entry_max_pct", 0.015)))
+        low10 = min(b.low for b in bars[-10:])
+        stop, basis, warn = _stop(entry, low10, f.atr14, ctx, float(p.get("stop_max_adr_mult", 2.5)) * f.adr20 * entry)
+        high60 = max(b.high for b in bars[-60:])
+        targets = _targets(p_max, ctx, [high60] if high60 > p_max else [])
+        return [
+            Setup(
+                self.name,
+                SetupKind.BREAKOUT,
+                entry,
+                p_max,
+                stop,
+                basis,
+                low10,
+                targets,
+                str(p.get("horizon", "days")),
+                {"radar": "buzz précoce", "plus_bas_10_seances": low10},
+                warn,
+            )
+        ]
+
+
+DETECTORS = {c.name: c for c in (D2Breakout, D3RangeExpansion, D4Pullback, D7TrendQuality, D8BuzzEarly)}
 
 
 def run_detectors(params: dict[str, Any], bars: list[Bar], ctx: DetectorContext) -> list[Setup]:
