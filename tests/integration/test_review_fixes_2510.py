@@ -87,3 +87,34 @@ def test_a_friday_release_still_counts_on_monday_and_labels_are_dated_on_their_s
 
 def test_a_missing_last_volume_is_not_a_zero():
     assert relative_volume([100.0] * 60 + [None]) is None
+
+
+def test_a_correlated_open_line_caps_the_cluster_risk(db_engine, config, monkeypatch):
+    from app.db.models import PositionRow
+
+    monkeypatch.setattr(circuit_mod, "circuit_state", lambda *a, **k: CircuitView(r_unit_eur=300))
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        twin = "FR0000000007"  # the same price path as the candidate: ρ = 1
+        for r in s.query(PriceEod).filter(PriceEod.isin == ISIN).all():
+            s.add(PriceEod(isin=twin, day=r.day, open=r.open, high=r.high, low=r.low, close=r.close, volume=r.volume,
+                           source="eodhd", received_at=NOW, data_status="eod"))  # fmt: skip
+        s.add(PositionRow(account_id=1, isin=twin, qty_held=100, avg_price=95.0, last_price=100.0, stop_current=95.0,
+                          execution_state="filled", protection_state="protected"))  # fmt: skip
+        s.flush()
+        engine.scan(s, config, DAY, now=NOW)
+        props = s.query(Proposal).filter(Proposal.isin == ISIN).all()
+        sized = [p for p in props if (p.details or {}).get("grappe_correlee")]
+        assert sized and sized[0].details["grappe_correlee"]["lignes"][0]["correlation"] == 1.0
+        assert all(
+            any("grappe corrélée" in b for b in p.gates["blocked"]) for p in sized
+        )  # 500 € at risk + the candidate > 1.5 R
+
+
+def test_correlation_needs_enough_shared_sessions():
+    from app.domain.risk import aligned_correlation
+
+    a = {date(2026, 1, 1) + timedelta(days=k): 10 + (k % 3) for k in range(30)}
+    assert aligned_correlation(a, a) is None
+    b = {date(2026, 1, 1) + timedelta(days=k): 10 + (k % 3) for k in range(80)}
+    assert abs(aligned_correlation(b, b) - 1.0) < 1e-9

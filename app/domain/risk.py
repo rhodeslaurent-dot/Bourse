@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from datetime import date
 from enum import StrEnum
 
 # --- fees --------------------------------------------------------------------------------------
@@ -537,6 +538,24 @@ def gap_risk_multiplier(
     gq = s[lo] + (s[hi] - s[lo]) * (pos - lo)
     r = p_max - stop_exec
     return (min(1.0, r / (gq * p_max)) if gq * p_max > r else 1.0), gq
+
+
+def aligned_correlation(a: dict[date, float], b: dict[date, float], min_points: int = 60) -> float | None:
+    """Pearson correlation of daily returns on the sessions both series share (closes by day)."""
+    days = sorted(set(a) & set(b))
+    ra, rb = [], []
+    for d0, d1 in zip(days, days[1:], strict=False):
+        if a[d0] > 0 and b[d0] > 0:
+            ra.append(a[d1] / a[d0] - 1)
+            rb.append(b[d1] / b[d0] - 1)
+    n = len(ra)
+    if n < min_points:
+        return None
+    ma, mb = sum(ra) / n, sum(rb) / n
+    cov = sum((x - ma) * (y - mb) for x, y in zip(ra, rb, strict=True))
+    va = sum((x - ma) ** 2 for x in ra)
+    vb = sum((y - mb) ** 2 for y in rb)
+    return cov / (va * vb) ** 0.5 if va > 0 and vb > 0 else None
 
 
 def combine_size_factors(market: dict[str, float], others: dict[str, float]) -> float:

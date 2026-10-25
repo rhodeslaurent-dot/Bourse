@@ -69,6 +69,7 @@ risk:
     missing_baseline_multiplier: 0.5  # sans instantané d'équité : tailles × 0,5 (un garde-fou ne s'ouvre jamais faute de mesure)
   gap_risk: {enabled: true, quantile: 0.95, lookback_sessions: 250, min_sessions: 120}   # contre-expertise du 25/10/2026 (à valider) : taille réduite si le 95e centile des écarts d'ouverture défavorables × prix max dépasse la distance au stop glissé
   earnings_in_horizon_multiplier: 0.5 # publication de résultats avant la fin de l'horizon : taille × 0,5 (à valider)
+  correlation_cluster: {enabled: true, threshold: 0.6, lookback_sessions: 120, max_cluster_risk_r: 1.5}   # contre-expertise du 25/10/2026 (à valider) : risque des lignes corrélées (ρ ≥ 0,6 sur 120 séances) + la nouvelle ≤ 1,5 R — plafond, dérogeable (R21)
   min_size_multiplier: 0.35           # réductions cumulées sous ce plancher → WATCH (ligne trop petite pour son coût de plafond)
   revenge_trade_cooldown_sessions: 5
   no_new_buy_after_local: "16:45"

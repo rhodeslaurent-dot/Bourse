@@ -477,6 +477,11 @@ def evaluate(
         if cash:
             ev.account = max(cash, key=lambda a: (per_account[a]["ratio_net"], -options.index(a)))
         ev.details["objectifs"] = objectives(ev.account)
+        risk_wait = (per_account.get(ev.account or "", {}) or {}).get("risque_eur")
+        if risk_wait:  # the waiting limit is an entry order too: the portfolio caps apply before it is placed
+            ev.blocked += _portfolio_caps(
+                s, config, inst, book, float(risk_wait), ev.account or "", gate, budget / max(common, 1e-9), ev
+            )
         return ev
     if best is None:
         ev.blocked.append("WATCH : aucune taille possible sur les comptes (budget de risque, frais)")
@@ -591,23 +596,9 @@ def evaluate(
             m10 = factors.get("portail restreint (R10)", 1.0)
             ev.passed.append(f"portail restreint : sélection exigeante satisfaite, taille × {m10:g} (R10)")
     # --- caps (R8, R9) and override (R21) ---
-    heat = HeatParams(
-        float(p.capital.capital_pilote_eur),
-        dict(getattr(risk, "max_open_risk_pct_by_gate", None) or {"ouvert": 0.05, "restreint": 0.035}),
-        float(getattr(risk, "max_line_risk_pct_of_cap", 0.30)),
-        float(getattr(risk, "reserved_signal_budget_pct", 0.0075)),
-        int(getattr(risk, "reserved_budget_age_sessions", 10)),
-        float(getattr(risk, "srd_risk_weight", 1.25)),
-        float(getattr(risk, "heat_a_soft_cap_pct", 0.075)),
+    caps = _portfolio_caps(
+        s, config, inst, book, sz.risk_if_filled_at_max_eur, acc, gate, budget / max(common, 1e-9), ev
     )
-    gate_key = "ouvert" if gate == "ouvert" else "restreint"
-    st = heat_state(book.lines, 0.0, gate_key, heat)
-    caps = check_new_line(st, sz.risk_if_filled_at_max_eur, heat, srd=(acc == "cto_srd"))
-    ev.details["plafonds"] = {"plafond_eur": round(st.cap_eur, 2), "risque_ouvert_eur": round(st.heat_b_eur, 2)}
-    if gate == "restreint_plus":
-        caps.append(
-            "BLOQUÉ : portail restreint + (risque conjoncturel élevé ou régime rouge) — dérogation seulement (R10, R21)"
-        )
     ev.blocked += caps
     ev.details["blocages_plafonds"] = list(caps)
     # --- events a stop does not cover (R14) ---
@@ -630,6 +621,88 @@ def evaluate(
             tc.__dict__ if tc else {"note": "aucun produit compatible avec le stop et le levier maximal"}
         )
     return ev
+
+
+def _portfolio_caps(
+    s: Session,
+    config: LoadedConfig,
+    inst: Instrument,
+    book: Book,
+    risk_eur: float,
+    acc: str,
+    gate: str | None,
+    r_unit: float,
+    ev: Any,
+) -> list[str]:
+    """Open-risk caps by gate and per line (R8, R9), restricted+ gate, correlated cluster."""
+    risk = config.params.risk
+    heat = HeatParams(
+        float(config.params.capital.capital_pilote_eur),
+        dict(getattr(risk, "max_open_risk_pct_by_gate", None) or {"ouvert": 0.05, "restreint": 0.035}),
+        float(getattr(risk, "max_line_risk_pct_of_cap", 0.30)),
+        float(getattr(risk, "reserved_signal_budget_pct", 0.0075)),
+        int(getattr(risk, "reserved_budget_age_sessions", 10)),
+        float(getattr(risk, "srd_risk_weight", 1.25)),
+        float(getattr(risk, "heat_a_soft_cap_pct", 0.075)),
+    )
+    gate_key = "ouvert" if gate == "ouvert" else "restreint"
+    st = heat_state(book.lines, 0.0, gate_key, heat)
+    caps = check_new_line(st, risk_eur, heat, srd=(acc == "cto_srd"))
+    ev.details["plafonds"] = {"plafond_eur": round(st.cap_eur, 2), "risque_ouvert_eur": round(st.heat_b_eur, 2)}
+    if gate == "restreint_plus":
+        caps.append(
+            "BLOQUÉ : portail restreint + (risque conjoncturel élevé ou régime rouge) — dérogation seulement (R10, R21)"
+        )
+    caps += _cluster_cap(s, config, inst, book, risk_eur, r_unit, heat, ev)
+    return caps
+
+
+def _closes(s: Session, isin: str, n: int) -> dict[date, float]:
+    key = f"closes:{isin}:{n}"
+    if key not in s.info:
+        rows = s.execute(
+            select(PriceEod.day, PriceEod.close).where(PriceEod.isin == isin).order_by(PriceEod.day.desc()).limit(n)
+        ).all()
+        s.info[key] = {r.day: float(r.close) for r in rows}
+    return s.info[key]
+
+
+def _cluster_cap(
+    s: Session, config: LoadedConfig, inst: Instrument, book: Book, risk_eur: float, r_unit: float, heat: Any, ev: Any
+) -> list[str]:
+    """Risk of the open lines correlated with the candidate (ρ ≥ threshold over 120 sessions) + the candidate
+    ≤ ``max_cluster_risk_r`` × the nominal R (contre-expertise du 25/10/2026; ``factor_groups`` is empty, so
+    the factor cap never applied). A cap: R21 may cover it."""
+    from app.domain.heat import heat_a, heat_b
+    from app.domain.risk import aligned_correlation
+
+    cl = getattr(config.params.risk, "correlation_cluster", None) or {}
+    if not cl.get("enabled", True) or not book.lines:
+        return []
+    n = int(cl.get("lookback_sessions", 120)) + 1
+    thr, lim_r = float(cl.get("threshold", 0.6)), float(cl.get("max_cluster_risk_r", 1.5))
+    cand = _closes(s, inst.isin, n)
+    linked, risk = [], risk_eur
+    for ln in book.lines:
+        if ln.isin == inst.isin:
+            continue
+        rho = aligned_correlation(cand, _closes(s, ln.isin, n))
+        if rho is not None and rho >= thr:
+            linked.append({"isin": ln.isin, "correlation": round(rho, 2)})
+            risk += max(heat_a(ln), heat_b(ln, float(heat.srd_weight)))  # a joint drop to the stops, gains included
+    if not linked:
+        return []
+    ev.details["grappe_correlee"] = {
+        "lignes": linked,
+        "risque_eur": round(risk, 2),
+        "plafond_eur": round(lim_r * r_unit, 2),
+    }
+    if risk > lim_r * r_unit:
+        return [
+            f"BLOQUÉ : grappe corrélée ({len(linked)} ligne(s) ρ ≥ {thr:g}) — risque {risk:.0f} € > {lim_r:g} R "
+            f"({lim_r * r_unit:.0f} €, risk.correlation_cluster)"
+        ]
+    return []
 
 
 def _events_blocks(
