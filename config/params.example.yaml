@@ -156,6 +156,8 @@ media:                                  # docs/23 §23.7 — opinions des média
   jump_flag_pct: 0.03                   # hausse depuis la clôture précédant la diffusion → WATCH « hausse médiatique »
   track_horizon_sessions: 20            # bilan mesuré par source : rendement à 20 séances depuis la diffusion
   track_min_samples: 20                 # sous ce nombre de citations mesurées : « historique insuffisant », pas de confirmation
+  recent_days: 7                        # seuls les épisodes / articles de moins de 7 jours sont lus (les flux de podcasts gardent tout l'historique)
+  poll_minutes: 120                     # relecture des flux médias toutes les 2 h (au lieu de 5 à 15 min pour l'actualité)
 
 pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
   dca:
@@ -462,16 +464,16 @@ data:
     - {name: "boerse_online", url: "à renseigner", homepage: "https://www.boerse-online.de/", market: "DE", kind: "media_conseil", usage: "prudence"}
     - {name: "finanzen_net", url: "à renseigner", homepage: "https://www.finanzen.net/", market: "DE", kind: "reco_analystes", reconnu: "analyses de brokers (dpa-AFX Analyser)"}
     - {name: "iex", url: "à renseigner", homepage: "https://www.iex.nl/", market: "NL", kind: "presse_conseil"}
-    - {name: "de_tijd", url: "https://www.tijd.be/rss", homepage: "https://www.tijd.be/", market: "BE", kind: "presse_conseil"}
+    - {name: "de_tijd", url: "à renseigner", note: "tijd.be/rss : HTTP 403 (25/10/2026)", homepage: "https://www.tijd.be/", market: "BE", kind: "presse_conseil"}
     - {name: "expansion", url: "https://e01-expansion.uecdn.es/rss/portada.xml", homepage: "https://www.expansion.com/", market: "ES", kind: "actualites"}
     - {name: "cinco_dias", url: "https://feeds.elpais.com/mrss-s/pages/ep/site/cincodias.elpais.com/portada", homepage: "https://cincodias.elpais.com/", market: "ES", kind: "actualites"}
     - {name: "affarsvarlden", url: "à renseigner", homepage: "https://www.affarsvarlden.se/", market: "SE", kind: "media_conseil", usage: "prudence"}
     - {name: "placera", url: "à renseigner", homepage: "https://www.avanza.se/placera/", market: "SE", kind: "media_conseil", usage: "prudence"}
-    - {name: "borsen", url: "https://borsen.dk/service/rss", homepage: "https://borsen.dk/", market: "DK", kind: "actualites"}
+    - {name: "borsen", url: "à renseigner", note: "service/rss : page HTML, pas un flux (25/10/2026)", homepage: "https://borsen.dk/", market: "DK", kind: "actualites"}
     - {name: "kauppalehti", url: "à renseigner", homepage: "https://www.kauppalehti.fi/", market: "FI", kind: "actualites"}
     - {name: "e24", url: "https://e24.no/rss", homepage: "https://e24.no/", market: "NO", kind: "actualites"}
     - {name: "newsweb_oslo", url: "à renseigner", homepage: "https://newsweb.oslobors.no/", market: "NO", kind: "reglementaire"}
-    - {name: "bankier", url: "https://www.bankier.pl/rss", homepage: "https://www.bankier.pl/", market: "PL", kind: "actualites"}
+    - {name: "bankier", url: "à renseigner", note: "bankier.pl/rss : page HTML, pas un flux (25/10/2026)", homepage: "https://www.bankier.pl/", market: "PL", kind: "actualites"}
     - {name: "jornal_negocios", url: "à renseigner", homepage: "https://www.jornaldenegocios.pt/", market: "PT", kind: "actualites"}
     - {name: "irish_times_business", url: "à renseigner", homepage: "https://www.irishtimes.com/business/", market: "IE", kind: "actualites"}
     - {name: "boersen_kurier", url: "à renseigner", homepage: "https://www.boersen-kurier.at/", market: "AT", kind: "actualites"}
@@ -482,7 +484,7 @@ data:
     - {name: "alles_auf_aktien", url: "https://allesaufaktien.podigee.io/feed/mp3", apple_id: "1549709271", itunes_term: "Alles auf Aktien WELT", market: "DE", kind: "media_conseil", usage: "attention"}
     - {name: "iex_podcast", url: "https://anchor.fm/s/3aceea98/podcast/rss", itunes_term: "IEX BeleggersPodcast", market: "NL", kind: "media_conseil", usage: "attention"}
     - {name: "beursvoyeurs", url: "https://www.omnycontent.com/d/playlist/5978613f-cd11-4352-8f26-adb900fa9a58/f3fec9de-1678-4e34-a845-ae54009967b8/8bdcde5b-ac01-4ec5-a7b3-ae54009a8aa4/podcast.rss", itunes_term: "De Beursvoyeurs Tijd", market: "BE", kind: "media_conseil", usage: "attention"}
-    - {name: "estrategias_inversion", url: "https://www.estrategiasdeinversion.com/corporativo/rss", homepage: "https://www.estrategiasdeinversion.com/", market: "ES", kind: "media_conseil", usage: "confirmation", reconnu: "« Los brokers recomiendan » : recommandations de courtiers"}
+    - {name: "estrategias_inversion", url: "à renseigner", note: "corporativo/rss : HTTP 403 (25/10/2026)", homepage: "https://www.estrategiasdeinversion.com/", market: "ES", kind: "media_conseil", usage: "confirmation", reconnu: "« Los brokers recomiendan » : recommandations de courtiers"}
     - {name: "finanzaonline", url: "https://www.finanzaonline.com/feed", homepage: "https://www.finanzaonline.com/", market: "IT", kind: "media_conseil", usage: "confirmation", reconnu: "consensus Buy/Hold/Sell du FTSE MIB (données Bloomberg)"}
     - {name: "inderes", url: "à renseigner", homepage: "https://www.inderes.fi/", market: "FI", kind: "media_conseil", usage: "information", reconnu: "recherche partiellement commanditée par les sociétés couvertes"}
   imap:

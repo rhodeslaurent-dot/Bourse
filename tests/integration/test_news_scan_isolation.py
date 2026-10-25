@@ -60,3 +60,29 @@ def test_news_guid_column_is_text():
     from sqlalchemy import Text
 
     assert isinstance(NewsItem.__table__.c.guid.type, Text)
+
+
+def test_podcast_feeds_read_recent_episodes_only_and_every_two_hours(db_engine, config, calendars, monkeypatch):
+    """docs/23 §23.7: a podcast feed carries its whole history (1 605 episodes for C'est votre argent):
+    only the last ``media.recent_days`` are ingested, and the feed is read every ``media.poll_minutes``."""
+    from datetime import timedelta
+
+    calls: list[str] = []
+    now = datetime.now(UTC)
+
+    def fake_fetch(name: str, url: str) -> list[RssItem]:
+        calls.append(name)
+        old = _item(name, "old")
+        old = RssItem(**{**old.__dict__, "published_at": now - timedelta(days=400), "dedup_hash": f"{name}-old"})
+        return [_item(name, "new"), old]
+
+    monkeypatch.setattr(news_scan, "fetch_feed", fake_fetch)
+    monkeypatch.setattr(news_scan, "_media", lambda *a, **k: 0)
+    monkeypatch.setattr(
+        config.params.data,
+        "rss_feeds",
+        [{"name": "pod", "url": "https://p", "kind": "media_conseil"}, {"name": "news", "url": "https://n"}],
+    )
+    ctx = JobContext(config, calendars, now.date(), ("XPAR",), "normal")
+    assert news_scan.run(ctx) == 3  # pod: the recent episode only; news: both items
+    assert news_scan.run(ctx) == 0 and calls == ["pod", "news", "news"]  # pod not re-read within 2 h

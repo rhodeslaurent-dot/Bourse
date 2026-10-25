@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -41,6 +41,7 @@ def _media(s, source: str, gateway, feed: dict | None = None) -> int:  # type: i
 def run(ctx: JobContext) -> int:
     feeds = [f for f in ctx.config.params.data.rss_feeds if f.get("url") and "renseigner" not in str(f.get("url"))]
     max_items = int(((ctx.config.params.detectors or {}).get("d6_catalysts") or {}).get("max_items_per_cycle", 50))
+    media_cfg = getattr(ctx.config.params, "media", None) or {}
     total = 0
     errors: list[str] = []
     with db_session() as s:
@@ -48,8 +49,21 @@ def run(ctx: JobContext) -> int:
             name = str(f["name"])
             fresh = s.get(DataFreshness, f"rss:{name}") or DataFreshness(source=f"rss:{name}")
             s.add(fresh)
+            poll = int(
+                f.get("poll_minutes") or (media_cfg.get("poll_minutes", 120) if f.get("kind") == "media_conseil" else 0)
+            )
+            last = (
+                fresh.last_ok_at.replace(tzinfo=UTC)
+                if fresh.last_ok_at and fresh.last_ok_at.tzinfo is None
+                else fresh.last_ok_at
+            )
+            if poll and last and datetime.now(UTC) - last < timedelta(minutes=poll):
+                continue  # docs/23 §23.7: podcast feeds carry their whole history (MB): read every 2 h, not every 5 min
             try:
                 items = fetch_feed(name, str(f["url"]))
+                if f.get("kind") == "media_conseil":  # only recent episodes: never the 2 000 of the archive
+                    since = datetime.now(UTC) - timedelta(days=int(media_cfg.get("recent_days", 7)))
+                    items = [i for i in items if (i.published_at or i.fetched_at) >= since]
                 keep = [_norm_title(w) for w in f.get("title_includes") or []]
                 if keep:  # docs/23 §23.7: only the show's write-ups of a site that publishes several series
                     items = [i for i in items if any(w in _norm_title(i.title) for w in keep)]
