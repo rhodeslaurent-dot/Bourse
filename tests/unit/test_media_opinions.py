@@ -125,3 +125,31 @@ def test_letters_page_shows_media_citations_and_record(db_engine, config, calend
     with TestClient(app) as c:
         html = c.get("/lettres").text
     assert "Médias : valeurs citées et bilan mesuré" in html and "Je vends TotalEnergies" in html and "Gérant B" in html
+
+
+def test_weekly_write_up_uses_the_show_date_and_friday_close(db_engine):
+    """bourse-portefeuille-conseil.fr publishes « 16/010/2026 – C'est Votre Argent » on Monday 19/10: the
+    show (Friday 16/10, after the close) is the reference, so the Friday close is the price of reference."""
+    from app.db.models import MediaMention, NewsItem
+    from app.db.session import db_session
+    from app.scheduler.jobs.news_scan import _norm_title
+    from app.services.media import broadcast_day, extract_mentions
+
+    pub = datetime(2026, 10, 19, 8, tzinfo=UTC)
+    assert broadcast_day("16/010/2026 – C’est Votre Argent", pub) == date(2026, 10, 16)
+    assert broadcast_day("01/01/2026 – C’est Votre Argent", pub) is None  # too old for this write-up
+    assert "c'est votre argent" in _norm_title("16/010/2026 – C’est Votre Argent")
+    out = {"values": [{"name": "TotalEnergies", "stance": "vente", "speaker": "Frédéric Rozier",
+                       "snippet": "Frédéric Rozier vend TotalEnergies"}]}  # fmt: skip
+    with db_session() as s:
+        s.add(_bar(ISIN, date(2026, 10, 15), 59.0))
+        s.add(_bar(ISIN, date(2026, 10, 16), 60.0))
+        row = NewsItem(source="cva_portefeuille_gerants", guid="w42", dedup_hash="w42", url="u",
+                       title="16/010/2026 – C’est Votre Argent", body="Frédéric Rozier vend TotalEnergies.",
+                       fetched_at=pub, published_at=pub)  # fmt: skip
+        s.add(row)
+        s.flush()
+        extract_mentions(s, [row], Gateway(out), {"totalenergies": ISIN}, {"broadcast_after_close": True})
+        m = s.query(MediaMention).one()
+        assert (m.price_ref, m.price_ref_day) == (60.0, date(2026, 10, 16))  # Friday's close, not Thursday's
+        assert m.published_at.replace(tzinfo=UTC).date() == date(2026, 10, 16)

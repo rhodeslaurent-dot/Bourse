@@ -5,15 +5,17 @@ by the tool for each source. Media opinions never trigger a proposal on their ow
 from __future__ import annotations
 
 import logging
+import re
 import statistics
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import MediaMention, NewsItem, PriceEod
+from app.domain.timeutil import PARIS
 from app.llm.gateway import LlmUnavailable
 from app.llm.schemas import MediaExtraction
 
@@ -46,7 +48,29 @@ def close_before(s: Session, isin: str, day: date) -> PriceEod | None:
     return s.scalar(select(PriceEod).where(PriceEod.isin == isin, PriceEod.day < day).order_by(PriceEod.day.desc()))
 
 
-def extract_mentions(s: Session, rows: list[NewsItem], gateway: Any, aliases: dict[str, str]) -> int:
+_TITLE_DATE = re.compile(r"\b(\d{1,2})/(\d{1,3})/(\d{4})\b")
+
+
+def broadcast_day(title: str, published: datetime) -> date | None:
+    """Date of the show written in the title (« 16/10/2026 – C'est Votre Argent », typos such as « 16/010 »
+    included) when it is within the 10 days before publication; else None (the publication date is used)."""
+    m = _TITLE_DATE.search(title or "")
+    if not m:
+        return None
+    try:
+        d = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return None
+    return d if published.date() - timedelta(days=10) <= d <= published.date() else None
+
+
+def close_on_or_before(s: Session, isin: str, day: date) -> PriceEod | None:
+    return s.scalar(select(PriceEod).where(PriceEod.isin == isin, PriceEod.day <= day).order_by(PriceEod.day.desc()))
+
+
+def extract_mentions(
+    s: Session, rows: list[NewsItem], gateway: Any, aliases: dict[str, str], feed: dict[str, Any] | None = None
+) -> int:
     """Values cited by new media items (LLM extraction, then checks): the name must be written in the text
     and known to the referential (else kept without ISIN, never matched by guess). Each item is processed
     once (``classification["media"]``)."""
@@ -59,7 +83,9 @@ def extract_mentions(s: Session, rows: list[NewsItem], gateway: Any, aliases: di
         values: list[dict[str, Any]] = []
         if gateway is not None and getattr(gateway, "enabled", True):
             try:
-                out, _ = gateway.parse(s, "media_extract", "media_extract", text[:6000], MediaExtraction)
+                out, _ = gateway.parse(
+                    s, "media_extract", "media_extract", text[:12000], MediaExtraction, max_tokens=3000
+                )
                 low = text.lower()
                 for v in out.values:
                     if v.name.lower() not in low:
@@ -70,9 +96,14 @@ def extract_mentions(s: Session, rows: list[NewsItem], gateway: Any, aliases: di
                 log.warning("extraction média indisponible (%s) : épisode gardé sans valeurs", exc)
                 continue  # retried at the next cycle
         published = _aware(row.published_at or row.fetched_at)
+        shown = broadcast_day(row.title, published)  # the show's date, not the write-up's (docs/23 §23.7.4)
+        day = shown or published.date()
+        if shown is not None:
+            published = datetime.combine(shown, time(18, 0), tzinfo=PARIS).astimezone(UTC)
+        after_close = bool((feed or {}).get("broadcast_after_close"))
         for v in values:
             isin = aliases.get(v["name"].lower())
-            ref = close_before(s, isin, published.date()) if isin else None
+            ref = (close_on_or_before if after_close else close_before)(s, isin, day) if isin else None
             exists = s.scalar(
                 select(MediaMention.id).where(
                     MediaMention.source == row.source,

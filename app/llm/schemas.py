@@ -103,7 +103,7 @@ class MediaValue(BaseModel):
 
 
 class MediaExtraction(BaseModel):
-    values: Items(MediaValue, 15) = Field(default_factory=list)
+    values: Items(MediaValue, 40) = Field(default_factory=list)  # a weekly write-up lists every manager's moves
 
 
 class AssistantAnswer(BaseModel):

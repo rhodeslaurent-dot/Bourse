@@ -104,6 +104,7 @@ Aucune étude ne porte sur les médias français (BFM, Investir, Le Revenu) : l'
 | Source | Place | Nature | Usage dans l'outil |
 |---|---|---|---|
 | **C'est votre argent** (BFM Business, Marc Fiorentino ; gérants Rozier, Higgons, Schang…) | FR | podcast hebdomadaire ; achats et ventes de gérants nommés | **confirmation** pondérée par le bilan mesuré ; une **vente** citée sur une position détenue est signalée |
+| **Relevé hebdomadaire « C'est Votre Argent »** (bourse-portefeuille-conseil.fr, site indépendant, proposé par l'utilisateur le 25/10/2026) | FR | un article par émission (« 16/10/2026 – C'est Votre Argent ») avec les mouvements des gérants ; flux RSS du site filtré sur ce titre (`title_includes`) ; **date de l'émission lue dans le titre** et clôture du vendredi comme référence (`broadcast_after_close`) | **confirmation** pondérée par le bilan mesuré, comme le podcast ; éditeur à qualifier (mentions légales) ; le flux de la page ne contient que des commentaires (écarté) |
 | **Intégrale Bourse** (BFM Business) | FR | podcast quotidien ; invités gérants et analystes | **attention** (catalyseurs), confirmation faible |
 | **Avis d'analystes** (TradingSat/BFM, déjà intégré) | FR | changements de recommandation des courtiers | **confirmation** ; une dégradation est un risque (déjà classée `reco_broker`) |
 | **Investir — conseil du jour** (Les Echos) ; **Boursier.com** | FR | presse, titres gratuits | **vigilance** « pression médiatique » (§23.7.3) |

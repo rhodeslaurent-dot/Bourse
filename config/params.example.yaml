@@ -476,7 +476,8 @@ data:
     - {name: "irish_times_business", url: "à renseigner", homepage: "https://www.irishtimes.com/business/", market: "IE", kind: "actualites"}
     - {name: "boersen_kurier", url: "à renseigner", homepage: "https://www.boersen-kurier.at/", market: "AT", kind: "actualites"}
     # docs/23 §23.7 — médias grand public : opinions extraites par valeur ; podcasts trouvés dans l'annuaire Apple (apple_id / itunes_term)
-    - {name: "cest_votre_argent", url: "https://feeds.simplecast.com/xSl5jbxn", apple_id: "562595266", itunes_term: "C'est votre argent BFM", market: "FR", kind: "media_conseil", usage: "confirmation", reconnu: "BFM Business, Marc Fiorentino : achats et ventes de gérants nommés"}
+    - {name: "cest_votre_argent", url: "https://feeds.simplecast.com/xSl5jbxn", broadcast_after_close: true, apple_id: "562595266", itunes_term: "C'est votre argent BFM", market: "FR", kind: "media_conseil", usage: "confirmation", reconnu: "BFM Business, Marc Fiorentino : achats et ventes de gérants nommés"}
+    - {name: "cva_portefeuille_gerants", url: "https://www.bourse-portefeuille-conseil.fr/feed/", title_includes: ["C'est Votre Argent"], broadcast_after_close: true, market: "FR", kind: "media_conseil", usage: "confirmation", reconnu: "relevé hebdomadaire des achats et ventes des gérants de C'est votre argent (site indépendant ; date d'émission lue dans le titre)"}
     - {name: "integrale_bourse", url: "https://feeds.simplecast.com/dCzX0hyl", apple_id: "328729492", itunes_term: "Intégrale Bourse BFM", market: "FR", kind: "media_conseil", usage: "attention"}
     - {name: "alles_auf_aktien", url: "https://allesaufaktien.podigee.io/feed/mp3", apple_id: "1549709271", itunes_term: "Alles auf Aktien WELT", market: "DE", kind: "media_conseil", usage: "attention"}
     - {name: "iex_podcast", url: "https://anchor.fm/s/3aceea98/podcast/rss", itunes_term: "IEX BeleggersPodcast", market: "NL", kind: "media_conseil", usage: "attention"}

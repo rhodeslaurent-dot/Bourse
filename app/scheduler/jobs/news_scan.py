@@ -18,7 +18,11 @@ from app.services.news import ingest_rss_items
 log = logging.getLogger("bourse.jobs.news_scan")
 
 
-def _media(s, source: str, gateway) -> int:  # type: ignore[no-untyped-def]
+def _norm_title(text: str) -> str:
+    return " ".join(str(text or "").replace("’", "'").lower().split())
+
+
+def _media(s, source: str, gateway, feed: dict | None = None) -> int:  # type: ignore[no-untyped-def,type-arg]
     from datetime import timedelta
 
     from app.db.models import NewsItem
@@ -31,7 +35,7 @@ def _media(s, source: str, gateway) -> int:  # type: ignore[no-untyped-def]
         for r in s.scalars(select(NewsItem).where(NewsItem.source == source, NewsItem.fetched_at >= since))
         if "media" not in (r.classification or {})
     ]
-    return extract_mentions(s, rows, gateway, alias_index(s)) if rows else 0
+    return extract_mentions(s, rows, gateway, alias_index(s), feed) if rows else 0
 
 
 def run(ctx: JobContext) -> int:
@@ -46,10 +50,13 @@ def run(ctx: JobContext) -> int:
             s.add(fresh)
             try:
                 items = fetch_feed(name, str(f["url"]))
+                keep = [_norm_title(w) for w in f.get("title_includes") or []]
+                if keep:  # docs/23 §23.7: only the show's write-ups of a site that publishes several series
+                    items = [i for i in items if any(w in _norm_title(i.title) for w in keep)]
                 with s.begin_nested():  # savepoint: a refused row of one feed never poisons the session
                     rep = ingest_rss_items(s, items, ctx.llm, max_items=max_items)
                     if f.get("kind") == "media_conseil":  # docs/23 §23.7: values cited, with their stance
-                        _media(s, name, ctx.llm)
+                        _media(s, name, ctx.llm, f)
                 total += rep.new
                 fresh.last_ok_at = datetime.now(UTC)
                 fresh.last_error = None
