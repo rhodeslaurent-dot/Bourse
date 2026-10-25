@@ -1012,3 +1012,53 @@ class Fundamentals(Base):
     data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     __table_args__ = (UniqueConstraint("isin", "day", name="uq_fundamentals_isin_day"),)
+
+
+# ---------------------------------------------------------------------------------------------
+# Weak signals radar (docs/26) — daily counts only: no message, no author, no page content
+# ---------------------------------------------------------------------------------------------
+
+
+class WikiArticle(Base):
+    """ISIN → Wikipedia article per language, from Wikidata (P946). ``title`` None = checked, none found."""
+
+    __tablename__ = "wiki_articles"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    lang: Mapped[str] = mapped_column(String(8))
+    title: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("isin", "lang", name="uq_wiki_articles_isin_lang"),)
+
+
+class AttentionDaily(Base):
+    """Daily attention count of a value (Wikipedia views per language), as published by the source."""
+
+    __tablename__ = "attention_daily"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    source: Mapped[str] = mapped_column(String(16))  # wikipedia
+    lang: Mapped[str] = mapped_column(String(8))
+    value: Mapped[int] = mapped_column(Integer)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("isin", "day", "source", "lang", name="uq_attention_daily"),)
+
+
+class WeakSignalHit(Base):
+    """The radar's label of a value for a day, with the inputs used and the close (for the measure)."""
+
+    __tablename__ = "weak_signal_hits"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    label: Mapped[str] = mapped_column(String(32))
+    idea: Mapped[bool] = mapped_column(Boolean, default=False)
+    attention_z: Mapped[float | None] = mapped_column(nullable=True)
+    rvol: Mapped[float | None] = mapped_column(nullable=True)
+    news_recent: Mapped[int] = mapped_column(Integer, default=0)
+    close: Mapped[float | None] = mapped_column(nullable=True)
+    text: Mapped[str] = mapped_column(String(300))
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("isin", "day", name="uq_weak_signal_hits_isin_day"),)

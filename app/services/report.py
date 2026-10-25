@@ -90,6 +90,14 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         f"stop {ln.get('stop') or '—'}, {ln.get('r', '—')} R → {ln['verdict']}"
         for ln in lines
     ]
+    from app.services.weak_signals import ideas as radar_ideas
+    from app.services.weak_signals import latest as radar_latest
+
+    for ln in lines:  # docs/26: a weak signal on a held value is a caution (never a sale by itself)
+        h = radar_latest(s, ln["isin"], day)
+        if h is not None:
+            advice = "rappel du stop" if h.label == "emballement" else "ne pas renforcer sans nouvelle"
+            pf.append(f"Radar — {ln['nom']} : {h.text} ({advice})")
     rk = syn["risque"]
     r.append(
         {
@@ -133,6 +141,8 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         for p in props
         if p.action == "WATCH"
     ]
+    for h in radar_ideas(s, config, day - timedelta(days=1), {p.isin for p in props}):
+        watch.append(f"Radar — idée à examiner : {name_of(h.isin)} — {h.text} (jamais un achat en l'état, docs/26)")
     n_wl = len(list(s.scalars(select(WatchlistRow.id).where(WatchlistRow.active.is_(True)))))
     r.append({"titre": RUBRICS[5], "faits": watch[:10] + [f"{n_wl} valeur(s) en watchlist active"]})
     # 7 — to avoid
@@ -142,6 +152,11 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         c = n.classification or {}
         if c.get("direction") == "negatif" and c.get("magnitude") in ("forte", "moyenne"):
             neg.append(f"{', '.join(name_of(i) for i in (n.isins or [])) or 'marché'} : {n.title}")
+    from app.db.models import WeakSignalHit
+
+    for h in s.scalars(select(WeakSignalHit).where(WeakSignalHit.day == day - timedelta(days=1))):
+        if h.label == "emballement":  # docs/26 §26.4: attention and volume without any published information
+            neg.append(f"Radar — {name_of(h.isin)} : {h.text}")
     avoid = [
         f"{name_of(p.isin)} : {((p.gates or {}).get('blocked') or ['écartée'])[0]}"
         for p in props

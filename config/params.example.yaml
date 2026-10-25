@@ -159,6 +159,24 @@ media:                                  # docs/23 §23.7 — opinions des média
   recent_days: 7                        # seuls les épisodes / articles de moins de 7 jours sont lus (les flux de podcasts gardent tout l'historique)
   poll_minutes: 120                     # relecture des flux médias toutes les 2 h (au lieu de 5 à 15 min pour l'actualité)
 
+weak_signals:                           # docs/26 — radar des signaux faibles PUBLICS : agrégats seulement, jamais un déclencheur
+  effective_from: "2026-10-25"
+  enabled: true
+  baseline_days: 60                     # base robuste (médiane / MAD) qui exclut la fenêtre récente
+  recent_days: 3
+  min_history_days: 30                  # en dessous : « historique insuffisant », jamais d'estimation
+  min_mad: 0.15                         # plancher de dispersion (log des consultations) pour les pages peu lues
+  attention_z: 2.0                      # attention anormale
+  pump_z: 3.0                           # emballement : z ≥ 3 + petite capitalisation + aucune nouvelle + volume ≥ 3 × → BLOQUÉ
+  pump_rvol: 3.0
+  volume_rvol_min: 2.5                  # volume anormal sans mouvement (< 0,5 ATR) ni nouvelle → vigilance
+  quiet_move_atr: 0.5
+  news_hours: 48                        # fenêtre de corroboration par une nouvelle publiée
+  idea_min_rs: 70                       # idée à examiner : attention corroborée et force relative ≥ 70
+  max_ideas: 5
+  request_interval_s: 0.05              # politesse envers l'API Wikimedia
+  wiki_languages: {}                    # par place, ex. {XPAR: ["fr"]} — l'anglais est toujours lu ; défauts dans le code
+
 pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
   dca:
     isins: []                           # ETF de l'investissement progressif (à renseigner dans params.yaml)
@@ -630,6 +648,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   fixing_card: {cron: "15 17 * * 1-5", misfire_grace_min: 10, market_days_only: true}   # R6 : entrée au fixing de clôture sur repli qui tient (entry.fixing_card_time)
   backtest_weekly: {cron: "30 10 * * 0", misfire_grace_min: 1440, market_days_only: false}   # docs/27 : rejeu des détecteurs au coût complet (≈ 20 min)
   short_positions_refresh: {cron: "40 19 * * 1-5", misfire_grace_min: 720, market_days_only: false}   # docs/23 S2 : positions courtes nettes publiées par les autorités
+  weak_signals: {cron: "40 6 * * 1-5", misfire_grace_min: 60, market_days_only: true}   # docs/26 : radar des signaux faibles publics (Wikipédia, volume, presse)
   fundamentals_refresh: {cron: "0 9 * * 0", misfire_grace_min: 1440, market_days_only: false}   # fondamentaux et consensus gratuits (Yahoo), hebdomadaire
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h
   weekly_review: {cron: "0 8 * * 6", misfire_grace_min: 600, market_days_only: false}   # docs/18 §18.6 : revue IA, questions et propositions

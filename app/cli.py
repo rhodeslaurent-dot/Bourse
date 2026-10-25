@@ -1001,6 +1001,61 @@ def cmd_llm_costs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_radar_check(args: argparse.Namespace) -> int:
+    """docs/26 — Wikidata mapping and Wikipedia views of a few values, then the radar label of the day."""
+    import httpx
+
+    from app.db.session import db_session
+    from app.services.weak_signals import compute_hits, refresh_articles, refresh_attention, settings
+
+    cfg = load_params(args.params)
+    isins = [x.strip() for x in args.isins.split(",") if x.strip()] if args.isins else None
+    day = date.today() - timedelta(days=1)
+    with httpx.Client(follow_redirects=True) as client, db_session() as s:
+        n = refresh_articles(s, cfg, client, isins)
+        print(f"{n} correspondance(s) Wikidata vérifiée(s)")
+        from sqlalchemy import select
+
+        from app.db.models import WikiArticle
+
+        q = select(WikiArticle).order_by(WikiArticle.isin)
+        if isins:
+            q = q.where(WikiArticle.isin.in_(isins))
+        arts = list(s.scalars(q))
+        found = [a for a in arts if a.title]
+        print(f"articles trouvés : {len(found)} / {len(arts)} (valeur × langue)")
+        for a in found[:20]:
+            print(f"  {a.isin} {a.lang}: {a.title}")
+        if args.views:
+            rows, errors = refresh_attention(s, cfg, client, day)
+            failed = f", {len(errors)} en échec : {errors[:3]}" if errors else ""
+            print(f"{rows} jour(s) de consultations lus{failed}")
+            hits = compute_hits(s, cfg, day)
+            print(f"étiquettes du {day} : {len(hits)}")
+            for h in hits[:20]:
+                print(f"  {h.isin} {h.label} — {h.text}")
+        print(f"radar {'actif' if settings(cfg).enabled else 'désactivé'} (weak_signals.enabled)")
+    return 0
+
+
+def cmd_radar_measure(args: argparse.Namespace) -> int:
+    """docs/26 §26.6 — return after each radar label, in excess of the universe median."""
+    from app.db.session import db_session
+    from app.services.weak_signals import measure
+
+    with db_session() as s:
+        res = measure(s)
+    if not res:
+        print("aucune étiquette mesurable (il faut au moins 5 séances après les premières étiquettes)")
+    for lab, hs in res.items():
+        for h, v in hs.items():
+            t = f"{v['t_stat']:.1f}" if v.get("t_stat") is not None else "—"
+            mean = f"{v['mean_r']:+.2%}" if v.get("mean_r") is not None else "—"
+            flag = "  ✓ t ≥ 3" if v.get("significant") else ""
+            print(f"{lab:<26} {h:<11} n={v['n']:<5} excès moyen {mean:>8} t={t}{flag}")
+    return 0
+
+
 def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
     """docs/19 §19.6 — examine the latest matching letters (read-only): subject, link labels and
     hosts (never the content), then follow the configured link of each and print its status."""
@@ -1270,6 +1325,13 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous les actifs)")
     bt.set_defaults(fn=cmd_backtest)
     sub.add_parser("llm-costs", help="coût de l'API Claude par usage (docs/25 L6)").set_defaults(fn=cmd_llm_costs)
+    rc = sub.add_parser("radar-check", help="radar des signaux faibles : Wikidata, Wikipédia, étiquettes (docs/26)")
+    rc.add_argument("--isins", default=None, help="ex. FR0000120073,FR0000120271 (défaut : tout l'univers)")
+    rc.add_argument("--views", action="store_true", help="lire aussi les consultations et calculer les étiquettes")
+    rc.set_defaults(fn=cmd_radar_check)
+    sub.add_parser("radar-measure", help="rendement en excès après chaque étiquette du radar (docs/26)").set_defaults(
+        fn=cmd_radar_measure
+    )
     bf = sub.add_parser("backfill")
     bf.add_argument("--provider", default="eodhd")
     bf.add_argument("--from", dest="from_date", required=True)

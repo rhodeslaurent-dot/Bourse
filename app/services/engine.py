@@ -249,6 +249,18 @@ def evaluate(
         ev.details["coupe_circuit"] = circuit.as_dict()  # limits waiting for a pullback included
         if circuit.tripped:
             ev.blocked.append(f"BLOQUÉ : {circuit.reason}")
+    from app.services.weak_signals import is_pump
+    from app.services.weak_signals import latest as radar_latest
+
+    hit = radar_latest(s, inst.isin, now.astimezone(PARIS).date())
+    if hit is not None:  # docs/26: a fact, a caution or a block — never a reason to buy
+        ev.details["signaux_faibles"] = {"etiquette": hit.label, "texte": hit.text, "jour": hit.day.isoformat(),
+                                         "attention_z": hit.attention_z, "volume_relatif": hit.rvol,
+                                         "nouvelles_48h": hit.news_recent}  # fmt: skip
+        if is_pump(hit):
+            ev.blocked.append(
+                "BLOQUÉ : emballement non corroboré — attention et volume anormaux sans information publiée (docs/26)"
+            )
     # --- costs per account (R11, R13) ---
     from app.services.ttf import ttf_status
 

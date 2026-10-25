@@ -119,6 +119,9 @@ def facts_for(s: Session, p: Proposal, now: datetime | None = None) -> list[dict
             f"Positions courtes nettes déclarées aux autorités : {pc['total_pct'] * 100:.2f} % du capital au moins "
             f"(seules les positions ≥ 0,5 % sont publiques) — {top}"
         )
+    sf = d.get("signaux_faibles") or {}
+    if sf.get("texte"):  # docs/26: public aggregates only — attention, volume, press — never a direction
+        facts.append(f"Radar des signaux faibles du {sf.get('jour')} : {sf['texte']} (vigilance, pas un déclencheur)")
     fd = d.get("fondamentaux") or {}
     if fd.get("objectif_analystes") is not None:
         facts.append(

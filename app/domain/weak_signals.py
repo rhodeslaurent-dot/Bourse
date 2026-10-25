@@ -1,0 +1,98 @@
+"""docs/26 — public weak signals: robust anomaly scores on attention (Wikipedia page views), volume and press
+coverage, and the radar labels. Pure functions — no I/O, no LLM. A weak signal is never a trigger: it only
+yields a caution, a corroboration or an idea for the normal engine."""
+
+from __future__ import annotations
+
+import math
+import statistics
+from dataclasses import dataclass
+
+PUMP = "emballement"
+ATTENTION_NO_NEWS = "attention_sans_nouvelle"
+VOLUME_QUIET = "volume_sans_mouvement"
+ATTENTION_NEWS = "attention_corroboree"
+
+LABELS = {
+    PUMP: "emballement non corroboré",
+    ATTENTION_NO_NEWS: "attention anormale sans nouvelle publiée",
+    VOLUME_QUIET: "volume anormal sans mouvement de prix ni nouvelle",
+    ATTENTION_NEWS: "attention anormale avec nouvelle publiée",
+}
+
+
+@dataclass(frozen=True)
+class RadarParams:
+    baseline_days: int = 60
+    recent_days: int = 3
+    min_history_days: int = 30
+    min_mad: float = 0.15  # floor on the MAD of log(1 + views): a page read 3 times a day is not « 10 σ » at 9
+    attention_z: float = 2.0
+    pump_z: float = 3.0
+    pump_rvol: float = 3.0
+    volume_rvol_min: float = 2.5
+    quiet_move_atr: float = 0.5
+    idea_min_rs: float = 70.0
+
+
+def robust_z(values: list[float], p: RadarParams, log: bool = True) -> float | None:
+    """z of the mean of the last ``recent_days`` values against the median / MAD of the ``baseline_days``
+    before them (the recent window is excluded from the baseline). None when the history is too short."""
+    if len(values) < p.min_history_days + p.recent_days:
+        return None
+    xs = [math.log1p(max(0.0, v)) for v in values] if log else list(values)
+    recent = xs[-p.recent_days :]
+    base = xs[-(p.recent_days + p.baseline_days) : -p.recent_days]
+    if len(base) < p.min_history_days:
+        return None
+    med = statistics.median(base)
+    mad = statistics.median(abs(x - med) for x in base) * 1.4826
+    return (statistics.fmean(recent) - med) / max(mad, p.min_mad if log else 1e-12)
+
+
+def relative_volume(volumes: list[float], window: int = 60) -> float | None:
+    """Last session's volume ÷ median of the ``window`` sessions before it; None without enough history."""
+    if len(volumes) < window // 2 + 1:
+        return None
+    base = [v for v in volumes[-(window + 1) : -1] if v is not None and v > 0]
+    if len(base) < window // 2:
+        return None
+    med = statistics.median(base)
+    return volumes[-1] / med if med > 0 else None
+
+
+@dataclass(frozen=True)
+class RadarInput:
+    attention_z: float | None
+    rvol: float | None
+    move_atr: float | None  # |close − previous close| ÷ ATR14
+    news_recent: int  # attached news items within ``news_hours``
+    small_cap: bool
+    rs_rank: float | None
+
+
+@dataclass(frozen=True)
+class RadarLabel:
+    label: str
+    idea: bool  # worth a look by the normal engine (never a proposal by itself)
+    text: str
+
+
+def label(inp: RadarInput, p: RadarParams) -> RadarLabel | None:
+    """The strongest label of the day, or None. Order: pump guard, quiet volume, attention without news,
+    corroborated attention."""
+    z, rv = inp.attention_z, inp.rvol
+    no_news = inp.news_recent == 0
+    if z is not None and z >= p.pump_z and inp.small_cap and no_news and rv is not None and rv >= p.pump_rvol:
+        return RadarLabel(
+            PUMP, False, f"{LABELS[PUMP]} : attention z {z:.1f}, volume × {rv:.1f}, petite capitalisation"
+        )
+    if no_news and rv is not None and rv >= p.volume_rvol_min and inp.move_atr is not None:
+        if inp.move_atr < p.quiet_move_atr:
+            return RadarLabel(VOLUME_QUIET, False, f"{LABELS[VOLUME_QUIET]} : volume × {rv:.1f}")
+    if z is not None and z >= p.attention_z:
+        if no_news:
+            return RadarLabel(ATTENTION_NO_NEWS, False, f"{LABELS[ATTENTION_NO_NEWS]} : z {z:.1f}")
+        idea = inp.rs_rank is not None and inp.rs_rank >= p.idea_min_rs
+        return RadarLabel(ATTENTION_NEWS, idea, f"{LABELS[ATTENTION_NEWS]} : z {z:.1f}")
+    return None
