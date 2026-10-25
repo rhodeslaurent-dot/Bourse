@@ -68,8 +68,28 @@ def close_on_or_before(s: Session, isin: str, day: date) -> PriceEod | None:
     return s.scalar(select(PriceEod).where(PriceEod.isin == isin, PriceEod.day <= day).order_by(PriceEod.day.desc()))
 
 
+def _fetch_article(url: str, feed: dict[str, Any]) -> str | None:
+    """Full text of the article a media feed points to; only the feed's own site is allowed (no redirect
+    elsewhere). None when the page is reserved, refused or unreadable."""
+    from urllib.parse import urlparse
+
+    from app.data.providers.linked_page import fetch_article
+
+    host = urlparse(str(feed.get("url") or url)).hostname or ""
+    page, _ = fetch_article(url, [host.removeprefix("www.")])
+    if page.status != "ok" or not page.text:
+        log.info("article média %s non lu : %s %s", url, page.status, page.detail or "")
+        return None
+    return page.text
+
+
 def extract_mentions(
-    s: Session, rows: list[NewsItem], gateway: Any, aliases: dict[str, str], feed: dict[str, Any] | None = None
+    s: Session,
+    rows: list[NewsItem],
+    gateway: Any,
+    aliases: dict[str, str],
+    feed: dict[str, Any] | None = None,
+    fetch: Any | None = None,
 ) -> int:
     """Values cited by new media items (LLM extraction, then checks): the name must be written in the text
     and known to the referential (else kept without ISIN, never matched by guess). Each item is processed
@@ -80,6 +100,11 @@ def extract_mentions(
         if "media" in cls:
             continue
         text = f"{row.title}\n\n{row.body or ''}"
+        if (feed or {}).get("follow_link") and row.url:  # the feed only carries an excerpt (« […] »)
+            page = (fetch or _fetch_article)(row.url, feed or {})
+            if page is None:
+                continue  # page unreadable this time: retried at the next cycle, never extracted from the excerpt
+            text = f"{row.title}\n\n{page}"
         values: list[dict[str, Any]] = []
         if gateway is not None and getattr(gateway, "enabled", True):
             try:

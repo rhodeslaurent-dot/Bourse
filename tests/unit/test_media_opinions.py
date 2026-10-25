@@ -153,3 +153,30 @@ def test_weekly_write_up_uses_the_show_date_and_friday_close(db_engine):
         m = s.query(MediaMention).one()
         assert (m.price_ref, m.price_ref_day) == (60.0, date(2026, 10, 16))  # Friday's close, not Thursday's
         assert m.published_at.replace(tzinfo=UTC).date() == date(2026, 10, 16)
+
+
+def test_excerpt_only_feed_reads_the_article_page_and_retries_when_unreadable(db_engine):
+    """The site's feed stops at « Achat […] »: the values are read on the article page (same site only);
+    an unreadable page leaves the item for the next cycle, never extracted from the excerpt."""
+    from app.data.providers.rss import strip_html
+    from app.db.models import MediaMention, NewsItem
+    from app.db.session import db_session
+    from app.services.media import extract_mentions
+
+    assert strip_html("qu&#8217;il n&#8217;y aura") == "qu’il n’y aura"
+    out = {"values": [{"name": "TotalEnergies", "stance": "achat", "speaker": "Julie Jourdan",
+                       "snippet": "Achat TotalEnergies"}]}  # fmt: skip
+    pub = datetime(2026, 10, 19, 8, tzinfo=UTC)
+    with db_session() as s:
+        row = NewsItem(source="cva_portefeuille_gerants", guid="w42", dedup_hash="w42", url="https://site/w42",
+                       title="16/010/2026 – C’est Votre Argent", body="Conseils de la semaine. Achat […]",
+                       fetched_at=pub, published_at=pub)  # fmt: skip
+        s.add(row)
+        s.flush()
+        feed = {"follow_link": True, "url": "https://www.site/feed/"}
+        assert extract_mentions(s, [row], Gateway(out), {"totalenergies": ISIN}, feed, fetch=lambda u, f: None) == 0
+        assert "media" not in (row.classification or {})  # retried later
+        seen = []
+        n = extract_mentions(s, [row], Gateway(out), {"totalenergies": ISIN}, feed,
+                             fetch=lambda u, f: seen.append(u) or "Julie Jourdan — Achat TotalEnergies")  # fmt: skip
+        assert n == 1 and seen == ["https://site/w42"] and s.query(MediaMention).one().speaker == "Julie Jourdan"

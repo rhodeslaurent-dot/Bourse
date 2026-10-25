@@ -4,6 +4,7 @@ kept, full text stored (personal use). Parsing is pure; fetching is a thin wrapp
 from __future__ import annotations
 
 import hashlib
+import html
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -34,7 +35,8 @@ _WS_RE = re.compile(r"\s+")
 
 
 def strip_html(text: str) -> str:
-    return _WS_RE.sub(" ", _TAG_RE.sub(" ", text or "")).strip()
+    """Tags removed and entities decoded (« qu&#8217;il » → « qu’il »): names are checked word for word."""
+    return _WS_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", text or ""))).strip()
 
 
 def _published(entry: feedparser.FeedParserDict) -> datetime | None:
