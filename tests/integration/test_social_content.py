@@ -110,7 +110,8 @@ def test_one_account_pumping_a_small_cap_and_the_cost_cap(db_engine, raw):
         assert row.status == "ok" and row.effect == "emballement" and row.data["solidite"] == "bruit"
 
 
-def test_without_the_page_classes_nothing_is_guessed(db_engine, config):
+def test_without_the_page_classes_nothing_is_guessed(db_engine, config, monkeypatch):
+    monkeypatch.setitem(config.raw["weak_signals"]["social"]["boursorama"], "message_class", None)
     with db_session() as s, _client([]) as c:
         row = analyse(s, config, c, _inst(s), "demande", None, now=T)
         assert row.status == "structure" and "social-check --threads" in row.note

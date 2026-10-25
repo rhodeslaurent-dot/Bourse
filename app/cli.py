@@ -1211,7 +1211,8 @@ def _thread_diagnostic(html: str, url: str, bp: dict, client) -> None:  # type: 
     for chain, n in social.ancestors_of(page, "c-source__time"):
         print(f"      {n:>3} × {chain}")
     sel = {"message": str(bp.get("message_class") or ""), "author": str(bp.get("author_class") or ""),
-           "text": str(bp.get("text_class") or ""), "date": str(bp.get("message_date_class") or "")}  # fmt: skip
+           "text": str(bp.get("text_class") or ""), "date": str(bp.get("message_date_class") or ""),
+           "quote": str(bp.get("quote_class") or "")}  # fmt: skip
     if sel["message"] and sel["text"]:
         msgs = social.forum_messages(page, sel, datetime.now(UTC).astimezone(PARIS), secrets.token_hex(8))
         print(

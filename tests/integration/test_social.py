@@ -24,6 +24,7 @@ def _inst(s, isin="FR0000000005", name="Exemplaire", ticker="EXM"):
 
 def test_forum_counts_and_true_zero(db_engine, config, monkeypatch):
     monkeypatch.setitem(config.raw["weak_signals"]["social"]["boursorama"], "interval_s", 0)
+    monkeypatch.setitem(config.raw["weak_signals"]["social"]["boursorama"], "date_class", None)  # generic page
     pages = {"EXM": "<p>23/10/2026 10:00</p>" * 7 + "<p>21/10/2026 09:00</p>"}
 
     def handler(req: httpx.Request) -> httpx.Response:

@@ -48,6 +48,7 @@ def selectors(config: LoadedConfig) -> dict[str, str]:
         "author": str(bp.get("author_class") or ""),
         "text": str(bp.get("text_class") or ""),
         "date": str(bp.get("message_date_class") or ""),
+        "quote": str(bp.get("quote_class") or ""),
     }
 
 

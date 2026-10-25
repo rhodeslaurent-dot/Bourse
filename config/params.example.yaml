@@ -225,16 +225,17 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
       enabled: true
       url_template_by_mic: {XPAR: "https://www.boursorama.com/bourse/forum/1rP{ticker}/"}   # à vérifier avec social-check
       region_regex: null                # facultatif : zone de la page qui contient les messages (si des dates parasites sont comptées)
-      date_class: null                  # facultatif : classe de l’élément qui porte la date de chaque message (social-check --structure)
+      date_class: "c-table__last-message"   # heure du dernier message de chaque sujet (« 14:32 », « 24 oct. 14:32 ») — vu le 25/10/2026 (social-check --structure)
       page_suffix_template: "page-{n}"  # pages anciennes du forum (rattrapage d'historique) — à vérifier avec social-check
       backfill_max_pages: 15
       max_values: 200                   # positions, watchlist, propositions récentes, puis meilleure force relative
       interval_s: 2.0                   # politesse : une page toutes les 2 s
       thread_link_regex: "/detail/[0-9]+"  # docs/30 : liens des fils sur la page du forum (vu le 25/10/2026 : /bourse/forum/1rPTTE/detail/N/)
-      message_class: null               # classe de l'élément qui contient un message (social-check --threads)
-      author_class: null                # classe du pseudonyme : lu pour compter les auteurs distincts, jamais conservé
-      text_class: null                  # classe du texte du message
-      message_date_class: null          # facultatif : classe de la date dans le message
+      message_class: "c-message"        # élément qui contient un message (social-check --threads, vu le 25/10/2026)
+      author_class: "c-profile-card__name"   # pseudonyme : lu pour compter les auteurs distincts, jamais conservé
+      text_class: "c-message__text"     # texte du message
+      message_date_class: "c-source__time"   # heure ou date du message
+      quote_class: "c-message--quote"   # message d'un autre membre cité dans la réponse : ignoré
     reddit:
       enabled: true                     # API officielle (env-setup reddit) ; usage personnel non commercial
       subreddits: ["vosfinances", "bourse", "eupersonalfinance", "Finanzen", "wallstreetbetsGER"]

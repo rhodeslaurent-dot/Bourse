@@ -30,6 +30,8 @@ def _client(html: str) -> httpx.Client:
 
 def _setup(s, config, monkeypatch):
     monkeypatch.setitem(config.raw["weak_signals"]["social"]["boursorama"], "interval_s", 0)
+    monkeypatch.setitem(config.raw["weak_signals"]["social"]["boursorama"], "date_class", None)  # generic page
+    monkeypatch.setitem(config.raw["weak_signals"]["social"]["boursorama"], "message_class", None)
     monkeypatch.setitem(config.raw["weak_signals"]["social"]["reddit"], "enabled", False)
     _seed(s, breakout_bars())
     from app.db.models import Instrument

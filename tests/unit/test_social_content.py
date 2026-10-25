@@ -146,3 +146,39 @@ def test_boursorama_time_formats_without_year():
     page = "".join(f'<span class="c-table__last-message">{x}</span>' for x in ("16:05", "24 oct. 14:32", "abc"))
     got = forum_times_in(page, now, "c-table__last-message")
     assert [(ts.day, ts.hour) for _, ts in got] == [(25, 16), (24, 14)]
+
+
+BOURSO_THREAD = """
+<div class="c-message"><div class="c-profile-card o-flag"><div class="c-profile-card__body o-flag__body">
+<div class="c-profile-card__name">Jeannot75</div><div class="c-source"><span class="c-source__time">14:32</span>
+</div></div></div><p class="c-message__text c-message__text--shifted">Gros contrat annoncé lundi ?</p>
+<div class="c-message c-message--quote"><div class="c-profile-card__name">Marie_Bourse</div>
+<p class="c-message__text">Texte cité de Marie</p></div>
+<div class="c-message__footer"><div class="c-like">J'aime 3</div></div>
+</div>
+<div class="c-message"><div class="c-profile-card__name">Marie_Bourse</div>
+<span class="c-source__time">24 oct. 2026</span> <span class="c-source__time">09:15</span>
+<p class="c-message__text c-message__text--shifted">Rien vu passer</p></div>
+"""
+BOURSO_SEL = {"message": "c-message", "author": "c-profile-card__name", "text": "c-message__text",
+              "date": "c-source__time", "quote": "c-message--quote"}  # fmt: skip
+
+
+def test_boursorama_thread_structure_seen_on_25_10_2026():
+    """Classes found with social-check --threads: a quoted message is not read again inside the reply."""
+    now = datetime(2026, 10, 25, 17, 0, tzinfo=PARIS)
+    msgs = forum_messages(BOURSO_THREAD, BOURSO_SEL, now, salt="s")
+    assert [m.text for m in msgs] == ["Gros contrat annoncé lundi ?", "Rien vu passer"]
+    assert [(m.ts.day, m.ts.hour, m.ts.minute) for m in msgs] == [(25, 14, 32), (24, 9, 15)]
+    assert len({m.author_key for m in msgs}) == 2  # the quoted author is not mixed into the reply's author
+
+
+def test_boursorama_topic_list_counts_each_topic_once():
+    from app.data.providers.social import forum_times_in
+
+    now = datetime(2026, 10, 25, 17, 0, tzinfo=PARIS)
+    row = '<tr class="c-table__row"><td><span class="u-color-big-stone c-table__last-message">{x}</span></td>'
+    row += '<td><span class="u-color-big-stone c-table__last-message">{x}</span></td></tr>'
+    page = "".join(row.format(x=x) for x in ("16:05", "15:40", "24 oct. 14:32"))
+    got = forum_times_in(page, now, "c-table__last-message")
+    assert [(ts.day, ts.hour) for _, ts in got] == [(25, 16), (25, 15), (24, 14)]

@@ -40,7 +40,7 @@ _TXT_NOYEAR = re.compile(
     r"(\d{1,2})[:h](\d{2})\b",
     re.I,
 )
-_BARE_TIME = re.compile(r"^\s*(\d{1,2})[:h](\d{2})\s*$")
+_LEADING_TIME = re.compile(r"^\s*(\d{1,2})[:h](\d{2})\b")
 
 
 @dataclass(frozen=True)
@@ -127,12 +127,14 @@ def message_time(text: str, now: datetime) -> tuple[date | None, datetime | None
     short = _no_year(text, now)
     if short is not None:
         return short.date(), short
-    bare = _BARE_TIME.match(text)
+    found = forum_times(text, now)
+    if found:
+        return found[0]
+    bare = _LEADING_TIME.match(text)  # « 14:32 » (today) — possibly shown twice in the field
     if bare and int(bare.group(1)) < 24 and int(bare.group(2)) < 60:
         ts = now.replace(hour=int(bare.group(1)), minute=int(bare.group(2)), second=0, microsecond=0)
         return ts.date(), ts
-    found = forum_times(text, now)
-    return found[0] if found else (None, None)
+    return None, None
 
 
 def forum_times_in(html: str, now: datetime, date_class: str) -> list[tuple[date, datetime | None]]:
@@ -144,7 +146,7 @@ def forum_times_in(html: str, now: datetime, date_class: str) -> list[tuple[date
     out: list[tuple[date, datetime | None]] = []
     for it in c.items:
         d, ts = message_time(it["all"], now)
-        if d is not None:
+        if d is not None and not (ts is not None and out and out[-1][1] == ts):  # same row shown twice
             out.append((d, ts))
     return out
 
@@ -275,7 +277,8 @@ class ForumMessage:
 
 class _Collector(HTMLParser):
     """Text of the elements holding a message, its author, text and date — found by class (``selectors``:
-    role → class token, from ``weak_signals.social.boursorama``); tolerant of unclosed tags."""
+    role → one class name, matched exactly, from ``weak_signals.social.boursorama``); the text of a ``quote``
+    (another member's message quoted inside this one) is skipped; tolerant of unclosed tags."""
 
     def __init__(self, selectors: dict[str, str]) -> None:
         super().__init__(convert_charrefs=True)
@@ -288,7 +291,8 @@ class _Collector(HTMLParser):
         if tag in _VOID:
             return
         cls = next((v or "" for k, v in attrs if k == "class"), "")
-        roles = frozenset(r for r, token in self.sel.items() if token in cls)
+        names = cls.split()
+        roles = frozenset(r for r, token in self.sel.items() if token in names)
         if "message" in roles and self.cur is None:
             self.cur = {"all": [], "author": [], "text": [], "date": []}
         self.stack.append((tag, roles))
@@ -309,8 +313,10 @@ class _Collector(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self.cur is None:
             return
-        self.cur["all"].append(data)
         active = frozenset().union(*(r for _, r in self.stack))
+        if "quote" in active:
+            return
+        self.cur["all"].append(data)
         for role in ("author", "text", "date"):
             if role in active:
                 self.cur[role].append(data)
