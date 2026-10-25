@@ -24,15 +24,24 @@ class FeeSchedule:
     commission_pct: float | None
     commission_min_eur: float
     commission_cap_pct: float | None = None
+    # tiered grid (BoursoBank formulas): ((upper amount or None, fixed €, pct, minimum €), …), first match wins
+    bands: tuple[tuple[float | None, float, float, float], ...] = ()
 
     @property
     def known(self) -> bool:
-        return self.commission_pct is not None
+        return self.commission_pct is not None or bool(self.bands)
 
     def commission(self, notional_eur: float) -> float:
-        if self.commission_pct is None:
+        if self.bands:
+            fee = 0.0
+            for upper, fixed, pct, minimum in self.bands:
+                if upper is None or notional_eur <= upper:
+                    fee = max(fixed + pct * notional_eur, minimum)
+                    break
+        elif self.commission_pct is None:
             return 0.0
-        fee = max(notional_eur * self.commission_pct, self.commission_min_eur)
+        else:
+            fee = max(notional_eur * self.commission_pct, self.commission_min_eur)
         if self.commission_cap_pct is not None:
             fee = min(fee, notional_eur * self.commission_cap_pct)
         return fee

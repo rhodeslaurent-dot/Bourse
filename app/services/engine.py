@@ -187,6 +187,12 @@ class Evaluation:
 
 
 def _fees(config: LoadedConfig, account: str) -> FeeSchedule:
+    if account == "pea":  # BoursoBank: the grid of the current formula, PEA cap included
+        from app.services.broker_plan import current_fees
+
+        cur = current_fees(config, pea=True)
+        if cur is not None:
+            return cur
     brokers = config.params.brokers or {}
     name = "boursobank" if account == "pea" else "saxo"
     b = brokers.get(name) or {}

@@ -57,7 +57,7 @@ def _outcome_chart(s, row) -> str:  # type: ignore[no-untyped-def]
     return line_chart({"main": [(c.day, c.close) for c in closes]}, levels, height=180)
 
 
-def _observation(s) -> dict:  # type: ignore[no-untyped-def]
+def _observation(s, cfg=None) -> dict:  # type: ignore[no-untyped-def]
     """Rules under measurement before any use (docs/24, docs/26, docs/27): latest backtest, committee
     verdicts against the outcomes, radar labels of the last 30 days."""
     from datetime import date, timedelta
@@ -65,6 +65,7 @@ def _observation(s) -> dict:  # type: ignore[no-untyped-def]
     from sqlalchemy import func
 
     from app.db.models import BacktestRun, WeakSignalHit
+    from app.services.broker_plan import analysis as plan_analysis
     from app.services.committee import measure as committee_measure
     from app.services.risk_level import guard_costs
 
@@ -86,6 +87,7 @@ def _observation(s) -> dict:  # type: ignore[no-untyped-def]
         "committee": committee_measure(s),
         "radar": radar,
         "guards": guard_costs(s),
+        "plan": plan_analysis(s, cfg) if cfg is not None else None,
     }
 
 
@@ -123,7 +125,7 @@ def learning_page(request: Request) -> HTMLResponse:
             ctx["memory"] = list(
                 s.scalars(select(TraderMemory).order_by(TraderMemory.active.desc(), TraderMemory.id.desc()))
             )
-            ctx["observation"] = _observation(s)
+            ctx["observation"] = _observation(s, cfg)
             rows = outcome_rows(s, 60)
             for i, r in enumerate(rows):
                 r["chart"] = _outcome_chart(s, r) if i < 30 else ""

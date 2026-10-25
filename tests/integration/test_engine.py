@@ -99,7 +99,7 @@ def test_engine_scan_creates_ranked_proposal_with_full_cost(db_engine, config):
         d = p.details
         assert d["admission"] in ("admis", "refuse") and "pea" in d["comptes"] and "cto_srd" in d["comptes"]
         pea = d["comptes"]["pea"]
-        assert pea["frais_courtage_connus"] is False  # BoursoBank grid not filled in the example: shown
+        assert pea["frais_courtage_connus"] is True  # BoursoBank Découverte grid (params, 25/10/2026)
         cto = d["comptes"]["cto_cash"]
         if p.action in ("BUY", "WATCH") and cto.get("ratio_net") is not None:
             assert cto["impot_eur"] >= 0 and cto["gain_net_eur"] < (cto["montant_eur"] or 1)
@@ -127,7 +127,10 @@ def test_testable_letter_recalculated_and_untestable_left(db_engine, config):
         ext = [p for p in props if p.details and p.details.get("comptes") and p.stop == 93.0]
         assert ext, "the letter's setup must be recalculated by the engine"
         assert ext[0].details["admission"] == "admis" and ext[0].targets[0] == 110.0  # published target kept (R4)
-        assert ext[0].account_recommended == "pea" and ext[0].rank == 1  # tie on the net ratio → PEA first
+        # 25/10/2026: the PEA now carries the Découverte grid (≈ 0,5 % per order, capped) — dearer than Saxo here,
+        # with no tax advantage while the PEA opening date is unknown: the cash account wins on the net ratio
+        assert ext[0].account_recommended == "cto_cash" and ext[0].rank == 1
+        assert ext[0].details["comptes"]["pea"]["frais_courtage_connus"] is True
 
 
 def test_published_gate_option_c(db_engine, config):

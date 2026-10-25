@@ -1,0 +1,15 @@
+{# Formule de courtage BoursoBank (PEA) : comparaison et préconisation — inclus avec ``plan``. #}
+{% if plan %}
+<section class="card overflow-x-auto" id="formule">
+  <h2 class="font-semibold">Formule de courtage BoursoBank (PEA)</h2>
+  <p class="text-xs text-slate-500 dark:text-slate-400">Base : {{ plan.basis }}{% if plan.typical_order %} · ordre type {{ '%.0f'|format(plan.typical_order) }} €{% endif %} · plafond PEA 0,5 % par ordre inclus. {{ plan.source }}</p>
+  {% set c = plan.comparison %}
+  {% if c %}
+  <p class="mt-2 rounded-lg {% if c.best and c.best != c.current %}bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-100{% else %}bg-emerald-50 dark:bg-emerald-500/10 text-emerald-900 dark:text-emerald-100{% endif %} p-2 text-sm"><b>Préconisation :</b> {{ c.recommendation }}.</p>
+  <table class="mt-2 w-full text-sm">
+    <thead><tr class="text-left text-xs text-slate-500 dark:text-slate-400"><th class="py-1 pr-3 font-medium">Formule</th><th class="py-1 pr-3 font-medium text-right">Frais par ordre type</th><th class="py-1 pr-3 font-medium text-right">Coût moyen par mois</th><th class="py-1 font-medium">Conditions</th></tr></thead>
+    <tbody>{% for f in plan.formulas if f.available %}<tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-1 pr-3">{{ f.label }}{% if f.name == c.current %} <span class="text-xs text-sky-700 dark:text-sky-300">(actuelle)</span>{% endif %}{% if f.name == c.best and c.best != c.current %} <span class="text-xs text-amber-700 dark:text-amber-300">(conseillée)</span>{% endif %}</td><td class="py-1 pr-3 text-right tabular">{{ '%.2f €'|format(plan.per_order[f.name]) if plan.per_order.get(f.name) is not none else '—' }}</td><td class="py-1 pr-3 text-right tabular">{{ '%.2f €'|format(c.costs[f.name]) if f.name in c.costs else '—' }}</td><td class="py-1 text-xs text-slate-500">{{ f.note }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+</section>
+{% endif %}

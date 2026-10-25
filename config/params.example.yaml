@@ -480,10 +480,20 @@ brokers:
     commission_pct: 0.0008
     commission_min_eur: 2
     market_data: {euronext_l1_eur: 7, refunded_if_trades_per_month: 4, xetra_l1_eur: 7}   # [info]
-  boursobank:                         # étape 5 : frais réels à renseigner d'après vos relevés (le code lit ces trois clés)
-    commission_pct: null                # ex. 0.005 pour 0,5 % du montant de l'ordre
-    commission_min_eur: null            # minimum par ordre, s'il existe
-    commission_cap_pct: 0.005           # plafond réglementaire des frais d'un ordre en ligne sur PEA (0,5 %)
+  boursobank:
+    current_formula: "decouverte"       # votre formule actuelle (25/10/2026) : la grille sert au coût complet des propositions PEA
+    pea_cap_pct: 0.005                  # plafond réglementaire des frais d'un ordre en ligne sur PEA (0,5 % du montant)
+    formulas_source: "grille relevée le 25/10/2026 sur des comparateurs (brokerchooser, comparonslesbanques, votreparrainboursorama, pea.fr) — À VÉRIFIER sur la brochure tarifaire BoursoBank"
+    formulas:                           # bandes [montant max (null = au-delà), fixe €, %, minimum €], ordres Euronext
+      decouverte: {label: "Découverte", bands: [[500, 1.99, 0], [null, 0, 0.006]], pea: true, note: "sans frais mensuels"}
+      classic: {label: "Classic", bands: [[1000, 5.50, 0], [null, 0, 0.0048, 8.95]], pea: null, note: "disponibilité sur PEA à vérifier"}
+      trader: {label: "Trader", bands: [[7750, 16.65, 0], [null, 0, 0.0022]], fee_if_no_order: 5.95, pea: true, note: "5,95 € le mois sans ordre"}
+      ultimate_trader: {label: "Ultimate Trader", bands: [[10000, 9.90, 0], [null, 0, 0.0012]], min_orders: 30, fee_if_below: 119, pea: true, note: "119 € le mois si moins de 30 ordres"}
+    plan_review:                        # retour d'expérience : la formule la moins chère pour votre activité réelle
+      months: 3
+      min_real_orders: 6                # en dessous : projection sur les propositions PEA des 30 derniers jours
+      assumed_take_rate: 0.5            # part des achats proposés supposée prise (projection seulement)
+      min_saving_eur: 5                 # économie mensuelle minimale pour conseiller un changement
 
 data:
   primary_eod: "eodhd"

@@ -42,6 +42,12 @@ def risk_params_from(config: LoadedConfig) -> RiskParams:
 
 
 def fee_schedule_for(config: LoadedConfig, broker: str) -> FeeSchedule:
+    if broker == "boursobank":  # the current formula's grid (PEA account at BoursoBank)
+        from app.services.broker_plan import current_fees
+
+        cur = current_fees(config, pea=True)
+        if cur is not None:
+            return cur
     b = (config.params.brokers or {}).get(broker, {})
     pct = b.get("commission_pct")
     return FeeSchedule(

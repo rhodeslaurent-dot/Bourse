@@ -383,7 +383,8 @@ NEW_TOP_BLOCKS = [
     "crypto",
     "derivatives",
     "media",  # docs/23 §23.7
-    "weak_signals",  # docs/26
+    "weak_signals",
+    "brokers.boursobank",  # docs/26
     "committee",  # docs/24 v2
 ]
 NEW_CHILD_PARENTS = [
@@ -1115,6 +1116,30 @@ def cmd_social_backfill(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_broker_plan(args: argparse.Namespace) -> int:
+    """Brokerage formula review (BoursoBank PEA): cost per formula on your orders, and the recommendation."""
+    from app.db.session import db_session
+    from app.services.broker_plan import analysis
+
+    cfg = load_params(args.params)
+    with db_session() as s:
+        a = analysis(s, cfg)
+    if not a or not a.get("comparison"):
+        print((a or {}).get("basis") or "formules non configurées (brokers.boursobank.formulas)")
+        return 0
+    c = a["comparison"]
+    print(f"base : {a['basis']}")
+    for f in a["formulas"]:
+        if f.name in c.costs:
+            per = a["per_order"].get(f.name)
+            print(
+                f"  {f.label:<16} {c.costs[f.name]:>8.2f} € / mois" + (f"  ({per:.2f} € par ordre type)" if per else "")
+            )
+    print(f"préconisation : {c.recommendation}")
+    print(a.get("source") or "")
+    return 0
+
+
 def cmd_radar_measure(args: argparse.Namespace) -> int:
     """docs/26 §26.6 — return after each radar label, in excess of the universe median."""
     from app.db.session import db_session
@@ -1462,6 +1487,9 @@ def main(argv: list[str] | None = None) -> int:
     sb.add_argument("--days", type=int, default=60)
     sb.add_argument("--isins", default="")
     sb.set_defaults(fn=cmd_social_backfill)
+    sub.add_parser(
+        "broker-plan", help="formule de courtage BoursoBank la moins chère pour votre activité"
+    ).set_defaults(fn=cmd_broker_plan)
     sub.add_parser("radar-measure", help="rendement en excès après chaque étiquette du radar (docs/26)").set_defaults(
         fn=cmd_radar_measure
     )

@@ -11,7 +11,13 @@ import yaml
 TAGS = ("[phase 3", "[phase 6]", "[non codé", "[info]", "[obsolète", "[fixé dans le code", "[comportement codé]",
         "[à décider")  # fmt: skip
 SKIP_TOP = {"user", "calendars", "instruments"}
-SKIP_PARENTS = ("llm.prices_usd_per_mtok", "llm.model_options", "data.imap.senders", "data.rss_feeds")
+SKIP_PARENTS = (
+    "llm.prices_usd_per_mtok",
+    "llm.model_options",
+    "data.imap.senders",
+    "data.rss_feeds",
+    "brokers.boursobank.formulas",  # formula names are data, their fields are read by app/services/broker_plan.py
+)
 
 
 def _source() -> str:

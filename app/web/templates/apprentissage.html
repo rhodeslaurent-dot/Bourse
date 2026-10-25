@@ -196,6 +196,8 @@
   <p class="text-sm">{% for k, v in ob.radar.items() %}{{ k|replace('_', ' ') }} : {{ v }}{% if not loop.last %} · {% endif %}{% else %}aucune étiquette{% endfor %} <span class="text-xs text-slate-500">— rendement en excès par étiquette : commande <code>radar-measure</code></span></p>
 </section>
 
+{% set plan = ob.plan %}{% include "_plan.html" %}
+
 <section class="card">
   <h2 class="font-semibold">Propositions passées et leur résultat</h2>
   <p class="text-xs text-slate-500 dark:text-slate-400">Clôtures officielles uniquement ; une séance manquante rend le résultat « cours indisponibles » (jamais estimé).</p>
