@@ -34,6 +34,13 @@ _TXT = re.compile(
     re.I,
 )  # noqa: E501
 _REL = re.compile(r"\b(aujourd'hui|aujourd’hui|hier|il y a \d+\s*(?:min|h|heure))", re.I)
+# « 24 oct. 14:32 » (Boursorama, last message of a thread): no year — the latest such date not in the future
+_TXT_NOYEAR = re.compile(
+    r"\b(\d{1,2})\s+(janv|jan|févr|fevr|fév|fev|mars|avr|mai|juin|juil|août|aout|sept|oct|nov|déc|dec)\.?\s+"
+    r"(\d{1,2})[:h](\d{2})\b",
+    re.I,
+)
+_BARE_TIME = re.compile(r"^\s*(\d{1,2})[:h](\d{2})\s*$")
 
 
 @dataclass(frozen=True)
@@ -102,16 +109,43 @@ def date_holders(html: str) -> dict[str, tuple[int, int]]:
     return dict(sorted(out.items(), key=lambda kv: -kv[1][0]))
 
 
+def _no_year(text: str, now: datetime) -> datetime | None:
+    """« 24 oct. 14:32 » → the latest such moment not after ``now`` (the format shows no year)."""
+    m = _TXT_NOYEAR.search(text)
+    if m is None:
+        return None
+    try:
+        ts = datetime(now.year, _MONTHS[m.group(2).lower()], int(m.group(1)), int(m.group(3)), int(m.group(4)),
+                      tzinfo=now.tzinfo)  # fmt: skip
+    except (ValueError, KeyError):
+        return None
+    return ts.replace(year=now.year - 1) if ts.date() > now.date() else ts
+
+
+def message_time(text: str, now: datetime) -> tuple[date | None, datetime | None]:
+    """Date and time of one date field: « 24 oct. 14:32 », « 14:32 » alone (today), or the generic formats."""
+    short = _no_year(text, now)
+    if short is not None:
+        return short.date(), short
+    bare = _BARE_TIME.match(text)
+    if bare and int(bare.group(1)) < 24 and int(bare.group(2)) < 60:
+        ts = now.replace(hour=int(bare.group(1)), minute=int(bare.group(2)), second=0, microsecond=0)
+        return ts.date(), ts
+    found = forum_times(text, now)
+    return found[0] if found else (None, None)
+
+
 def forum_times_in(html: str, now: datetime, date_class: str) -> list[tuple[date, datetime | None]]:
-    """``forum_times`` restricted to the first date of each element whose class contains ``date_class`` (the
-    message date, not the thread creation or the « last reply » column)."""
+    """Date (and time) of each element whose class contains ``date_class``, read from that element's own
+    text only — e.g. the « last message » column of a thread list: « 14:32 » (today), « 24 oct. 14:32 »."""
+    c = _Collector({"message": date_class})
+    c.feed(html)
+    c.close()
     out: list[tuple[date, datetime | None]] = []
-    for m in _OPEN_TAG.finditer(html):
-        if date_class not in m.group(2):
-            continue
-        found = forum_times(html[m.start() : m.end() + 300], now)
-        if found:
-            out.append(found[0])
+    for it in c.items:
+        d, ts = message_time(it["all"], now)
+        if d is not None:
+            out.append((d, ts))
     return out
 
 
@@ -301,8 +335,10 @@ def forum_messages(
         text = _MENTION.sub("@[membre]", text)
         for name in names:
             text = re.sub(re.escape(name), "[membre]", text, flags=re.I)
-        found = forum_times(it["date"] or it["all"], now)
-        d, ts = found[0] if found else (None, None)
+        d, ts = message_time(it["date"], now) if it["date"] else (None, None)
+        if d is None:
+            found = forum_times(it["all"], now)
+            d, ts = found[0] if found else (None, None)
         author = it["author"].strip().lower()
         key = hashlib.sha256(f"{salt}|{author}".encode()).hexdigest()[:16] if author else ""
         if text.strip():
@@ -424,3 +460,43 @@ def short_field_shapes(html: str, max_len: int = 20, min_count: int = 5) -> list
             shapes = [s for s, _ in Counter(_shape(x) for x in texts).most_common(4)]
             rows.append((key, len(texts), shapes))
     return sorted(rows, key=lambda r: -r[1])
+
+
+SITE_CHROME = ("navigation", "menu", "label-item", "c-icon", "u-sr-only", "list-link", "o-list-inline")
+
+
+def is_site_chrome(key: str) -> bool:
+    """Menus, navigation and icons repeated on every page of the site: hidden from the diagnostics."""
+    return any(x in key for x in SITE_CHROME)
+
+
+def ancestors_of(html: str, token: str, depth: int = 5) -> list[tuple[str, int]]:
+    """Diagnostics: the chains of classed ancestors (nearest first) of the elements whose class contains
+    ``token`` — e.g. which block holds each message time. Markup names only."""
+    from collections import Counter
+
+    class _P(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.stack: list[str] = []
+            self.chains: Counter[str] = Counter()
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            if tag in _VOID:
+                return
+            cls = next((v or "" for k, v in attrs if k == "class"), "").strip()
+            if token in cls:
+                up = [k for k in reversed(self.stack) if "." in k][:depth]
+                self.chains[" < ".join(k[:60] for k in up)] += 1
+            self.stack.append(f"{tag}.{cls}" if cls else tag)
+
+        def handle_endtag(self, tag: str) -> None:
+            for i in range(len(self.stack) - 1, -1, -1):
+                if self.stack[i].split(".")[0] == tag:
+                    del self.stack[i:]
+                    return
+
+    p = _P()
+    p.feed(html)
+    p.close()
+    return p.chains.most_common(3)

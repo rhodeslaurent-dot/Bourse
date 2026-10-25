@@ -1151,8 +1151,17 @@ def cmd_social_check(args: argparse.Namespace) -> int:
                 for key, (n_dates, n_timed) in list(social.date_holders(html).items())[:8]:
                     print(f"    {n_dates:>3} date(s), dont {n_timed} avec heure : {key[:90]}")
                 print("    formes des champs courts répétés (chiffres → 9, lettres → x) :")
-                for key, n, shapes in social.short_field_shapes(html)[:10]:
+                timed = []
+                for key, n, shapes in [r for r in social.short_field_shapes(html) if not social.is_site_chrome(r[0])][
+                    :10
+                ]:
                     print(f"      {n:>3} × {key[:70]} : {' | '.join(shapes)}")
+                    if any("99:99" in x or "99/99" in x for x in shapes):
+                        timed.append(key.split(".", 1)[1].split()[-1])
+                for token in timed[:2]:  # where those dates and times sit (one per topic or more?)
+                    print(f"    blocs qui contiennent « {token} » (parents les plus proches d'abord) :")
+                    for chain, n in social.ancestors_of(html, token):
+                        print(f"      {n:>3} × {chain}")
             if args.threads:  # docs/30: thread pages — link shapes and repeated classes, never a text
                 _thread_diagnostic(html, url, bp, client)
         n, errors = collect_reddit(s, cfg, client, today)
@@ -1191,9 +1200,16 @@ def _thread_diagnostic(html: str, url: str, bp: dict, client) -> None:  # type: 
         return
     page = social.boursorama_page(links[0], client)
     print(f"    fil lu : {links[0]}")
-    print("    classes répétées (élément.classe, nombre, longueur médiane du texte) :")
-    for key, n, med in social.repeated_classes(page):
-        print(f"      {n:>3} × {med:>4} car. : {key[:100]}")
+    print("    classes répétées du fil, hors menus du site (élément.classe, nombre, longueur médiane du texte) :")
+    rows = [r for r in social.repeated_classes(page, limit=200) if not social.is_site_chrome(r[0])]
+    for key, n, med in rows[:30]:
+        print(f"      {n:>3} × {med:>4} car. : {key[:110]}")
+    print("    formes des champs courts du fil (chiffres → 9, lettres → x) :")
+    for key, n, shapes in [r for r in social.short_field_shapes(page) if not social.is_site_chrome(r[0])][:12]:
+        print(f"      {n:>3} × {key[:70]} : {' | '.join(shapes)}")
+    print("    blocs qui contiennent les heures des messages (parents les plus proches d'abord) :")
+    for chain, n in social.ancestors_of(page, "c-source__time"):
+        print(f"      {n:>3} × {chain}")
     sel = {"message": str(bp.get("message_class") or ""), "author": str(bp.get("author_class") or ""),
            "text": str(bp.get("text_class") or ""), "date": str(bp.get("message_date_class") or "")}  # fmt: skip
     if sel["message"] and sel["text"]:

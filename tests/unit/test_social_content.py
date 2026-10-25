@@ -133,3 +133,16 @@ def test_set_scalar_keeps_a_regex_backslash_valid_yaml():
     text = "a:\n  b:\n    rx: null   # commentaire\n"
     out, ok = set_scalar(text, "a.b.rx", r"/detail/\d+")
     assert ok and yaml.safe_load(out)["a"]["b"]["rx"] == r"/detail/\d+" and "# commentaire" in out
+
+
+def test_boursorama_time_formats_without_year():
+    from app.data.providers.social import forum_times_in, message_time
+
+    now = datetime(2026, 10, 25, 17, 0, tzinfo=PARIS)
+    assert message_time("24 oct. 14:32", now)[1] == datetime(2026, 10, 24, 14, 32, tzinfo=PARIS)
+    assert message_time("28 déc. 09:05", now)[1].year == 2025  # never in the future
+    assert message_time("14:32", now)[1] == datetime(2026, 10, 25, 14, 32, tzinfo=PARIS)
+    assert message_time("Pseudo", now) == (None, None)
+    page = "".join(f'<span class="c-table__last-message">{x}</span>' for x in ("16:05", "24 oct. 14:32", "abc"))
+    got = forum_times_in(page, now, "c-table__last-message")
+    assert [(ts.day, ts.hour) for _, ts in got] == [(25, 16), (24, 14)]
