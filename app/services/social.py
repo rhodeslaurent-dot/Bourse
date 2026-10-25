@@ -26,20 +26,53 @@ from app.domain.timeutil import PARIS
 log = logging.getLogger("bourse.social")
 
 
-def forum_page_times(html: str, bp: dict[str, Any], now: datetime) -> list[tuple[date, datetime | None]]:
-    """Message dates of a forum page with the configured restrictions: ``region_regex`` (part of the page)
-    and ``date_class`` (class of the element holding each message date, found with ``social-check
-    --structure``)."""
+def forum_page_times(
+    html: str, bp: dict[str, Any], now: datetime, key: str = "date_class"
+) -> list[tuple[date, datetime | None]]:
+    """Dates of a forum list page with the configured restrictions: ``region_regex`` (part of the page) and
+    the class read (``social-check --structure``): ``date_class`` = the day each topic was **created** (never
+    moves: the daily counts and their 60-day baseline), ``activity_class`` = the time of each topic's **last
+    message** (the 20-minute watch, and how far the pages read reach back)."""
     region = re.compile(bp["region_regex"], re.S) if bp.get("region_regex") else None
     found = region.search(html) if region else None
     block = found.group(0) if found else html
-    dc = bp.get("date_class")
+    dc = bp.get(key) or (bp.get("date_class") if key == "activity_class" else None)
     return social.forum_times_in(block, now, str(dc)) if dc else social.forum_times(block, now)
 
 
-def forum_page_dates(html: str, bp: dict[str, Any], day: date) -> list[date]:
+def forum_page_dates(html: str, bp: dict[str, Any], day: date, key: str = "date_class") -> list[date]:
     now = datetime.combine(day, datetime.max.time().replace(microsecond=0))
-    return [d for d, _ in forum_page_times(html, bp, now)]
+    return [d for d, _ in forum_page_times(html, bp, now, key)]
+
+
+def read_forum(
+    url: str, bp: dict[str, Any], client: httpx.Client, day: date, until: date, max_pages: int
+) -> tuple[list[date], date | None]:
+    """(creation days of the topics read, first day whose count is complete). The list is ordered by last
+    activity: pages are read until a topic last active before ``until``. Every topic created after the oldest
+    last activity read has been seen, so the days after it are complete — counting topics by their *last*
+    message instead made every past day look quiet and every value « buzz » (bug of 25/10/2026)."""
+    suffix = bp.get("page_suffix_template") or "page-{n}"
+    created: list[date] = []
+    activity: list[date] = []
+    for k in range(1, max_pages + 1):
+        try:
+            html = social.boursorama_page(url if k == 1 else url.rstrip("/") + "/" + suffix.format(n=k), client)
+        except Exception:  # noqa: BLE001 — stop at the first page that fails
+            if k == 1:
+                raise
+            break
+        finally:
+            time.sleep(float(bp.get("interval_s", 2.0)))
+        page_c = forum_page_dates(html, bp, day)
+        page_a = forum_page_dates(html, bp, day, "activity_class") or page_c
+        if not page_a:
+            break
+        created += page_c
+        activity += page_a
+        if min(page_a) < until:
+            break
+    return created, (min(activity) + timedelta(days=1) if activity else None)
 
 
 def forum_ticker(inst: Instrument) -> str | None:
@@ -89,7 +122,7 @@ def followed_values(
     return [insts[i] for i in seen if i in insts and (keep is None or keep(insts[i]))][:limit]
 
 
-def _store(s: Session, isin: str, day: date, source: str, value: int, now: datetime) -> None:
+def _store(s: Session, isin: str, day: date, source: str, value: int, now: datetime, replace: bool = False) -> None:
     row = s.scalar(
         select(AttentionDaily).where(
             AttentionDaily.isin == isin, AttentionDaily.day == day, AttentionDaily.source == source
@@ -97,7 +130,7 @@ def _store(s: Session, isin: str, day: date, source: str, value: int, now: datet
     )
     if row is None:
         s.add(AttentionDaily(isin=isin, day=day, source=source, lang="-", value=value, received_at=now))
-    elif value > row.value:  # a later read of the same day only raises the count (floor semantics)
+    elif replace or value > row.value:  # a later read only raises the count (floor), a recount replaces it
         row.value, row.received_at = value, now
 
 
@@ -113,20 +146,16 @@ def collect_forum(s: Session, config: LoadedConfig, client: httpx.Client, day: d
         if url is None:
             continue
         try:
-            html = social.boursorama_page(url, client)
+            dates, covered = read_forum(url, p, client, day, day - timedelta(days=1), 3)
         except Exception as exc:  # noqa: BLE001 — one page failing never stops the others
             errors.append(f"{inst.isin}: {exc.__class__.__name__}")
             continue
-        finally:
-            time.sleep(float(p.get("interval_s", 2.0)))
-        dates = forum_page_dates(html, p, day)
         counts = {c.day: c.messages for c in social.daily_counts(dates)}
         for d in (day - timedelta(days=1), day):
-            if d in counts:
-                _store(s, inst.isin, d, "forum_boursorama", counts[d], now)
-                n += 1
-            elif dates and min(dates) < d:  # the page goes back before that day: no message is a true zero
-                _store(s, inst.isin, d, "forum_boursorama", 0, now)
+            if covered is None or covered > d:
+                continue  # the pages read do not reach back that far: no count rather than a low one
+            _store(s, inst.isin, d, "forum_boursorama", counts.get(d, 0), now)  # a covered day: true zero
+            n += 1 if counts.get(d) else 0
     s.flush()
     return n, errors
 
@@ -223,7 +252,8 @@ def _recent_times_forum(
     if not p.get("enabled") or url is None:
         return []
     html = social.boursorama_page(url, client)
-    return [ts.timestamp() for _, ts in forum_page_times(html, p, now.astimezone(PARIS)) if ts is not None]
+    times = forum_page_times(html, p, now.astimezone(PARIS), "activity_class")
+    return [ts.timestamp() for _, ts in times if ts is not None]
 
 
 def _reddit_times(s: Session, config: LoadedConfig, client: httpx.Client) -> dict[str, list[float]]:
@@ -344,14 +374,17 @@ def watch(s: Session, config: LoadedConfig, client: httpx.Client, now: datetime 
 # --- backfill: a baseline from day one (older forum pages, Reddit search) ------------------------------
 
 
-def _store_days(s: Session, isin: str, source: str, days: list[date], first: date, last: date, now: datetime) -> int:
-    """Daily counts from message dates, with true zeros on every covered day without a message."""
+def _store_days(
+    s: Session, isin: str, source: str, days: list[date], first: date, last: date, now: datetime, replace: bool = False
+) -> int:
+    """Daily counts from message dates, with true zeros on every covered day without a message; ``replace``:
+    a recount over a covered span overwrites the stored values (a measure corrected)."""
     by: dict[date, int] = defaultdict(int)
     for d in days:
         by[d] += 1
     n, d = 0, first
     while d <= last:
-        _store(s, isin, d, source, by.get(d, 0), now)
+        _store(s, isin, d, source, by.get(d, 0), now, replace)
         n += 1
         d += timedelta(days=1)
     return n
@@ -372,7 +405,7 @@ def backfill(
     )
     notes = []
     bp = sp.get("boursorama") or {}
-    tpl, suffix = bp.get("url_template_by_mic") or {}, bp.get("page_suffix_template") or "page-{n}"
+    tpl = bp.get("url_template_by_mic") or {}
     if bp.get("enabled"):
         n_ok = 0
         forum_values = values if isins else followed_values(s, n_values, day, lambda i: forum_url(i, tpl) is not None)
@@ -380,23 +413,15 @@ def backfill(
             url = forum_url(inst, tpl)
             if url is None:
                 continue
-            dates: list[date] = []
-            for k in range(1, int(bp.get("backfill_max_pages", 15)) + 1):
-                try:
-                    html = social.boursorama_page(url if k == 1 else url.rstrip("/") + "/" + suffix.format(n=k), client)
-                except Exception:  # noqa: BLE001 — stop at the first page that fails
-                    break
-                finally:
-                    time.sleep(float(bp.get("interval_s", 2.0)))
-                page = forum_page_dates(html, bp, day)
-                if not page:
-                    break
-                dates += page
-                if min(page) <= day - timedelta(days=days):
-                    break
-            if dates:
-                first = max(min(dates), day - timedelta(days=days))
-                _store_days(s, inst.isin, "forum_boursorama", [d for d in dates if d >= first], first, day, now)
+            cutoff = day - timedelta(days=days)
+            try:
+                dates, covered = read_forum(url, bp, client, day, cutoff, int(bp.get("backfill_max_pages", 15)))
+            except Exception:  # noqa: BLE001
+                continue
+            if covered is not None and covered <= day:
+                first = max(covered, cutoff)
+                _store_days(s, inst.isin, "forum_boursorama", [d for d in dates if d >= first], first, day, now,
+                            replace=True)  # fmt: skip
                 n_ok += 1
         notes.append(f"forum : {n_ok} valeur(s) rattrapée(s)")
     rp = sp.get("reddit") or {}

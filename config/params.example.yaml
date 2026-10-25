@@ -225,7 +225,8 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
       enabled: true
       url_template_by_mic: {XPAR: "https://www.boursorama.com/bourse/forum/1rP{ticker}/"}   # à vérifier avec social-check
       region_regex: null                # facultatif : zone de la page qui contient les messages (si des dates parasites sont comptées)
-      date_class: "c-table__last-message"   # heure du dernier message de chaque sujet (« 14:32 », « 24 oct. 14:32 ») — vu le 25/10/2026 (social-check --structure)
+      date_class: "c-source__time"      # jour de CRÉATION de chaque sujet : comptages quotidiens et base de 60 jours (ne bouge jamais) — vu le 25/10/2026
+      activity_class: "c-table__last-message"   # heure du DERNIER message de chaque sujet (« 14:32 », « 24 oct. 14:32 ») : veille 20 min, profondeur de lecture
       page_suffix_template: "page-{n}"  # pages anciennes du forum (rattrapage d'historique) — à vérifier avec social-check
       backfill_max_pages: 15
       max_values: 200                   # positions, watchlist, propositions récentes, puis meilleure force relative

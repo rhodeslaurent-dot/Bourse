@@ -94,3 +94,46 @@ def test_forum_slots_go_to_values_that_have_a_forum(db_engine, config):
         assert [i.isin for i in followed_values(s, 1, DAY)] == ["DE0000000000"]
         got = followed_values(s, 1, DAY, lambda i: forum_url(i, tpl) is not None)
         assert [i.isin for i in got] == ["FR0000000005"]
+
+
+def test_backfill_counts_topics_by_creation_day_and_replaces_the_biased_counts(db_engine, config, monkeypatch):
+    """25/10/2026: counting each topic on the day of its *last* message made past days look quiet and every
+    value « buzz » (52 labels). Topics are counted on their creation day; the pages are read by last
+    activity until the cutoff; a recount replaces the stored values."""
+    from app.services.social import backfill
+
+    monkeypatch.setitem(config.raw["weak_signals"]["social"]["boursorama"], "interval_s", 0)
+    day = date(2026, 10, 25)
+
+    def row(created: str, last: str) -> str:
+        return (f'<tr><td><span class="c-source__time">{created}</span></td>'
+                f'<td><span class="c-table__last-message">{last}</span></td>'
+                f'<td><span class="c-table__last-message">{last}</span></td></tr>')  # fmt: skip
+
+    page1 = row("01/01/2024", "16:05") + row("24/10/2026", "15:00") + row("20/10/2026", "23 oct. 10:00")
+    page2 = row("10/10/2026", "15 oct. 09:00") + row("02/09/2026", "1 sept. 08:00")
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req.url.path)
+        return httpx.Response(200, text=page2 if req.url.path.endswith("page-2") else page1)
+
+    with db_session() as s, httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        _inst(s)
+        s.add(
+            AttentionDaily(
+                isin="FR0000000005",
+                day=date(2026, 10, 24),
+                source="forum_boursorama",
+                lang="-",
+                value=9,
+                received_at=datetime.now(UTC),
+            )
+        )  # fmt: skip — the biased count
+        s.flush()
+        backfill(s, config, c, day, ["FR0000000005"], days=30)
+        assert len(seen) == 2  # a topic created in 2024 but active today does not stop the reading
+        rows = {r.day: r.value for r in s.query(AttentionDaily).filter(AttentionDaily.source == "forum_boursorama")}
+        assert min(rows) == date(2026, 9, 25) and max(rows) == day  # 30 days, all covered
+        assert rows[date(2026, 10, 24)] == 1 and rows[date(2026, 10, 20)] == 1 and rows[date(2026, 10, 10)] == 1
+        assert sum(rows.values()) == 3  # 01/01/2024 and 02/09/2026 are outside the window
