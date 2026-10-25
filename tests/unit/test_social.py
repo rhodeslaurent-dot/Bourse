@@ -46,3 +46,14 @@ def test_velocity_needs_coverage_or_a_usual_rate():
     busy_page = [now - k * 60 for k in range(30)]  # a busy forum: the page covers only 30 minutes
     assert velocity(busy_page, now) == (30, None)  # unknown, never read as an acceleration
     assert velocity(busy_page, now, usual_per_hour=20.0)[1] == (30 / 2) / 20.0
+
+
+def test_forum_url_falls_back_on_other_tickers():
+    from app.db.models import Instrument
+    from app.services.social import forum_url
+
+    tpl = {"XPAR": "https://www.boursorama.com/bourse/forum/1rP{ticker}/"}
+    assert forum_url(Instrument(isin="X", name="A", mic="XPAR", ticker_local="AI"), tpl).endswith("/1rPAI/")
+    assert forum_url(Instrument(isin="X", name="A", mic="XPAR", ticker_eodhd="TTE.PA"), tpl).endswith("/1rPTTE/")
+    assert forum_url(Instrument(isin="X", name="A", mic="XPAR", ticker_tv="EURONEXT:MC"), tpl).endswith("/1rPMC/")
+    assert forum_url(Instrument(isin="X", name="A", mic="XETR", ticker_local="SAP"), tpl) is None

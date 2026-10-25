@@ -1112,7 +1112,7 @@ def cmd_social_check(args: argparse.Namespace) -> int:
     from app.data.providers import social
     from app.db.models import Instrument
     from app.db.session import db_session
-    from app.services.social import collect_bluesky, collect_reddit, social_params
+    from app.services.social import collect_bluesky, collect_reddit, forum_url, social_params
 
     cfg = load_params(args.params)
     sp = social_params(cfg)
@@ -1121,10 +1121,15 @@ def cmd_social_check(args: argparse.Namespace) -> int:
     with httpx.Client(follow_redirects=True) as client, db_session() as s:
         for isin in [x.strip() for x in (args.isins or "").split(",") if x.strip()]:
             inst = s.get(Instrument, isin)
-            if inst is None or inst.mic not in tpl or not inst.ticker_local:
-                print(f"{isin} : pas d'adresse de forum (place ou ticker inconnu)")
+            url = forum_url(inst, tpl) if inst is not None else None
+            if url is None:
+                why = "valeur absente de la base" if inst is None else (
+                    f"place {inst.mic} / {inst.exchange}, tickers {inst.ticker_local} · {inst.ticker_eodhd} · "
+                    f"{inst.ticker_tv} ; places configurées : {', '.join(tpl) or 'aucune'} "
+                    "(weak_signals.social.boursorama.url_template_by_mic)"
+                )  # fmt: skip
+                print(f"{isin} : pas d'adresse de forum — {why}")
                 continue
-            url = tpl[inst.mic].format(ticker=inst.ticker_local.split(".")[0].upper())
             try:
                 dates = social.forum_dates(social.boursorama_page(url, client), today)
             except Exception as exc:  # noqa: BLE001

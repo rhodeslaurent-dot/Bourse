@@ -25,6 +25,22 @@ from app.domain.timeutil import PARIS
 log = logging.getLogger("bourse.social")
 
 
+def forum_ticker(inst: Instrument) -> str | None:
+    """The value's ticker for the forum address: local code, else the EODHD code, else the TradingView one."""
+    for raw, sep in ((inst.ticker_local, "."), (inst.ticker_eodhd, "."), (inst.ticker_tv, ":")):
+        if raw:
+            code = raw.split(sep)[-1] if sep == ":" else raw.split(sep)[0]
+            if code:
+                return code.upper()
+    return None
+
+
+def forum_url(inst: Instrument, templates: dict[str, str]) -> str | None:
+    tpl = templates.get(inst.mic or "") or templates.get(inst.exchange or "")
+    code = forum_ticker(inst)
+    return tpl.format(ticker=code) if tpl and code else None
+
+
 def social_params(config: LoadedConfig) -> dict[str, Any]:
     return (((config.raw or {}).get("weak_signals") or {}).get("social")) or {}
 
@@ -73,10 +89,9 @@ def collect_forum(s: Session, config: LoadedConfig, client: httpx.Client, day: d
     now = datetime.now(UTC)
     n, errors = 0, []
     for inst in followed_values(s, int(p.get("max_values", 200)), day):
-        tpl = templates.get(inst.mic)
-        if not tpl or not inst.ticker_local:
+        url = forum_url(inst, templates)
+        if url is None:
             continue
-        url = tpl.format(ticker=inst.ticker_local.split(".")[0].upper())
         try:
             html = social.boursorama_page(url, client)
         except Exception as exc:  # noqa: BLE001 — one page failing never stops the others
@@ -185,11 +200,11 @@ def _recent_times_forum(
     s: Session, config: LoadedConfig, client: httpx.Client, inst: Instrument, now: datetime
 ) -> list[float]:
     p = social_params(config).get("boursorama") or {}
-    tpl = (p.get("url_template_by_mic") or {}).get(inst.mic)
-    if not p.get("enabled") or not tpl or not inst.ticker_local:
+    url = forum_url(inst, p.get("url_template_by_mic") or {})
+    if not p.get("enabled") or url is None:
         return []
     region = re.compile(p["region_regex"], re.S) if p.get("region_regex") else None
-    html = social.boursorama_page(tpl.format(ticker=inst.ticker_local.split(".")[0].upper()), client)
+    html = social.boursorama_page(url, client)
     block = region.search(html).group(0) if region and region.search(html) else html
     return [ts.timestamp() for _, ts in social.forum_times(block, now.astimezone(PARIS)) if ts is not None]
 
@@ -338,10 +353,9 @@ def backfill(
     if bp.get("enabled"):
         n_ok = 0
         for inst in values:
-            base = tpl.get(inst.mic)
-            if not base or not inst.ticker_local:
+            url = forum_url(inst, tpl)
+            if url is None:
                 continue
-            url = base.format(ticker=inst.ticker_local.split(".")[0].upper())
             dates: list[date] = []
             for k in range(1, int(bp.get("backfill_max_pages", 15)) + 1):
                 try:
