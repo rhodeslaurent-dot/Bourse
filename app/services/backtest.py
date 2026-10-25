@@ -232,6 +232,7 @@ def summarize_run(trades: list[BacktestTrade], start: date, end: date) -> dict[s
             keys.append(f"regime:{t.detector}:{t.regime}")
         if clean:
             keys.append(f"production:{t.detector}")  # what the engine would actually propose (admitted, no warning)
+            keys.append(f"production_{'apprentissage' if t.signal_day < mid else 'controle'}:{t.detector}")
         for k in keys:
             cells[k].append(t)
     out: dict[str, Any] = {"trades": len(trades), "essais": len(cells), "segments": {}}
@@ -245,11 +246,17 @@ def summarize_run(trades: list[BacktestTrade], start: date, end: date) -> dict[s
 
 
 def prior_expected_r(s: Session, detector: str, shrinkage_k: int = 20) -> tuple[float, int] | None:
-    """Expected net R of the detector in production conditions (admitted, no warning) from the latest
-    backtest, shrunk n / (n + k) toward 0 — a prior while the live history is insufficient (docs/27 §27.5)."""
+    """Prior expected net R of the detector while the live history is insufficient (docs/27 §27.5, revised
+    after the 25/10/2026 review): **control period only** (out of the learning sample), production conditions,
+    used only if the control interval is above 0 and the learning period has the same sign; then **halved**
+    (survivorship, multiple testing) and weighted as at most 30 trades: 0.5 × μ × min(n, 30) / (min(n, 30) + k)."""
     run = s.scalar(select(BacktestRun).order_by(BacktestRun.id.desc()))
-    seg = ((run.summary or {}).get("segments") or {}).get(f"production:{detector}") if run else None
-    if not seg or not seg.get("n") or seg.get("mean_r") is None:
+    segs = ((run.summary or {}).get("segments") or {}) if run else {}
+    ctl, app = segs.get(f"production_controle:{detector}"), segs.get(f"production_apprentissage:{detector}")
+    if not ctl or not ctl.get("n") or ctl.get("mean_r") is None or ctl.get("ci_low") is None:
         return None
-    n = int(seg["n"])
-    return float(seg["mean_r"]) * n / (n + shrinkage_k), n
+    if ctl["ci_low"] <= 0 or not app or (app.get("mean_r") or 0) <= 0:
+        return None  # not robust out of sample: no prior (the ranking stays « historique insuffisant »)
+    n = int(ctl["n"])
+    w = min(n, 30)
+    return 0.5 * float(ctl["mean_r"]) * w / (w + shrinkage_k), n

@@ -47,7 +47,7 @@ from app.domain.heat import (
 )
 from app.domain.indicators import compute_daily_features
 from app.domain.ranking import RankItem, rank
-from app.domain.risk import EntryOrderKind, FeeSchedule, SizingInput, size_multiplier, size_position, stop_exec_for
+from app.domain.risk import EntryOrderKind, FeeSchedule, SizingInput, combine_size_factors, size_position, stop_exec_for
 from app.domain.scoring import ScoreInput, score
 from app.domain.timeutil import PARIS
 from app.domain.zones import detect_zones
@@ -271,20 +271,23 @@ def evaluate(
     target = setup.targets[0] if setup.targets else None
     options = _account_options(inst, config)
     # size reductions in force (docs/07 §7.2, §7.3, §7.9.4): they compound and only ever reduce the budget
-    factors: dict[str, float] = {}
+    market: dict[str, float] = {}  # one family: the strongest applies (combine_size_factors)
     if regime == "orange":
-        factors["régime orange"] = float((risk.size_multipliers or {}).get("regime_orange", 0.5))
+        market["régime orange"] = float((risk.size_multipliers or {}).get("regime_orange", 0.5))
     if gate in ("restreint", "restreint_plus"):
         mg0 = getattr(p, "market_gate", None) or {}
-        factors["portail restreint (R10)"] = float(mg0.get("restricted_size_multiplier", 0.5))
+        market["portail restreint (R10)"] = float(mg0.get("restricted_size_multiplier", 0.5))
+    others: dict[str, float] = {}
     if circuit is not None and not circuit.tripped and circuit.size_multiplier < 1:
-        factors["semaine de reprise après coupe-circuit"] = float(circuit.size_multiplier)
+        others["coupe-circuit"] = float(circuit.size_multiplier)
+    factors = {**market, **others}
     srd_factor = (
         float((p.srd.model_extra or {}).get("restricted_size_multiplier", 0.5) if p.srd else 0.5)
         if srd_mode == "restreint"
         else 1.0
     )
-    common = size_multiplier(factors)
+    common = combine_size_factors(market, others)
+    floor = float(getattr(risk, "min_size_multiplier", None) or 0.35)
     if factors:
         ev.details["reductions_taille"] = {k: v for k, v in factors.items()} | {"total": round(common, 4)}
     budget = float(p.capital.capital_pilote_eur) * float(risk.max_risk_per_trade_pct) * common
@@ -453,6 +456,9 @@ def evaluate(
     ev.size_eur, ev.risk_eur = sz.notional_max_eur, sz.risk_if_filled_at_max_eur
     ev.net_rr, ev.net_gain_pct = no.net_reward_risk, no.gain_net_pct
     ev.passed.append(f"prix maximal {adm.p_max:.4g} (ratio gain/risque ≥ {k:g} net de frais, R4)")
+    eff = common * (srd_factor if acc == "cto_srd" else 1.0)
+    if eff < floor:  # a quarter-size line takes a slot of the open-risk cap for a fraction of the gain
+        ev.blocked.append(f"WATCH : taille réduite à × {eff:.2g} < plancher × {floor:g} (risk.min_size_multiplier)")
     # the admission ratio is net of *fees* (framework §5.2); the after-tax ratio is shown and ranks, never blocks
     # --- score ---
     from app.services.short_positions import short_interest

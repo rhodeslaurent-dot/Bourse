@@ -474,6 +474,45 @@ def period_pnl_r(
     return ((realized_now - realized_start) + (latent_now - latent_start)) / r_unit_eur
 
 
+@dataclass(frozen=True)
+class RollingParams:
+    loss_5_r: float = 3.0  # losses over the last 5 sessions (rolling, not calendar)
+    loss_21_r: float = 6.0
+    peak_reduce_r: float = 8.0  # give-back from the 21-session equity peak → sizes × peak_reduce_multiplier
+    peak_block_r: float = 10.0  # → no new entry
+    peak_reduce_multiplier: float = 0.5
+
+
+def rolling_breaker(
+    totals: list[float], current: float, r_unit_eur: float, p: RollingParams
+) -> tuple[bool, float, str]:
+    """Rolling windows on the daily snapshots of (realised cumulative + latent), oldest first (docs/07 §7.3,
+    contre-expertise du 25/10/2026): a calendar week can hide −2.9 R on Friday then −2.9 R on Monday, and a
+    week up +4 R then down to −2.9 R gave back 6.9 R. Returns (tripped, size multiplier, reason)."""
+    if r_unit_eur <= 0:
+        raise ValueError("R nominal nul")
+    for n, lim in ((5, p.loss_5_r), (21, p.loss_21_r)):
+        if len(totals) >= n:
+            loss = (current - totals[-n]) / r_unit_eur
+            if loss <= -lim:
+                return (
+                    True,
+                    0.0,
+                    f"coupe-circuit : {loss:.1f} R sur {n} séances glissantes ≤ −{lim:g} R → pas de nouvelle entrée",
+                )
+    if totals:
+        dd = (current - max([*totals[-21:], current])) / r_unit_eur
+        if dd <= -p.peak_block_r:
+            return True, 0.0, f"coupe-circuit : {dd:.1f} R depuis le plus haut des 21 séances ≤ −{p.peak_block_r:g} R"
+        if dd <= -p.peak_reduce_r:
+            return (
+                False,
+                p.peak_reduce_multiplier,
+                f"recul de {dd:.1f} R depuis le plus haut des 21 séances : tailles × {p.peak_reduce_multiplier:g}",
+            )
+    return False, 1.0, ""
+
+
 def size_multiplier(factors: dict[str, float]) -> float:
     """Product of the size reductions in force (regime, market gate, SRD restricted, circuit breaker resume):
     each answers a distinct risk, so they compound (docs/07 §7.2 « cumulables »). Never above 1."""
@@ -481,6 +520,13 @@ def size_multiplier(factors: dict[str, float]) -> float:
     for v in factors.values():
         m *= max(0.0, min(1.0, v))
     return m
+
+
+def combine_size_factors(market: dict[str, float], others: dict[str, float]) -> float:
+    """Market-state reductions (orange regime, restricted gate) measure the same risk: the strongest one
+    applies (min); independent families (account, circuit breaker) compound (contre-expertise du 25/10/2026)."""
+    m = min([1.0, *(max(0.0, v) for v in market.values())])
+    return m * size_multiplier(others)
 
 
 def twr_drawdown(equity: list[float], flows: list[float] | None = None) -> tuple[list[float], float, float]:

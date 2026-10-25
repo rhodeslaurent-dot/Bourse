@@ -46,8 +46,30 @@ def test_backtest_runs_on_history_and_reports_segments_biases_and_prior(db_engin
             assert t.mae_r <= 0.0 + 1e-9 or t.reason == "target"
         seg = run.summary["segments"]
         assert all(v["n"] >= 1 for v in seg.values())
-        if any(k.startswith("production:") for k in seg):
-            det = next(k for k in seg if k.startswith("production:")).split(":", 1)[1]
-            r, n = prior_expected_r(s, det)
-            assert n == seg[f"production:{det}"]["n"] and abs(r) <= abs(seg[f"production:{det}"]["mean_r"]) + 1e-9
+        for k in [k for k in seg if k.startswith("production:")]:
+            det = k.split(":", 1)[1]
+            prior = prior_expected_r(s, det)
+            ctl = seg.get(f"production_controle:{det}")
+            if prior is not None:  # only a robust out-of-sample result, halved and capped at 30 trades
+                assert ctl and ctl["ci_low"] > 0 and abs(prior[0]) <= 0.5 * abs(ctl["mean_r"]) + 1e-9
+        assert prior_expected_r(s, "inconnu") is None
         assert s.query(BacktestRun).count() == 1
+
+
+def test_prior_needs_a_positive_control_interval_and_is_halved(db_engine):
+    from datetime import UTC, datetime
+
+    def seg(mean, lo):
+        return {"n": 100, "mean_r": mean, "ci_low": lo, "ci_high": mean + 0.1}
+
+    with db_session() as s:
+        s.add(BacktestRun(created_at=datetime.now(UTC), params_version="x", start=date(2018, 1, 1),
+                          end=date(2026, 1, 1), instruments=1, summary={"segments": {
+                              "production_controle:a": seg(0.3, 0.05), "production_apprentissage:a": seg(0.2, 0.0),
+                              "production_controle:b": seg(0.3, -0.02), "production_apprentissage:b": seg(0.2, 0.0),
+                              "production_controle:c": seg(0.3, 0.05), "production_apprentissage:c": seg(-0.1, -0.3),
+                          }}))  # fmt: skip
+        s.flush()
+        r, n = prior_expected_r(s, "a", 20)
+        assert n == 100 and abs(r - 0.5 * 0.3 * 30 / 50) < 1e-9
+        assert prior_expected_r(s, "b") is None and prior_expected_r(s, "c") is None

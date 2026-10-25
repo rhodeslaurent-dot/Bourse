@@ -61,6 +61,13 @@ risk:
     weekly_loss_r: 3
     monthly_loss_r: 6
     resume_size_multiplier: 0.5
+    loss_5_r: 3                       # contre-expertise du 25/10/2026 (à valider) : fenêtres glissantes de 5 et 21 séances
+    loss_21_r: 6
+    peak_reduce_r: 8                  # recul depuis le plus haut des 21 séances (réalisé + latent) → tailles × 0,5
+    peak_block_r: 10                  # → aucune nouvelle entrée
+    peak_reduce_multiplier: 0.5
+    missing_baseline_multiplier: 0.5  # sans instantané d'équité : tailles × 0,5 (un garde-fou ne s'ouvre jamais faute de mesure)
+  min_size_multiplier: 0.35           # réductions cumulées sous ce plancher → WATCH (ligne trop petite pour son coût de plafond)
   revenge_trade_cooldown_sessions: 5
   no_new_buy_after_local: "16:45"
   no_new_buy_before_local: "09:03"

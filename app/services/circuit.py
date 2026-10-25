@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import LoadedConfig
 from app.db.models import KpiDaily, Trade
-from app.domain.risk import CircuitBreakerParams, circuit_breaker, period_pnl_r
+from app.domain.risk import CircuitBreakerParams, RollingParams, circuit_breaker, period_pnl_r, rolling_breaker
 from app.domain.timeutil import PARIS
 
 
@@ -104,4 +104,29 @@ def circuit_state(
         prev_tripped = prev_tripped or (pm is not None and pm <= -params.monthly_loss_r)
     st = circuit_breaker(view.week_r or 0.0, 0.0, view.month_r or 0.0, 0.0, params, prev_tripped)
     view.tripped, view.reason, view.size_multiplier = st.tripped, st.reason, st.size_multiplier
+    extra = cb.model_extra or {}
+    rp = RollingParams(**{k: float(extra[k]) for k in RollingParams.__dataclass_fields__ if k in extra})
+    rows = list(
+        s.scalars(
+            select(KpiDaily)
+            .where(KpiDaily.account_id.is_(None), KpiDaily.day < today)
+            .order_by(KpiDaily.day.desc())
+            .limit(21)
+        )
+    )[::-1]
+    totals = [
+        float(r.realized_pnl_cum) + float(r.latent_pnl)
+        for r in rows
+        if r.realized_pnl_cum is not None and r.latent_pnl is not None
+    ]
+    tripped, mult, why = rolling_breaker(totals, current[0] + current[1], r_unit, rp)
+    if not view.tripped and tripped:
+        view.tripped, view.reason, view.size_multiplier = True, why, 0.0
+    elif not view.tripped and mult < view.size_multiplier:
+        view.size_multiplier, view.reason = mult, why
+    if not view.tripped and (sw is None or sm is None):  # a guard never fails open: half size until measured
+        miss = float(extra.get("missing_baseline_multiplier", 0.5))
+        if miss < view.size_multiplier:
+            view.size_multiplier = miss
+            view.reason = f"mesure du coupe-circuit indisponible : tailles × {miss:g} jusqu'au prochain instantané"
     return view

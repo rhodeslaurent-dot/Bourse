@@ -72,3 +72,21 @@ def test_restricted_gate_halves_the_risk_budget(db_engine, config):
         pea = p.details["comptes"]["pea"]
         if pea.get("risque_eur") is not None:
             assert pea["risque_eur"] <= 300 * 0.5 + 1e-6  # budget 0.75 % × 40 000 € × 0.5
+
+
+def test_compounded_reductions_below_the_floor_turn_the_buy_into_watch(db_engine, config, monkeypatch):
+    from app.services.circuit import CircuitView
+
+    view = CircuitView(size_multiplier=0.5, reason="recul depuis le plus haut", r_unit_eur=300.0)
+    monkeypatch.setattr(circuit_mod, "circuit_state", lambda *a, **k: view)
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        engine.scan(s, config, DAY, now=NOW)
+        sized = [
+            p for p in s.query(Proposal).filter(Proposal.isin == ISIN) if (p.details or {}).get("reductions_taille")
+        ]
+        assert sized
+        for p in sized:  # restricted gate × 0.5 (market) × circuit × 0.5 = × 0.25 < 0.35
+            assert p.details["reductions_taille"]["total"] == 0.25
+            if p.details.get("admission") == "admis":
+                assert p.action != "BUY" and any("plancher" in b for b in p.gates["blocked"])

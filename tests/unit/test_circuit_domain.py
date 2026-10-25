@@ -26,3 +26,27 @@ def test_breaker_trips_on_the_week_and_resumes_at_half_size():
     assert circuit_breaker(-3.2, 0, -3.2, 0, p).tripped
     st = circuit_breaker(0.4, 0, -3.5, 0, p, previous_week_tripped=True)
     assert not st.tripped and st.size_multiplier == 0.5
+
+
+def test_rolling_windows_catch_what_calendar_weeks_hide():
+    from app.domain.risk import RollingParams, rolling_breaker
+
+    p = RollingParams()
+    # −2.9 R on Friday then −2.9 R on Monday: two calendar weeks under −3 R, but −5.8 R over 5 sessions
+    totals = [0, 0, 0, 0, -870.0]
+    tripped, _, why = rolling_breaker(totals, -1740.0, 300, p)
+    assert tripped and "5 séances" in why
+    # a slow give-back: +10 R in 6 sessions, then −0.57 R a session — no window beyond its limit, −8 R from the peak
+    rise = [500.0 * k for k in range(1, 7)]
+    fall = [3000.0 - 170 * k for k in range(1, 15)]
+    tripped, mult, why = rolling_breaker([0.0, *rise, *fall], 3000.0 - 170 * 15 + 150, 300, p)
+    assert not tripped and mult == 0.5 and "plus haut" in why
+    assert rolling_breaker([], 0.0, 300, p) == (False, 1.0, "")
+
+
+def test_market_reductions_take_the_strongest_others_compound():
+    from app.domain.risk import combine_size_factors
+
+    assert combine_size_factors({"orange": 0.5, "portail": 0.5}, {}) == 0.5
+    assert combine_size_factors({"orange": 0.5}, {"coupe-circuit": 0.5}) == 0.25
+    assert combine_size_factors({}, {}) == 1.0
