@@ -125,3 +125,21 @@ def test_the_card_shows_the_observation_verdict(db_engine, config, calendars):
     assert "Comité d&#39;investissement — en observation" in html or "Comité d'investissement — en observation" in html
     assert "Réduire d&#39;un cran" in html or "Réduire d'un cran" in html
     assert "jamais appliqué" in html
+
+
+def test_home_lists_the_day_ideas_with_the_committee_verdict(db_engine, config, calendars):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    with db_session() as s:
+        s.info["config"] = config
+        p = _letter_proposal(s)
+        p.action, p.rank, p.gates = "BUY", 1, {"passed": [], "blocked": []}  # an admitted BUY of the day
+        deliberate(s, config, Gw(PM, CHAIR), p, NOW)
+    app = create_app(config, calendars, start_scheduler=False, start_telegram=False)
+    with TestClient(app) as c:
+        html = c.get("/").text
+    i = html.find("Idées du jour")
+    block = html[i : i + 2500]
+    assert i > 0 and "#1 TotalEnergies" in block and "reduire un cran" in block

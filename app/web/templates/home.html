@@ -80,6 +80,31 @@
   </ol>
 </section>
 
+<section class="card">
+  <div class="flex flex-wrap items-baseline justify-between gap-2">
+    <h2 class="font-semibold">Idées du jour</h2>
+    <a href="/opportunites" class="text-xs underline decoration-dotted">toutes les opportunités →</a>
+  </div>
+  {% if ideas %}
+  <ol class="mt-2 space-y-2 text-sm">
+    {% for i in ideas %}
+    <li class="rounded-xl border border-slate-200 dark:border-slate-800 p-3">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <span><b>#{{ i.p.rank }} {{ i.name }}</b> <span class="text-xs text-slate-400">{{ i.p.isin }}</span></span>
+        <span class="text-xs tabular">{% if i.limit %}limite {{ '%.4g'|format(i.limit) }}{% endif %}{% if i.p.stop %} · stop {{ '%.4g'|format(i.p.stop) }}{% endif %}{% if i.p.shares %} · {{ i.p.shares }} titres ({{ i.p.account_recommended }}){% endif %}</span>
+      </div>
+      <div class="mt-1 text-xs text-slate-600 dark:text-slate-300">{% if i.ratio is not none %}ratio net {{ '%.2f'|format(i.ratio) }}{% endif %}{% if i.gain is not none %} · gain net à l'objectif {{ '%+.1f %%'|format(i.gain * 100) }}{% endif %}
+        {% if i.comite %} · comité (observation) : <b>{{ i.comite|replace('_', ' ') }}</b>{% endif %}
+        {% if i.radar %} · radar : {{ i.radar|replace('_', ' ') }}{% endif %}</div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Aucun achat admis sans blocage aujourd'hui : l'absence d'opportunité est un résultat normal.</p>
+  {% endif %}
+  {% if radar_ideas %}<p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Radar des signaux faibles : {{ radar_ideas }} idée(s) à examiner sur 3 jours (rapport du jour, rubrique Watchlist) — jamais un achat en l'état.</p>{% endif %}
+</section>
+
 <section class="space-y-3">
   <div class="flex items-baseline justify-between">
     <h2 class="text-lg font-semibold">Risque du portefeuille</h2>

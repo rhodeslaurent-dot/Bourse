@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
@@ -121,6 +121,41 @@ def home(request: Request) -> HTMLResponse:
             )
             if x.applicable
         ]
+        from app.db.models import CommitteeRun, WeakSignalHit
+        from app.services.engine import todays_ranked
+
+        ideas = []  # « Idées du jour » (docs/25 proposition 8): the ranked BUY without block, with the
+        for p in todays_ranked(s, paris_today):  # committee's observation verdict and the radar label
+            blocked = [b for b in (p.gates or {}).get("blocked", []) if b.startswith("BLOQUÉ")]
+            if p.action != "BUY" or p.rank is None or blocked:
+                continue
+            d = p.details or {}
+            acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
+            cm = s.scalar(
+                select(CommitteeRun).where(CommitteeRun.proposal_id == p.id).order_by(CommitteeRun.id.desc())
+            )
+            ideas.append(
+                {
+                    "p": p,
+                    "name": name_of(p.isin),
+                    "limit": d.get("p_max"),
+                    "ratio": acc.get("ratio_net"),
+                    "gain": acc.get("gain_net_pct"),
+                    "comite": cm.action_comite if cm is not None and cm.status == "ok" else None,
+                    "radar": (d.get("signaux_faibles") or {}).get("etiquette"),
+                }
+            )
+            if len(ideas) >= 3:
+                break
+        radar_ideas = len(
+            list(
+                s.scalars(
+                    select(WeakSignalHit.id).where(
+                        WeakSignalHit.idea.is_(True), WeakSignalHit.day >= paris_today - timedelta(days=3)
+                    )
+                )
+            )
+        )
         from app.services.macro import LABELS as MACRO_LABELS
         from app.services.macro import market_context, upcoming_events
 
@@ -142,6 +177,8 @@ def home(request: Request) -> HTMLResponse:
             "request": request,
             "view": view,
             "circuit": circuit,
+            "ideas": ideas,
+            "radar_ideas": radar_ideas,
             "config_cb": cfg.params.risk.circuit_breaker,
             "decisions": decisions[:3],
             "mode": current_mode_payload(request),

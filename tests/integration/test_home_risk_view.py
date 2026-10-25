@@ -39,3 +39,4 @@ def test_home_shows_three_decisions_and_risk(client):
     assert "réservé (ordres en attente)" in html and "Scénario de gap" in html and "engagements" in html
     assert "périmé ou jamais synchronisé" in html
     assert "Coupe-circuit" in html  # docs/07 §7.3: week and month losses vs the limits, or « indisponible »
+    assert "Idées du jour" in html
