@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import math
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 PUMP = "emballement"
 ATTENTION_NO_NEWS = "attention_sans_nouvelle"
@@ -39,6 +39,10 @@ class RadarParams:
     velocity_ratio: float = 3.0  # messages of the last hours ÷ the usual rate (no long history needed)
     velocity_min_messages: int = 5
     early_move_atr: float = 1.5  # « the price has not moved yet »: |5-session change| < 1.5 ATR
+    # forum / social counts are sparse (0, 1, 2 topics a day): the Wikipedia floor (0.15) made two topics in
+    # three days on a quiet forum « z 3.1 » (25/10/2026) — a floor of their own and a minimum count
+    social_min_mad: float = 0.3
+    social_min_recent: int = 5  # topics / messages over the recent window
 
 
 def robust_z(values: list[float], p: RadarParams, log: bool = True) -> float | None:
@@ -54,6 +58,14 @@ def robust_z(values: list[float], p: RadarParams, log: bool = True) -> float | N
     med = statistics.median(base)
     mad = statistics.median(abs(x - med) for x in base) * 1.4826
     return (statistics.fmean(recent) - med) / max(mad, p.min_mad if log else 1e-12)
+
+
+def social_z(values: list[float], p: RadarParams) -> float | None:
+    """``robust_z`` for sparse counts: its own dispersion floor, and None (no anomaly read) when the recent
+    window holds fewer than ``social_min_recent`` items — a handful of posts is never a « buzz »."""
+    if len(values) < p.recent_days or sum(values[-p.recent_days :]) < p.social_min_recent:
+        return None
+    return robust_z(values, replace(p, min_mad=p.social_min_mad))
 
 
 def relative_volume(volumes: list[float | None], window: int = 60) -> float | None:

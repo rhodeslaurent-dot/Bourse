@@ -20,7 +20,7 @@ from app.data.providers import wikimedia
 from app.db.models import AttentionDaily, FeatureDaily, Instrument, NewsItem, PriceEod, WeakSignalHit, WikiArticle
 from app.domain.backtest import summarize
 from app.domain.timeutil import PARIS
-from app.domain.weak_signals import PUMP, RadarInput, RadarParams, label, relative_volume, robust_z
+from app.domain.weak_signals import PUMP, RadarInput, RadarParams, label, relative_volume, robust_z, social_z
 
 log = logging.getLogger("bourse.weak_signals")
 
@@ -182,7 +182,7 @@ def _social_z(s: Session, isin: str, day: date, p: RadarParams) -> tuple[float |
         if not days or (day - days[-1]).days > 3:
             per[src] = "périmé"
             continue
-        z = robust_z([float(pts[d]) for d in days], p)
+        z = social_z([float(pts[d]) for d in days], p)
         per[src] = None if z is None else round(z, 2)
         if z is not None and (best is None or z > best):
             best = z

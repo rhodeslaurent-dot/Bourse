@@ -220,6 +220,8 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
   velocity_ratio: 3.0                   # réactif, sans historique : rythme des 2 dernières heures ≥ 3 × le rythme habituel…
   velocity_min_messages: 5              # … et au moins 5 messages
   early_move_atr: 1.5                   # « buzz précoce » : prix encore immobile (variation 5 séances < 1,5 ATR) et aucune publication → idée à examiner
+  social_min_mad: 0.3                   # plancher de dispersion propre aux forums (comptages faibles : 0, 1, 2 sujets par jour)
+  social_min_recent: 5                  # au moins 5 sujets ou messages sur les 3 derniers jours pour lire une anomalie
   social:                               # décision de l'utilisateur du 25/10/2026 : forums inclus, risques acceptés ; compteurs seulement, jamais de message ni d'auteur
     boursorama:
       enabled: true
