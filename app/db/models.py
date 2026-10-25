@@ -1062,3 +1062,27 @@ class WeakSignalHit(Base):
     details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     __table_args__ = (UniqueConstraint("isin", "day", name="uq_weak_signal_hits_isin_day"),)
+
+
+class CommitteeRun(Base):
+    """docs/24 v2 — one deliberation of the investment committee on a proposal, in observation mode: the
+    verdict and its effect *if applied* are stored, never applied to the proposal until an ADR decides."""
+
+    __tablename__ = "committee_runs"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    proposal_id: Mapped[int] = mapped_column(Integer, index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    dossier_hash: Mapped[str] = mapped_column(String(64))
+    mode: Mapped[str] = mapped_column(String(12), default="observation")
+    status: Mapped[str] = mapped_column(String(12))  # ok | budget | indisponible | quorum
+    action_comite: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    confiance_comite: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    effect: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # what Python would apply (bounded)
+    dossier: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # numbered facts and base rates sent
+    premortem: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    verdict: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    rejected: Mapped[list | None] = mapped_column(JSON, nullable=True)  # elements removed by the guards
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    models: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("proposal_id", "dossier_hash", name="uq_committee_runs_proposal_hash"),)

@@ -25,6 +25,23 @@
     {% else %}<p class="mt-1 text-slate-500">Thèse rédigée automatiquement pour le haut du classement ; sinon, cliquez sur « Rédiger la thèse ».</p>{% endif %}
   </div>
 
+  {% set cm = it.comite if it is defined else none %}
+  {% if cm %}
+  <div>
+    <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Comité d'investissement — en observation (docs/24)</h3>
+    {% if cm.status == 'ok' %}
+    {% set v = cm.verdict or {} %}
+    <p class="mt-1"><b>{{ {'maintenir': 'Maintenir', 'reduire_un_cran': "Réduire d'un cran", 'reduire_deux_crans': 'Réduire de deux crans', 'attendre_repli': 'Attendre un repli', 'attendre_evenement': "Attendre l'événement", 'rejeter': 'Rejeter'}.get(cm.action_comite, cm.action_comite) }}</b> · confiance {{ cm.confiance_comite }}{% if cm.effect %} · effet s'il était appliqué : {{ cm.effect.action }}, {{ cm.effect.titres }} titres{% endif %} — <span class="text-slate-400">verdict mesuré, jamais appliqué (mode observation)</span></p>
+    {% if v.motifs %}<ul class="mt-1 list-disc ml-5">{% for m in v.motifs %}<li>{{ m.texte }} <span class="text-[11px] text-slate-400">({{ m.faits|join(', ') }})</span></li>{% endfor %}</ul>{% endif %}
+    {% set pm = cm.premortem or {} %}
+    {% if pm.causes %}<p class="mt-1"><b>Pré-mortem :</b> {% for c in pm.causes %}{{ c.texte }} <span class="text-[11px] text-slate-400">(vraisemblance {{ c.vraisemblance }}, gravité {{ c.gravite }}{% if not c.couverte_par_le_stop %}, hors stop{% endif %})</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+    {% if v.dissidence_retenue_ou_ecartee %}<p class="mt-1"><b>Dissidence :</b> {{ v.dissidence_retenue_ou_ecartee }}</p>{% endif %}
+    {% if v.condition_de_revision %}<p class="mt-1 text-slate-500"><b>Révision si :</b> {{ v.condition_de_revision }}</p>{% endif %}
+    <p class="mt-1 text-xs text-slate-400">{{ (cm.models or [])|join(' + ') }} · {{ '%.3f'|format(cm.cost_usd or 0) }} ${% if cm.rejected %} · {{ cm.rejected|length }} élément(s) écarté(s) par les garde-fous{% endif %} · société masquée pour les modèles</p>
+    {% else %}<p class="mt-1 text-slate-500">{{ (cm.verdict or {}).motif or cm.status }}</p>{% endif %}
+  </div>
+  {% endif %}
+
   {% if dd.comptes %}
   <div>
     <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Gain et risque nets, par compte (coût complet)</h3>

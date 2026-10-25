@@ -83,6 +83,16 @@ def opportunities_page(
             else {}
         )
         venues = getattr(request.app.state.calendars, "venues", {}) if hasattr(request.app.state, "calendars") else {}
+        from app.db.models import CommitteeRun
+
+        committee: dict[int, CommitteeRun] = {}
+        if props:
+            for r in s.scalars(
+                select(CommitteeRun)
+                .where(CommitteeRun.proposal_id.in_([p.id for p in props]))
+                .order_by(CommitteeRun.id)
+            ):
+                committee[r.proposal_id] = r  # the latest deliberation per proposal
         items = []
         for p in props:
             sig = sigs.get(p.signal_id)
@@ -91,6 +101,7 @@ def opportunities_page(
                 {
                     "p": p,
                     "sig": sig,
+                    "comite": committee.get(p.id),
                     "name": name_of(p.isin),
                     "explain": explain_proposal(p, sig, snaps.get(p.id), capital),
                     "decisions": decisions.get(p.id, []),

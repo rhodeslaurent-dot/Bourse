@@ -159,6 +159,17 @@ media:                                  # docs/23 §23.7 — opinions des média
   recent_days: 7                        # seuls les épisodes / articles de moins de 7 jours sont lus (les flux de podcasts gardent tout l'historique)
   poll_minutes: 120                     # relecture des flux médias toutes les 2 h (au lieu de 5 à 15 min pour l'actualité)
 
+committee:                              # docs/24 v2 — comité d'investissement en OBSERVATION : verdicts stockés et mesurés, jamais appliqués sans ADR
+  effective_from: "2026-10-25"
+  enabled: true
+  mode: "observation"                   # seul mode autorisé tant qu'un ADR ne décide pas d'appliquer les verdicts (≥ 3 mois de mesure)
+  top_n: 5                              # BUY classés délibérés chaque matin (+ toute proposition éligible à dérogation R21)
+  daily_budget_usd: 0.5                 # réservation avant chaque délibération (2 appels) ; au-delà : « comité non réuni (budget) »
+  reduce_step: 0.75                     # effet calculé de « réduire d'un cran » (jamais appliqué en observation)
+  premortem_model: null                 # défaut : llm.write_model
+  chair_model: null
+  max_tokens: 1200
+
 weak_signals:                           # docs/26 — radar des signaux faibles PUBLICS : agrégats seulement, jamais un déclencheur
   effective_from: "2026-10-25"
   enabled: true
@@ -648,6 +659,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   fixing_card: {cron: "15 17 * * 1-5", misfire_grace_min: 10, market_days_only: true}   # R6 : entrée au fixing de clôture sur repli qui tient (entry.fixing_card_time)
   backtest_weekly: {cron: "30 10 * * 0", misfire_grace_min: 1440, market_days_only: false}   # docs/27 : rejeu des détecteurs au coût complet (≈ 20 min)
   short_positions_refresh: {cron: "40 19 * * 1-5", misfire_grace_min: 720, market_days_only: false}   # docs/23 S2 : positions courtes nettes publiées par les autorités
+  committee_review: {cron: "10 8 * * 1-5", misfire_grace_min: 90, market_days_only: true}   # docs/24 v2 : comité d'investissement en observation (verdicts mesurés, jamais appliqués)
   weak_signals: {cron: "40 6 * * 1-5", misfire_grace_min: 60, market_days_only: true}   # docs/26 : radar des signaux faibles publics (Wikipédia, volume, presse)
   fundamentals_refresh: {cron: "0 9 * * 0", misfire_grace_min: 1440, market_days_only: false}   # fondamentaux et consensus gratuits (Yahoo), hebdomadaire
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h

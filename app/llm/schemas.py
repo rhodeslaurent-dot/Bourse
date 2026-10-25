@@ -207,3 +207,39 @@ class ThesisOut(BaseModel):
     pourquoi_maintenant: Text(300) = ""
     incertitudes: Text(300) = ""
     ce_qui_invaliderait: Text(300) = ""
+
+
+# --- docs/24 v2 — investment committee in observation mode: no number field, closed vocabularies only
+
+
+class CommitteeCause(BaseModel):
+    texte: Text(220)
+    faits: Items(str, 6) = Field(default_factory=list)
+    vraisemblance: Literal["faible", "moyenne", "forte"]
+    gravite: Literal["faible", "moyenne", "forte"]
+    couverte_par_le_stop: bool = True  # False = a gap or an event the stop does not protect from
+
+
+class PreMortemOut(BaseModel):
+    """« The trade has failed: why? » — the strongest causes, each tied to fact ids."""
+
+    causes: Items(CommitteeCause, 4) = Field(default_factory=list)
+    signal_contraire_le_plus_fort: Text(220) = ""
+    donnee_manquante_decisive: Text(220) = ""
+
+
+class CommitteeArgument(BaseModel):
+    texte: Text(220)
+    faits: Items(str, 6) = Field(default_factory=list)
+
+
+class ChairOut(BaseModel):
+    """The chair's bounded verdict; Python decides its effect (never above the engine's proposal)."""
+
+    action_comite: Literal[
+        "maintenir", "reduire_un_cran", "reduire_deux_crans", "attendre_repli", "attendre_evenement", "rejeter"
+    ]
+    confiance_comite: Literal["faible", "moyenne", "forte"]
+    motifs: Items(CommitteeArgument, 4) = Field(default_factory=list)
+    dissidence_retenue_ou_ecartee: Text(300) = ""
+    condition_de_revision: Text(220) = ""
