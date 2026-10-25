@@ -57,6 +57,35 @@ def _outcome_chart(s, row) -> str:  # type: ignore[no-untyped-def]
     return line_chart({"main": [(c.day, c.close) for c in closes]}, levels, height=180)
 
 
+def _observation(s) -> dict:  # type: ignore[no-untyped-def]
+    """Rules under measurement before any use (docs/24, docs/26, docs/27): latest backtest, committee
+    verdicts against the outcomes, radar labels of the last 30 days."""
+    from datetime import date, timedelta
+
+    from sqlalchemy import func
+
+    from app.db.models import BacktestRun, WeakSignalHit
+    from app.services.committee import measure as committee_measure
+
+    run = s.scalar(select(BacktestRun).order_by(BacktestRun.id.desc()))
+    segs = ((run.summary or {}).get("segments") or {}) if run else {}
+    since = date.today() - timedelta(days=30)
+    radar = dict(
+        s.execute(
+            select(WeakSignalHit.label, func.count(WeakSignalHit.id))
+            .where(WeakSignalHit.day >= since)
+            .group_by(WeakSignalHit.label)
+        ).all()
+    )
+    return {
+        "backtest": run,
+        "segments": {k: v for k, v in segs.items() if k.startswith(("production:", "periode:"))},
+        "essais": (run.summary or {}).get("essais") if run else None,
+        "committee": committee_measure(s),
+        "radar": radar,
+    }
+
+
 @router.get("/apprentissage", response_class=HTMLResponse)
 def learning_page(request: Request) -> HTMLResponse:
     st = request.app.state
@@ -91,6 +120,7 @@ def learning_page(request: Request) -> HTMLResponse:
             ctx["memory"] = list(
                 s.scalars(select(TraderMemory).order_by(TraderMemory.active.desc(), TraderMemory.id.desc()))
             )
+            ctx["observation"] = _observation(s)
             rows = outcome_rows(s, 60)
             for i, r in enumerate(rows):
                 r["chart"] = _outcome_chart(s, r) if i < 30 else ""

@@ -274,6 +274,7 @@ def test_learning_page_and_assistant_panel(client, calendars):
         s.add(Decision(proposal_id=p.id, decision="seen", via="web", ts=NOW))
     html = client.get("/apprentissage").text
     assert "Apprentissage" in html and "Leçons retenues" in html and "Ne jamais acheter un gap" in html
+    assert "Règles en mesure" in html and "Aucun backtest enregistré" in html and "radar-measure" in html
     r = client.post("/apprentissage/recalculer", follow_redirects=False)
     assert r.status_code == 303 and "recalcul" in r.headers["location"]
     page = client.get("/apprentissage").text

@@ -157,6 +157,29 @@
 </section>
 {% endif %}
 
+{% set ob = observation or {} %}
+<section class="card overflow-x-auto" id="mesures">
+  <h2 class="font-semibold">Règles en mesure (aucune n'agit sur le score sans ADR)</h2>
+  <h3 class="mt-3 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Backtest au coût complet (docs/27)</h3>
+  {% if ob.backtest %}
+  <p class="text-xs text-slate-500 dark:text-slate-400">n° {{ ob.backtest.id }} · {{ ob.backtest.start.strftime('%d/%m/%Y') }} → {{ ob.backtest.end.strftime('%d/%m/%Y') }} · {{ ob.backtest.instruments }} valeurs · {{ ob.essais }} segments testés · une règle n'est « découverte » qu'avec t ≥ 3</p>
+  <table class="mt-1 w-full text-sm">
+    <thead><tr class="text-left text-xs text-slate-500 dark:text-slate-400"><th class="py-1 pr-3 font-medium">Segment</th><th class="py-1 pr-3 font-medium text-right">n</th><th class="py-1 pr-3 font-medium text-right">R net moyen</th><th class="py-1 pr-3 font-medium text-right">Gagnants</th><th class="py-1 pr-3 font-medium text-right">t</th><th class="py-1 font-medium text-right">IC 95 %</th></tr></thead>
+    <tbody>{% for k, v in ob.segments.items() %}<tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-1 pr-3">{{ k }}</td><td class="py-1 pr-3 text-right tabular">{{ v.n }}</td><td class="py-1 pr-3 text-right tabular">{{ '%+.3f'|format(v.mean_r) if v.mean_r is not none else '—' }}</td><td class="py-1 pr-3 text-right tabular">{{ '%.0f %%'|format(v.hit_rate * 100) if v.hit_rate is not none else '—' }}</td><td class="py-1 pr-3 text-right tabular">{{ '%.1f'|format(v.t_stat) if v.t_stat is not none else '—' }}{% if v.significant %} ✓{% endif %}</td><td class="py-1 text-right tabular">{{ '[%+.2f ; %+.2f]'|format(v.ci_low, v.ci_high) if v.ci_low is not none else '—' }}</td></tr>{% endfor %}</tbody>
+  </table>
+  <ul class="mt-1 text-xs text-slate-500 dark:text-slate-400 list-disc ml-4">{% for n in ob.backtest.notes or [] %}<li>{{ n }}</li>{% endfor %}</ul>
+  {% else %}<p class="text-sm text-slate-500">Aucun backtest enregistré : lancer la commande <code>backtest</code> (ou attendre le job du dimanche).</p>{% endif %}
+  <h3 class="mt-4 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Comité d'investissement en observation (docs/24)</h3>
+  {% if ob.committee %}
+  <table class="mt-1 w-full text-sm">
+    <thead><tr class="text-left text-xs text-slate-500 dark:text-slate-400"><th class="py-1 pr-3 font-medium">Verdict</th><th class="py-1 pr-3 font-medium text-right">Issues</th><th class="py-1 pr-3 font-medium text-right">R net moyen</th><th class="py-1 pr-3 font-medium text-right">Gagnants</th><th class="py-1 font-medium text-right">IC 95 %</th></tr></thead>
+    <tbody>{% for k, v in ob.committee.items() %}<tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-1 pr-3">{{ k|replace('_', ' ')|replace(':', ' · confiance ') }}</td><td class="py-1 pr-3 text-right tabular">{{ v.n }}</td><td class="py-1 pr-3 text-right tabular">{{ '%+.2f'|format(v.mean_r) if v.mean_r is not none else '—' }}</td><td class="py-1 pr-3 text-right tabular">{{ '%.0f %%'|format(v.hit_rate * 100) if v.hit_rate is not none else '—' }}</td><td class="py-1 text-right tabular">{{ '[%+.2f ; %+.2f]'|format(v.ci_low, v.ci_high) if v.ci_low is not none else '—' }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="text-sm text-slate-500">Pas encore d'issue définitive pour une proposition passée en comité.</p>{% endif %}
+  <h3 class="mt-4 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Radar des signaux faibles, 30 derniers jours (docs/26)</h3>
+  <p class="text-sm">{% for k, v in ob.radar.items() %}{{ k|replace('_', ' ') }} : {{ v }}{% if not loop.last %} · {% endif %}{% else %}aucune étiquette{% endfor %} <span class="text-xs text-slate-500">— rendement en excès par étiquette : commande <code>radar-measure</code></span></p>
+</section>
+
 <section class="card">
   <h2 class="font-semibold">Propositions passées et leur résultat</h2>
   <p class="text-xs text-slate-500 dark:text-slate-400">Clôtures officielles uniquement ; une séance manquante rend le résultat « cours indisponibles » (jamais estimé).</p>
