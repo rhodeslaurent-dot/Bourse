@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
@@ -46,6 +46,9 @@ class LlmSettings:
     prices: dict[str, dict[str, float]]  # model → {input, output} USD per MTok (dated in params)
     prompts_dir: Path
     cache: bool = True
+    # ADR-011 (accepted 25/10/2026): per-model request options — generation-5 models reject a sampling
+    # parameter; thinking is turned off and the effort set here (llm.model_options in params.yaml)
+    model_options: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def load_prompt(prompts_dir: Path, name: str) -> tuple[str, str]:
@@ -57,8 +60,31 @@ def load_prompt(prompts_dir: Path, name: str) -> tuple[str, str]:
     return f.stem.split("_v")[-1], f.read_text(encoding="utf-8")
 
 
+def request_options(model: str, temperature: float, options: dict[str, Any] | None) -> dict[str, Any]:
+    """Keyword arguments of the SDK call for ``model``: ``extra_body`` (temperature when the model accepts it,
+    thinking setting) and ``output_config`` (effort). Rule 3 as reformulated by ADR-011: temperature 0 when
+    accepted; otherwise stability comes from the closed schema, the replay cache and the number guard."""
+    opts = options or {}
+    body: dict[str, Any] = {}
+    if opts.get("sampling", True):
+        body["temperature"] = temperature
+    if opts.get("thinking"):
+        body["thinking"] = dict(opts["thinking"])
+    kw: dict[str, Any] = {"extra_body": body} if body else {}
+    if opts.get("effort"):
+        kw["output_config"] = {"effort": opts["effort"]}
+    return kw
+
+
 def _sdk_parse(  # noqa: UP047
-    model: str, system: str, user: str, schema: type[T], temperature: float, max_tokens: int, client: Any = None
+    model: str,
+    system: str,
+    user: str,
+    schema: type[T],
+    temperature: float,
+    max_tokens: int,
+    client: Any = None,
+    options: dict[str, Any] | None = None,
 ) -> tuple[T, int, int]:
     """Real call through the official SDK (``messages.parse`` validates against the schema).
 
@@ -75,7 +101,7 @@ def _sdk_parse(  # noqa: UP047
             system=system,
             messages=[{"role": "user", "content": user}],
             output_format=schema,
-            extra_body={"temperature": temperature},
+            **request_options(model, temperature, options),
         )
     except pydantic.ValidationError as exc:
         # the SDK validates before returning: a JSON cut by max_tokens surfaces here, not as stop_reason
@@ -161,11 +187,12 @@ class ClaudeGateway:
         schema: type[T],
         model: str | None = None,
         max_tokens: int = 1024,
+        use_cache: bool = True,
     ) -> tuple[T, LlmUsage]:
         model = model or self.settings.classify_model
         version, system = load_prompt(self.settings.prompts_dir, prompt_name)
         h = hashlib.sha256(f"{model}|{prompt_name}|{version}|{system}|{user_text}".encode()).hexdigest()
-        if self.settings.cache:
+        if self.settings.cache and use_cache:
             cached = s.scalar(select(LlmCache).where(LlmCache.prompt_hash == h))
             if cached is not None:
                 s.add(
@@ -188,8 +215,12 @@ class ClaudeGateway:
             raise LlmUnavailable(
                 f"prix inconnu pour {model} (llm.prices_usd_per_mtok) : appel refusé, repli par règles"
             )
+        opts = self.settings.model_options.get(model)
         try:
-            parsed, tin, tout = self._call(model, system, user_text, schema, self.settings.temperature, max_tokens)
+            extra = {"options": opts} if opts else {}  # test doubles take the six positional arguments only
+            parsed, tin, tout = self._call(
+                model, system, user_text, schema, self.settings.temperature, max_tokens, **extra
+            )
         except LlmUnavailable:
             raise
         except Exception as exc:  # noqa: BLE001 — SDK errors → fallback rules
@@ -210,7 +241,7 @@ class ClaudeGateway:
                 purpose=purpose,
             )
         )
-        if self.settings.cache:
+        if self.settings.cache and use_cache:
             s.add(LlmCache(prompt_hash=h, response=json.loads(parsed.model_dump_json()), created_at=datetime.now(UTC)))
         s.flush()
         return parsed, LlmUsage(tin, tout, cost, False)
@@ -230,4 +261,5 @@ def settings_from(config) -> LlmSettings | None:  # type: ignore[no-untyped-def]
         prices=dict(raw.get("prices_usd_per_mtok", {})),
         prompts_dir=Path(llm.prompt_versions_dir),
         cache=llm.cache,
+        model_options={str(k): dict(v or {}) for k, v in (raw.get("model_options") or {}).items()},
     )

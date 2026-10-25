@@ -192,11 +192,12 @@ committee:                              # docs/24 v2 — comité d'investissemen
   enabled: true
   mode: "observation"                   # seul mode autorisé tant qu'un ADR ne décide pas d'appliquer les verdicts (≥ 3 mois de mesure)
   top_n: 5                              # BUY classés délibérés chaque matin (+ toute proposition éligible à dérogation R21)
-  daily_budget_usd: 0.5                 # réservation avant chaque délibération (2 appels) ; au-delà : « comité non réuni (budget) »
+  daily_budget_usd: 1.0                 # réservation avant chaque délibération (2 appels) ; au-delà : « comité non réuni (budget) »
   reduce_step: 0.75                     # effet calculé de « réduire d'un cran » (jamais appliqué en observation)
-  premortem_model: null                 # défaut : llm.write_model
-  chair_model: null
-  max_tokens: 1200
+  premortem_model: "claude-sonnet-5-5"
+  chair_model: "claude-opus-5-5"        # le jugement final sur le modèle le plus puissant (ADR-011)
+  max_tokens: 4000                      # la réflexion du président compte dans max_tokens
+  est_output_tokens: 2500               # réservation de budget (réflexion comprise)
 
 weak_signals:                           # docs/26 — radar des signaux faibles PUBLICS : agrégats seulement, jamais un déclencheur
   effective_from: "2026-10-25"
@@ -643,15 +644,22 @@ learning:                                # docs/18 — retour d'expérience ; au
 
 llm:
   provider: "anthropic"
-  classify_model: "claude-haiku-4-5"
-  write_model: "claude-sonnet-4-6"
-  temperature: 0
-  monthly_budget_usd: 15
-  daily_budget_usd: 1.0                # plafond journalier (CLAUDE.md règle 3) ; au-delà : repli par règles, confiance réduite
-  prices_usd_per_mtok:                 # tarifs publics relevés le 24/06/2026 (à revalider) ; servent au suivi de coût, jamais à un calcul métier
+  classify_model: "claude-haiku-5-5"   # ADR-011 accepté le 25/10/2026 : génération 5 (plus puissante, coût équivalent)
+  write_model: "claude-sonnet-5-5"
+  temperature: 0                       # envoyée seulement aux modèles qui l'acceptent (model_options.sampling)
+  monthly_budget_usd: 50
+  daily_budget_usd: 2.0                # plafond journalier (CLAUDE.md règle 3) ; au-delà : repli par règles, confiance réduite
+  prices_usd_per_mtok:                 # tarifs publics relevés le 25/10/2026 (à revalider) ; servent au suivi de coût, jamais à un calcul métier
     claude-haiku-4-5: {input: 1.0, output: 5.0}
     claude-sonnet-4-6: {input: 3.0, output: 15.0}
     claude-sonnet-5: {input: 2.0, output: 10.0}
+    claude-haiku-5-5: {input: 0.10, output: 0.50}    # invites ≤ 100 000 jetons
+    claude-sonnet-5-5: {input: 2.0, output: 10.0}
+    claude-opus-5-5: {input: 4.0, output: 20.0}
+  model_options:                       # ADR-011 : la génération 5 refuse la température ; réflexion coupée ou réduite (jetons facturés en sortie)
+    claude-haiku-5-5: {sampling: false, thinking: {type: "disabled"}, effort: "low"}
+    claude-sonnet-5-5: {sampling: false, thinking: {type: "between_tools"}, effort: "medium"}
+    claude-opus-5-5: {sampling: false, effort: "low"}  # réflexion non désactivable : effort bas
   cache: true
   prompt_versions_dir: "app/llm/prompts"
   assistant_max_tokens: 800            # docs/17 §17.4 ; réponse ≤ 1 200 caractères, write_model, température 0

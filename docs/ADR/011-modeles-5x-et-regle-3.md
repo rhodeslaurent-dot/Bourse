@@ -1,6 +1,6 @@
 # ADR-011 — Modèles Claude de génération 5 et formulation de la règle 3
 
-- **Statut** : **proposé** le 25/10/2026 (rédigé en autonomie). **Décision réservée à l'utilisateur** : la règle 3 de CLAUDE.md est une règle absolue ; elle n'est pas modifiée par cet ADR tant qu'il n'est pas accepté.
+- **Statut** : **accepté le 25/10/2026 par l'utilisateur — option B** (« plus d'usage et des modèles plus puissants pour un coût équivalent »). Règle 3 de CLAUDE.md reformulée en conséquence.
 - **Contexte** : audit docs/25, levier L2.
 
 ## Contexte
@@ -48,3 +48,21 @@ La température 0 rend une réponse **plus stable**, pas **reproductible** (l'AP
 ## Recommandation
 
 **Option C d'abord** (classement en Haiku 5.5 après l'évaluation : c'est là que le volume et le gain sont), puis B pour la rédaction si l'évaluation est bonne. La décision vous appartient.
+
+## Décision (25/10/2026)
+
+**Option B** : classement et extractions sur Haiku 5.5 (réflexion désactivée, effort bas), rédaction (thèses, revue des lettres, assistant, pré-mortem du comité) sur Sonnet 5.5 (réflexion réduite à `between_tools`, effort moyen), **président du comité sur Opus 5.5** (réflexion non désactivable, effort bas). Réglages par modèle dans `llm.model_options` ; tarifs datés dans `llm.prices_usd_per_mtok`.
+
+Mise en œuvre : `app/llm/gateway.py` (`request_options` : température envoyée seulement si `sampling`, réglage de réflexion, effort fusionné avec le schéma JSON), test sur le vrai SDK épinglé ; commande `llm-eval` (rejoue des nouvelles et des revues enregistrées, cache contourné, plafond de coût, accord par champ) à lancer **avant** d'appliquer les nouveaux modèles dans `params.yaml`.
+
+Coûts estimés (à confirmer sur `/sante` après une semaine) :
+
+| Poste | Génération 4 (après L1) | Option B |
+|---|---|---|
+| Classement des nouvelles | ≈ 0,10 $/j | ≈ 0,015 $/j |
+| Revue des lettres | ≈ 0,5–1,0 $/j | ≈ 0,45–0,9 $/j |
+| Thèses, assistant, extractions | ≈ 0,15 $/j | ≈ 0,12 $/j |
+| Comité (pré-mortem + président) | ≈ 0,30 $/j | ≈ 0,55 $/j (président sur Opus) |
+| **Total** | **≈ 1,05–1,55 $/j (≈ 23–34 $/mois)** | **≈ 1,1–1,6 $/j (≈ 24–35 $/mois)** |
+
+Non récurrent : évaluation ≈ 1 à 2 $ (plafond `--max-usd`). Les économies sur le classement financent le modèle le plus puissant là où le jugement compte (président du comité).

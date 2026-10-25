@@ -20,7 +20,11 @@ class Gw:
     class settings:  # noqa: N801
         write_model = "claude-sonnet-4-6"
         prompts_dir = Path("app/llm/prompts")
-        prices = {"claude-sonnet-4-6": {"input": 3.0, "output": 15.0}}
+        prices = {
+            "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
+            "claude-sonnet-5-5": {"input": 2.0, "output": 10.0},
+            "claude-opus-5-5": {"input": 4.0, "output": 20.0},
+        }
 
     def __init__(self, premortem: dict, chair: dict) -> None:
         self.out = {"committee_premortem": PreMortemOut.model_validate(premortem),
@@ -74,7 +78,7 @@ def test_budget_is_reserved_before_any_call(db_engine, config, monkeypatch):
     with db_session() as s:
         s.info["config"] = config
         p = _letter_proposal(s)
-        s.add(LlmCall(model="m", prompt_version="1", prompt_hash="x", purpose="committee_chair", cost_usd=0.49, ts=NOW))
+        s.add(LlmCall(model="m", prompt_version="1", prompt_hash="x", purpose="committee_chair", cost_usd=0.95, ts=NOW))
         s.flush()
         gw = Gw(PM, CHAIR)
         run = deliberate(s, config, gw, p, NOW)

@@ -20,6 +20,10 @@ LABELS = {
     "thesis": "Thèses d'opportunité",
     "assistant": "Assistant",
     "learning_review": "Revue d'apprentissage",
+    "committee_premortem": "Comité : pré-mortem",
+    "committee_chair": "Comité : président",
+    "eval_news": "Évaluation modèles : nouvelles",
+    "eval_letters": "Évaluation modèles : lettres",
 }
 
 

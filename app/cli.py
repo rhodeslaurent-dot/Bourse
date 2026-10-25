@@ -390,6 +390,8 @@ NEW_CHILD_PARENTS = [
     "risk.circuit_breaker",  # rolling windows and peak give-back (25/10/2026)
     "risk.risk_dial",  # docs/28
     "llm",
+    "llm.prices_usd_per_mtok",
+    "llm.model_options",
     "srd",
     "data",
     "data.imap",
@@ -1074,6 +1076,48 @@ def cmd_radar_measure(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_llm_eval(args: argparse.Namespace) -> int:
+    """ADR-011 — replay stored news and letters reviews with the generation-5 models (real calls, cache
+    bypassed, capped cost) and compare with the stored answers before switching."""
+    from app.db.session import db_session
+    from app.llm.gateway import ClaudeGateway, settings_from
+    from app.services.llm_eval import FIELDS, run_eval
+
+    cfg = load_params(args.params)
+    st = settings_from(cfg)
+    if st is None:
+        print("groupe llm absent ou désactivé")
+        return 2
+    gw = ClaudeGateway(st)
+    if not gw.enabled:
+        print("ANTHROPIC_API_KEY absent de .env")
+        return 2
+    for m in (args.classify_model, args.write_model):
+        if m not in st.prices:
+            print(f"tarif inconnu pour {m} : lancer params-init --update (llm.prices_usd_per_mtok)")
+            return 2
+    print(f"évaluation : {args.news} nouvelles avec {args.classify_model}, {args.letters} revues avec "
+          f"{args.write_model}, plafond {args.max_usd} $")  # fmt: skip
+    with db_session() as s:
+        rep = run_eval(s, gw, args.classify_model, args.write_model, args.news, args.letters, args.max_usd)
+        print(f"\nnouvelles comparées : {rep.news}")
+        for f in FIELDS:
+            r = rep.rate(f)
+            print(f"  accord {f:<10} {r:.0%}" if r is not None else f"  accord {f:<10} —")
+        for d in rep.disagreements[:15]:
+            diffs = ", ".join(f"{k} {v[0]} → {v[1]}" for k, v in d.items() if k not in ("id", "titre"))
+            print(f"  ≠ n° {d['id']} « {d['titre']} » : {diffs}")
+        print(f"\nrevues de lettres : {rep.letters} valides, {rep.letters_invalid} en échec, "
+              f"{rep.letters_bad_numbers} avec un chiffre absent du dossier")  # fmt: skip
+        for old, new in rep.letters_opinions[:10]:
+            print(f"  avis par valeur : {old} enregistrés → {new} avec le nouveau modèle")
+        for f in rep.failures[:5]:
+            print(f"  échec : {f}")
+        print(f"\ncoût de l'évaluation : {rep.cost_usd:.3f} $" + (f" · {rep.stopped}" if rep.stopped else ""))
+        print("critère ADR-011 : accord ≥ 90 % sur type et sens, aucune revue en échec, pas plus de chiffres absents")
+    return 0
+
+
 def cmd_newsletter_link_check(args: argparse.Namespace) -> int:
     """docs/19 §19.6 — examine the latest matching letters (read-only): subject, link labels and
     hosts (never the content), then follow the configured link of each and print its status."""
@@ -1343,6 +1387,13 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous les actifs)")
     bt.set_defaults(fn=cmd_backtest)
     sub.add_parser("llm-costs", help="coût de l'API Claude par usage (docs/25 L6)").set_defaults(fn=cmd_llm_costs)
+    le = sub.add_parser("llm-eval", help="compare les modèles de génération 5 sur des réponses enregistrées (ADR-011)")
+    le.add_argument("--news", type=int, default=200)
+    le.add_argument("--letters", type=int, default=20)
+    le.add_argument("--max-usd", type=float, default=2.0)
+    le.add_argument("--classify-model", default="claude-haiku-5-5")
+    le.add_argument("--write-model", default="claude-sonnet-5-5")
+    le.set_defaults(fn=cmd_llm_eval)
     rc = sub.add_parser("radar-check", help="radar des signaux faibles : Wikidata, Wikipédia, étiquettes (docs/26)")
     rc.add_argument("--isins", default=None, help="ex. FR0000120073,FR0000120271 (défaut : tout l'univers)")
     rc.add_argument("--views", action="store_true", help="lire aussi les consultations et calculer les étiquettes")
