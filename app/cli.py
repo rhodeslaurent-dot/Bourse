@@ -1222,6 +1222,7 @@ def cmd_index_check(args: argparse.Namespace) -> int:
     from app.data.providers.yfinance_eod import YFinanceProvider
     from app.db.models import PriceEod
 
+    failed = False
     with db_session() as s:
         out = refresh_indices(s, eodhd_from(cfg), cfg, date.today(), fallback=YFinanceProvider())
         for spec in index_specs(cfg):
@@ -1234,9 +1235,13 @@ def cmd_index_check(args: argparse.Namespace) -> int:
             )
             via = f" (via {src})" if src and src != "eodhd" else ""
             state = f"ÉCHEC : {err}" if err else (f"à jour au {last}{via}" if last else "aucune donnée")
+            failed = failed or bool(err) or not last
             print(f"{spec.market:<5} {spec.name:<22} {spec.eodhd:<14} +{n:>5} séances · {state}")
-    print("Un code en échec : corriger regime.indices_by_mic dans config/params.yaml (la place suit sinon le régime "
-          "européen), puis relancer index-check. Chercher un code : index-check --search <texte>.")  # fmt: skip
+    if failed:  # the advice only when a venue actually failed
+        print("Un code en échec : corriger regime.indices_by_mic dans config/params.yaml (la place suit sinon le "
+              "régime européen), puis relancer index-check. Chercher un code : index-check --search <texte>.")  # fmt: skip
+    else:
+        print("Tous les indices sont à jour.")
     return 0
 
 
