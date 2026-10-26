@@ -1085,6 +1085,69 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_research(args: argparse.Namespace) -> int:
+    """docs/31 — trigger research harness (pre-registered plan): run, decompose, calibrate, unseal. Writes an
+    aggregated report (statistics only) under ``--out``."""
+    from pathlib import Path
+
+    from app.db.session import db_session
+    from app.domain.calendar import load_market_calendars
+    from app.domain.research.prereg import PreregError
+    from app.services import research
+
+    cfg = load_params(args.params)
+    calendars = load_market_calendars(args.calendars)
+    out = Path(args.out)
+
+    def progress(msg: str) -> None:
+        print(f"  {msg}", flush=True)
+
+    end = date.fromisoformat(args.to) if getattr(args, "to", None) else date.today() - timedelta(days=1)
+    start = date.fromisoformat(args.from_date) if getattr(args, "from_date", None) else date(2016, 1, 4)
+    if args.seed is not None and args.seed != research.load_prereg(args.prereg).seed:
+        print("refusé : la graine est celle du plan pré-enregistré (en changer = un nouvel enregistrement)")
+        return 2
+    try:
+        with db_session() as s:
+            if args.action == "run":
+                r = research.run(
+                    s,
+                    cfg,
+                    calendars,
+                    args.prereg,
+                    out,
+                    start,
+                    end,
+                    args.universe,
+                    args.max_instruments,
+                    args.stage,
+                    args.run,
+                    progress,
+                    not args.no_cache,
+                    args.max_f0_candidates,
+                )
+                print(f"\n{r['titre']}\nrapport : {r['txt']}\n          {r['json']}\ndurée : {r['duree_s']} s")
+                if r["candidats"]:
+                    print("candidats figés : fichier *_candidates.yaml à côté du rapport (research unseal)")
+            elif args.action == "decompose":
+                d = research.decompose(s, cfg, calendars, args.run, out, progress)
+                print(research._decomp_text(d) if "decomposition" in d else d.get("erreur"))
+                print(f"fichier : {d.get('fichier')}")
+            elif args.action == "calibrate":
+                v = research.calibrate(s, cfg, calendars, args.run, args.prereg, out, progress)
+                print(f"calibration : {v['verdict']} (concordance {v.get('concordance')}) — {v.get('fichier')}")
+                return 0 if v["verdict"] == "VALIDE" else 1
+            elif args.action == "unseal":
+                u = research.unseal(s, cfg, calendars, args.prereg, args.candidates, out, start, end, args.universe,
+                                    progress)  # fmt: skip
+                for k, v in u["verdicts"].items():
+                    print(f"{k} : {v['verdict']} (R moyen {v['mean_r']}, découverte {v['decouverte_mean_r']})")
+    except PreregError as e:
+        print(f"refusé : {e}")
+        return 2
+    return 0
+
+
 def cmd_llm_costs(args: argparse.Namespace) -> int:
     """docs/25 L6 — cost of the Claude calls per purpose (same table as /sante)."""
     from app.db.session import db_session
@@ -1653,6 +1716,27 @@ def main(argv: list[str] | None = None) -> int:
     br = sub.add_parser("backtest-report", help="diagnostic du dernier backtest : coûts, sorties, excursions, régimes")
     br.add_argument("--run", type=int, default=None)
     br.set_defaults(fn=cmd_backtest_report)
+    rs = sub.add_parser("research", help="recherche de déclencheurs pré-enregistrée (docs/31) : rapport agrégé")
+    rs.add_argument("action", choices=["run", "decompose", "calibrate", "unseal"])
+    rs.add_argument("--prereg", default="research/prereg/2026-10-27_reg1.yaml")
+    rs.add_argument("--from", dest="from_date", default=None, help="début des données (défaut 2016-01-04)")
+    rs.add_argument("--to", default=None, help="fin des données (défaut : hier)")
+    rs.add_argument(
+        "--universe",
+        default="in_universe",
+        choices=["in_universe", "all", "pit"],
+        help="in_universe : univers actuel ; all / pit : toutes les actions, liquidité point-in-time",
+    )
+    rs.add_argument("--max-instruments", dest="max_instruments", type=int, default=None)
+    rs.add_argument("--stage", default="all", choices=["0", "1", "2", "all"])
+    rs.add_argument("--seed", type=int, default=None, help="graine (celle du plan ; une autre est refusée)")
+    rs.add_argument("--out", default="data/research")
+    rs.add_argument("--workers", type=int, default=1, help="réservé (calcul vectorisé, un seul processus)")
+    rs.add_argument("--run", type=int, default=None, help="backtest de référence (défaut : le dernier)")
+    rs.add_argument("--candidates", default=None, help="fichier de candidats figé (unseal)")
+    rs.add_argument("--no-cache", dest="no_cache", action="store_true")
+    rs.add_argument("--max-f0-candidates", dest="max_f0_candidates", type=int, default=200_000)
+    rs.set_defaults(fn=cmd_research)
     sub.add_parser("llm-costs", help="coût de l'API Claude par usage (docs/25 L6)").set_defaults(fn=cmd_llm_costs)
     le = sub.add_parser("llm-eval", help="compare les modèles de génération 5 sur des réponses enregistrées (ADR-011)")
     le.add_argument("--news", type=int, default=200)

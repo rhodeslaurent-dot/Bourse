@@ -1,0 +1,615 @@
+# ruff: noqa: E501
+"""docs/31 — trigger research harness: database → panels (cached), registration runs, ledger, reports.
+
+The user runs it on his PC (``docker compose exec app python -m app.cli research …``); the report written
+under ``data/research/`` holds statistics only (no price, no instrument) and is what a second round of
+analysis reads. Every business value comes from ``config/params.yaml``; the research assumptions live in
+the pre-registration file, whose sha256 is written to ``data/research/ledger.csv`` with each run.
+"""
+
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import logging
+import time
+from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import yaml
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.config import LoadedConfig
+from app.db.models import BacktestRun, BacktestTrade, FxRate, Instrument, PriceEod
+from app.domain.calendar import MarketCalendars
+from app.domain.research import f0 as F0
+from app.domain.research.costs import Account, ttf_rates
+from app.domain.research.panel import FeatureParams, IndexSeries, Panel
+from app.domain.research.pipeline import Settings, prepare_group
+from app.domain.research.prereg import Prereg, PreregError, check_ledger, check_unseal, file_sha256, parse_prereg
+from app.domain.research.registration import run_registration
+from app.domain.research.report import build_report, render_fr
+
+log = logging.getLogger("bourse.research")
+GROUPS = ("P0", "P1", "P2")
+LEDGER_FIELDS = ["timestamp", "kind", "prereg_id", "prereg_sha256", "cell_set_sha256", "m_total", "cells_run",
+                 "candidates", "universe", "report"]  # fmt: skip
+Progress = Callable[[str], None]
+
+
+@dataclass(frozen=True)
+class PanelMeta:
+    start: date | None
+    end: date | None
+    instruments: dict[str, int]
+    dropped_illiquid: int
+    without_group: int
+    delisted_or_inactive: int
+    fx_fallback_currencies: list[str]
+
+
+# --- plan and settings -----------------------------------------------------------------------------
+
+
+def load_prereg(path: str | Path) -> Prereg:
+    b = Path(path).read_bytes()
+    return parse_prereg(yaml.safe_load(b), file_sha256(b))
+
+
+def _tax(config: LoadedConfig) -> dict[str, Any]:
+    from app.services.engine import _tax
+
+    return _tax(config)
+
+
+def resolve_settings(config: LoadedConfig, prereg: Prereg, universe: str) -> tuple[Settings, dict[str, Any]]:
+    """Business values from params.yaml (rule 8), research assumptions from the plan."""
+    from app.services.engine import _fees
+
+    p = config.params
+    u = p.universe or {}
+    reg = getattr(p, "regime", None) or {}
+    tax = _tax(config)
+    risk = p.risk
+    capital = float(p.capital.capital_pilote_eur)
+    pfu = float(tax.get("pfu_total_rate") or 0.0)
+    cto_fees = _fees(config, "cto_cash")
+    srd_rate = float(p.srd.crd_daily_rate) if p.srd else 0.0
+    caps = getattr(risk, "max_open_risk_pct_by_gate", None) or {"ouvert": float(risk.max_open_risk_pct)}
+    slots = max(1, int(float(caps.get("ouvert", risk.max_open_risk_pct)) / float(risk.max_risk_per_trade_pct) + 1e-9))
+    a = prereg.assumptions
+    st = Settings(
+        features=FeatureParams(
+            float(u.get("min_price", 1.0)),
+            float(u.get("min_adv_eur_pea", 500_000)),
+            float(reg.get("breadth_green", 0.5)),
+        ),  # fmt: skip
+        slippage=float(risk.slippage_pct),
+        risk_budget_eur=capital * float(risk.max_risk_per_trade_pct),
+        notional_cap_eur=capital * float(risk.max_position_pct_of_capital),
+        fx_haircut=float(getattr(risk, "fx_haircut", 0.0) or 0.0),
+        cto=Account("cto", cto_fees, dividend_tax=pfu),
+        pea=Account("pea", _fees(config, "pea")),
+        srd=Account("srd", cto_fees, srd_daily_rate=srd_rate, dividend_tax=pfu),
+        capacity_pct=float(a["capacity_pct_of_turnover"]),
+        ca_jump=float(a["ca_jump"]),
+        div_min=float(a["dividend_min_drop"]),
+        hazard_small=float(a["bankruptcy_hazard_small"]),
+        hazard_large=float(a["bankruptcy_hazard_large"]),
+        takeover_jump=float(a["takeover_jump"]),
+        cost_stress=float(a["cost_stress_multiplier"]),
+        slip_stress=float(a["slippage_stress_multiplier"]),
+        top_n=int(a["top_n_monthly"]),
+        slots=slots,
+        seed=prereg.seed,
+        detectors=dict(p.detectors or {}),
+        universe_label=universe,
+        max_dividend_yield=float((a.get("dividend_yield_sanity") or [0.0, 0.12])[1]),
+    )
+    stop_p = risk.stop
+    prod = {
+        "zones": dict(getattr(p, "zones", None) or {}),
+        "wick_buffer_pct": float(getattr(stop_p, "wick_buffer_pct", 0.005) or 0.005),
+        "stop_buffer_atr_mult": float(stop_p.buffer_atr_mult),
+        "min_reward_risk": float((getattr(p, "admission", None) or {}).get("min_reward_risk", 2.0)),
+        "expiry_sessions": int((getattr(p, "entry", None) or {}).get("expiry_sessions", 3)),
+    }
+    return st, prod
+
+
+def resolved_parameters(st: Settings, config: LoadedConfig) -> dict[str, Any]:
+    return {
+        "universe.min_price": st.features.min_price,
+        "universe.min_adv_eur_pea": st.features.min_turnover_eur,
+        "regime.breadth_green": st.features.breadth_green,
+        "risk.slippage_pct": st.slippage,
+        "budget_risque_eur": st.risk_budget_eur,
+        "plafond_notionnel_eur": st.notional_cap_eur,
+        "risk.fx_haircut": st.fx_haircut,
+        "lignes_simultanees": st.slots,
+        "frais_cto": {"pct": st.cto.fees.commission_pct, "minimum_eur": st.cto.fees.commission_min_eur},
+        "frais_pea": {"bandes": [list(b) for b in st.pea.fees.bands], "plafond_pct": st.pea.fees.commission_cap_pct},
+        "srd.crd_daily_rate": st.srd.srd_daily_rate,
+        "impot_dividendes_cto": st.cto.dividend_tax,
+        "params_version": config.params.version,
+    }
+
+
+# --- panels ---------------------------------------------------------------------------------------
+
+
+def mic_groups(config: LoadedConfig, calendars: MarketCalendars) -> dict[str, str]:
+    u = config.params.universe or {}
+    out: dict[str, str] = {}
+    for grp, key in (("P0", "markets_p0"), ("P1", "markets_p1"), ("P2", "markets_p2")):
+        for code in u.get(key) or []:
+            mic = calendars.eodhd_to_mic.get(code)
+            if mic:
+                out[mic] = grp
+    return out
+
+
+def _fx_series(
+    s: Session, currencies: set[str], days: np.ndarray, static: dict[str, float]
+) -> tuple[dict[str, np.ndarray], list[str]]:
+    """EUR per unit for each currency on each day: last ECB rate on or before the day; before the first known
+    rate the earliest one; without any rate the static table of the plan (flagged)."""
+    out: dict[str, np.ndarray] = {"EUR": np.ones(days.size)}
+    fallback = []
+    for cur in sorted(currencies - {"EUR"}):
+        base, div = ("GBP", 100.0) if cur in ("GBX", "GBp") else (cur, 1.0)
+        rows = s.execute(select(FxRate.day, FxRate.rate).where(FxRate.pair == f"EUR{base}").order_by(FxRate.day)).all()
+        if rows:
+            d = np.array([np.datetime64(r[0], "D") for r in rows])
+            v = np.array([1.0 / float(r[1]) / div if r[1] else np.nan for r in rows])
+            k = np.searchsorted(d, days, side="right") - 1
+            out[cur] = np.where(k >= 0, v[np.maximum(k, 0)], v[0])
+            if (k < 0).any():
+                fallback.append(cur)
+        else:
+            rate = static.get(cur)
+            out[cur] = np.full(days.size, float(rate) if rate else np.nan)
+            fallback.append(cur)
+    return out, fallback
+
+
+def _index_series(s: Session, isin: str | None, start: date, end: date) -> IndexSeries | None:
+    if not isin:
+        return None
+    rows = s.execute(
+        select(PriceEod.day, PriceEod.close).where(PriceEod.isin == isin, PriceEod.day <= end).order_by(PriceEod.day)
+    ).all()
+    if not rows:
+        return None
+    return IndexSeries(np.array([np.datetime64(r[0], "D") for r in rows]), np.array([float(r[1]) for r in rows]))
+
+
+def _cache_key(parts: list[Any]) -> str:
+    return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()[:16]
+
+
+def select_instruments(s: Session, config: LoadedConfig, calendars: MarketCalendars, universe: str,
+                       max_instruments: int | None) -> tuple[dict[str, list[Instrument]], int]:  # fmt: skip
+    groups = mic_groups(config, calendars)
+    idx = set(((getattr(config.params, "regime", None) or {}).get("index_isins") or {}).values())
+    q = select(Instrument)
+    if universe == "in_universe":
+        q = q.where(Instrument.in_universe.is_(True))
+    insts = [i for i in s.scalars(q.order_by(Instrument.isin)) if i.isin not in idx and (i.kind or "stock") == "stock"]
+    insts.sort(key=lambda i: (not i.in_universe, i.isin))
+    if max_instruments:
+        insts = insts[:max_instruments]
+    out: dict[str, list[Instrument]] = defaultdict(list)
+    without = 0
+    for i in insts:
+        g = groups.get(i.mic)
+        if g is None:
+            without += 1
+            continue
+        out[g].append(i)
+    return out, without
+
+
+def load_panels(
+    s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg: Prereg, start: date, end: date,
+    universe: str, max_instruments: int | None, cache_dir: Path | None, progress: Progress | None = None,
+) -> tuple[list[Panel], PanelMeta]:  # fmt: skip
+    import pandas as pd
+
+    p = config.params
+    tax = _tax(config)
+    u = p.universe or {}
+    pea_countries = set((p.pea or {}).get("eligible_countries") or [])
+    ttf_rate = float(tax.get("ttf_rate") or 0.0)
+    ttf_cap = float(tax.get("ttf_cap_threshold_eur") or 1e9)
+    ftt = dict(tax.get("ftt_by_country") or {})
+    fx_fee = float(((p.brokers or {}).get("saxo") or {}).get("fx_fee_pct") or 0.0)
+    min_turn = float(u.get("min_adv_eur_pea", 500_000))
+    idx_isins = (getattr(p, "regime", None) or {}).get("index_isins") or {}
+    cac = _index_series(s, idx_isins.get("cac40"), start, end)
+    stoxx = _index_series(s, idx_isins.get("stoxx600"), start, end)
+    rows_total = s.scalar(select(func.count(PriceEod.id))) or 0
+    last_day = s.scalar(select(func.max(PriceEod.day)))
+    by_group, without = select_instruments(s, config, calendars, universe, max_instruments)
+    static = dict(prereg.a("fx_static_eur_per_unit") or {})
+    panels: list[Panel] = []
+    counts: dict[str, int] = {}
+    dropped = 0
+    delisted = 0
+    fx_fb: set[str] = set()
+    lo_all: date | None = None
+    hi_all: date | None = None
+    for grp in GROUPS:
+        insts = by_group.get(grp) or []
+        if not insts:
+            continue
+        key = _cache_key(
+            [grp, start, end, universe, max_instruments, rows_total, last_day, sorted(i.isin for i in insts)]
+        )
+        path = cache_dir / f"{grp}_{start}_{end}_{key}.npz" if cache_dir else None
+        if path is not None and path.exists():
+            z = np.load(path, allow_pickle=False)
+            days, isins = z["days"], [str(x) for x in z["isins"]]
+            arrays = {k: z[k] for k in ("open", "high", "low", "close", "adj_close", "volume")}
+            if progress:
+                progress(f"{grp} : panneau lu depuis le cache ({len(isins)} valeurs)")
+        else:
+            if progress:
+                progress(f"{grp} : lecture des cours de {len(insts)} valeurs")
+            stmt = (
+                select(PriceEod.isin, PriceEod.day, PriceEod.open, PriceEod.high, PriceEod.low, PriceEod.close,
+                       PriceEod.adj_close, PriceEod.volume)
+                .where(PriceEod.isin.in_([i.isin for i in insts]), PriceEod.day >= start, PriceEod.day <= end)
+            )  # fmt: skip
+            frames = []
+            for chunk in pd.read_sql(stmt, s.connection(), chunksize=500_000):
+                frames.append(chunk)
+            if not frames:
+                continue
+            df = pd.concat(frames, ignore_index=True)
+            df["day"] = pd.to_datetime(df["day"]).values.astype("datetime64[D]")
+            days = np.unique(df["day"].to_numpy().astype("datetime64[D]"))
+            isins = sorted(df["isin"].unique().tolist())
+            col = {k: n for n, k in enumerate(isins)}
+            r = np.searchsorted(days, df["day"].to_numpy().astype("datetime64[D]"))
+            c = df["isin"].map(col).to_numpy()
+            arrays = {}
+            for k in ("open", "high", "low", "close", "adj_close", "volume"):
+                a = np.full((days.size, len(isins)), np.nan)
+                a[r, c] = pd.to_numeric(df[k], errors="coerce").to_numpy(dtype=np.float64)
+                arrays[k] = a
+            # adjusted close missing → the last known adjustment factor (1 before any)
+            fac = arrays["adj_close"] / arrays["close"]
+            fac = pd.DataFrame(fac).ffill().fillna(1.0).to_numpy()
+            arrays["adj_close"] = np.where(np.isfinite(arrays["close"]), arrays["close"] * fac, np.nan)
+            if path is not None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                np.savez_compressed(path, days=days, isins=np.array(isins), **arrays)
+        meta = {i.isin: i for i in insts}
+        known = [k for k, x in enumerate(isins) if x in meta]
+        isins = [isins[k] for k in known]
+        arrays = {k: v[:, known] for k, v in arrays.items()}
+        cur = {meta[x].currency or "EUR" for x in isins}
+        fxs, fb = _fx_series(s, cur, days, static)
+        fx_fb |= set(fb)
+        fx = (
+            np.column_stack([fxs.get(meta[x].currency or "EUR", np.full(days.size, np.nan)) for x in isins])
+            if isins
+            else np.zeros((days.size, 0))
+        )
+        turn = arrays["close"] * arrays["volume"] * fx
+        liquid = (np.nan_to_num(turn) >= min_turn).sum(axis=0) >= 30  # a 60-session median above needs ≥ 30 such days
+        keep = np.nonzero(liquid)[0]
+        dropped += int((~liquid).sum())
+        isins_k = [isins[k] for k in keep.tolist()]
+        caps = np.array([float(meta[x].market_cap_eur or 0.0) for x in isins_k])
+        last = {
+            x: days[np.nonzero(np.isfinite(arrays["close"][:, k]))[0].max()]
+            for x, k in zip(isins_k, keep.tolist(), strict=True)
+        }
+        cut = (days[-1] if days.size else np.datetime64(end, "D")) - np.timedelta64(30, "D")
+        delisted += sum(1 for x in isins_k if not meta[x].active or last[x] < cut)
+        panel = Panel(
+            grp, days, tuple(isins_k),
+            *(arrays[k][:, keep] for k in ("open", "high", "low", "close", "adj_close", "volume")),
+            fx[:, keep],
+            np.array([meta[x].mic == "XPAR" for x in isins_k], dtype=bool),
+            np.array([bool(meta[x].small_cap) or (meta[x].market_cap_eur or 0) < float(u.get("small_cap_threshold_eur", 1e9)) for x in isins_k], dtype=bool),
+            np.array([bool(meta[x].pea_eligible) or (meta[x].pea_eligible is None and x[:2] in pea_countries) for x in isins_k], dtype=bool),
+            ttf_rates(isins_k, caps.tolist(), ttf_rate, ttf_cap),
+            np.array([float(ftt.get(x[:2], 0.0)) for x in isins_k]),
+            np.array([fx_fee if (meta[x].currency or "EUR") != "EUR" else 0.0 for x in isins_k]),
+            np.array([bool(meta[x].in_universe) for x in isins_k], dtype=bool),
+            cac, stoxx,
+        )  # fmt: skip
+        panels.append(panel)
+        counts[grp] = len(isins_k)
+        if days.size:
+            d0 = date.fromisoformat(str(days[0]))
+            d1 = date.fromisoformat(str(days[-1]))
+            lo_all = d0 if lo_all is None or d0 < lo_all else lo_all
+            hi_all = d1 if hi_all is None or d1 > hi_all else hi_all
+    return panels, PanelMeta(lo_all, hi_all, counts, dropped, without, delisted, sorted(fx_fb))
+
+
+# --- run 2 --------------------------------------------------------------------------------------------
+
+
+def load_run2(s: Session, run_id: int | None) -> tuple[list[F0.Run2Trade], int | None]:
+    run = s.get(BacktestRun, run_id) if run_id else s.scalar(select(BacktestRun).order_by(BacktestRun.id.desc()))
+    if run is None:
+        return [], None
+    rows = s.scalars(select(BacktestTrade).where(BacktestTrade.run_id == run.id))
+    return [
+        F0.Run2Trade(t.isin, t.detector, t.signal_day, t.entry_day, t.exit_day, t.entry, t.exit, t.stop, t.target,
+                     t.reason, t.r_gross, t.r_net, t.mfe_r, t.mae_r, t.status == "admis" and not t.warned)
+        for t in rows
+    ], run.id  # fmt: skip
+
+
+# --- ledger and files ----------------------------------------------------------------------------------
+
+
+def read_ledger(out_dir: Path) -> list[dict[str, str]]:
+    path = out_dir / "ledger.csv"
+    if not path.exists():
+        return []
+    with path.open(encoding="utf-8", newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def append_ledger(out_dir: Path, row: dict[str, Any]) -> None:
+    path = out_dir / "ledger.csv"
+    new = not path.exists()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=LEDGER_FIELDS)
+        if new:
+            w.writeheader()
+        w.writerow({k: row.get(k, "") for k in LEDGER_FIELDS})
+
+
+def _stamp() -> str:
+    return datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+
+
+def _write(out_dir: Path, name: str, report: dict[str, Any], text: str) -> tuple[Path, Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    j, t = out_dir / f"{name}.json", out_dir / f"{name}.txt"
+    j.write_text(json.dumps(report, ensure_ascii=False, indent=1, default=_json_default), encoding="utf-8")
+    t.write_text(text, encoding="utf-8")
+    return j, t
+
+
+def _json_default(x: Any) -> Any:
+    if isinstance(x, np.generic):
+        return x.item()
+    if isinstance(x, set):
+        return sorted(x)
+    if isinstance(x, date):
+        return x.isoformat()
+    return str(x)
+
+
+def latest_calibration(out_dir: Path) -> str:
+    files = sorted(out_dir.glob("calibration_*.json"))
+    if not files:
+        return "non exécutée (research calibrate --run 2)"
+    d = json.loads(files[-1].read_text(encoding="utf-8"))
+    return f"{d.get('verdict')} (concordance {d.get('concordance')}, {files[-1].name})"
+
+
+LIMITS = [
+    "liquidité point-in-time, PAS sans biais de survie : la table des instruments vient des listes d'aujourd'hui",
+    "capitalisations, petites capitalisations, TTF et secteurs : valeurs d'aujourd'hui (signalé)",
+    "période scellée « semi-propre » : le run 2 a vu les détecteurs d2–d7 sur cette période",
+    "cours non ajustés pour les exécutions ; dividendes déduits du facteur d'ajustement (crédit brut / net / exclu)",
+    "rang de force relative recalculé par groupe de places sur les seules valeurs éligibles (≠ features_daily du run 2)",
+    "contrôle apparié = moyenne de toutes les valeurs de la même strate (limite des 20 tirages du plan)",
+    "avant impôt (CTO), sauf la variante « dividendes nets » ; aucun résultat ne change un paramètre sans ADR",
+]
+
+
+def _header(meta: PanelMeta, universe: str, out_dir: Path, st: Settings, config: LoadedConfig, prereg: Prereg,
+            run2_id: int | None, t0: float) -> dict[str, Any]:  # fmt: skip
+    return {
+        "genere_le": datetime.now(UTC).isoformat(timespec="seconds"),
+        "debut_donnees": meta.start.isoformat() if meta.start else None,
+        "fin_donnees": meta.end.isoformat() if meta.end else None,
+        "univers": universe,
+        "instruments": meta.instruments,
+        "ecartes_jamais_liquides": meta.dropped_illiquid,
+        "sans_groupe_de_places": meta.without_group,
+        "radies_ou_inactifs": meta.delisted_or_inactive,
+        "devises_taux_de_repli": meta.fx_fallback_currencies,
+        "calibration": latest_calibration(out_dir),
+        "run2": run2_id,
+        "parametres": resolved_parameters(st, config),
+        "hypotheses": {
+            k: {"valeur": prereg.assumptions[k], "hypothese": prereg.assumption_flags.get(k, False)}
+            for k in prereg.assumptions
+        },  # fmt: skip
+        "duree_s": round(time.time() - t0, 1),
+        "limites": LIMITS,
+    }
+
+
+# --- commands --------------------------------------------------------------------------------------
+
+
+def run(
+    s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_path: str, out_dir: Path, start: date,
+    end: date, universe: str = "in_universe", max_instruments: int | None = None, stage: str = "all",
+    run2_id: int | None = None, progress: Progress | None = None, use_cache: bool = True,
+    max_f0_candidates: int = 200_000,
+) -> dict[str, Any]:  # fmt: skip
+    t0 = time.time()
+    prereg = load_prereg(prereg_path)
+    ledger = read_ledger(out_dir)
+    check_ledger(ledger, prereg)
+    st, prod = resolve_settings(config, prereg, universe)
+    panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, max_instruments,
+                               out_dir / "cache" if use_cache else None, progress)  # fmt: skip
+    run2, rid = load_run2(s, run2_id)
+    res = run_registration(panels, prereg, st, run2, prod, stage, None, progress, True, max_f0_candidates)
+    header = _header(meta, universe, out_dir, st, config, prereg, rid, t0)
+    report = build_report(prereg, res, header)
+    name = _stamp()
+    j, t = _write(out_dir, name, report, render_fr(report))
+    cands = res.get("candidats") or []
+    if cands:
+        disc = {
+            c: {k: res["cellules"][c].get(k) for k in ("n", "mean_r", "mean_eur_300", "mean_excess")} for c in cands
+        }
+        (out_dir / f"{name}_candidates.yaml").write_text(
+            yaml.safe_dump({"prereg_id": prereg.id, "prereg_sha256": prereg.sha256, "cells": cands, "decouverte": disc},
+                           allow_unicode=True, sort_keys=False), encoding="utf-8")  # fmt: skip
+    append_ledger(out_dir, {
+        "timestamp": name, "kind": "run", "prereg_id": prereg.id, "prereg_sha256": prereg.sha256,
+        "cell_set_sha256": prereg.cell_set_hash, "m_total": prereg.total_cells,
+        "cells_run": (res.get("comptes_cellules") or {}).get("total_execute", ""), "candidates": len(cands),
+        "universe": universe, "report": j.name,
+    })  # fmt: skip
+    return {"json": str(j), "txt": str(t), "titre": report["A_resume"]["titre"], "candidats": cands,
+            "duree_s": round(time.time() - t0, 1)}  # fmt: skip
+
+
+def decompose(s: Session, config: LoadedConfig, calendars: MarketCalendars, run_id: int | None, out_dir: Path,
+              progress: Progress | None = None) -> dict[str, Any]:  # fmt: skip
+    """(a) of F0: the run-2 decomposition alone (needs the prices for the ex-dividend dates)."""
+    run2, rid = load_run2(s, run_id)
+    if not run2:
+        return {"erreur": "aucun backtest enregistré"}
+    prereg_like = _default_prereg()
+    st, _ = resolve_settings(config, prereg_like, "in_universe")
+    isins = sorted({t.isin for t in run2})
+    panels, _ = _panels_for(s, config, calendars, prereg_like, isins, run2, progress)
+    divs: dict[str, list[date]] = {}
+    base = date(1970, 1, 1).toordinal()
+    for k, p in enumerate(panels):
+        g = prepare_group(k, p, st)
+        for col, isin in enumerate(p.isins):
+            pos = np.nonzero(g.bars.div[:, col] > 0)[0]
+            t = g.f.pk.order[pos, col]
+            divs[isin] = [
+                date.fromordinal(base + int(x)) for x in p.days[t].astype("datetime64[D]").astype(np.int64).tolist()
+            ]
+    out = {"run": rid, "decomposition": F0.decompose(run2, divs)}
+    name = f"decomposition_run{rid}_{_stamp()}"
+    text = _decomp_text(out)
+    _write(out_dir, name, out, text)
+    out["fichier"] = str(out_dir / f"{name}.json")
+    return out
+
+
+def _decomp_text(d: dict[str, Any]) -> str:
+    lines = [f"Décomposition du backtest n° {d['run']} (trades de production)"]
+    for det, v in d["decomposition"].items():
+        lines.append(
+            f"\n{det} : n {v['n']} ; R brut {v['r_brut_moyen']:+.3f} ; coûts {v['cout_moyen_r']:.3f} R ; R net {v['r_net_moyen']:+.3f}"
+        )
+        for k, x in v["sorties"].items():
+            lines.append(
+                f"  sortie {k} : {x['part']:.0%} des trades, {x['r_total']:+.1f} R au total ({x['r_moyen']:+.2f} R en moyenne)"
+            )
+        lines.append(
+            f"  perdants détenus pendant un détachement : {v['perdants_avec_detachement']} ({v['part_perdants_avec_detachement']})"
+        )
+        lines.append(
+            f"  MAE des gagnants (quartiles) {v['mae_quartiles_gagnants']} ; MFE des perdants {v['mfe_quartiles_perdants']}"
+        )
+        lines.append(
+            f"  perdants passés par +1 R : {v['perdants_passes_par_1r']} ; par +2 R : {v['perdants_passes_par_2r']}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _default_prereg() -> Prereg:
+    return load_prereg(Path(__file__).resolve().parents[2] / "research" / "prereg" / "2026-10-27_reg1.yaml")
+
+
+def _panels_for(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg: Prereg, isins: list[str],
+                run2: list[F0.Run2Trade], progress: Progress | None) -> tuple[list[Panel], PanelMeta]:  # fmt: skip
+    start = min(t.signal_day for t in run2) - timedelta(days=420)
+    end = max(t.exit_day for t in run2) + timedelta(days=10)
+    panels, meta = load_panels(s, config, calendars, prereg, start, end, "all", None, None, progress)
+    keep = set(isins)
+    out = []
+    for p in panels:
+        cols = np.array([k for k, x in enumerate(p.isins) if x in keep], dtype=np.int64)
+        if cols.size:
+            out.append(p.select(cols))
+    return out, meta
+
+
+def calibrate(s: Session, config: LoadedConfig, calendars: MarketCalendars, run_id: int | None, prereg_path: str,
+              out_dir: Path, progress: Progress | None = None) -> dict[str, Any]:  # fmt: skip
+    """Golden replay: the vectorised engine in run-2 conventions against the stored run-2 trades."""
+    prereg = load_prereg(prereg_path)
+    run2, rid = load_run2(s, run_id)
+    if not run2:
+        return {"verdict": "INVALIDE", "erreur": "aucun backtest enregistré"}
+    st, _ = resolve_settings(config, prereg, "in_universe")
+    panels, _ = _panels_for(s, config, calendars, prereg, sorted({t.isin for t in run2}), run2, progress)
+    holds = {d: F0.detector_hold(d, st.detectors) for d in {t.detector for t in run2}}
+    parts: dict[str, list[Any]] = defaultdict(list)
+    for k, p in enumerate(panels):
+        g = prepare_group(k, p, st)
+        for key, v in F0.calibration_parts(g, run2, st, holds).items():
+            parts[key] += v
+    verdict = F0.calibration_verdict(parts, len(parts.get("match", [])), len(run2))
+    verdict["run"] = rid
+    verdict["plan_sha256"] = prereg.sha256
+    name = f"calibration_{_stamp()}"
+    text = (f"Calibration (rejeu du backtest n° {rid}) : {verdict['verdict']}\n"
+            f"concordance {verdict['concordance']} sur {verdict['trades_localises']} trades localisés / {verdict['trades_run2']}\n"
+            + "".join(f"  {d} : {v}\n" for d, v in verdict["par_detecteur"].items()) + f"règle : {verdict['regle']}\n")  # fmt: skip
+    _write(out_dir, name, verdict, text)
+    verdict["fichier"] = str(out_dir / f"{name}.json")
+    return verdict
+
+
+def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_path: str, candidates_path: str | None,
+           out_dir: Path, start: date, end: date, universe: str = "all", progress: Progress | None = None) -> dict[str, Any]:  # fmt: skip
+    """The single opening of the sealed period for a frozen candidate file."""
+    prereg = load_prereg(prereg_path)
+    ledger = read_ledger(out_dir)
+    raw, sha = None, None
+    if candidates_path and Path(candidates_path).exists():
+        b = Path(candidates_path).read_bytes()
+        raw, sha = yaml.safe_load(b), file_sha256(b)
+    ids = check_unseal(raw, sha, prereg, ledger)
+    st, prod = resolve_settings(config, prereg, universe)
+    panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, None, out_dir / "cache", progress)
+    res = run_registration(panels, prereg, st, (), prod, "0", ids, progress, False)
+    disc = (raw or {}).get("decouverte") or {}
+    a2 = prereg.thresholds["a2"]
+    verdicts = {}
+    for cid in ids:
+        c = res["cellules"].get(cid, {})
+        d = disc.get(cid) or {}
+        same = (c.get("mean_r") or 0) * (d.get("mean_r") or 0) > 0
+        ok = (same and (c.get("mean_r") or -1) >= a2["min_mean_r"] and (c.get("mean_eur_300") or -1) >= a2["min_eur_per_budget"]
+              and (c.get("profit_factor") or 0) >= a2["min_profit_factor"])  # fmt: skip
+        verdicts[cid] = {"n": c.get("n"), "mean_r": c.get("mean_r"), "mean_eur_300": c.get("mean_eur_300"),
+                         "profit_factor": c.get("profit_factor"), "decouverte_mean_r": d.get("mean_r"),
+                         "verdict": "confirmé — ADR de mise en production à 50 % du risque par trade" if ok else "non confirmé"}  # fmt: skip
+    out = {"plan": prereg.id, "plan_sha256": prereg.sha256, "candidats_sha256": sha, "periode": "scellée",
+           "fin_donnees": meta.end.isoformat() if meta.end else None, "verdicts": verdicts}  # fmt: skip
+    name = f"descellement_{_stamp()}"
+    text = "Descellement de la période scellée\n" + "".join(f"  {k} : {v}\n" for k, v in verdicts.items())
+    _write(out_dir, name, out, text)
+    append_ledger(out_dir, {"timestamp": name, "kind": "unseal", "prereg_id": prereg.id, "prereg_sha256": prereg.sha256,
+                            "cell_set_sha256": prereg.cell_set_hash, "candidates": len(ids), "universe": universe,
+                            "report": f"{name}.json"})  # fmt: skip
+    return out
+
+
+__all__ = ["PreregError", "calibrate", "decompose", "run", "unseal", "load_prereg"]

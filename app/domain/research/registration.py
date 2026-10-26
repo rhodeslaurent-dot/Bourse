@@ -1,0 +1,479 @@
+# ruff: noqa: E501
+"""One registration run (docs/31 §3): stage 0 → gate → path rules and stage 1 → stage 2 → classification.
+
+Pure orchestration over the panels: two passes at most (the second only when a cell passes the stage-0
+gate), one venue group in memory at a time. Returns raw results that ``report.build_report`` turns into the
+aggregated report (statistics only).
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import math
+from collections import defaultdict
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from datetime import date
+from typing import Any
+
+import numpy as np
+
+from app.domain.research import f0 as F0
+from app.domain.research import stats as S
+from app.domain.research.classify import Tier, a2_met, classify, potential_candidate
+from app.domain.research.costs import breakeven_hazard_multiple
+from app.domain.research.entries import exit_model, make_orders
+from app.domain.research.exits import PathRule, simulate
+from app.domain.research.panel import Panel
+from app.domain.research.pipeline import (
+    DenseExcess,
+    GroupData,
+    Settings,
+    Signals,
+    Trades,
+    _f,
+    _mean,
+    _summary,
+    _window,
+    add_excess,
+    cell_model,
+    cell_signals,
+    cell_stats,
+    date_shift_null,
+    family_walk_forward,
+    finalize_monthly,
+    planted_power,
+    prepare_group,
+    replay,
+    run_cells,
+    series_of,
+    signal_rows,
+    trade_rows,
+    weekly_matrix,
+)
+from app.domain.research.prereg import Cell, Prereg
+
+Progress = Callable[[str], None]
+RULES: tuple[PathRule, ...] = ("stop_first", "ohlc", "target_first")
+
+
+def _groups(panels: Sequence[Panel], st: Settings) -> Iterator[GroupData]:
+    for k, p in enumerate(panels):
+        if p.shape[1] == 0:
+            continue
+        yield prepare_group(k, p, st)
+
+
+def _key(tr: Trades) -> Any:
+    return tr["inst"] * 100_000 + tr["t"]
+
+
+def _monthly(c: Cell) -> bool:
+    return c.mode != "event"
+
+
+class F0Accumulator:
+    """Collects the F0 parts of every group (lists only, no prices)."""
+
+    def __init__(self, st: Settings, run2: Sequence[F0.Run2Trade], prod: Mapping[str, Any], seed: int,
+                 max_candidates: int) -> None:  # fmt: skip
+        self.st, self.run2, self.prod, self.seed, self.max_candidates = st, run2, prod, seed, max_candidates
+        self.h0: dict[str, dict[str, list[Any]]] = defaultdict(lambda: {"trade": [], "control": [], "week": []})
+        self.d7: dict[str, dict[str, list[Any]]] = defaultdict(lambda: {"r": [], "eur": [], "week": []})
+        self.fwd: dict[str, dict[str, list[Any]]] = defaultdict(lambda: defaultdict(list))
+        self.counts: dict[str, int] = defaultdict(int)
+        self.dividend_days: dict[str, list[date]] = {}
+
+    def __call__(self, g: GroupData, rows: tuple[int, int]) -> None:
+        st = self.st
+        isins = {t.isin for t in self.run2}
+        base = date(1970, 1, 1).toordinal()
+        div = g.bars.div
+        for col, isin in enumerate(g.p.isins):
+            if isin in isins:
+                k = np.nonzero(div[:, col] > 0)[0]
+                t = g.f.pk.order[k, col]
+                self.dividend_days[isin] = [date.fromordinal(base + int(d)) for d in
+                                            g.p.days[t].astype("datetime64[D]").astype(np.int64).tolist()]  # fmt: skip
+        if self.run2:
+            holds = {d: F0.detector_hold(d, st.detectors) for d in {t.detector for t in self.run2}}
+            for det, part in F0.h0_geometry_parts(g, self.run2, st, holds, 20, self.seed).items():
+                for fld, vals in part.items():
+                    self.h0[det][fld] += vals
+            for name, part in F0.d7_exit_parts(g, self.run2, st, holds.get("d7_trend_quality", 60)).items():
+                for fld, vals in part.items():
+                    self.d7[name][fld] += vals
+        for cid, part in F0.forward_cells(g, st, rows).items():
+            for fld, vals in part.items():
+                self.fwd[cid][fld] += vals
+        if self.prod:
+            parts, counts = F0.production_parts(g, st, rows, self.prod, self.max_candidates, self.seed)
+            for cid, part in parts.items():
+                for fld, vals in part.items():
+                    self.fwd[cid][fld] += vals
+            for fld, cnt in counts.items():
+                self.counts[fld] += cnt
+
+    def summary(self, seed: int) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for det, d in sorted(self.h0.items()):
+            tr, ct = np.array(d["trade"], dtype=np.float64), np.array(d["control"], dtype=np.float64)
+            wk = np.array(d["week"], dtype=np.int64)
+            row = F0._diff_stats(wk, tr - ct, seed)
+            row.update(r_trades=_f(_mean(tr)), r_controles=_f(_mean(ct)))
+            out[f"F0b.h0_geometry.{det}"] = row
+        ref = self.d7.get("e4_production")
+        if ref is not None:
+            r0 = np.array(ref["r"], dtype=np.float64)
+            wk = np.array(ref["week"], dtype=np.int64)
+            for name, d in self.d7.items():
+                r = np.array(d["r"], dtype=np.float64)
+                row = F0._diff_stats(wk, r - r0, seed)
+                row.update(r_moyen=_f(_mean(r)), eur_300_moyen=_f(_mean(r * 300.0), 2),
+                           delta_eur_300=_f(_mean((r - r0) * 300.0), 2))  # fmt: skip
+                out[f"F0c.d7.{name}"] = row
+        for cid, d in sorted(self.fwd.items()):
+            out[cid] = F0.summarize_forward(d, seed)
+        out["_comptes_production"] = dict(self.counts)
+        return out
+
+
+def existing_detectors(run2: Sequence[F0.Run2Trade], prereg: Prereg, seed: int) -> dict[str, Any]:
+    """Run-2 production trades of each detector on the walk-forward test years: mean net R and its block
+    bootstrap interval — an upper bound below zero calls for an ADR (deactivation or rework)."""
+    out: dict[str, Any] = {}
+    wins = prereg.segments.wf_test
+    by: dict[str, list[F0.Run2Trade]] = defaultdict(list)
+    for t in run2:
+        if t.production and any(a <= t.signal_day <= b for a, b in wins):
+            by[t.detector].append(t)
+    for det, ts in sorted(by.items()):
+        r = np.array([t.r_net for t in ts])
+        wk = np.array([(t.signal_day.toordinal() - date(1970, 1, 1).toordinal() + 3) // 7 for t in ts], dtype=np.int64)
+        _, ws = S.weekly_series(wk, r)
+        lo, hi = S.block_bootstrap_ci(ws, 4, 2000, seed) if ws.size > 2 else (math.nan, math.nan)
+        out[det] = {"n": int(r.size), "r_net_moyen_oos": _f(float(r.mean())), "ic": [_f(lo), _f(hi)],
+                    "adr_requis": bool(math.isfinite(hi) and hi < float(prereg.thresholds["existing_detectors_ci_high_max"]))}  # fmt: skip
+    return out
+
+
+# --- pass 2: path rules and stage 1 ------------------------------------------------------------------
+
+
+def _filter_signals(sig: Signals, keep: set[int], gid: int) -> Signals:
+    k = (gid * 1_000_000 + sig.cols) * 100_000 + sig.ts
+    m = np.isin(k, np.array(sorted(keep), dtype=np.int64))
+    return Signals(sig.ts[m], sig.cols[m], None if sig.p_max is None else sig.p_max[m],
+                   None if sig.score is None else sig.score[m], None if sig.overlay is None else sig.overlay[m])  # fmt: skip
+
+
+def second_pass(
+    panels: Sequence[Panel], st: Settings, prereg: Prereg, path_cells: Sequence[Cell], stage1_cells: Sequence[Cell],
+    keys: Mapping[str, set[int]], window: tuple[date, date], progress: Progress | None,
+) -> tuple[dict[str, dict[str, Trades]], dict[str, dict[str, dict[str, Trades]]]]:  # fmt: skip
+    """Re-simulate the frozen signals: path rules of the gate passers; the exit models X1–X8 of the stage-1
+    triggers under the three path rules (orders invalidated as with X3, so the entries stay frozen)."""
+    rules: dict[str, dict[str, list[Trades]]] = defaultdict(lambda: defaultdict(list))
+    exits: dict[str, dict[str, dict[str, list[Trades]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    for g in _groups(panels, st):
+        rows = signal_rows(g.p.days, window[0], window[1], prereg.segments.end_margin_sessions)
+        if rows[1] < rows[0]:
+            continue
+        if progress:
+            progress(f"{g.p.group} : seconde passe (règles de parcours, étape 1)")
+        todo = {c.id: c for c in (*path_cells, *stage1_cells)}
+        path_ids, s1_ids = {c.id for c in path_cells}, {c.id for c in stage1_cells}
+        for c in todo.values():
+            sig = cell_signals(g, c, st, rows)
+            sig = _filter_signals(sig, keys.get(c.id, set()), g.gid)
+            if sig.ts.size == 0:
+                continue
+            cap = c.cap_atr if c.cap_atr is not None else 1.0
+            ref_model = cell_model(c)
+            ref_od = make_orders(g.p, g.f, sig.ts, sig.cols, ref_model, c.validity, cap, sig.p_max)
+            if c.id in path_ids:
+                for rule in RULES:
+                    sim = simulate(g.bars, ref_od, ref_model.spec, st.slippage, rule)
+                    rules[c.id][rule].append(trade_rows(g, c, sig, ref_od, sim, ref_model, None, st, c.unit))
+            if c.id in s1_ids:
+                for code in prereg.stage1_exits:
+                    m = exit_model(code, c.h)
+                    od = make_orders(g.p, g.f, sig.ts, sig.cols, m, c.validity, cap, sig.p_max)
+                    od = dataclasses.replace(od, cancel_below=ref_od.cancel_below)
+                    for rule in RULES:
+                        sim = simulate(g.bars, od, m.spec, st.slippage, rule)
+                        exits[c.id][code][rule].append(trade_rows(g, c, sig, od, sim, m, None, st, "r_ref"))
+    r_out = {cid: {k: Trades.concat(v) for k, v in d.items()} for cid, d in rules.items()}
+    e_out = {
+        cid: {code: {k: Trades.concat(v) for k, v in d2.items()} for code, d2 in d.items()} for cid, d in exits.items()
+    }
+    return r_out, e_out
+
+
+def stage1_stats(
+    cell: Cell, variants: Mapping[str, Mapping[str, Trades]], prereg: Prereg, slots: int
+) -> dict[str, Any]:
+    """Paired ΔR (R_ref) and Δ€ of each exit model against X3(h*) on the same frozen entries."""
+    th = prereg.thresholds["stage1"]
+    inf = prereg.inference
+    base = variants.get("X3", {}).get("stop_first")
+    out: dict[str, Any] = {}
+    if base is None or base.n == 0:
+        return out
+    b = base.closed
+    bk = _key(b)
+    b_dd = replay(b, slots).get("max_drawdown_r")
+    weekly: list[tuple[Any, Any]] = []
+    names: list[str] = []
+    for code, by_rule in sorted(variants.items()):
+        v = by_rule.get("stop_first")
+        if v is None:
+            continue
+        vc = v.closed
+        weekly.append(S.weekly_series(vc["week"], vc["r"]))
+        names.append(code)
+        common, ia, ib = np.intersect1d(_key(vc), bk, return_indices=True)
+        d = vc["r"][ia] - b["r"][ib]
+        de = vc["eur"][ia] - b["eur"][ib]
+        sub = Trades({"r": d, "eur": de, "day": vc["day"][ia], "week": vc["week"][ia]})
+        oos = np.zeros(common.size, dtype=bool)
+        folds = 0
+        for a_, b_ in prereg.segments.wf_test:
+            w = _window(sub, a_, b_)
+            oos |= w
+            folds += int((_mean(d[w]) or 0) > 0)
+        _, ws = S.weekly_series(sub["week"][oos], d[oos])
+        lo, hi = S.block_bootstrap_ci(ws, int(inf["block_weeks"]), int(inf["bootstrap_draws"]), prereg.seed)
+        signs = set()
+        for rule in ("stop_first", "ohlc", "target_first"):
+            rv = by_rule.get(rule)
+            if rv is None:
+                continue
+            rc = rv.closed
+            _, i1, i2 = np.intersect1d(_key(rc), bk, return_indices=True)
+            signs.add(np.sign(_mean(rc["r"][i1] - b["r"][i2]) or 0.0))
+        dd = replay(vc, slots).get("max_drawdown_r")
+        dd_ok = dd is not None and b_dd is not None and (b_dd == 0 or dd >= b_dd * (1 + float(th["max_dd_worse"])))
+        row: dict[str, Any] = {
+            "n": int(common.size), "delta_r_moyen": _f(_mean(d)), "delta_r_oos": _f(_mean(d[oos])),
+            "delta_r_oos_ic": [_f(lo), _f(hi)], "delta_eur_300": _f(_mean(de), 2), "plis_positifs": folds,
+            "stable_regles_parcours": len(signs) == 1, "r_stress_moyen": _f(_mean(vc["r_stress"])),
+            "recul_max_r": dd, "recul_max_r_x3": b_dd, "recul_ok": dd_ok,
+            "multiple_risque_faillite_equilibre": _f(breakeven_hazard_multiple(vc["r"], vc["hazard"]), 2),
+        }  # fmt: skip
+        row["retenue"] = bool(
+            code != "X3" and _gt0(row["delta_r_oos"], float(th["min_delta_r"])) and lo > 0
+            and folds >= int(th["min_positive_folds"]) and row["stable_regles_parcours"]
+            and (row["r_stress_moyen"] or -1) > 0 and dd_ok
+        )  # fmt: skip
+        out[code] = row
+    if len(weekly) >= 2:
+        _, mat = weekly_matrix(weekly)
+        pbo = S.pbo_cscv(mat, int(inf["pbo_blocks"]))
+        for code in names:
+            out[code]["pbo_famille_sorties"] = _f(pbo, 3)
+            if out[code]["retenue"] and not (math.isfinite(pbo) and pbo <= float(th["max_pbo"])):
+                out[code]["retenue"] = False
+    return out
+
+
+def _gt0(x: float | None, bound: float) -> bool:
+    return x is not None and x >= bound
+
+
+# --- the registration ----------------------------------------------------------------------------------
+
+
+def run_registration(
+    panels: Sequence[Panel],
+    prereg: Prereg,
+    st: Settings,
+    run2: Sequence[F0.Run2Trade] = (),
+    prod: Mapping[str, Any] | None = None,
+    stages: str = "all",
+    holdout_cells: Sequence[str] | None = None,
+    progress: Progress | None = None,
+    f0: bool = True,
+    max_f0_candidates: int = 200_000,
+) -> dict[str, Any]:
+    seg = prereg.segments
+    th, inf = prereg.thresholds, prereg.inference
+    holdout = holdout_cells is not None
+    if holdout:
+        window = (seg.holdout_start, date(2999, 12, 31))
+        cells = [c for c in prereg.cells if c.id in set(holdout_cells or ()) and c.tier != "f0"]
+    else:
+        window = seg.discovery
+        cells = prereg.confirmatory + prereg.exploratory
+    acc = F0Accumulator(st, run2, prod or {}, prereg.seed, max_f0_candidates) if f0 and not holdout else None
+    res = run_cells(_groups(panels, st), cells, st, window, seg.end_margin_sessions, progress=progress, hook=acc)
+    trades: dict[str, Trades] = {}
+    for c in cells:
+        tr = finalize_monthly(res.trades.get(c.id, Trades({})), c, st)
+        trades[c.id] = add_excess(tr, _monthly(c)) if tr.n else tr
+    stats: dict[str, dict[str, Any]] = {}
+    for c in cells:
+        s = cell_stats(trades[c.id], c, prereg, st)
+        s["tier"] = c.tier
+        s["gate_label"] = c.gate
+        s["duree_max"] = cell_model(c).spec.max_hold
+        s["comptes"] = list(c.accounts)
+        if _monthly(c) and trades[c.id].n:
+            s["trades_portefeuille"] = replay(trades[c.id].closed, st.slots).get("taken", 0)
+        stats[c.id] = s
+    out: dict[str, Any] = {"segment": "scelle" if holdout else "decouverte", "cellules": stats}
+    if holdout:
+        return out
+
+    conf = [c for c in cells if c.tier == "confirmatory"]
+    expl = [c for c in cells if c.tier == "exploratory"]
+    # confirmatory: Holm over 8 (one-sided)
+    pc = np.array([stats[c.id].get("p_unilateral") if stats[c.id].get("p_unilateral") is not None else 1.0
+                   for c in conf])  # fmt: skip
+    for c, ph, q in zip(conf, S.holm(pc), S.bh(pc), strict=True):
+        stats[c.id]["p_holm"] = _f(float(ph), 6)
+        stats[c.id]["q_bh"] = _f(float(q), 6)
+    # exploratory: Romano–Wolf (binding), Holm over M_total, BH
+    series = []
+    for c in expl:
+        tr = trades[c.id]
+        cl = tr.closed if tr.n else tr
+        series.append(series_of(cl, _monthly(c)) if cl.n else (np.zeros(0, dtype=np.int64), np.zeros(0)))
+    weeks, mat = weekly_matrix(series)
+    _, p_rw = S.romano_wolf(mat, int(inf["block_weeks"]), int(inf["bootstrap_draws"]), prereg.seed)
+    pe = np.array([stats[c.id].get("p_unilateral") if stats[c.id].get("p_unilateral") is not None else 1.0
+                   for c in expl])  # fmt: skip
+    m_total = prereg.total_cells
+    holm_all = S.holm(np.concatenate([pe, np.ones(max(0, m_total - pe.size))]))[: pe.size]
+    q = S.bh(pe)
+    for j, c in enumerate(expl):
+        stats[c.id]["p_romano_wolf"] = _f(float(p_rw[j]), 6)
+        stats[c.id]["p_holm_m_total"] = _f(float(holm_all[j]), 6)
+        stats[c.id]["q_bh"] = _f(float(q[j]), 6)
+    # families: PBO, DSR, selection walk-forward, power, minimum detectable effect
+    fams: dict[str, list[Cell]] = defaultdict(list)
+    for c in expl:
+        fams[c.family].append(c)
+    families: dict[str, Any] = {}
+    for fam, cs in sorted(fams.items()):
+        idx = [expl.index(c) for c in cs]
+        pbo = S.pbo_cscv(mat[:, idx], int(inf["pbo_blocks"])) if idx else math.nan
+        srs = [stats[c.id].get("_sr") for c in cs]
+        srs_f = [x for x in srs if x is not None and math.isfinite(x)]
+        var_sr = float(np.var(srs_f, ddof=1)) if len(srs_f) > 1 else 0.0
+        for c in cs:
+            s = stats[c.id]
+            s["pbo_famille"] = _f(pbo, 3)
+            s["dsr"] = _f(S.deflated_sharpe(float(s.get("_sr") or math.nan), len(cs), var_sr, int(s.get("_nobs") or 0),
+                                            float(s.get("_skew") or 0.0), float(s.get("_kurt") or 3.0)), 4)  # fmt: skip
+        families[fam] = {
+            "cellules": len(cs),
+            "pbo": _f(pbo, 3),
+            "walk_forward_selection": family_walk_forward(cs, trades, prereg),
+        }
+        families[fam].update(_power_and_mde(cs, trades, res.dense, prereg, 3.0))
+    for c in conf:
+        families[c.id] = _power_and_mde([c], trades, res.dense, prereg, 2.5)
+    # permutation (top by t_week + gate passers)
+    ranked = sorted((c for c in cells if c.mode != "monthly_overlay"),
+                    key=lambda c: -(stats[c.id].get("t_week") or -math.inf))  # fmt: skip
+    perm = {c.id for c in ranked[: int(inf["permutation_top"])]} | {c.id for c in cells if stats[c.id].get("gate")}
+    for c in cells:
+        if c.id not in perm or c.mode == "monthly_overlay" or trades[c.id].n == 0:
+            continue
+        tr = trades[c.id].closed
+        dense = res.dense.get(c.combo_key, {})
+        null = date_shift_null(tr, dense, _monthly(c), int(inf["permutation_draws"]), prereg.seed + 11)
+        obs = _mean(tr["excess"]) or -math.inf
+        stats[c.id]["p_permutation"] = _f(S.permutation_p(obs, null), 4)
+    out["familles"] = families
+    out["annees_dividendes_ecartees"] = res.suspect_dividend_years
+    out["references"] = {f"{k[0]} cap {k[1]} validité {k[2]} h {k[3]}": v for k, v in res.baselines.items()}
+    # pass 2: path rules of the gate passers, stage-1 exits of at most 4 triggers
+    gate = [c for c in cells if stats[c.id].get("gate") and c.mode != "monthly_overlay"]
+    s1 = sorted(gate, key=lambda c: -(stats[c.id].get("t_week") or 0))[: int(th["stage1"]["max_triggers"])]
+    if stages in ("0",):
+        s1 = []
+    keys = {c.id: set(_key(trades[c.id]).tolist()) for c in gate}
+    stage1: dict[str, Any] = {}
+    if gate:
+        rules, exits = second_pass(panels, st, prereg, gate, s1, keys, window, progress)
+        for c in gate:
+            by_rule = rules.get(c.id, {})
+            signs = {np.sign(_mean(t.closed["r"]) or 0.0) for t in by_rule.values() if t.n}
+            stats[c.id]["regles_parcours"] = {k: _summary(t.closed) for k, t in by_rule.items()}
+            stats[c.id]["ambigu"] = len(signs) != 1
+        for c in s1:
+            stage1[c.id] = stage1_stats(c, exits.get(c.id, {}), prereg, st.slots)
+    out["etape1"] = stage1
+    # stage 2: portfolio replays (A13) for the potential candidates, within the cap
+    stage2: dict[str, Any] = {}
+    budget = prereg.stage2_max_cells if stages in ("2", "all") else 0
+    for c in sorted(cells, key=lambda c: -(stats[c.id].get("t_week") or 0)):
+        if budget <= 0:
+            break
+        if c.mode == "monthly_overlay" or not potential_candidate(stats[c.id], th, st.universe_label):
+            continue
+        tr = trades[c.id].closed
+        a, b = replay(tr, st.slots, "r"), replay(tr, st.slots, "ctrl")
+        ok = (
+            a.get("max_drawdown_r") is not None
+            and b.get("max_drawdown_r") is not None
+            and (a["max_drawdown_r"] >= b["max_drawdown_r"] * float(th["a13"]["max_dd_ratio_vs_benchmark"]))
+        )
+        stage2[c.id] = {"cellule": a, "reference_controles": b, "ok": bool(ok)}
+        stats[c.id]["portefeuille_ok"] = bool(ok)
+        budget -= 1
+    out["etape2"] = stage2
+    # classification
+    for c in cells:
+        tier, crit = classify(stats[c.id], th, st.universe_label)
+        stats[c.id]["niveau"] = tier.value
+        stats[c.id]["criteres"] = crit
+        pea_oos = (stats[c.id].get("pea") or {}).get("oos") or {}
+        stats[c.id]["etiquette_pea"] = bool(crit.get("A2")) and a2_met(pea_oos, th)
+    cands = [c.id for c in sorted(cells, key=lambda c: -(stats[c.id].get("t_week") or 0))
+             if stats[c.id]["niveau"] == Tier.CANDIDATE.value][: int(th["candidates_max"])]  # fmt: skip
+    out["candidats"] = cands
+    out["surveillance"] = [c.id for c in cells if stats[c.id]["niveau"] == Tier.WATCHLIST.value]
+    out["verdicts_familles"] = {
+        fam: ("candidat" if any(stats[c.id]["niveau"] == Tier.CANDIDATE.value for c in cs)
+              else "pas d'avantage détecté" if (families[fam].get("puissance_decision") or 0) >= float(th["power_min"])
+              else "test non concluant (puissance insuffisante)")
+        for fam, cs in fams.items()
+    }  # fmt: skip
+    out["f0"] = acc.summary(prereg.seed) if acc is not None else {}
+    if acc is not None and run2:
+        out["run2_decomposition"] = F0.decompose(run2, acc.dividend_days)
+        out["detecteurs_existants"] = existing_detectors(run2, prereg, prereg.seed)
+    out["comptes_cellules"] = {
+        "confirmatoires": len(conf), "exploratoires": len(expl), "f0": len(prereg.f0),
+        "etape1": sum(len(v) for v in stage1.values()), "etape2": len(stage2),
+    }  # fmt: skip
+    out["comptes_cellules"]["total_execute"] = sum(out["comptes_cellules"].values())
+    return out
+
+
+def _power_and_mde(
+    cs: Sequence[Cell], trades: Mapping[str, Trades], dense: Mapping[Any, Mapping[int, DenseExcess]], prereg: Prereg,
+    z_bar: float,
+) -> dict[str, Any]:  # fmt: skip
+    """Planted-edge power on the design of the family's largest cell, and the minimum detectable effect."""
+    inf, th = prereg.inference, prereg.thresholds
+    rep = max(cs, key=lambda c: trades[c.id].closed.n if trades[c.id].n else 0)
+    tr = trades[rep.id].closed if trades[rep.id].n else trades[rep.id]
+    out: dict[str, Any] = {"cellule_reference": rep.id}
+    if tr.n < 3 or rep.mode == "monthly_overlay":
+        out.update(puissance={}, puissance_decision=None, effet_minimal_detectable=None)
+        return out
+    _, ws = series_of(tr, _monthly(rep))
+    sd = float(np.std(ws, ddof=1)) if ws.size > 2 else math.nan
+    out["effet_minimal_detectable"] = _f((z_bar + 0.8416) * sd / math.sqrt(ws.size), 4) if ws.size > 2 else None
+    lag = max(2, math.ceil(rep.h / 21)) if _monthly(rep) else S.nw_lag(float(np.median(tr["hold"])))
+    pw = {}
+    for e in inf["power_edges"]:
+        pw[f"{e:+.2f}"] = _f(planted_power(tr, dense.get(rep.combo_key, {}), _monthly(rep), float(e),
+                                           int(inf["power_reps"]), prereg.seed + 7, float(th["a3"]["min_t"]),
+                                           float(th["a4"]["min_excess"]), lag), 3)  # fmt: skip
+    out["puissance"] = pw
+    out["puissance_decision"] = pw.get(f"{float(inf['power_decision_edge']):+.2f}")
+    return out

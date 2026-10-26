@@ -1,0 +1,148 @@
+# Plan de recherche pré-enregistré — enregistrement n° 1 (docs/31, ADR-012).
+# Ce fichier EST le plan : cellules, seuils, hypothèses chiffrées, graine. Son empreinte sha256 est inscrite
+# dans data/research/ledger.csv à chaque exécution ; le modifier crée un NOUVEL enregistrement (jamais une
+# retouche silencieuse après avoir vu des résultats). Les valeurs métier viennent de config/params.yaml
+# (clés citées dans `parameters_keys`) ; les seules valeurs propres à la recherche sont ci-dessous,
+# marquées `assumption: true` quand ce sont des hypothèses.
+id: "2026-10-27_reg1"
+title: "Recherche de déclencheurs à espérance positive par trade — enregistrement n° 1"
+registered_on: "2026-10-27"
+seed: 20261027
+
+segments:
+  warmup_sessions: 252                       # T01, PTH et rang de force relative
+  discovery: ["2017-01-02", "2024-07-31"]    # signaux de découverte (sorties avant le 31/10/2024)
+  embargo: ["2024-08-01", "2024-10-31"]      # aucun signal compté
+  holdout_start: "2024-11-01"                # scellé : un seul descellement par fichier de candidats figé
+  end_margin_sessions: 65                    # dernier signal admis = fin des données − 65 séances (≥ durée max 63)
+  purge_sessions: 65                         # purge entre apprentissage et test (walk-forward)
+  wf_test:                                   # années de test du walk-forward ancré (apprentissage depuis 2017-01-02)
+    - ["2020-01-01", "2020-12-31"]
+    - ["2021-01-01", "2021-12-31"]
+    - ["2022-01-01", "2022-12-31"]
+    - ["2023-01-01", "2023-12-31"]
+    - ["2024-01-01", "2024-07-31"]
+
+parameters_keys:                             # lus dans config/params.yaml (règle 8 : source unique)
+  min_price: "universe.min_price"
+  min_turnover_eur: "universe.min_adv_eur_pea"
+  min_turnover_cto_eur: "universe.min_adv_eur_cto"
+  small_cap_threshold_eur: "universe.small_cap_threshold_eur"
+  breadth_green: "regime.breadth_green"
+  index_isins: "regime.index_isins"
+  slippage_pct: "risk.slippage_pct"
+  max_risk_per_trade_pct: "risk.max_risk_per_trade_pct"
+  max_position_pct_of_capital: "risk.max_position_pct_of_capital"
+  fx_haircut: "risk.fx_haircut"
+  max_open_risk_pct: "risk.max_open_risk_pct"
+  capital_pilote_eur: "capital.capital_pilote_eur"
+  expiry_sessions: "entry.expiry_sessions"
+  ma20_exit_closes: "detectors.exits.thesis_mm20_close_below_days"
+  ttf_rate: "tax.ttf_rate"
+  ttf_cap_threshold_eur: "tax.ttf_cap_threshold_eur"
+  pfu_total_rate: "tax.pfu_total_rate"
+  ftt_by_country: "tax.ftt_by_country"
+  srd_daily_rate: "srd.crd_daily_rate"
+  brokers: "brokers.saxo, brokers.boursobank"
+
+assumptions:
+  fx_static_eur_per_unit:                    # repli quand fx_rates ne couvre pas la date (seuil de liquidité seulement)
+    value: {SEK: 0.088, DKK: 0.134, NOK: 0.086, PLN: 0.232, GBP: 1.16, GBX: 0.0116, CHF: 1.04, USD: 0.92}
+    assumption: true
+  ca_jump: {value: 0.2, assumption: true}                  # saut du facteur d'ajustement = opération sur titres (exclue)
+  dividend_min_drop: {value: 0.002, assumption: true}      # baisse minimale du facteur = dividende
+  dividend_yield_sanity: {value: [0.0, 0.12], assumption: true}   # rendement annuel implicite plausible (contrôle Milan)
+  bankruptcy_hazard_small: {value: 0.03, assumption: true}  # par an, petites capitalisations
+  bankruptcy_hazard_large: {value: 0.005, assumption: true} # par an, grandes capitalisations
+  takeover_jump: {value: 0.25, assumption: true}           # OPA : +25 % (même taux annuel que la faillite)
+  capacity_pct_of_turnover: {value: 0.02, assumption: true} # capacité : notionnel ≤ 2 % du volume médian 20 séances
+  momentum_entry_cap_atr: {value: 1.0, assumption: true}   # E_open(1) pour T01 / T03 / C1 (non précisé par le plan)
+  cost_stress_multiplier: {value: 1.5, assumption: false}
+  slippage_stress_multiplier: {value: 2.0, assumption: false}
+  top_n_monthly: {value: 6, assumption: false}
+
+thresholds:
+  gate_t_week: 2.0
+  a1: {event_min_n: 300, event_min_weeks: 100, fold_min_trades: 40, rank_min_months: 60, rank_min_trades_slot: 200}
+  a2: {min_mean_r: 0.10, min_eur_per_budget: 30.0, min_profit_factor: 1.15}
+  a3: {holm_alpha: 0.05, rw_alpha: 0.05, min_t: 3.0, min_dsr: 0.95, max_pbo: 0.30}
+  a4: {min_excess: 0.08, max_perm_p: 0.01}
+  a5: {min_positive_folds: 4}
+  a9: {min_hazard_multiple: 2.0}
+  a10: {max_top10_share: 0.40}
+  a12: {max_hold_sessions: 63}
+  a13: {max_dd_ratio_vs_benchmark: 1.0, slots: 6}
+  watchlist_bh_q: 0.10
+  power_min: 0.5
+  report_min_n: 20
+  candidates_max: 5
+  stage1: {max_triggers: 4, min_delta_r: 0.05, min_positive_folds: 4, max_pbo: 0.30, max_dd_worse: 0.10}
+  existing_detectors_ci_high_max: 0.0
+
+inference:
+  bootstrap_draws: 2000
+  block_weeks: 4
+  permutation_draws: 500
+  permutation_top: 30
+  pbo_blocks: 16
+  power_edges: [0.10, 0.20]
+  power_decision_edge: 0.20
+  power_reps: 50
+
+confirmatory:                                # Holm sur 8, unilatéral (p ≤ 0,00625 pour la plus forte)
+  - {id: H1, trigger: t01, mode: monthly, params: {rank_min: 90}, gate: none, h: 21, exit: X3, validity: 3, accounts: [cto, pea]}
+  - {id: H2, trigger: t03, params: {pth_min: 0.95, rs_min: 80}, gate: none, h: 21, exit: X3, validity: 3, accounts: [cto, pea]}
+  - {id: H3, trigger: c1, params: {rank_min: 80, pth_min: 0.95, rs_min: 80}, gate: t13, h: 21, exit: X3, validity: 3, accounts: [cto, pea]}
+  - {id: H4, trigger: t08, params: {gap_min: 0.03, rvol_min: 2.0}, gate: none, h: 40, exit: X4, max_hold: 40, cap_atr: 0.5, validity: 1, unit: r_stop, accounts: [cto]}
+  - {id: H5, trigger: t07, params: {tr_mult: 2.5, rvol_min: 2.0}, gate: t04, h: 20, exit: X3, cap_atr: 1.0, validity: 1, accounts: [cto]}
+  - {id: H6, trigger: t05, params: {k_sigma: 2.0}, gate: none, h: 5, exit: X3, cap_atr: 1.0, validity: 1, accounts: [cto, srd]}
+  - {id: H7, trigger: t09, params: {mult: 3.0}, gate: none, h: 20, exit: X3, cap_atr: 1.0, validity: 1, accounts: [cto]}
+  - {id: H8, trigger: t01, mode: monthly_overlay, params: {rank_min: 90}, gate: none, overlay: t11, h: 21, exit: X3, validity: 3, accounts: [cto, pea]}
+
+exploratory:                                 # 118 cellules d'étape 0 (sortie X3(h))
+  - {family: F1, trigger: t01, mode: monthly, validity: 3, grid: {rank_min: [80, 90], h: [21, 63], gate: [none, t13, t11, t13_t11]}}
+  - {family: F1, trigger: t03, validity: 3, grid: {pth_min: [0.90, 0.95], rs_min: [70, 80], h: [21, 63], gate: [none, t13, t11, t13_t11]}}
+  - {family: F1, trigger: c1, validity: 3, fixed: {rank_min: 80, pth_min: 0.95, rs_min: 80}, grid: {gate: [none, t13, t11, t13_t11], h: [21, 63]}}
+  - {family: F2, trigger: t08, validity: 1, fixed: {rvol_min: 2.0}, grid: {gap_min: [0.02, 0.03, 0.05], cap_atr: [0.5, 1.0, 2.0], h: [5, 20, 60]}}
+  - {family: F2, trigger: t07, validity: 1, fixed: {gate: t04}, grid: {tr_mult: [2.0, 2.5], rvol_min: [1.5, 2.0], h: [5, 20, 60]}}
+  - {family: F2, trigger: t09, validity: 1, fixed: {mult: 3.0}, grid: {gate: [none, t04], h: [5, 20, 60]}}
+  - {family: F3, trigger: t05, validity: 1, grid: {k_sigma: [1.5, 2.0, 2.5], h: [3, 5, 10]}}
+  - {family: F5, trigger: d2x, validity: 3, grid: {cap: ["pct_pivot:0.01", "pct_pivot:0.03", "atr_pivot:1.0", "e_open:0.5"], h: [10, 20]}}   # liste de surveillance au mieux
+
+f0:                                          # diagnostics de la chaîne de production — jamais candidats
+  - {id: "F0b.h0_geometry.d2_breakout"}
+  - {id: "F0b.h0_geometry.d3_range_expansion"}
+  - {id: "F0b.h0_geometry.d4_pullback"}
+  - {id: "F0b.h0_geometry.d7_trend_quality"}
+  - {id: "F0c.d7.e4_production"}
+  - {id: "F0c.d7.s_atr2_t0"}
+  - {id: "F0c.d7.s_atr2.5_t0"}
+  - {id: "F0c.d7.s_atr3_t0"}
+  - {id: "F0c.d7.s0_no_target_ch3"}
+  - {id: "F0c.d7.s0_t1.5r"}
+  - {id: "F0c.d7.s0_t3r"}
+  - {id: "F0c.d7.s0_t0_time20"}
+  - {id: "F0c.d7.s0_t0_time40"}
+  - {id: "F0c.d7.cond_time5"}
+  - {id: "F0c.d7.breakeven_1r"}
+  - {id: "F0d.d3_inverted.h1"}
+  - {id: "F0d.d3_inverted.h3"}
+  - {id: "F0d.d3_inverted.h5"}
+  - {id: "F0e.d2_distance.0_1pct.h20"}
+  - {id: "F0e.d2_distance.1_3pct.h20"}
+  - {id: "F0e.d2_distance.gt3pct.h20"}
+  - {id: "F0f.no_target.h20"}
+  - {id: "F0f.no_target.h60"}
+  - {id: "F0g.rr_refused.h20"}
+  - {id: "F0g.rr_refused.h60"}
+  - {id: "F0h.unfilled.h20"}
+  - {id: "F0h.unfilled.h60"}
+
+stage1:
+  exits: [X1, X2, X3, X4, X5, X6, X7, X8]
+  max_cells: 32
+stage2:
+  max_cells: 10
+
+max_total_cells: 400
+expected_total_cells: 195          # 8 + 118 + 32 + 27 + 10 (le tableau §1.3 du plan annonçait 126 cellules d'étape 0 : ses lignes en font 118 ; 195 = total du §0)
