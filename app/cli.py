@@ -7,7 +7,7 @@ import asyncio
 import sys
 from datetime import date, timedelta
 
-from app.config import ConfigError, load_params
+from app.config import ConfigError, LoadedConfig, load_params
 
 
 def cmd_check_config(args: argparse.Namespace) -> int:
@@ -1032,6 +1032,8 @@ def cmd_media_check(args: argparse.Namespace) -> int:
 
     cfg = load_params(args.params)
     mine = {str(f.get("name")): f for f in cfg.params.data.rss_feeds}
+    if getattr(args, "feed", None):
+        return _media_feed_detail(cfg, mine, args.feed)
     example = yaml.safe_load(Path("config/params.example.yaml").read_text(encoding="utf-8"))
     media = [f for f in (example.get("data") or {}).get("rss_feeds") or [] if f.get("kind") == "media_conseil"]
     since = datetime.now(UTC) - timedelta(days=int((getattr(cfg.params, "media", None) or {}).get("recent_days", 7)))
@@ -1064,6 +1066,53 @@ def cmd_media_check(args: argparse.Namespace) -> int:
         print(
             f"\n{len(missing)} flux média absent(s) : lancer params-init --update, puis attendre le prochain news_scan."
         )
+    return 0
+
+
+def _media_feed_detail(cfg: LoadedConfig, mine: dict, name: str) -> int:
+    """``media-check --feed <nom>``: what the feed holds right now (date, title filter, age window) and, for the
+    episodes stored over the window, the length of the text read, the values kept and the names rejected
+    (written differently from the text). Public titles only."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    from app.data.providers.rss import fetch_feed
+    from app.db.models import NewsItem
+    from app.db.session import db_session
+    from app.scheduler.jobs.news_scan import _norm_title
+
+    f = mine.get(name)
+    if f is None or "renseigner" in str(f.get("url", "")):
+        print(f"{name} : absent de config/params.yaml ou adresse à renseigner")
+        return 2
+    days = int((getattr(cfg.params, "media", None) or {}).get("recent_days", 7))
+    since = datetime.now(UTC) - timedelta(days=days)
+    keep = [_norm_title(w) for w in f.get("title_includes") or []]
+    try:
+        items = fetch_feed(name, str(f["url"]))
+    except Exception as exc:  # noqa: BLE001 — a diagnostic: the error is the answer
+        print(f"flux illisible : {exc.__class__.__name__}: {str(exc)[:160]}")
+        items = []
+    print(f"{len(items)} élément(s) dans le flux" + (f", filtre de titre : {f['title_includes']}" if keep else ""))
+    for i in sorted(items, key=lambda x: x.published_at or x.fetched_at, reverse=True)[:12]:
+        ts = i.published_at or i.fetched_at
+        title_ok = not keep or any(w in _norm_title(i.title) for w in keep)
+        flags = ("" if title_ok else " ✗ titre") + ("" if ts >= since else f" ✗ plus de {days} j")
+        print(f"  {ts:%d/%m %H:%M} {'✓' if not flags else ' '}{flags:<20} {i.title[:90]}")
+    with db_session() as s:
+        rows = list(s.scalars(select(NewsItem).where(NewsItem.source == name, NewsItem.fetched_at >= since)))
+        print(f"\n{len(rows)} épisode(s) enregistré(s) sur {days} jours :")
+        for r in sorted(rows, key=lambda x: x.published_at or x.fetched_at, reverse=True)[:12]:
+            cls = r.classification or {}
+            state = "non lu" if "media" not in cls else f"{len(cls['media'])} valeur(s)"
+            vals = ", ".join(f"{v['name']} ({v['stance']})" for v in cls.get("media") or [])[:120]
+            rej = cls.get("media_rejetes") or []
+            print(f"  {(r.published_at or r.fetched_at):%d/%m} texte {len(r.body or '')} car. · {state}"
+                  + (f" : {vals}" if vals else "") + (f" · rejetés : {', '.join(rej)[:80]}" if rej else "")
+                  + f"\n      {r.title[:90]}")  # fmt: skip
+    if f.get("follow_link"):
+        print("\nCe flux ne porte qu'un extrait : l'article est lu sur le site (follow_link), texte non stocké ici.")
     return 0
 
 
@@ -1865,9 +1914,11 @@ def main(argv: list[str] | None = None) -> int:
     sd.add_argument("url", nargs="?", default=None, help="page à examiner (défaut : sources « à renseigner »)")
     sd.add_argument("--name", default=None, help="une seule source du catalogue")
     sd.set_defaults(fn=cmd_sources_discover)
-    sub.add_parser(
+    mc = sub.add_parser(
         "media-check", help="podcasts et médias : flux présents, épisodes lus, valeurs citées (docs/23)"
-    ).set_defaults(fn=cmd_media_check)
+    )
+    mc.add_argument("--feed", default=None, help="détail d'un flux : contenu actuel, filtres, valeurs, rejets")
+    mc.set_defaults(fn=cmd_media_check)
     rh = sub.add_parser("radar-history", help="historique du radar : wiki (depuis 2015), forum (la nuit), status")
     rh.add_argument("what", choices=["wiki", "forum", "status"])
     rh.add_argument("--from", dest="from_date", default="2015-07-01")

@@ -58,6 +58,7 @@ def test_cited_values_are_checked_against_the_text_and_processed_once(db_engine)
             date(2026, 10, 22),
         )
         assert row.classification["media"] == [{"name": "TotalEnergies", "stance": "achat", "speaker": "Gérant A"}]
+        assert row.classification["media_rejetes"] == ["Société Fantôme"]  # shown by media-check --feed
 
 
 def test_media_pressure_and_measured_record(db_engine):
@@ -233,3 +234,51 @@ def test_manager_write_up_is_read_by_rules_with_manager_and_stance():
     assert names[norm_name("Nexans")] == "FR0000044448" and names[norm_name("Maurel et Prom")] == "FR0000051070"
     assert names[norm_name("LDC")] == "FR0013204336" and names[norm_name("Atos")] == "FR0000051732"
     assert norm_name("duo") not in names  # two ISINs for one name: never guessed
+
+
+def test_an_episode_is_never_marked_read_without_the_llm(db_engine):
+    """26/10/2026: without the LLM (no key, budget reached) an episode was marked « analysé » with no value and
+    never read again; it now stays unread and is retried at the next cycle."""
+    from app.db.models import NewsItem
+    from app.db.session import db_session
+    from app.services.media import extract_mentions
+
+    off = Gateway({"values": []})
+    off.enabled = False
+    with db_session() as s:
+        now = datetime.now(UTC)
+        row = NewsItem(source="cest_votre_argent", guid="ep-2", dedup_hash="ep-2", url="u", title="Émission",
+                       body="J'achète TotalEnergies.", fetched_at=now, published_at=now)  # fmt: skip
+        s.add(row)
+        s.flush()
+        assert extract_mentions(s, [row], off, {"totalenergies": ISIN}) == 0
+        assert extract_mentions(s, [row], None, {"totalenergies": ISIN}) == 0
+        assert "media" not in (row.classification or {}) and off.calls == 0
+        on = Gateway({"values": [{"name": "TotalEnergies", "stance": "achat", "snippet": "J'achète"}]})
+        assert extract_mentions(s, [row], on, {"totalenergies": ISIN}) == 1  # read once the LLM is back
+
+
+def test_media_check_feed_detail_shows_filters_and_stored_episodes(db_engine, config, monkeypatch, capsys):
+    from app import cli
+    from app.data.providers.rss import NewsItem as Item
+    from app.db.models import NewsItem
+    from app.db.session import db_session
+
+    now = datetime.now(UTC)
+
+    def item(title, days):  # noqa: E306
+        return Item("cva", title, title, "u", now - timedelta(days=days), now, "", title)
+
+    titles = [("16/10/2026 – C'est Votre Argent", 10), ("23/10/2026 – C’est Votre Argent", 3), ("Autre", 1)]
+    monkeypatch.setattr("app.data.providers.rss.fetch_feed", lambda name, url: [item(*x) for x in titles])
+    feeds = {"cva": {"name": "cva", "url": "https://x/feed/", "title_includes": ["C'est Votre Argent"],
+                     "follow_link": True}}  # fmt: skip
+    with db_session() as s:
+        s.add(NewsItem(source="cva", guid="g", dedup_hash="g", url="u", title="23/10/2026 – C’est Votre Argent",
+                       body="", fetched_at=now, published_at=now,
+                       classification={"media": [{"name": "Vinci", "stance": "achat", "speaker": "X"}],
+                                       "media_rejetes": ["Vinci SA"]}))  # fmt: skip
+    assert cli._media_feed_detail(config, feeds, "cva") == 0
+    out = capsys.readouterr().out
+    assert "3 élément(s) dans le flux" in out and "✗ plus de 7 j" in out and "✗ titre" in out
+    assert "1 valeur(s) : Vinci (achat)" in out and "rejetés : Vinci SA" in out and "follow_link" in out

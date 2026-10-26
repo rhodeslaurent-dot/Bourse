@@ -177,9 +177,12 @@ def extract_mentions(
                 continue  # page unreadable this time: retried at the next cycle, never extracted from the excerpt
             text = f"{row.title}\n\n{page}"
         values: list[dict[str, Any]] = []
+        rejected: list[str] = []
         if (feed or {}).get("parser") == "gerants":
             values = parse_manager_writeup(text)  # fixed layout read by rules (docs/23 §23.7)
-        if not values and gateway is not None and getattr(gateway, "enabled", True):
+        if not values and (gateway is None or not getattr(gateway, "enabled", True)):
+            continue  # no LLM: kept unread and retried — never marked « analysé » without having been read
+        if not values:
             try:
                 out, _ = gateway.parse(
                     s, "media_extract", "media_extract", text[:12000], MediaExtraction, max_tokens=3000
@@ -188,6 +191,7 @@ def extract_mentions(
                 for v in out.values:
                     if v.name.lower() not in low:
                         log.info("média %s : « %s » absent du texte, rejeté", row.source, v.name)
+                        rejected.append(v.name[:60])
                         continue
                     values.append(v.model_dump())
             except LlmUnavailable as exc:
@@ -222,6 +226,8 @@ def extract_mentions(
             )  # fmt: skip
             n += 1
         cls["media"] = [{k: v[k] for k in ("name", "stance", "speaker")} for v in values]
+        if rejected:  # media-check --feed shows them: a name the model wrote differently from the text
+            cls["media_rejetes"] = rejected[:10]
         row.classification = cls
     s.flush()
     return n
