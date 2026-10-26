@@ -17,6 +17,7 @@ SKIP_PARENTS = (
     "data.imap.senders",
     "data.rss_feeds",
     "brokers.boursobank.formulas",  # formula names are data, their fields are read by app/services/broker_plan.py
+    "regime.indices_by_mic",  # venue codes (MIC) are data, their fields are read by app/services/indices.py
 )
 
 

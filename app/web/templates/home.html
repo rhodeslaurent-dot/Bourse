@@ -7,7 +7,8 @@
   <a href="/watchlist" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 hover:border-sky-400">
     <div class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Marché</div>
     <div class="mt-1 flex items-center gap-2 text-lg font-semibold">{{ dot('green' if summary.regime == 'green' else 'amber' if summary.regime == 'orange' else 'red' if summary.regime == 'red' else 'slate') }}{{ label('regime', summary.regime) if summary.regime else 'non calculé' }}</div>
-    <div class="text-xs text-slate-500 dark:text-slate-400">{% if summary.regime_day %}au {{ summary.regime_day.strftime('%d/%m') }}{% endif %}</div>
+    <div class="text-xs text-slate-500 dark:text-slate-400">Europe{% if summary.regime_day %} au {{ summary.regime_day.strftime('%d/%m') }}{% endif %}</div>
+    {% if summary.regimes %}<div class="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400" title="régime de chaque place : chaque valeur suit celui de sa place">{% for name, light in summary.regimes %}<span class="inline-flex items-center gap-1">{{ dot('green' if light == 'green' else 'amber' if light == 'orange' else 'red' if light == 'red' else 'slate') }}{{ name }}</span>{% endfor %}</div>{% endif %}
   </a>
   <a href="/opportunites" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 hover:border-sky-400">
     <div class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Opportunités du jour</div>

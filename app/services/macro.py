@@ -249,14 +249,16 @@ def conjuncture_params(config: Any) -> ConjunctureParams | None:
     return ConjunctureParams(th, int(c["high_min_components"]))
 
 
-def conjuncture_inputs(s: Session, config: Any, day: date) -> dict[str, float | None]:
+def conjuncture_inputs(s: Session, config: Any, day: date, index_id: str | None = None) -> dict[str, float | None]:
+    """VIX percentile, OAT-Bund spread, US 10y and the 5-session change of the market's index (``index_id``;
+    default the letters' index, CAC 40)."""
     vix = series(s, "vix", day, limit=260)
     vix_pct = percentile_rank(vix[-1].value, [p.value for p in vix]) / 100 if len(vix) >= 120 else None
     fr, de = series(s, "fr10y", day, 1), series(s, "de10y", day, 1)
     spread = (fr[-1].value - de[-1].value) * 100 if fr and de and fr[-1].day == de[-1].day else None
     us = series(s, "us10y", day, 1)
     gate = getattr(config.params, "market_gate", None) or {}
-    idx = load_bars(s, str(gate.get("index_isin", "FR0003500008")), end=day, limit=6)
+    idx = load_bars(s, index_id or str(gate.get("index_isin", "FR0003500008")), end=day, limit=6)
     chg = idx[-1].close / idx[0].close - 1 if len(idx) == 6 else None
     return {
         "vix_pct_1y": vix_pct,
@@ -293,21 +295,54 @@ class MarketContext:
     srd_mode: str | None
     values: dict[str, MacroPoint]
     inputs: dict[str, float | None]
+    market: str = "EU"
+    regime_source: str = "EU"  # the market whose regime row was used (EU when the venue has none)
 
 
-def market_context(s: Session, config: Any, day: date, published_ok: bool | None = None) -> MarketContext:
-    """Conjunctural level + gate state. ``published_ok`` (option C conditions read from the letters)
-    is wired in lot 2.3; until then it is unknown, which counts as not met (restricted gate)."""
-    reg = s.scalar(select(MarketRegimeRow).where(MarketRegimeRow.day <= day).order_by(MarketRegimeRow.id.desc()))
+def latest_regime(s: Session, day: date, market: str = "EU", max_age_days: int = 5) -> MarketRegimeRow | None:
+    """The market's regime row of ``day`` or of the last days (a stale row is not used)."""
+    return s.scalar(
+        select(MarketRegimeRow)
+        .where(
+            MarketRegimeRow.market == market,
+            MarketRegimeRow.day <= day,
+            MarketRegimeRow.day >= day - timedelta(days=max_age_days),
+        )
+        .order_by(MarketRegimeRow.day.desc(), MarketRegimeRow.id.desc())
+    )
+
+
+def letters_markets(config: Any) -> set[str]:
+    """Venues the letters' published conditions apply to (``market_gate.letters_markets``, default Paris)."""
+    return set((getattr(config.params, "market_gate", None) or {}).get("letters_markets") or ["XPAR"])
+
+
+def market_context(
+    s: Session, config: Any, day: date, published_ok: bool | None = None, market: str = "EU"
+) -> MarketContext:
+    """Conjunctural level + gate state of a market (docs/32): its own regime (else the European one, said
+    so), the 5-session change of its own index, and the letters' published conditions only on the venues
+    they cover. ``market`` = a MIC, or EU for the European reference (risk level of the day, reports)."""
+    from app.services.indices import index_for
+
+    reg = latest_regime(s, day, market) if market != "EU" else None
+    source = market if reg is not None else "EU"
+    if reg is None:
+        reg = latest_regime(s, day, "EU", 10) or s.scalar(
+            select(MarketRegimeRow).where(MarketRegimeRow.day <= day).order_by(MarketRegimeRow.id.desc())
+        )
     regime = reg.regime if reg else None
-    inputs = conjuncture_inputs(s, config, day)
+    spec = index_for(config, market) if market != "EU" else None
+    inputs = conjuncture_inputs(s, config, day, spec.id if spec else None)
     params = conjuncture_params(config)
+    applies = market == "EU" or market in letters_markets(config)
     level, comps, expl, gate, why = None, {}, [], None, "paramètres conjuncture absents"
     if params is not None:
         c = conjuncture(regime, inputs, params)
         level, comps, expl = c.level, c.components, c.explanations
-        g = market_gate(published_ok, c.level, regime)
+        g = market_gate(published_ok if applies else None, c.level, regime, letters_apply=applies)
         gate, why = g.state, g.reason
     return MarketContext(
-        day, regime, level, comps, expl, gate, why, brent_srd_mode(s, config, day), latest(s, day), inputs
-    )
+        day, regime, level, comps, expl, gate, why, brent_srd_mode(s, config, day), latest(s, day), inputs,
+        market, source,
+    )  # fmt: skip

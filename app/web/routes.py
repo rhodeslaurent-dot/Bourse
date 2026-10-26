@@ -47,6 +47,21 @@ from app.web.labels import FEATURE_LABELS, help_of, label  # noqa: E402
 templates.env.globals.update(label=label, help_of=help_of, feature_labels=FEATURE_LABELS)
 
 
+def _regimes_by_market(s, cfg, day):  # type: ignore[no-untyped-def]
+    """[(index name, light)] of the venues with a recent regime of their own (docs/32)."""
+    from app.services.indices import index_specs
+    from app.services.macro import latest_regime
+
+    out = []
+    for spec in index_specs(cfg):
+        if spec.market == "EU":
+            continue
+        row = latest_regime(s, day, spec.market)
+        if row is not None:
+            out.append((spec.name, row.regime))
+    return out
+
+
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
     """« Trois décisions du jour » — phase 1: positions / protections / risques (docs/09 §9.5)."""
@@ -101,7 +116,9 @@ def home(request: Request) -> HTMLResponse:
 
     paris_today = datetime.now(PARIS).date()
     with db_session() as s:
-        regime = s.scalar(select(MarketRegimeRow).order_by(MarketRegimeRow.id.desc()))
+        regime = s.scalar(
+            select(MarketRegimeRow).where(MarketRegimeRow.market == "EU").order_by(MarketRegimeRow.id.desc())
+        )
         wl_count = len(list(s.scalars(select(WatchlistRow.id).where(WatchlistRow.active.is_(True)))))
         props_today = [
             p
@@ -173,6 +190,7 @@ def home(request: Request) -> HTMLResponse:
         summary = {
             "regime": regime.regime if regime else None,
             "regime_day": regime.day if regime else None,
+            "regimes": _regimes_by_market(s, cfg, paris_today),  # docs/32: each venue on its own index
             "watchlist": wl_count,
             "props": len(props_today),
             "props_open": sum(1 for p in props_today if p.status == "open"),

@@ -447,6 +447,7 @@ class MarketRegimeRow(Base):
     __tablename__ = "market_regime"
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     day: Mapped[date] = mapped_column(Date, index=True)
+    market: Mapped[str] = mapped_column(String(8), default="EU", server_default="EU", index=True)  # MIC or EU (docs/32)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     cac_vs_mm50: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     stoxx_vs_mm50: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

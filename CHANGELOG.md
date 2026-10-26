@@ -2,6 +2,11 @@
 
 Format SemVer ; un tag par fin de phase (`v0.1` = fin de phase 0).
 
+## [Unreleased] — Recherche de déclencheurs pré-enregistrée — 2026-10-26
+
+- docs/31, ADR-012 (proposé), plan `research/prereg/2026-10-27_reg1.yaml` (195 cellules, seuils A1–A13, graine).
+- `app/domain/research` (pur, numpy) : panneaux, déclencheurs, moteur de sortie vectorisé équivalent à `simulate_trade`, contrôles appariés, coûts par compte, dividendes, inférence (Newey–West, Romano–Wolf, Holm, BH, PBO, Sharpe déflaté), classement ; `app/services/research.py` ; commande `research run|decompose|calibrate|unseal` ; rapport agrégé sans cours sous `data/research/`.
+
 ## [Unreleased] — Objectif final : moteur de propositions multi-marchés — 2026-10-22
 
 - Cahier des charges : `docs/22` (objectif final, décisions Q1–Q5, règles du référentiel R1–R21, feuille de route révisée), `docs/21` (revue de presse), docs/06 §6.7, docs/07 §7.9, docs/08 §8.7, ADR-010.

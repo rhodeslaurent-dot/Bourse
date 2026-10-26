@@ -293,7 +293,7 @@ def run_registration(
     holdout_cells: Sequence[str] | None = None,
     progress: Progress | None = None,
     f0: bool = True,
-    max_f0_candidates: int = 200_000,
+    max_f0_candidates: int = 100_000,
 ) -> dict[str, Any]:
     seg = prereg.segments
     th, inf = prereg.thresholds, prereg.inference

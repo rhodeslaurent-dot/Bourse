@@ -35,7 +35,9 @@ def watchlist_page(request: Request) -> HTMLResponse:
         )
         feats = latest_features(s, [r.isin for r in rows]) if rows else {}
         snap = s.scalar(select(UniverseSnapshot).order_by(UniverseSnapshot.id.desc()))
-        regime = s.scalar(select(MarketRegimeRow).order_by(MarketRegimeRow.id.desc()))
+        regime = s.scalar(
+            select(MarketRegimeRow).where(MarketRegimeRow.market == "EU").order_by(MarketRegimeRow.id.desc())
+        )
         items = [
             {
                 "isin": r.isin,

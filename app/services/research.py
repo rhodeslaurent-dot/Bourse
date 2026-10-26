@@ -198,11 +198,18 @@ def _cache_key(parts: list[Any]) -> str:
 def select_instruments(s: Session, config: LoadedConfig, calendars: MarketCalendars, universe: str,
                        max_instruments: int | None) -> tuple[dict[str, list[Instrument]], int]:  # fmt: skip
     groups = mic_groups(config, calendars)
-    idx = set(((getattr(config.params, "regime", None) or {}).get("index_isins") or {}).values())
+    reg = getattr(config.params, "regime", None) or {}
+    idx = set((reg.get("index_isins") or {}).values())  # index pseudo-instruments are never traded
+    idx |= {str(v.get("id")) for v in (reg.get("indices_by_mic") or {}).values() if isinstance(v, dict)}
+    idx |= {str((reg.get("europe_index") or {}).get("id"))}
     q = select(Instrument)
     if universe == "in_universe":
         q = q.where(Instrument.in_universe.is_(True))
-    insts = [i for i in s.scalars(q.order_by(Instrument.isin)) if i.isin not in idx and (i.kind or "stock") == "stock"]
+    insts = [
+        i
+        for i in s.scalars(q.order_by(Instrument.isin))
+        if i.isin not in idx and not i.isin.startswith("IDX.") and (i.kind or "stock") == "stock"
+    ]
     insts.sort(key=lambda i: (not i.in_universe, i.isin))
     if max_instruments:
         insts = insts[:max_instruments]
@@ -448,7 +455,7 @@ def run(
     s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_path: str, out_dir: Path, start: date,
     end: date, universe: str = "in_universe", max_instruments: int | None = None, stage: str = "all",
     run2_id: int | None = None, progress: Progress | None = None, use_cache: bool = True,
-    max_f0_candidates: int = 200_000,
+    max_f0_candidates: int = 100_000,
 ) -> dict[str, Any]:  # fmt: skip
     t0 = time.time()
     prereg = load_prereg(prereg_path)

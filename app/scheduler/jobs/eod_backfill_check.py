@@ -81,6 +81,16 @@ def run(ctx: JobContext) -> int:
     gaps: dict[str, bool] = {}
     alerts = []
     with db_session() as s:
+        from app.services.indices import refresh_indices
+
+        try:  # docs/32: the index of each venue (regime per market), incremental, full history the first time
+            with s.begin_nested():
+                for market, (k, err) in refresh_indices(s, provider, ctx.config, ctx.run_date).items():
+                    n += k
+                    if err:
+                        alerts.append(f"indice {market} : {err[:80]}")
+        except Exception as exc:  # noqa: BLE001 — the values' prices are loaded anyway
+            alerts.append(f"indices : {exc.__class__.__name__}")
         insts = list(s.scalars(select(Instrument).where(Instrument.active.is_(True))))
         by_exchange: dict[str, list[Instrument]] = {}
         for i in insts:

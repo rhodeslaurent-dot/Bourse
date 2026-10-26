@@ -130,6 +130,7 @@ market_gate:                            # docs/07 §7.9.4 (R10) — option C, sa
   effective_from: "2026-10-22"
   mode: "double"                        # obstacle publié franchi en clôture + avis de la lettre sur l'indice
   index_isin: "FR0003500008"            # CAC 40
+  letters_markets: ["XPAR"]             # docs/32 : places auxquelles s'appliquent les conditions publiées par les lettres (marché français)
   max_age_sessions: 5                   # publication plus ancienne → condition « inconnue »
   restricted_min_net_rr: 2.5
   restricted_min_score: 75
@@ -316,6 +317,28 @@ regime:
   distribution_days_sessions: 25       # fenêtre (séances) pour compter les distribution days
   distribution_day_drop: 0.002         # clôture ≤ −0,2 % avec volume > veille
   index_isins: {cac40: "FR0003500008", stoxx600: "EU0009658202"}   # pseudo-instruments d'indice (EODHD .INDX)
+  breadth_min_values: 10              # largeur d'une place calculée seulement avec au moins 10 valeurs suivies
+  # docs/32 — un régime PAR PLACE (décision de l'utilisateur du 26/10/2026 : le CAC 40 ne doit plus bloquer les autres
+  # marchés). Codes EODHD à vérifier avec `index-check` ; un indice introuvable → la place suit le régime européen.
+  europe_index: {id: "EU0009658202", eodhd: "STOXX.INDX", nom: "STOXX Europe 600"}   # niveau de risque du jour et repli
+  indices_by_mic:
+    XPAR: {id: "FR0003500008", eodhd: "FCHI.INDX", nom: "CAC 40"}
+    XETR: {id: "IDX.GDAXI", eodhd: "GDAXI.INDX", nom: "DAX"}
+    XAMS: {id: "IDX.AEX", eodhd: "AEX.INDX", nom: "AEX"}
+    XBRU: {id: "IDX.BFX", eodhd: "BFX.INDX", nom: "BEL 20"}
+    XMAD: {id: "IDX.IBEX", eodhd: "IBEX.INDX", nom: "IBEX 35"}
+    XMIL: {id: "IDX.FTSEMIB", eodhd: "FTSEMIB.INDX", nom: "FTSE MIB"}
+    XSTO: {id: "IDX.OMXS30", eodhd: "OMXS30.INDX", nom: "OMX Stockholm 30"}
+    XCSE: {id: "IDX.OMXC25", eodhd: "OMXC25.INDX", nom: "OMX Copenhague 25"}
+    XHEL: {id: "IDX.OMXH25", eodhd: "OMXH25.INDX", nom: "OMX Helsinki 25"}
+    XOSL: {id: "IDX.OBX", eodhd: "OBX.INDX", nom: "OBX (Oslo)"}
+    XLIS: {id: "IDX.PSI", eodhd: "PSI20.INDX", nom: "PSI (Lisbonne)"}
+    XDUB: {id: "IDX.ISEQ", eodhd: "ISEQ.INDX", nom: "ISEQ (Dublin)"}
+    XWBO: {id: "IDX.ATX", eodhd: "ATX.INDX", nom: "ATX (Vienne)"}
+    XWAR: {id: "IDX.WIG20", eodhd: "WIG20.INDX", nom: "WIG 20 (Varsovie)"}
+    XLON: {id: "IDX.FTSE", eodhd: "FTSE.INDX", nom: "FTSE 100"}
+    XSWX: {id: "IDX.SSMI", eodhd: "SSMI.INDX", nom: "SMI (Zurich)"}
+    XNYS: {id: "IDX.GSPC", eodhd: "GSPC.INDX", nom: "S&P 500"}
 
 detectors:
   d1_gap_catalyst:   # [phase 3]

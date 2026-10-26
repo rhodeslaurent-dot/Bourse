@@ -75,7 +75,7 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
     # 2 — markets
     idx = (config.params.regime or {}).get("index_isins") or {}
     mk = [x for x in (_index_line(s, isin, k.upper(), day) for k, isin in idx.items()) if x]
-    reg = s.scalar(select(MarketRegimeRow).order_by(MarketRegimeRow.id.desc()))
+    reg = s.scalar(select(MarketRegimeRow).where(MarketRegimeRow.market == "EU").order_by(MarketRegimeRow.id.desc()))
     r.append(
         {
             "titre": RUBRICS[1],

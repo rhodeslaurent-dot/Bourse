@@ -865,7 +865,15 @@ def scan(
     p = config.params
     expire_proposals(s, now)
     published, published_why = published_gate(s, config, day)
-    ctxm = market_context(s, config, day, published)
+    ctxm = market_context(s, config, day, published)  # Europe: the risk level of the day (docs/28)
+    ctx_by_market: dict[str, Any] = {}
+
+    def ctx_for(mic: str | None) -> Any:  # docs/32: each value is gated by the regime of its own venue
+        key = mic or "EU"
+        if key not in ctx_by_market:
+            ctx_by_market[key] = ctxm if key == "EU" else market_context(s, config, day, published, key)
+        return ctx_by_market[key]
+
     book = _book(s)
     from app.services.circuit import circuit_state
 
@@ -995,6 +1003,7 @@ def scan(
             )
             price_source = q.source if live else "clôture officielle stockée"
             price_ts = q.market_timestamp if live else last_day
+            cm = ctx_for(inst.mic)
             for setup, source in st_["found"]:
                 rep.setups += 1
                 er, track, prior = expect.get((setup.detector, source), (None, None, None))
@@ -1011,9 +1020,9 @@ def scan(
                     price,
                     status,
                     book,
-                    ctxm.gate,
-                    ctxm.regime,
-                    ctxm.srd_mode,
+                    cm.gate,
+                    cm.regime,
+                    cm.srd_mode,
                     now,
                     feats,
                     ff,
@@ -1033,12 +1042,15 @@ def scan(
                         "objectif_retenu": at is not None and at in (setup.targets or []),
                     }
                 ev.details["contexte_marche"] = {
-                    "risque_conjoncturel": ctxm.level,
-                    "composantes": ctxm.components,
-                    "portail": ctxm.gate,
-                    "raison_portail": ctxm.gate_reason,
+                    "marche": cm.market,
+                    "regime": cm.regime,
+                    "regime_de": cm.regime_source,  # EU when the venue has no regime of its own
+                    "risque_conjoncturel": cm.level,
+                    "composantes": cm.components,
+                    "portail": cm.gate,
+                    "raison_portail": cm.gate_reason,
                     "publication_lettres": published_why,
-                    "mode_srd": ctxm.srd_mode,
+                    "mode_srd": cm.srd_mode,
                 }
                 ev.details["zones"] = [
                     {"bas": z.low, "haut": z.high, "contacts": z.touches, "type": z.kind} for z in zones[-8:]

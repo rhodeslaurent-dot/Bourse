@@ -116,7 +116,9 @@ def create_proposal(
     s.flush()
     if as_of is None:
         feats = latest_features(s, [sig.isin]).get(sig.isin)
-        regime = s.scalar(select(MarketRegimeRow).order_by(MarketRegimeRow.id.desc()))
+        regime = s.scalar(
+            select(MarketRegimeRow).where(MarketRegimeRow.market == "EU").order_by(MarketRegimeRow.id.desc())
+        )
         states = [
             {"account_id": st.account_id, "cash": st.cash, "synced_at": st.synced_at, "declarative": st.declarative}
             for st in s.scalars(select(PortfolioState))
@@ -128,7 +130,9 @@ def create_proposal(
             .order_by(FeatureDaily.day.desc())
         )
         regime = s.scalar(
-            select(MarketRegimeRow).where(MarketRegimeRow.day <= as_of).order_by(MarketRegimeRow.day.desc())
+            select(MarketRegimeRow)
+            .where(MarketRegimeRow.market == "EU", MarketRegimeRow.day <= as_of)
+            .order_by(MarketRegimeRow.day.desc())
         )
         states = []
     s.add(

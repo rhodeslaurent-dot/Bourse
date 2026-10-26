@@ -436,7 +436,7 @@ def cell_model(cell: Cell) -> ExitModel:
 
 def evaluate_cell(
     g: GroupData, cell: Cell, combo: Combo, st: Settings, rows: tuple[int, int], mask: Bool | None = None,
-    path_rule: PathRule = "stop_first", drift: Callable[[Signals], None] | None = None,
+    path_rule: PathRule = "stop_first",
 ) -> Trades:  # fmt: skip
     """Signals of a cell, simulated (looked up in the combination when the orders are the same)."""
     sig = cell_signals(g, cell, st, rows, mask)
@@ -659,7 +659,9 @@ def concentration(tr: Trades) -> dict[str, Any]:
     top5 = set(u[order[:5]].tolist())
     rest = ~np.isin(inst, list(top5))
     wk, ws = S.weekly_series(tr["week"], tr["r"])
-    w_by = np.sort(ws * np.bincount(np.searchsorted(wk, tr["week"]), minlength=wk.size))[::-1]
+    fin = np.isfinite(tr["r"])
+    counts = np.bincount(np.searchsorted(wk, tr["week"][fin]), minlength=wk.size)[: wk.size]
+    w_by = np.sort(ws * counts)[::-1]
     return {
         "valeurs": int(u.size),
         "part_top10_valeurs": _f(top10 / total, 3) if total > 0 else None,

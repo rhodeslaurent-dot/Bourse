@@ -192,3 +192,12 @@ def test_full_month_names_are_read():
     assert message_time("3 février 2026 08:10", now)[1] == datetime(2026, 2, 3, 8, 10, tzinfo=PARIS)
     assert message_time("12 juillet 14:05", now)[1] == datetime(2026, 7, 12, 14, 5, tzinfo=PARIS)
     assert message_time("24 oct. 2026", now)[0] == date(2026, 10, 24)
+
+
+def test_set_scalar_writes_a_flow_list():
+    import yaml
+
+    from app.cli import set_scalar
+
+    out, ok = set_scalar("universe:\n  markets_us: []   # M3\n", "universe.markets_us", '["US"]')
+    assert ok and yaml.safe_load(out)["universe"]["markets_us"] == ["US"] and "# M3" in out

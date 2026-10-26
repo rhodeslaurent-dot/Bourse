@@ -70,11 +70,15 @@ class GateState:
     reason: str
 
 
-def market_gate(published_ok: bool | None, level: str, regime: str | None) -> GateState:
-    """``published_ok``: option C conditions (None = no recent publication → not met)."""
-    met = published_ok is True
+def market_gate(published_ok: bool | None, level: str, regime: str | None, letters_apply: bool = True) -> GateState:
+    """``published_ok``: option C conditions (None = no recent publication → not met). ``letters_apply``:
+    False on a venue the letters do not cover (docs/32) — the gate then follows the venue's regime and the
+    conjunctural level only, never the conditions published about another market."""
+    met = published_ok is True or not letters_apply
     cond = (
-        "conditions publiées remplies"
+        "lettres non applicables à cette place"
+        if not letters_apply
+        else "conditions publiées remplies"
         if met
         else ("conditions publiées non remplies" if published_ok is False else "pas de publication récente")
     )

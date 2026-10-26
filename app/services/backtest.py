@@ -136,8 +136,11 @@ def run_backtest(
     }
     hist = load_history(s, list(insts), start, end)
     ranks = rs_ranks(hist) if hist else {}
-    index_isin = ((getattr(p, "regime", None) or {}).get("index_isins") or {}).get("cac40")
-    reg = regimes(load_history(s, [index_isin], start, end).get(index_isin) if index_isin else None)
+    from app.services.indices import EUROPE, index_specs
+
+    specs = {x.market: x.id for x in index_specs(config)}  # docs/32: each value on its own venue's index
+    idx_hist = load_history(s, sorted(set(specs.values())), start, end)
+    reg_by_market = {m: regimes(idx_hist.get(i)) for m, i in specs.items()}
     run = BacktestRun(
         created_at=datetime.now(UTC), params_version=p.version, start=start, end=end, instruments=len(hist),
         settings={"detecteurs": sorted(det_params), "compte": "cto_cash", "slippage": slip, "validite_ordre": expiry,
@@ -152,6 +155,7 @@ def run_backtest(
             progress(n_done, len(hist))
         inst = insts[isin]
         cp = _cost_params(config, inst)
+        reg = reg_by_market.get(inst.mic or "") or reg_by_market.get(EUROPE) or {}
         busy_until: dict[str, int] = {}
         for i in range(259, len(h.bars) - 1):
             day = h.days[i]

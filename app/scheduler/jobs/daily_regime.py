@@ -1,18 +1,22 @@
-"""``daily_regime`` (07:30, also called by the evening pipeline): docs/06 §6.2 components from our
-stored data. Missing components are reported, never guessed."""
+"""``daily_regime`` (07:30, also called by the evening pipeline): docs/06 §6.2 components from our stored
+data, **per market** (docs/32): each venue is judged on its own index and on the breadth of its own
+values; the European row (STOXX 600, whole universe) sets the risk level of the day and is the fallback of
+a venue without index. Missing components are reported, never guessed."""
 
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.db.models import Instrument, MarketRegimeRow
 from app.db.session import db_session
 from app.domain.indicators import breadth_above_ma, distribution_days, sma, vol_percentile
 from app.domain.regime import RegimeInputs, RegimeParams, compute_regime
 from app.scheduler.runner import JobContext
+from app.services.indices import EUROPE, index_specs
 from app.services.market_data import load_bars
 
 log = logging.getLogger("bourse.jobs.daily_regime")
@@ -33,59 +37,72 @@ def regime_params_from(config) -> RegimeParams:  # type: ignore[no-untyped-def]
     )
 
 
-def compute_and_store(ctx: JobContext) -> str:
-    r = ctx.config.params.regime or {}
-    idx = dict(r.get("index_isins") or INDEX_ISINS)
+def _above(bars) -> bool | None:  # type: ignore[no-untyped-def]
+    return (bars[-1].close > sma([b.close for b in bars], 50)) if len(bars) >= 50 else None  # type: ignore[operator]
+
+
+def compute_market(
+    s: Session, config, day: date, market: str, index_id: str, europe_id: str, mics: set[str] | None
+) -> MarketRegimeRow:  # type: ignore[no-untyped-def]
+    """One market's regime: its index vs MM50 and the European index vs MM50, the breadth of its own
+    universe values (``mics``; None = the whole universe), distribution days and volatility of its index."""
+    r = config.params.regime or {}
     sessions = int(r.get("distribution_days_sessions", 25))
     drop = float(r.get("distribution_day_drop", 0.002))
+    idx = load_bars(s, index_id, end=day)
+    eu = idx if index_id == europe_id else load_bars(s, europe_id, end=day)
+    closes = {}
+    q = select(Instrument).where(Instrument.in_universe.is_(True))
+    if mics is not None:
+        q = q.where(Instrument.mic.in_(sorted(mics)))
+    for inst in s.scalars(q):
+        bars = load_bars(s, inst.isin, end=day, limit=60)
+        if len(bars) >= 50:
+            closes[inst.isin] = [b.close for b in bars]
+    min_n = int(r.get("breadth_min_values", 10))
+    breadth = breadth_above_ma(closes, 50) if len(closes) >= min_n else None  # too few values: no breadth
+    dist = distribution_days(idx, sessions, drop) if len(idx) >= sessions + 1 else None
+    vol = vol_percentile(idx) if len(idx) >= 30 else None
+    regime = compute_regime(RegimeInputs(_above(idx), _above(eu), breadth, dist, vol), regime_params_from(config))
+    return MarketRegimeRow(
+        day=day,
+        ts=datetime.now(UTC),
+        market=market,
+        cac_vs_mm50=_above(idx),  # the market's own index (column kept from the CAC-only era)
+        stoxx_vs_mm50=_above(eu),
+        breadth_mm50=breadth,
+        distribution_days=dist,
+        vol_pct=vol,
+        regime=regime.light.value,
+        details={
+            "components": {k: (v.value if v else None) for k, v in regime.components.items()},
+            "missing": regime.missing,
+            "index": index_id,
+            "index_sessions": len(idx),
+            "breadth_n": len(closes),
+        },
+    )
+
+
+def compute_and_store(ctx: JobContext) -> str:
+    """Every market with an index, then Europe; returns the European light (the risk level of the day)."""
+    specs = index_specs(ctx.config)
+    europe = next(x for x in specs if x.market == EUROPE)
+    by_market: dict[str, str] = {}
     with db_session() as s:
-        cac = load_bars(s, idx["cac40"], end=ctx.run_date)
-        stoxx = load_bars(s, idx["stoxx600"], end=ctx.run_date)
-        cac_above = (cac[-1].close > sma([b.close for b in cac], 50)) if len(cac) >= 50 else None  # type: ignore[operator]
-        stoxx_above = (stoxx[-1].close > sma([b.close for b in stoxx], 50)) if len(stoxx) >= 50 else None  # type: ignore[operator]
-        closes = {}
-        for inst in s.scalars(select(Instrument).where(Instrument.in_universe.is_(True))):
-            bars = load_bars(s, inst.isin, end=ctx.run_date, limit=60)
-            if len(bars) >= 50:
-                closes[inst.isin] = [b.close for b in bars]
-        breadth = breadth_above_ma(closes, 50) if closes else None
-        universe_size = s.scalar(select(func.count(Instrument.isin)).where(Instrument.in_universe.is_(True))) or 0  # noqa: F841
-        prev = s.scalar(select(MarketRegimeRow).order_by(MarketRegimeRow.id.desc()))
-        breadth_n = len(closes)
-        perimeter_note = None
-        if (
-            prev
-            and prev.details
-            and prev.details.get("breadth_n")
-            and breadth_n
-            and abs(breadth_n / prev.details["breadth_n"] - 1) > 0.2
-        ):
-            perimeter_note = f"périmètre breadth changé : {prev.details['breadth_n']} → {breadth_n} instruments"  # noqa: F841
-        dist = distribution_days(cac, sessions, drop) if len(cac) >= sessions + 1 else None
-        vol = vol_percentile(stoxx) if len(stoxx) >= 30 else None
-        regime = compute_regime(
-            RegimeInputs(cac_above, stoxx_above, breadth, dist, vol), regime_params_from(ctx.config)
-        )
-        s.add(
-            MarketRegimeRow(
-                day=ctx.run_date,
-                ts=datetime.now(UTC),
-                cac_vs_mm50=cac_above,
-                stoxx_vs_mm50=stoxx_above,
-                breadth_mm50=breadth,
-                distribution_days=dist,
-                vol_pct=vol,
-                regime=regime.light.value,
-                details={
-                    "components": {k: (v.value if v else None) for k, v in regime.components.items()},
-                    "missing": regime.missing,
-                },
-            )
-        )
-        return regime.light.value
+        followed = {m for m in s.scalars(select(Instrument.mic).where(Instrument.in_universe.is_(True)).distinct())}
+        for spec in specs:
+            if spec.market != EUROPE and spec.market not in followed:
+                continue  # a venue without any value in the universe: nothing to gate
+            mics = None if spec.market == EUROPE else {spec.market}
+            row = compute_market(s, ctx.config, ctx.run_date, spec.market, spec.id, europe.id, mics)
+            s.add(row)
+            by_market[spec.market] = row.regime
+    log.info("régimes du %s : %s", ctx.run_date, ", ".join(f"{k} {v}" for k, v in sorted(by_market.items())))
+    return by_market.get(EUROPE, "orange")
 
 
 def run(ctx: JobContext) -> int:
     light = compute_and_store(ctx)
-    log.info("régime %s pour %s", light, ctx.run_date)
+    log.info("régime européen %s pour %s", light, ctx.run_date)
     return 1

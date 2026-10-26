@@ -172,12 +172,16 @@ def test_regime_job_on_stored_data(seeded, config, calendars):
             s.add(
                 Instrument(isin=isin, name=isin, mic="XPAR", exchange=ex, ticker_eodhd=f"{code}.{ex}", in_universe=True)
             )
+    config.raw["regime"]["breadth_min_values"] = 1
+    config.params.regime["breadth_min_values"] = 1
     ctx = JobContext(config, calendars, DAY, ("XPAR",), "normal")
     light = compute_and_store(ctx)
     with db_session() as s:
-        row = s.scalar(select(MarketRegimeRow))
-        assert row.regime == light in ("green", "orange", "red")
-        assert row.cac_vs_mm50 is True and row.stoxx_vs_mm50 is not None
+        rows = {r.market: r for r in s.scalars(select(MarketRegimeRow))}
+        assert set(rows) == {"EU", "XPAR"}  # docs/32: one row per followed venue with an index, plus Europe
+        assert rows["EU"].regime == light in ("green", "orange", "red")
+        row = rows["XPAR"]
+        assert row.cac_vs_mm50 is True and row.stoxx_vs_mm50 is not None  # CAC up, STOXX flat
         from app.domain.indicators import sma
         from app.services.market_data import load_bars
 

@@ -350,8 +350,8 @@ def set_scalar(text: str, path: str, value: str) -> tuple[str, bool]:
     start = lo + 1 if parent else 0
     if parent and lo < 0:
         return text, False
-    if re.fullmatch(r"-?\d+(\.\d+)?|true|false|null", value):
-        lit = value
+    if re.fullmatch(r"-?\d+(\.\d+)?|true|false|null", value) or re.fullmatch(r"\[.*\]|\{.*\}", value.strip()):
+        lit = value.strip()  # numbers, booleans, null and flow lists / mappings (["US"]) as written
     elif "\\" in value:  # a regex: single quotes keep the backslashes (« \d » is not a YAML escape)
         lit = "'" + value.strip("'").replace("'", "''") + "'"
     else:
@@ -1004,6 +1004,32 @@ def cmd_exchange_list_load(args: argparse.Namespace) -> int:
     out = save(args.exchange, shares, f"{path.name} ({args.market or 'toutes places'})")
     print(f"{len(shares)} action(s) enregistrée(s) dans {out} ; exemples : " + ", ".join(s.name for s in shares[:5]))
     print("Lancer ensuite : run-job universe_refresh (historique Yahoo chargé pour les candidates).")
+    return 0
+
+
+def cmd_index_check(args: argparse.Namespace) -> int:
+    """docs/32 — loads the index of each venue (regime per market) and says, per venue, whether its EODHD code
+    answers; a wrong code is reported, the venue then follows the European regime."""
+    import os
+
+    from app.data.providers.eodhd import eodhd_from
+    from app.db.session import db_session
+    from app.services.indices import index_specs, refresh_indices
+    from app.services.market_data import last_eod_day
+
+    if not os.environ.get("EODHD_API_TOKEN"):
+        print("EODHD_API_TOKEN absent (env-setup eodhd)")
+        return 1
+    cfg = load_params(args.params)
+    with db_session() as s:
+        out = refresh_indices(s, eodhd_from(cfg), cfg, date.today())
+        for spec in index_specs(cfg):
+            n, err = out.get(spec.market, (0, None))
+            last = last_eod_day(s, spec.id)
+            state = f"ÉCHEC : {err}" if err else (f"à jour au {last}" if last else "aucune donnée")
+            print(f"{spec.market:<5} {spec.name:<22} {spec.eodhd:<14} +{n:>5} séances · {state}")
+    print("Un code en échec : corriger regime.indices_by_mic dans config/params.yaml (la place suit sinon le régime "
+          "européen), puis relancer index-check.")  # fmt: skip
     return 0
 
 
@@ -1713,6 +1739,9 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--to", default=None)
     bt.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous les actifs)")
     bt.set_defaults(fn=cmd_backtest)
+    sub.add_parser(
+        "index-check", help="charge et contrôle l'indice de chaque place (régime par marché, docs/32)"
+    ).set_defaults(fn=cmd_index_check)
     br = sub.add_parser("backtest-report", help="diagnostic du dernier backtest : coûts, sorties, excursions, régimes")
     br.add_argument("--run", type=int, default=None)
     br.set_defaults(fn=cmd_backtest_report)
@@ -1735,7 +1764,7 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument("--run", type=int, default=None, help="backtest de référence (défaut : le dernier)")
     rs.add_argument("--candidates", default=None, help="fichier de candidats figé (unseal)")
     rs.add_argument("--no-cache", dest="no_cache", action="store_true")
-    rs.add_argument("--max-f0-candidates", dest="max_f0_candidates", type=int, default=200_000)
+    rs.add_argument("--max-f0-candidates", dest="max_f0_candidates", type=int, default=100_000)
     rs.set_defaults(fn=cmd_research)
     sub.add_parser("llm-costs", help="coût de l'API Claude par usage (docs/25 L6)").set_defaults(fn=cmd_llm_costs)
     le = sub.add_parser("llm-eval", help="compare les modèles de génération 5 sur des réponses enregistrées (ADR-011)")
