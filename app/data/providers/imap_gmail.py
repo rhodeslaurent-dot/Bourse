@@ -86,10 +86,29 @@ def message_text(msg: Message) -> str:
     return strip_html("\n".join(html))
 
 
+def _domain(sender: str) -> str:
+    m = re.search(r"@([A-Za-z0-9.\-]+)", sender)
+    return m.group(1).lower().strip(".") if m else ""
+
+
+def _matches(pattern: str, sender: str) -> bool:
+    """« @capital.fr » matches the domain and its subdomains (news@info.capital.fr — 26/10/2026: the Momentum
+    Capital letter was never recognised because it is sent from a subdomain); « @prismamedia » matches any
+    domain label starting with it; any other pattern is a plain substring of the sender."""
+    p = pattern.lower().strip()
+    if not p.startswith("@"):
+        return p in sender.lower()
+    q, dom = p[1:].strip("."), _domain(sender)
+    if not q or not dom:
+        return False
+    if "." in q:  # a full domain: itself or a subdomain, never capital.fr.evil.com
+        return dom == q or dom.endswith("." + q)
+    return dom.startswith(q + ".") or ("." + q + ".") in dom  # a name without TLD (« @prismamedia »)
+
+
 def source_for(sender: str, senders: dict[str, list[str]]) -> str | None:
-    s = sender.lower()
     for source, patterns in senders.items():
-        if any(p.lower() in s for p in patterns):
+        if any(_matches(p, sender) for p in patterns):
             return source
     return None
 
@@ -168,11 +187,12 @@ def extract_values(body: str, aliases: dict[str, str] | None = None) -> list[Ext
     return out
 
 
-def search_criteria(senders: dict[str, list[str]], since: date) -> str:
-    """IMAP SEARCH for unread mails of known newsletter senders only (prefix ``OR`` chain), so a
-    shared mailbox is never scanned wholesale: other unread mails are not even fetched."""
+def search_criteria(senders: dict[str, list[str]], since: date, include_read: bool = False) -> str:
+    """IMAP SEARCH for the mails of known newsletter senders only (prefix ``OR`` chain), so a shared mailbox
+    is never scanned wholesale. ``include_read``: also the letters already opened in Gmail (a letter read on
+    the phone before the poll was never ingested); the ingestion deduplicates them."""
     patterns = sorted({p.lstrip("@").replace('"', "") for ps in senders.values() for p in ps if p.strip("@ ")})
-    base = f"UNSEEN SINCE {since.strftime('%d-%b-%Y')}"
+    base = ("" if include_read else "UNSEEN ") + f"SINCE {since.strftime('%d-%b-%Y')}"
     if not patterns:
         return base
     froms = " ".join(f'FROM "{p}"' for p in patterns)
@@ -186,7 +206,12 @@ class GmailImap:
         self.password = password or os.environ.get("IMAP_PASSWORD", "")
 
     def fetch_unseen(
-        self, senders: dict[str, list[str]], mailbox: str = "INBOX", limit: int = 50, since_days: int = 3
+        self,
+        senders: dict[str, list[str]],
+        mailbox: str = "INBOX",
+        limit: int = 50,
+        since_days: int = 3,
+        include_read: bool = False,
     ) -> list[NewsletterMail]:
         """Unread newsletters of known senders. Mails are read with ``BODY.PEEK`` (state unchanged);
         only the ones recognised as newsletters are then marked as read, so a mailbox shared with
@@ -200,7 +225,7 @@ class GmailImap:
             status, _ = conn.select(f'"{mailbox}"' if " " in mailbox else mailbox)
             if status != "OK":
                 raise RuntimeError(f"dossier IMAP introuvable : {mailbox} (libellé Gmail à créer ?)")
-            _, data = conn.search(None, search_criteria(senders, since))
+            _, data = conn.search(None, search_criteria(senders, since, include_read))
             ids = data[0].split()[-limit:]
             for uid in ids:
                 _, parts = conn.fetch(uid, "(INTERNALDATE BODY.PEEK[])")

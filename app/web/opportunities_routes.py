@@ -142,9 +142,28 @@ def opportunities_page(
                 VERDICT_ORDER.get((it["explain"].track or {}).get("verdict", "insuffisant"), 1),
             )
 
-        items.sort(key=sort_key)
-        counts = {a: sum(1 for it in items if it["p"].action == a) for a in ("BUY", "WATCH", "NO_TRADE")}
+        # user request of 26/10/2026: what can be acted on first (the order book, detailed), then what is
+        # only watched, then what is set aside — the engine's rank kept inside each group
         book = order_book(items)
+        orderable = {r["p"].id for r in book if not r["blocked"]}
+        from app.services.explain import plain_reason
+
+        for it in items:
+            p = it["p"]
+            blocked = it["explain"].blocked or []
+            it["groupe"] = (
+                0
+                if p.id in orderable or (p.action == "BUY" and not blocked and not p.to_verify)
+                else 2
+                if p.action == "NO_TRADE"
+                else 1
+            )
+            it["pourquoi"] = [x for x in dict.fromkeys(plain_reason(b) for b in blocked) if x]
+        items.sort(key=lambda it: (it["groupe"], sort_key(it)))
+        counts = {a: sum(1 for it in items if it["p"].action == a) for a in ("BUY", "WATCH", "NO_TRADE")}
+        places: dict[str, int] = {}
+        for it in items:
+            places[it["place"] or "place inconnue"] = places.get(it["place"] or "place inconnue", 0) + 1
     return templates.TemplateResponse(
         request,
         "opportunites.html",
@@ -156,6 +175,7 @@ def opportunities_page(
             "counts": counts,
             "sort": sort,
             "book": book,
+            "places": sorted(places.items(), key=lambda kv: -kv[1]),
             "today": datetime.now(UTC).date(),
         },
     )

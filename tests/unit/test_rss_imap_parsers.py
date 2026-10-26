@@ -115,3 +115,20 @@ def test_shared_mailbox_other_mails_untouched(monkeypatch):
     assert ("select", "Bourse") in log and all("PEEK" in e[2] for e in log if e[0] == "fetch")
     assert [e for e in log if e[0] == "store"] == [("store", b"1", "\\Seen")]
     assert next(e for e in log if e[0] == "search")[1].startswith("UNSEEN SINCE")
+
+
+def test_sender_domains_match_their_subdomains_and_read_letters_are_searched():
+    """26/10/2026: the Momentum Capital letter was never recognised — sent from a subdomain of capital.fr,
+    and a letter already opened in Gmail was not searched (UNSEEN only)."""
+    from datetime import date
+
+    from app.data.providers.imap_gmail import search_criteria
+
+    senders = {"momentum_capital": ["@capital.fr", "@prismamedia"], "zonebourse": ["@zonebourse.com"]}
+    assert source_for("Momentum Capital <newsletter@info.capital.fr>", senders) == "momentum_capital"
+    assert source_for("Capital <noreply@capital.fr>", senders) == "momentum_capital"
+    assert source_for("Prisma <x@news.prismamedia.com>", senders) == "momentum_capital"
+    assert source_for("Faux <x@notcapital.fr>", senders) is None  # never a look-alike domain
+    assert source_for("Autre <x@capital.fr.evil.com>", senders) is None
+    c = search_criteria(senders, date(2026, 10, 19), include_read=True)
+    assert c.startswith("SINCE 19-Oct-2026") and "UNSEEN" not in c

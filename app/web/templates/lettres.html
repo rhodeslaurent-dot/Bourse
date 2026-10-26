@@ -24,6 +24,10 @@
     <span class="text-xs text-slate-500 dark:text-slate-400">{{ review.ts|dual }} · {{ (review.item_ids or [])|length }} lettre(s) · {{ {'reception': 'à la réception', 'daily': 'rattrapage du soir'}.get(review.trigger, 'à la demande') }}{% if review.status == 'ok' %} · {{ badge('IA', 'blue', review.model or '') }}{% endif %}{% if review.cost_usd %} · {{ '%.3f'|format(review.cost_usd) }} ${% endif %}</span>
   </div>
   <p class="mt-2 text-sm whitespace-pre-line">{{ review.synthesis }}</p>
+  {% if review_sources %}<div class="mt-2 text-xs text-slate-500 dark:text-slate-400"><b>Sources de cette synthèse</b> ({{ review_sources|length }} lettre(s)) :
+    <ul class="mt-1 list-disc ml-4 space-y-0.5">{% for i in review_sources %}<li>{{ i.source }} · {{ i.received_at|dual }} · « {{ i.subject[:120] }} »</li>{% endfor %}</ul>
+    {% if macro_press %}<p class="mt-1">et {{ macro_press|length }} article(s) de la revue de presse (liste ci-dessous, avec leur éditeur).</p>{% endif %}
+  </div>{% elif review.item_ids %}<p class="mt-2 text-xs text-slate-500">Sources : {{ review.item_ids|length }} lettre(s) (détail indisponible).</p>{% endif %}
   {% if review.rejected %}<details class="mt-2 text-xs text-slate-500"><summary class="cursor-pointer">{{ review.rejected|length }} élément(s) écarté(s) par les garde-fous</summary><ul class="mt-1 list-disc ml-4">{% for r in review.rejected %}<li>{{ r.element }} — {{ r.motif }}</li>{% endfor %}</ul></details>{% endif %}
 </section>
 {% endif %}

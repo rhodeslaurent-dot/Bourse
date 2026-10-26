@@ -648,7 +648,8 @@ data:
     - {name: "inderes", url: "à renseigner", homepage: "https://www.inderes.fi/", market: "FI", kind: "media_conseil", usage: "information", reconnu: "recherche partiellement commanditée par les sociétés couvertes"}
   imap:
     host: "imap.gmail.com"
-    mailbox: "INBOX"                     # ou un libellé Gmail (ex. "Bourse") ; seuls les non-lus des expéditeurs ci-dessous sont lus
+    mailbox: "INBOX"                     # ou un libellé Gmail (ex. "Bourse") ; seuls les mails des expéditeurs ci-dessous sont lus
+    include_read: true                   # lire aussi les lettres déjà ouvertes dans Gmail (sous-domaines d'expéditeur reconnus) ; doublons écartés
     poll_minutes: 10
     window_local: ["07:30", "19:00"]
     senders:

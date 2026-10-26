@@ -77,7 +77,9 @@ def test_thesis_guards_and_page(db_engine, config, calendars):
     assert "expire le " in page  # date shown, not only the time (22/10/2026)
     assert "refermer le détail" in page and "Objectif 1" in page and "brut" in page
     # the order book only lists BUY and limits waiting for a pullback (tests/unit/test_pea_listing_and_order_book.py)
-    assert "#1" in page and "Objectif publié 110" in page
+    assert (
+        "#1" in page or "rang brut 1" in page
+    ) and "Objectif publié 110" in page  # rank kept, greyed if not actionable
 
 
 def test_override_refused_unless_eligible_and_telegram_buttons(db_engine, config, calendars):

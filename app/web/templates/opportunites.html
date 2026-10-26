@@ -7,6 +7,7 @@
     <div>
       <h1 class="text-2xl font-bold">Opportunités</h1>
       <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Propositions du {{ day.strftime('%d/%m/%Y') }} : {{ counts.BUY }} achat(s), {{ counts.WATCH }} à surveiller, {{ counts.NO_TRADE }} écartée(s). Classées par l'outil (espérance nette, puis ratio gain/risque net, puis gain net au coût complet). Le détail s'ouvre d'un clic : thèse, comptes, coûts, règles. Aucun ordre n'est passé : vous décidez chez le courtier.</p>
+      {% if places %}<p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Par place : {% for name, n in places %}{{ name }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %} — <a href="/aide#opportunites" class="underline decoration-dotted">comment lire cette page</a></p>{% endif %}
     </div>
     <form method="get" action="/opportunites" class="flex flex-wrap items-center gap-2 text-sm">
       {{ field('day', '', 'date', day.isoformat()) }}
@@ -44,13 +45,17 @@
 </section>
 {% endif %}
 
+{% set groups = {0: ("Actionnables aujourd'hui", "Les ordres du carnet ci-dessus, détaillés : achats retenus et limites préparées au prix maximal. Ce sont les seules propositions sur lesquelles agir."), 1: ("À surveiller — pas d'ordre aujourd'hui", "Une condition manque (score, prix déjà trop haut, absence d'objectif, contexte…) : la raison est écrite en clair sous chaque valeur. Leur rang est celui du classement brut, avant ces filtres."), 2: ("Écartées", "Propositions refusées par une règle.")} %}
 {% for it in items %}
 {% set p = it.p %}{% set ex = it.explain %}
+{% if loop.first or it.groupe != loop.previtem.groupe %}
+<section class="pt-2"><h2 class="text-base font-semibold">{{ groups[it.groupe][0] }}</h2><p class="text-xs text-slate-500 dark:text-slate-400">{{ groups[it.groupe][1] }}</p></section>
+{% endif %}
 <section class="card {% if p.action == 'BUY' and not ex.blocked and not p.to_verify %}border-l-4 border-l-emerald-500{% elif ex.blocked %}border-l-4 border-l-rose-500{% elif p.to_verify %}border-l-4 border-l-amber-500{% endif %}">
   <div class="flex flex-wrap items-start justify-between gap-2">
     <div class="min-w-0">
       <div class="flex flex-wrap items-center gap-2">
-        {% if p.rank %}<span class="rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-2 py-0.5 text-xs font-bold tabular" title="rang du jour (docs/22 §22.4)">#{{ p.rank }}</span>{% endif %}
+        {% if p.rank %}{% if it.groupe == 0 %}<span class="rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-2 py-0.5 text-xs font-bold tabular" title="rang du jour (docs/22 §22.4)">#{{ p.rank }}</span>{% else %}<span class="rounded-full ring-1 ring-slate-300 dark:ring-slate-700 text-slate-400 px-2 py-0.5 text-xs tabular" title="rang brut, avant les filtres qui empêchent un ordre aujourd'hui">rang brut {{ p.rank }}</span>{% endif %}{% endif %}
         <h2 class="text-lg font-semibold"><a href="/valeur/{{ p.isin }}" class="hover:underline">{{ it.name }}</a></h2>
         <a href="/assistant?isin={{ p.isin }}" data-ai-isin="{{ p.isin }}" data-ai-name="{{ it.name }}" class="inline-flex items-center gap-1 rounded-full border border-sky-200 dark:border-sky-800 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10" title="Poser une question sur cette valeur"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Demander</a>
         {{ badge(label('action', p.action), 'green' if p.action == 'BUY' else 'blue' if p.action == 'WATCH' else 'slate') }}
@@ -79,6 +84,7 @@
       {% endif %}
       {% if p.thesis and p.thesis.arguments %}<p class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{ p.thesis.arguments[0].texte }}</p>{% endif %}
       {% for b in ex.blocked %}<p class="mt-1 text-sm font-semibold text-rose-700 dark:text-rose-300 [overflow-wrap:anywhere]">{{ b }}</p>{% endfor %}
+      {% for w in it.pourquoi %}<p class="mt-1 text-xs text-slate-600 dark:text-slate-300">En clair : {{ w }}</p>{% endfor %}
     </div>
     <div class="shrink-0 sm:text-right text-xs text-slate-500 dark:text-slate-400"><span class="font-mono">{{ p.isin }}</span><br>{{ p.created_at|dual }}{% if p.expires_at %}<br>expire le {{ p.expires_at|dual_dated }}{% endif %}</div>
   </div>

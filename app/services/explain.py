@@ -159,3 +159,69 @@ def explain_proposal(
                     + (f", synchronisé {st.get('synced_at')}" if st.get("synced_at") else ", jamais synchronisé")
                 )
     return Explanation(headline, bullets, blocked, data_used, summary, track)
+
+
+# --- plain-language reading of the engine's WATCH / BLOQUÉ lines (user request of 26/10/2026) ----------------
+
+_PLAIN: list[tuple[str, str]] = [
+    (
+        "ratio d'admission",
+        "Le score de la valeur n'atteint pas le minimum : il compte les points obtenus (tendance, "
+        "risque, marché, catalyseurs…) sur les points possibles avec les données disponibles. Il faut "
+        "75 % des points (80 % quand le marché est orange) ; en dessous, le dossier est jugé trop faible "
+        "pour un achat, la valeur reste à surveiller.",
+    ),
+    (
+        "limite posée en attente d'un repli",
+        "Le cours est déjà au-dessus du prix maximal d'entrée : acheter plus haut "
+        "rendrait le gain attendu trop faible face au risque. Un ordre limite est préparé au prix maximal (carnet "
+        "d'ordres) ; il ne sera exécuté que si le cours redescend.",
+    ),
+    (
+        "pas d'objectif exploitable",
+        "Aucune résistance ni objectif publié au-dessus du cours : le gain attendu ne peut "
+        "pas être chiffré, donc pas d'achat (valeur souvent à son plus haut).",
+    ),
+    ("confiance", "Trop peu d'éléments concordants (détecteur, lettres, presse, historique) pour un achat."),
+    (
+        "risque élevé",
+        "Le risque de la ligne est jugé élevé (stop lointain, liquidité faible, petite capitalisation "
+        "ou devise) : à surveiller, pas d'achat.",
+    ),
+    (
+        "portail restreint —",
+        "Contexte de marché restreint : seuls les dossiers très solides (ratio net ≥ 2,5 et score ≥ 75) passent.",
+    ),
+    (
+        "portail restreint +",
+        "Contexte de marché défavorable sur la place de la valeur (régime rouge ou risque "
+        "conjoncturel élevé) : aucune entrée, sauf dérogation motivée.",
+    ),
+    ("coupe-circuit", "Les pertes récentes ont déclenché le coupe-circuit : pas de nouvelle entrée pour l'instant."),
+    (
+        "emballement",
+        "Agitation anormale sans information publiée, ou portée par peu de comptes, sur une petite "
+        "valeur : risque de manipulation, entrée bloquée.",
+    ),
+    ("aucune taille possible", "Avec le budget de risque et les frais, aucune quantité raisonnable n'est possible."),
+    (
+        "hausse médiatique",
+        "La valeur a déjà monté depuis sa citation dans les médias : ces hausses se retournent souvent, à surveiller.",
+    ),
+    (
+        "grappe corrélée",
+        "Vous détenez déjà des valeurs qui évoluent de la même façon : le risque cumulé serait trop élevé.",
+    ),
+    (
+        "publication de résultats",
+        "Des résultats sont publiés pendant la durée prévue du trade : un saut de cours pourrait passer sous le stop.",
+    ),
+    ("dans les 30 h", "Une annonce macroéconomique majeure arrive : entrée gelée jusqu'à sa publication."),
+    ("taux de change", "Le taux de change n'est pas disponible : la taille ne peut pas être calculée."),
+]
+
+
+def plain_reason(line: str) -> str | None:
+    """The plain French reading of one WATCH / BLOQUÉ line of a proposal, or None."""
+    low = line.lower()
+    return next((text for key, text in _PLAIN if key.lower() in low), None)

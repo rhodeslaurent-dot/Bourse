@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge %}
+{% block title %}Fonctionnement — BOURSE-PILOT{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="text-2xl font-bold">Fonctionnement de l'outil</h1>
+  <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Le chemin d'une information, de la collecte à la décision, puis au suivi et à l'apprentissage. Chaque case est une fonction ; son état et l'heure de sa dernière exécution sont lus en direct ({{ now|dual }}). Pour comprendre chaque page : <a href="/aide" class="underline decoration-dotted">aide</a>.</p>
+  <p class="mt-2 flex flex-wrap gap-2 text-xs">{{ badge('à jour', 'green') }}{{ badge('en retard', 'amber') }}{{ badge('dernière exécution en erreur', 'red') }}{{ badge('jamais exécutée', 'slate') }}{{ badge('lancée à la main', 'blue') }}</p>
+</section>
+
+<section class="grid gap-3 lg:grid-cols-5">
+  {% for stage, nodes in stages %}
+  <div class="relative">
+    <div class="rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-3 py-2">
+      <div class="font-semibold">{{ stage.title }}</div>
+      <div class="text-[11px] opacity-80">{{ stage.why }}</div>
+    </div>
+    <div class="mt-2 space-y-2">
+      {% for ns in nodes %}
+      {% set tone = {'ok': 'border-emerald-300 dark:border-emerald-700', 'retard': 'border-amber-300 dark:border-amber-600', 'erreur': 'border-rose-400 dark:border-rose-600', 'jamais': 'border-slate-200 dark:border-slate-700', 'manuel': 'border-sky-300 dark:border-sky-700'}[ns.state] %}
+      <div class="rounded-xl border-2 {{ tone }} bg-white dark:bg-slate-900 p-2.5">
+        <div class="flex items-start justify-between gap-2">
+          <div class="text-sm font-semibold">{{ ns.node.title }}</div>
+          {{ badge({'ok': 'à jour', 'retard': 'en retard', 'erreur': 'erreur', 'jamais': 'jamais', 'manuel': 'manuel'}[ns.state], {'ok': 'green', 'retard': 'amber', 'erreur': 'red', 'jamais': 'slate', 'manuel': 'blue'}[ns.state]) }}
+        </div>
+        <p class="mt-1 text-xs text-slate-600 dark:text-slate-300">{{ ns.node.what }}</p>
+        {% for r in ns.runs %}
+        <p class="mt-1 text-[11px] text-slate-500 dark:text-slate-400" title="{{ r.error or r.note }}"><span class="font-mono">{{ r.job }}</span> · {% if r.when %}{{ r.when|dual }} · {{ r.status }}{% else %}jamais exécuté{% endif %}</p>
+        {% if r.error %}<p class="text-[11px] text-rose-700 dark:text-rose-300 [overflow-wrap:anywhere]">{{ r.error[:140] }}</p>{% elif r.note %}<p class="text-[11px] text-slate-400 [overflow-wrap:anywhere]">{{ r.note[:140] }}</p>{% endif %}
+        {% endfor %}
+        {% if ns.node.page %}<a href="{{ ns.node.page }}" class="mt-1 inline-block text-[11px] font-medium text-sky-700 dark:text-sky-300 hover:underline">→ {{ ns.node.page_label }}</a>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% if not loop.last %}<div class="hidden lg:flex absolute -right-3 top-3 h-6 w-6 items-center justify-center rounded-full bg-sky-700 text-white text-xs z-10" aria-hidden="true">→</div><div class="lg:hidden my-1 text-center text-sky-700 dark:text-sky-300" aria-hidden="true">↓</div>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}

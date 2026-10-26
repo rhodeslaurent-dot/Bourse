@@ -29,6 +29,16 @@ def letters_page(request: Request, day: date | None = None) -> HTMLResponse:
     with db_session() as s:
         rev = s.scalar(select(LetterReview).where(LetterReview.day <= day).order_by(LetterReview.ts.desc()))
         ctx["review"] = rev
+        ids = [int(x) for x in (rev.item_ids or [])] if rev else []
+        ctx["review_sources"] = (
+            sorted(
+                s.scalars(select(NewsletterItem).where(NewsletterItem.id.in_(ids))),
+                key=lambda i: i.received_at,
+                reverse=True,
+            )
+            if ids
+            else []
+        )  # user request of 26/10/2026: the letters each synthesis is built on
         ctx["recs"] = recommendations(s, cfg, day)
         ops = list(s.scalars(select(LetterOpinion).where(LetterOpinion.review_id == rev.id))) if rev else []
         ctx["opinions"] = sorted(ops, key=lambda o: ({"negative": 0, "positive": 1}.get(o.stance, 2), o.name))

@@ -6,6 +6,8 @@ from __future__ import annotations
 import logging
 import os
 
+from sqlalchemy import select
+
 from app.data.providers.imap_gmail import GmailImap
 from app.db.session import db_session
 from app.scheduler.runner import JobContext
@@ -50,14 +52,18 @@ def run(ctx: JobContext) -> int:
         return 0
     senders = {k: list(v) for k, v in (imap.get("senders") or {}).items()}
     mails = GmailImap(str(imap.get("host", "imap.gmail.com"))).fetch_unseen(
-        senders, mailbox=str(imap.get("mailbox", "INBOX"))
+        senders, mailbox=str(imap.get("mailbox", "INBOX")), include_read=bool(imap.get("include_read", True))
     )
     follow = follow_rules(imap)
     cookie = os.environ.get("ZONEBOURSE_COOKIE") or None
     n = 0
     new_hashes: list[str] = []
     with db_session() as s:
+        from app.db.models import NewsletterItem
+
         for mail in mails:
+            if s.scalar(select(NewsletterItem.id).where(NewsletterItem.dedup_hash == mail.dedup_hash)) is not None:
+                continue  # already ingested (read letters are searched too): no page fetched again
             if not subject_ok(imap, mail.source, mail.subject):
                 log.info("lettre %s ignorée (objet hors subject_includes) : %s", mail.source, mail.subject[:80])
                 continue

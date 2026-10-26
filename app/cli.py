@@ -325,6 +325,9 @@ def init_params(
             text, children = merge_missing_children(example_text, text, parent)
             if children:
                 print(f"clés ajoutées sous {parent} : " + ", ".join(children))
+        text, feeds = merge_missing_feeds(example_text, text)
+        if feeds:
+            print("flux ajoutés à data.rss_feeds : " + ", ".join(feeds))
         text, steps = merge_missing_workflow_steps(example_text, text)
         if steps:
             print("étapes de la journée ajoutées : " + ", ".join(steps))
@@ -468,6 +471,51 @@ def _block_range(lines: list[str], path: str) -> tuple[int, int, int]:
                 break
         lo, hi, indent = start + 1, end, indent + 2
     return start, hi, indent
+
+
+def _feeds_block(lines: list[str]) -> tuple[int, int]:
+    """(index of the ``rss_feeds:`` line, index of its last list entry) in a params text; (-1, -1) if absent."""
+    import re
+
+    start = next((i for i, ln in enumerate(lines) if re.match(r"^\s+rss_feeds:", ln)), -1)
+    if start < 0:
+        return -1, -1
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    last = start
+    for i in range(start + 1, len(lines)):
+        ln = lines[i]
+        if not ln.strip() or ln.lstrip().startswith("#"):
+            continue
+        if len(ln) - len(ln.lstrip()) <= indent:
+            break  # the next key of the same mapping (or above): the list is over
+        last = i
+    return start, last
+
+
+def merge_missing_feeds(example: str, target: str) -> tuple[str, list[str]]:
+    """Append to the target's ``data.rss_feeds`` the feeds of the example it lacks (by ``name``), as the
+    example's one-line entries: a list is never merged by the key-based merges (26/10/2026: the podcast feeds
+    of docs/23 §23.7 were missing from the user's file, so no media opinion was ever read). Existing entries,
+    including the user's own feeds and addresses, are untouched."""
+    import re
+
+    import yaml
+
+    try:
+        have = {str(f.get("name")) for f in ((yaml.safe_load(target) or {}).get("data") or {}).get("rss_feeds") or []}
+    except yaml.YAMLError:
+        return target, []
+    ex = example.splitlines(keepends=True)
+    e0, e1 = _feeds_block(ex)
+    entry = re.compile(r'^\s*- \{name: "([^"]+)"')
+    new = [(m.group(1), ln) for ln in ex[e0 + 1 : e1 + 1] if (m := entry.match(ln))] if e0 >= 0 else []
+    missing = [(n, ln if ln.endswith("\n") else ln + "\n") for n, ln in new if n not in have]
+    lines = target.splitlines(keepends=True)
+    t0, t1 = _feeds_block(lines)
+    if not missing or t0 < 0:
+        return target, []
+    lines[t1 + 1 : t1 + 1] = [ln for _, ln in missing]
+    return "".join(lines), [n for n, _ in missing]
 
 
 def merge_missing_children(example: str, target: str, path: str) -> tuple[str, list[str]]:
@@ -925,6 +973,56 @@ def cmd_sources_check(args: argparse.Namespace) -> int:
         ok += 1
     print(f"\n{ok}/{len(feeds)} flux lisible(s)" + (f" ; à renseigner : {', '.join(pending)}" if pending else ""))
     return 0 if ok == len(feeds) else 1
+
+
+def cmd_media_check(args: argparse.Namespace) -> int:
+    """docs/23 §23.7 — why media opinions show up or not: for each media feed of the example, whether it is in
+    params.yaml, its last read, the episodes of the last 7 days stored, those read by the LLM and the values
+    extracted. Public titles and counts only."""
+    from datetime import UTC, datetime, timedelta
+    from pathlib import Path
+
+    import yaml
+    from sqlalchemy import func, select
+
+    from app.db.models import DataFreshness, MediaMention, NewsItem
+    from app.db.session import db_session
+
+    cfg = load_params(args.params)
+    mine = {str(f.get("name")): f for f in cfg.params.data.rss_feeds}
+    example = yaml.safe_load(Path("config/params.example.yaml").read_text(encoding="utf-8"))
+    media = [f for f in (example.get("data") or {}).get("rss_feeds") or [] if f.get("kind") == "media_conseil"]
+    since = datetime.now(UTC) - timedelta(days=int((getattr(cfg.params, "media", None) or {}).get("recent_days", 7)))
+    missing = []
+    with db_session() as s:
+        for f in media:
+            name = str(f["name"])
+            if name not in mine:
+                missing.append(name)
+                print(f"ABSENT {name:<26} pas dans config/params.yaml (params-init --update l'ajoute)")
+                continue
+            if "renseigner" in str(mine[name].get("url", "")):
+                print(f"—      {name:<26} adresse à renseigner")
+                continue
+            fr = s.get(DataFreshness, f"rss:{name}")
+            items = list(s.scalars(select(NewsItem).where(NewsItem.source == name, NewsItem.fetched_at >= since)))
+            read = sum(1 for i in items if "media" in (i.classification or {}))
+            n = s.scalar(
+                select(func.count())
+                .select_from(MediaMention)
+                .where(MediaMention.source == name, MediaMention.published_at >= since)
+            )
+            last = fr.last_ok_at.strftime("%d/%m %H:%M") if fr and fr.last_ok_at else "jamais"
+            err = f" · erreur : {fr.last_error[:60]}" if fr and fr.last_error else ""
+            print(f"OK     {name:<26} lu {last} · {len(items)} épisode(s) 7 j · {read} analysé(s) · "
+                  f"{n} valeur(s) citée(s){err}")  # fmt: skip
+            for i in sorted(items, key=lambda x: x.published_at or x.fetched_at, reverse=True)[:2]:
+                print(f"         {(i.published_at or i.fetched_at):%d/%m} {i.title[:80]}")
+    if missing:
+        print(
+            f"\n{len(missing)} flux média absent(s) : lancer params-init --update, puis attendre le prochain news_scan."
+        )
+    return 0
 
 
 def cmd_tv_columns_check(args: argparse.Namespace) -> int:
@@ -1718,6 +1816,9 @@ def main(argv: list[str] | None = None) -> int:
     sd.add_argument("url", nargs="?", default=None, help="page à examiner (défaut : sources « à renseigner »)")
     sd.add_argument("--name", default=None, help="une seule source du catalogue")
     sd.set_defaults(fn=cmd_sources_discover)
+    sub.add_parser(
+        "media-check", help="podcasts et médias : flux présents, épisodes lus, valeurs citées (docs/23)"
+    ).set_defaults(fn=cmd_media_check)
     sk = sub.add_parser("sources-check", help="lit chaque flux configuré et affiche son état (docs/23)")
     sk.add_argument("--name", default=None)
     sk.set_defaults(fn=cmd_sources_check)

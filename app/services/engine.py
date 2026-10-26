@@ -793,11 +793,20 @@ class ScanReport:
     skipped_existing: int = 0
     by_action: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    by_market: dict[str, list[int]] = field(default_factory=dict)  # MIC → [scanned, setups, proposals]
+
+    def count(self, mic: str | None, k: int) -> None:
+        self.by_market.setdefault(mic or "?", [0, 0, 0])[k] += 1
 
     def note(self) -> str:
         acts = ", ".join(f"{k} {v}" for k, v in sorted(self.by_action.items()))
         err = f" · {len(self.errors)} valeur(s) en erreur : {', '.join(self.errors[:3])}" if self.errors else ""
-        return f"{self.scanned} valeurs, {self.setups} configurations, {self.created} propositions ({acts}){err}"
+        places = " ; ".join(
+            f"{m} {v[0]}/{v[1]}/{v[2]}" for m, v in sorted(self.by_market.items(), key=lambda kv: -kv[1][0])
+        )
+        return f"{self.scanned} valeurs, {self.setups} configurations, {self.created} propositions ({acts}){err}" + (
+            f" · par place (valeurs/configurations/propositions) : {places}" if places else ""
+        )
 
 
 def _candidates(s: Session, isins: list[str] | None) -> list[Instrument]:
@@ -896,6 +905,7 @@ def scan(
     for inst in _candidates(s, isins):
         try:
             rep.scanned += 1
+            rep.count(inst.mic, 0)
             bars = load_bars(s, inst.isin, end=day, limit=int(zp.get("lookback_sessions", 250)) + 10)
             if len(bars) < 60:
                 continue
@@ -1006,6 +1016,7 @@ def scan(
             cm = ctx_for(inst.mic)
             for setup, source in st_["found"]:
                 rep.setups += 1
+                rep.count(inst.mic, 1)
                 er, track, prior = expect.get((setup.detector, source), (None, None, None))
                 conv, conv_why = conviction(er, dparams)
                 line_level = (
@@ -1187,6 +1198,8 @@ def _persist(
                 prop.details = _json(e.details)
                 rep.created += 1
                 rep.by_action[prop.action] = rep.by_action.get(prop.action, 0) + 1
+                inst_e = s.get(Instrument, e.isin)
+                rep.count(inst_e.mic if inst_e else None, 2)
         except Exception as exc:  # noqa: BLE001
             rep.errors.append(f"{e.isin}: {exc.__class__.__name__}")
             log.warning("moteur : enregistrement de %s refusé (%s)", e.isin, exc.__class__.__name__, exc_info=True)
