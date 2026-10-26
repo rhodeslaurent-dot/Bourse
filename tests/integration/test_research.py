@@ -68,7 +68,7 @@ def research_db(db_engine, config):
     return run_id
 
 
-def test_research_commands_end_to_end(research_db, tmp_path):
+def test_research_commands_end_to_end(research_db, tmp_path, capsys):
     out = str(tmp_path / "research")
     run_id = research_db
     # calibration: the vectorised engine replays the stored backtest trade by trade
@@ -105,6 +105,13 @@ def test_research_commands_end_to_end(research_db, tmp_path):
         rows = list(csv.DictReader(fh))
     assert rows[-1]["kind"] == "run" and rows[-1]["prereg_sha256"] == h["plan_sha256"]
     assert rows[-1]["calibration"] == "VALIDE"
+    # explain: the strongest cells with the criteria they miss, from the report alone (no data read, no ledger line)
+    n_ledger = len(rows)
+    assert main(["--params", PARAMS, "research", "explain", "--out", out, "--top", "3"]) == 0
+    shown = capsys.readouterr().out
+    assert shown.count("■ ") == 3 and "critères NON remplis" in shown and reports[-1].name in shown
+    with open(tmp_path / "research" / "ledger.csv", encoding="utf-8") as fh:
+        assert len(list(csv.DictReader(fh))) == n_ledger
     # costs never improve a trade: gross R ≥ net R on average in every reported cell
     for row in rep["G_couts_et_comptes"].values():
         if row.get("cout_moyen_r") is not None:

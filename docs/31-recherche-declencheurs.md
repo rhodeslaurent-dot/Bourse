@@ -76,10 +76,16 @@ Momentum résiduel, saisonnalité, mois du dividende, attention Wikipédia (enre
 Dans l'ordre (le conteneur `app` tourne) :
 
 ```
+docker compose exec app python -m app.cli fx-history
 docker compose exec app python -m app.cli research calibrate --run 2
 docker compose exec app python -m app.cli research decompose --run 2
-docker compose exec app python -m app.cli research run --universe all
+docker compose exec app python -m app.cli research run --universe all --run 2
+docker compose exec app python -m app.cli research explain --top 10
 ```
+
+- `fx-history` (une fois) : taux de référence BCE depuis 2015. Sans eux, les jours antérieurs au premier taux en base utilisent le taux statique du plan (listé dans l'en-tête) : la liquidité en euros et les frais minimums des valeurs hors euro sont alors approchés.
+- `run --run 2` : le backtest de référence est **celui de la calibration**. Sans `--run`, le banc prend le dernier backtest (le backtest hebdomadaire en crée un chaque dimanche) ; s'il n'a pas de calibration de ce plan, le run est **refusé avant tout calcul** (code 2, le message donne le numéro à passer).
+- `explain` : lit un rapport déjà écrit (le dernier, ou `--report <fichier>.json`) et affiche, pour les `--top` cellules au t hebdomadaire le plus élevé, les critères A1–A13 non remplis et les statistiques correspondantes (contrôles, hors échantillon, plis, régimes, coûts, survie, concentration). Aucune donnée lue, rien au registre.
 
 - `calibrate` rejoue chaque trade du run 2 avec le moteur vectorisé (conventions du run 2), sur toutes les valeurs du run 2 (aucune n'est écartée pour liquidité) : **VALIDE** si ≥ 99 % de **tous** les trades du run 2 ont le même jour et le même motif de sortie (un trade introuvable dans les panneaux compte comme différent), si ≥ 99 % sont localisés et si le R brut moyen de chaque détecteur est à ±0,02 R ; sinon **INVALIDE**. Portée (écrite dans le fichier) : les entrées sont rejouées depuis le prix exécuté, les règles d'entrée ne sont pas testées (le prix maximal n'est pas stocké dans le run 2). Le rapport d'un `run` ne retient que la calibration **du même plan (sha256) et du même run** dont les cours couvrent la fin des données du rapport (la plus récente) ; absente ou INVALIDE → « INVALIDE » dans l'en-tête, titre préfixé « INVALIDE », **aucun fichier de candidats figé**. Code de sortie 1 si INVALIDE.
 - `decompose` : diagnostic (a) seul, rapide.

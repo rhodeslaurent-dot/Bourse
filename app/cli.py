@@ -1196,6 +1196,25 @@ def cmd_exchange_list_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fx_history(args: argparse.Namespace) -> int:
+    """ECB reference rates since ``--from`` (full public history, one download): the research harness and the
+    euro conversions of non-euro values use the rate of each day instead of the plan's static rate (26/10/2026:
+    the base only held rates from 23/07/2026, the 2016–2026 research ran on static rates)."""
+    from app.data.providers import ecb_fx
+    from app.db.session import db_session
+    from app.services.macro import store_fx
+
+    start = date.fromisoformat(args.from_date)
+    points = [p for p in ecb_fx.fetch("hist") if p.day >= start]
+    with db_session() as s:
+        n = store_fx(s, points)
+    days = sorted({p.day for p in points})
+    cur = sorted({p.currency for p in points})
+    print(f"{n} taux BCE enregistrés : {len(cur)} devises, {len(days)} jours"
+          + (f" du {days[0]} au {days[-1]}" if days else ""))  # fmt: skip
+    return 0
+
+
 def cmd_index_check(args: argparse.Namespace) -> int:
     """docs/32 — loads the index of each venue (regime per market) and says, per venue, whether its EODHD code
     answers; a wrong code is reported, the venue then follows the European regime."""
@@ -1371,6 +1390,17 @@ def cmd_research(args: argparse.Namespace) -> int:
                     print("candidats figés : fichier *_candidates.yaml à côté du rapport (research unseal)")
                 elif r["candidats"]:
                     print("candidats NON figés : calibration non valide (research calibrate --run N, puis relancer)")
+            elif args.action == "explain":  # a report already written: no data read, nothing recorded
+                import json
+
+                from app.domain.research.report import explain
+
+                files = sorted(p for p in out.glob("2*.json") if "candidates" not in p.name)
+                path = Path(args.report) if args.report else (files[-1] if files else None)
+                if path is None:
+                    print("aucun rapport dans " + str(out))
+                    return 1
+                print(f"rapport : {path}\n" + explain(json.loads(path.read_text(encoding="utf-8")), args.top))
             elif args.action == "decompose":
                 d = research.decompose(s, cfg, calendars, args.run, out, progress)
                 print(research._decomp_text(d) if "decomposition" in d else d.get("erreur"))
@@ -1971,6 +2001,9 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--to", default=None)
     bt.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous les actifs)")
     bt.set_defaults(fn=cmd_backtest)
+    fh = sub.add_parser("fx-history", help="taux BCE historiques (une fois) : conversions et banc de recherche")
+    fh.add_argument("--from", dest="from_date", default="2015-01-01")
+    fh.set_defaults(fn=cmd_fx_history)
     ic = sub.add_parser("index-check", help="charge et contrôle l'indice de chaque place (régime par marché, docs/32)")
     ic.add_argument("--search", default=None, help="chercher un code d'indice EODHD (ex. MIB, FTSE, ISEQ)")
     ic.set_defaults(fn=cmd_index_check)
@@ -1978,7 +2011,7 @@ def main(argv: list[str] | None = None) -> int:
     br.add_argument("--run", type=int, default=None)
     br.set_defaults(fn=cmd_backtest_report)
     rs = sub.add_parser("research", help="recherche de déclencheurs pré-enregistrée (docs/31) : rapport agrégé")
-    rs.add_argument("action", choices=["run", "decompose", "calibrate", "unseal"])
+    rs.add_argument("action", choices=["run", "decompose", "calibrate", "unseal", "explain"])
     rs.add_argument("--prereg", default="research/prereg/2026-10-27_reg1.yaml")
     rs.add_argument("--from", dest="from_date", default=None, help="début des données (défaut 2016-01-04)")
     rs.add_argument("--to", default=None, help="fin des données (défaut : hier)")
@@ -1995,6 +2028,8 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument("--workers", type=int, default=1, help="réservé (calcul vectorisé, un seul processus)")
     rs.add_argument("--run", type=int, default=None, help="backtest de référence (défaut : le dernier)")
     rs.add_argument("--candidates", default=None, help="fichier de candidats figé (unseal)")
+    rs.add_argument("--report", default=None, help="explain : rapport .json (défaut : le dernier)")
+    rs.add_argument("--top", type=int, default=8, help="explain : nombre de cellules détaillées")
     rs.add_argument("--no-cache", dest="no_cache", action="store_true")
     rs.add_argument(
         "--max-f0-candidates",

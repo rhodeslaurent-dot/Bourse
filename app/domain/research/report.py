@@ -311,3 +311,51 @@ def render_fr(report: Mapping[str, Any]) -> str:
                      f"{'ok' if v.get('ok') else 'non'}")  # fmt: skip
     lines += ["", "K — Limites"] + [f"  - {x}" for x in report.get("K_limites", [])]
     return "\n".join(lines) + "\n"
+
+
+EXPLAIN_SECTIONS = (
+    ("D_controles_et_references", ("mean_excess_ctrl", "excess_ctrl_ic", "p_permutation", "selection_adverse")),
+    ("F_robustesse", ("oos", "plis", "walk_forward_famille", "regime", "dsr", "pbo_famille", "splits")),
+    ("G_couts_et_comptes", ("mean_r_brut", "cout_moyen_r", "mean_r_stress", "multiplicateur_couts_equilibre",
+                            "mean_pct_notionnel", "pea", "srd")),
+    ("H_survie_dividendes_capacite", ("survie", "dividendes", "capacite", "concentration")),
+)  # fmt: skip
+
+
+def _compact(x: Any, width: int) -> str:
+    import json
+
+    text = json.dumps(x, ensure_ascii=False, separators=(",", ":"), default=str)
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def explain(report: Mapping[str, Any], top: int = 8, width: int = 360) -> str:
+    """``research explain``: for the ``top`` cells by weekly t, the criteria A1–A13 not met and the statistics
+    behind them (controls, robustness, costs, survival, concentration), compact — what the .txt leaves out.
+    Aggregates only, like the report itself."""
+    rows = [r for fam in (report.get("C_etape0_par_famille") or {}).values() for r in fam if "supprime" not in r]
+    rows.sort(key=lambda r: -(r.get("t_week") if isinstance(r.get("t_week"), int | float) else -99.0))
+    lines = [f"{report.get('A_resume', {}).get('titre', '')} — {min(top, len(rows))} cellule(s) les plus fortes", ""]
+    head = report.get("entete") or {}
+    for k in ("effet_minimal_detectable", "puissance_effet_plante", "romano_wolf", "avertissements"):
+        if head.get(k):
+            lines.append(f"{k} : {_compact(head[k], width * 2)}")
+    for r in rows[:top]:
+        cid = str(r.get("id"))
+        crit = ((report.get("I_classement") or {}).get(cid) or {}).get("criteres") or {}
+        miss = [k for k, v in crit.items() if not v]
+        lines += ["", f"■ {cid}", f"  étape 0 : {_compact({k: v for k, v in r.items() if k != 'id'}, width)}",
+                  f"  critères NON remplis : {', '.join(miss) if miss else 'aucun'}"]  # fmt: skip
+        for sec, keys in EXPLAIN_SECTIONS:
+            row = ((report.get(sec) or {}).get("cellules") if sec.startswith("D_") else report.get(sec)) or {}
+            vals = row.get(cid) or {}
+            for k in keys:
+                if k in vals and vals[k] is not None:
+                    lines.append(f"  {k} : {_compact(vals[k], width)}")
+    b = report.get("B_diagnostics_run2") or {}
+    if b.get("detecteurs_existants_walk_forward"):
+        lines += [
+            "",
+            f"détecteurs existants (walk-forward) : {_compact(b['detecteurs_existants_walk_forward'], width * 3)}",
+        ]
+    return "\n".join(lines) + "\n"

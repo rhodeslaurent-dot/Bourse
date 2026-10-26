@@ -265,3 +265,23 @@ def test_merge_never_appends_under_an_inline_value():
     example = "a:\n  b:\n    x: 1\n    y: 2\n"
     target = "a:\n  b: {x: 5}\n"
     assert cli.merge_missing_children(example, target, "a.b") == (target, [])
+
+
+def test_fx_history_loads_the_ecb_history_from_a_date(db_engine, monkeypatch, capsys):
+    """26/10/2026: the base only held ECB rates from 23/07/2026; the research ran 2016–2026 on static rates."""
+    import argparse
+    from datetime import date
+
+    from app.data.providers.ecb_fx import FxPoint
+    from app.db.models import FxRate
+    from app.db.session import db_session
+
+    pts = [FxPoint(date(2014, 12, 31), "SEK", 9.39), FxPoint(date(2016, 1, 4), "SEK", 9.25),
+           FxPoint(date(2016, 1, 4), "USD", 1.09), FxPoint(date(2016, 1, 5), "USD", 1.07)]  # fmt: skip
+    monkeypatch.setattr("app.data.providers.ecb_fx.fetch", lambda period="daily", client=None: pts)
+    assert cli.cmd_fx_history(argparse.Namespace(from_date="2015-01-01")) == 0
+    with db_session() as s:
+        rows = {(r.pair, r.day): r.rate for r in s.query(FxRate)}
+    assert rows == {("EURSEK", date(2016, 1, 4)): 9.25, ("EURUSD", date(2016, 1, 4)): 1.09,
+                    ("EURUSD", date(2016, 1, 5)): 1.07}  # fmt: skip
+    assert "3 taux BCE enregistrés : 2 devises, 2 jours du 2016-01-04 au 2016-01-05" in capsys.readouterr().out
