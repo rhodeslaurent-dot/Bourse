@@ -19,6 +19,8 @@ Principe : **4 détecteurs d'entrée = 4 stratégies** (chacune avec ses paramè
 
 Agrégation (paramètres `regime.*`) : **rouge** si ≥ `regime.red_min_components` (2) composantes rouges ; **orange** si ≥ 1 composante orange ou 1 rouge ; **vert** sinon. Effets : **Vert** = tailles normales ; **Orange** = taille × 0,5, BUY seulement si ratio d'admission ≥ `scoring.buy_min_ratio_orange` ; **Rouge** = pas de nouvelle entrée (WATCH seulement), rappel de resserrer les stops. Le régime est affiché en tête de chaque brief/rapport avec ses composantes.
 
+**Mise à jour du 26/10/2026 — un régime par place (docs/32).** Le tableau ci-dessus s'applique désormais **à chaque place** : son propre indice (`regime.indices_by_mic` : CAC 40 pour Paris, DAX pour Francfort, AEX, IBEX, OMXS30… S&P 500 pour New York), le STOXX 600 en référence, la largeur de **ses** valeurs (à partir de `regime.breadth_min_values` valeurs), et les journées de distribution et la volatilité de **son** indice. Une valeur suit le régime de sa place, ou le régime européen si sa place n'a pas d'indice (la fiche le dit). Le régime **européen** (STOXX 600, tout l'univers) sert au niveau de risque du jour (docs/28) et aux rapports.
+
 ## 6.3 Détecteurs d'entrée
 
 ### D1 — Gap + catalyseur à l'ouverture (« episodic pivot »)
@@ -54,6 +56,14 @@ Agrégation (paramètres `regime.*`) : **rouge** si ≥ `regime.red_min_componen
 - Pipeline : déduplication → rattachement à l'instrument (ISIN/nom via table d'alias, LLM en secours) → **classification LLM (Haiku)** avec schéma JSON : `type ∈ {résultats, guidance, contrat, M&A, dividende, augmentation_capital, gouvernance, reco_broker, réglementaire, autre}`, `direction ∈ {positif, négatif, neutre}`, `magnitude ∈ {forte, moyenne, faible}`, `ampleur_annoncée (0–1)` (d'après le texte de l'émetteur : « supérieur aux attentes », relèvement de guidance…), `résumé ≤ 240 caractères`, `confiance (0–1)`. Une **surprise** chiffrée (écart au consensus) n'est calculée **que** si un consensus daté est disponible (EODHD estimates, plan All-in-One) ; sans consensus, le champ est `null` et seule l'ampleur annoncée est utilisée, avec moins de points. Prompt versionné ; sortie validée ; température 0 ; cache par hash ; 50 items max par cycle.
 - Sortie : `premarket_watch` (valeurs à surveiller à 09:00 avec direction attendue) ; alimente D1 (catalyseur requis) et le score C ; les catalyseurs `négatif/forte` sur une **position** déclenchent une alerte immédiate (S4, §6.4).
 - Le scan tourne aussi en séance (toutes les 15 min) et de 17:40 à 19:00 (communiqués du soir), afin que le brief du lendemain couvre « les catalyseurs depuis 17:40 la veille ».
+
+### D8 — Buzz précoce (25/10/2026, docs/26)
+
+Les échanges des particuliers s'accélèrent (forum, Reddit) sans publication rattachée et avant que le prix ne bouge. Il en sort une **fiche d'opportunité dimensionnée**, jamais un ordre : limite juste au-dessus de la clôture, prix maximal +1,5 %, stop sous la structure, objectif à la résistance suivante. Le contenu des messages (docs/30) peut bloquer l'entrée (« emballement » porté par peu de comptes ou par des messages promotionnels) ; il n'est jamais une raison d'acheter.
+
+### Résultat mesuré des détecteurs (backtest du 26/10/2026, docs/27)
+
+Sur 2018-10 → 2026-10 au coût complet, **d2, d3, d4 et d7 ont une espérance négative** (d7 −0,14 R sur 2 716 trades, intervalle hors échantillon entièrement négatif ; d4 −0,38 R). Le signal d7 est légèrement positif **avant** les coûts (+0,04 R). Les pertes viennent surtout des sorties et des coûts : stops serrés (durée médiane 2 à 3 séances), objectifs lointains (3,4 à 3,9 R visés pour un meilleur moment médian de 1,1 R), et 40 % des perdants étaient passés par +1 R. La refonte suit la recherche pré-enregistrée (docs/31) ; le sort des détecteurs actuels sera décidé par ADR au tour 2.
 
 ## 6.4 Détecteurs de sortie / allègement (sur positions ouvertes)
 

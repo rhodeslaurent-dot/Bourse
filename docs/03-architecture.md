@@ -68,6 +68,12 @@ Externe : EODHD (REST + WebSocket), Saxo OpenAPI (lecture), TradingView screener
 | `notify/` | Telegram, e-mail, déduplication, quotas | docs/09 |
 | `web/`, `api/` | UI et API | docs/09 |
 
+**Compléments des 25 et 26/10/2026** :
+- `app/domain/social_content.py` et `app/services/social_content.py` : contenu des forums (docs/30) ;
+- `app/services/indices.py` : indices des places (docs/32) ;
+- `app/domain/research/` et `app/services/research.py` : banc de recherche pré-enregistré en numpy, avec un plan figé dans `research/prereg/` et des rapports agrégés dans `data/research/` (docs/31) ;
+- `app/services/flow.py` et `app/web/guide_routes.py` : pages Fonctionnement et Aide.
+
 ## 3.4 Flux de données principal (du signal à la décision)
 
 1. **Ingestion** : cours (EOD nocturne + temps réel sur liste restreinte), news (RSS 5 min), newsletters (IMAP), portefeuille (Saxo API en séance toutes les 5 min + rapprochement le soir, CSV BoursoBank hebdo).

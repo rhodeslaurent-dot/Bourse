@@ -88,6 +88,18 @@ Règles : déduplication par (`instrument`, `compte`, `type`, `jour`), **jamais 
 
 Exigences : temps de rendu < 2 s en 4G ; aucune donnée sans badge de statut ni horodatage de marché ; heures affichées en Réunion (Paris entre parenthèses) ; thème clair/sombre ; aucune action d'ordre (aucun bouton « acheter/vendre » — uniquement des déclarations : « Ordre saisi », « Exécuté », « Stop saisi »).
 
+### Compléments des 25 et 26/10/2026 (demandes de l'utilisateur)
+
+| Page | Contenu |
+|---|---|
+| `/fonctionnement` | **Logigramme** de l'outil en 5 étapes (Données → Analyse → Décision → Suivi → Apprentissage). Pour chaque fonction : ce qu'elle fait, ses jobs, l'heure et l'état de leur **dernière exécution réelle** (à jour / en retard / erreur / jamais / manuel), la note du job, un lien vers la page concernée |
+| `/aide` | Journée type ; **watchlist, opportunités et carnet** (trois listes complémentaires) ; lecture d'une opportunité ; les autres pages ; glossaire (R, prix maximal, ratio d'admission, régime, portail…) ; réglage de l'outil (`params-init --update/--set/--reset`) ; **reconnexion des liens** (Saxo, EODHD, Gmail, Telegram, IA, Reddit et Bluesky, accès distant, Healthchecks) ; commandes de diagnostic |
+| `/opportunites` | Regroupement : **actionnables** (les ordres du carnet, rang en noir), **à surveiller** (« rang brut » en gris : le classement range avant les filtres), **écartées** ; chaque ligne WATCH ou BLOQUÉ suivie d'une explication « **En clair** » ; décompte **par place** |
+| `/lettres` | **Sources de chaque synthèse** (lettres : source, date, objet ; plus les articles de la revue de presse) |
+| `/valeur/<isin>` | Section « Échanges du forum » : faits agrégés, solidité, liens des fils, bouton « Lire les échanges » (docs/30) |
+| `/` (accueil) | Régime européen et régime de chaque place |
+| `/risque` (docs/28) | Niveau de risque du jour, son explication, unité de risque réglable |
+
 ## 9.6 API (JSON, usage interne + n8n + webhooks)
 
 `GET /api/health`, `GET /api/jobs`, `POST /api/ingest/newsletter`, `POST /api/ingest/rss`, `POST /api/webhooks/tradingview` (secret), `GET /api/opportunities?date=`, `GET /api/positions`, `POST /api/orders` (déclaration « ordre saisi »), `POST /api/executions` (déclaration d'exécution, idempotente par identifiant unique), `POST /api/protections`, `POST /api/decisions`, `POST /api/mode`, `GET /api/report/<date>`, `GET /api/instruments/<isin>` (fiche + statut d'éligibilité), `GET /api/prices/<isin>?tf=1m|5m|1d`. Authentification : jeton Cloudflare Access vérifié + jeton applicatif pour n8n/webhooks.

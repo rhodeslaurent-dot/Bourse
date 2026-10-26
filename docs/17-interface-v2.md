@@ -41,6 +41,8 @@ Source unique : `app/web/labels.py` (dictionnaires `LABELS`, `HELP`). Les identi
 - Boutons de décision (formulaire) : Vu / Watch / Ordre saisi / Ignorer (motif optionnel) → `record_decision` (même table que Telegram).
 - Une proposition `to_verify` affiche le bandeau « à vérifier » et **aucune** fiche d'ordre.
 
+**Mise à jour du 26/10/2026.** La page regroupe les propositions : **actionnables** d'abord (achats retenus et limites préparées, c'est-à-dire le carnet détaillé), puis **à surveiller**, puis **écartées**. Le rang reste celui du moteur ; il est affiché en gris (« rang brut ») hors du groupe actionnable, car le classement intervient avant les portes. Une valeur n° 1 au classement peut ainsi rester à surveiller. Chaque mention WATCH ou BLOQUÉ est suivie d'une phrase « En clair » ; un décompte par place figure en tête. Le mode d'emploi est sur `/aide`.
+
 ## 17.4 Assistant (`/assistant`)
 
 - Question libre, optionnellement rattachée à une valeur (ISIN ou nom). L'outil construit en Python un **dossier de faits** (`app/services/assistant.py › build_context`) : identité (nom, place, devise, éligibilité PEA/SRD), dernière clôture (date, statut), indicateurs du jour avec libellés, position et protection si détenue, propositions et décisions récentes, nouvelles des 7 derniers jours (titres, classification), note libre, régime de marché.

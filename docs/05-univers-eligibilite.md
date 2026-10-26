@@ -46,6 +46,12 @@ Univers attendu : ~600–900 valeurs (Paris ~200, Xetra ~150, Amsterdam/Bruxelle
 
 Champs : `isin`, `ticker_local`, `ticker_eodhd`, `ticker_saxo (Uic)`, `ticker_tv`, `name`, `exchange`, `mic`, `currency`, `country_of_domicile`, `sector`, `industry`, `index_memberships[]`, `market_cap_eur`, `adv_eur_20`, `pea_eligible`, `pea_confidence`, `pea_source`, `srd_status ∈ {complet, long_only, none, unknown}`, `srd_confirmed_by_user`, `earnings_next_date`, `earnings_source`, `active`, `updated_at`. Toute correspondance de tickers entre providers est stockée et testée (les tickers Xetra/EODHD/Saxo diffèrent).
 
+### Compléments des 25 et 26/10/2026
+
+- **Une seule cotation par ISIN : la cotation principale.** Défaut corrigé le 25/10/2026 : les grandes valeurs de Paris étaient suivies sur leur cotation secondaire de Xetra (Air Liquide `AIL.XETRA`…). On retient désormais la place d'origine (préfixe ISIN : FR → Paris, NL → Amsterdam, DE → Xetra, US → New York, GB → Londres, CH → Zurich…). Sinon, on prend la première place suivie qui n'est pas Xetra. Une exception par valeur est possible (`universe.primary_listing_overrides`). L'historique d'une valeur qui change de place est **supprimé puis rechargé** depuis la cotation principale : deux places ne sont jamais mélangées.
+- **Marchés étrangers** (décision du 26/10/2026, docs/32) : l'outil doit fonctionner sur toutes les places suivies. `universe.markets_us: [US]` et `universe.markets_ex_pea: [LSE, SW]` (CTO seulement) sont prêts à activer après la recherche de déclencheurs. Une valeur étrangère cotée seulement en secondaire sur Xetra y reste suivie tant que sa place d'origine n'est pas activée.
+- **Forums :** le forum Boursorama ne couvre que Paris. Les places réservées au forum (collecte, veille, rattrapage) vont aux valeurs qui en ont un (docs/26).
+
 ## 5.6 Versionnement
 
 Chaque `universe_refresh` produit un instantané (`universe_snapshots`) ; les entrées/sorties sont listées dans le digest hebdo. Les signaux historisés référencent l'instantané utilisé, ce qui évite le biais de survivance dans les statistiques rétrospectives.

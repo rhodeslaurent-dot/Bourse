@@ -190,6 +190,8 @@ Décision du 22/10/2026 : **option C, sans blocage absolu sur un seuil de march�
 - **Régime rouge** : pas d'entrée automatique ; une opportunité éligible à R21 peut être présentée avec l'accord de l'utilisateur. Ce n'est plus un gel absolu. `risk.exposure.red` reste le plafond d'exposition.
 - **Brent (R12)** : au-dessus de `conjuncture.brent.srd_restrict_above` (100 $), le SRD passe en mode restreint (gain net supérieur au comptant d'au moins `srd.restricted_min_net_advantage_pct`, taille × 0,5). Retour à la normale sous `srd_normal_below` (95 $) pendant `stable_sessions` (3). Le Brent compte aussi dans le risque conjoncturel.
 
+**Mise à jour du 26/10/2026 (docs/32).** Le portail et le risque conjoncturel se calculent **pour chaque valeur avec le régime de sa place** et la variation sur 5 séances de l'indice de sa place. Les **conditions publiées par les lettres** ne s'appliquent qu'aux places qu'elles couvrent (`market_gate.letters_markets`, Paris par défaut). Ailleurs, le portail dépend du régime de la place et du niveau conjoncturel (« lettres non applicables à cette place »). Un CAC 40 rouge ne ferme donc plus l'accès à Francfort ou à Stockholm.
+
 ### 7.9.5 Événements non couverts par un stop (R14)
 
 - **Événements concernés** : résultats de la société, BCE, Fed, inflation, emploi (calendrier docs/22 §22.7).

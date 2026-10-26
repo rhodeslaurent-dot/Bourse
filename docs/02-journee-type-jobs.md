@@ -79,6 +79,15 @@ Le mode `absent` prolongé remplace le « mode vacances » ; les stops restent c
 
 Règles : les jobs marqués `market_days_only: true` vérifient le calendrier **de la place de chaque instrument traité** (un scan tourne pour Paris et saute Xetra le 24/12 ; un job sans instrument, comme `brief_premarket`, tourne si au moins une place P0 est ouverte) ; `backup`, `universe_refresh`, `weekly_review` tournent toujours ; les demi-séances (24 et 31 décembre) décalent `eod_pipeline` à 14:20 et arrêtent `position_monitor` à 14:10 ; un job manqué (PC redémarré) est rejoué s'il est encore utile (`misfire_grace_time` par job : 10 min pour `open_scan`, 4 h pour `eod_pipeline`).
 
+### Compléments des 25 et 26/10/2026
+
+- `social_watch` (toutes les 20 min, 07:00–22:40, tous les jours) : vitesse des échanges des forums, lecture et classement du contenu des valeurs signalées (docs/26, docs/30), alerte P2 et passage ciblé du moteur.
+- `weak_signals` (06:40) : Wikipédia, forums et réseaux, rattrapage automatique, lecture quotidienne du contenu des forums des **positions** (rumeur négative solide → P2).
+- `eod_backfill_check` (06:45) charge aussi, de façon incrémentale, **l'indice de chaque place** et le STOXX 600 (docs/32).
+- `daily_regime` (07:30) calcule **un régime par place** plus le régime européen (docs/32).
+- `imap_poll` lit aussi les lettres **déjà ouvertes** dans Gmail (`data.imap.include_read`) et reconnaît les expéditeurs des sous-domaines (docs/19).
+- Page `/fonctionnement` : l'heure et l'état de la dernière exécution de chaque job, en direct.
+
 ## 2.5 Ce que l'utilisateur saisit (et rien d'autre)
 
 1. **Ordres et exécutions** : bouton « Ordre saisi » (l'ordre existe chez le courtier, non exécuté) puis « Exécuté » → quantité et prix (pré-remplis depuis la fiche d'ordre, modifiables) ; ou synchronisation Saxo (en séance toutes les 5 min, après chaque déclaration, rapprochement le soir) ; ou import CSV BoursoBank. Une position n'est créée qu'à l'exécution confirmée.

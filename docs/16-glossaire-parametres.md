@@ -13,6 +13,16 @@
 - **Précocité** : écart entre le prix obtenu grâce au scan propre et le prix au moment de la newsletter. **`gap_open`** : ouverture / clôture précédente − 1. **`drift_since_open`** : cours à l'heure de réception d'une lettre / ouverture − 1.
 - **Trois lectures** : attractivité de la valeur / qualité de l'entrée / admissibilité (docs/07 §7.6). **Mode de disponibilité** : disponible / réunion / absent (docs/02 §2.3). **États d'une position** : exécution (order_entered → filled_partial → filled → closed) et protection (unprotected → partially_protected → protected), indépendants et suivis par quantité. **Ratio d'admission** : score d'un détecteur calculé sur ses seuls blocs applicables (docs/06 §6.5) ; **score global /100** : grille du projet, informatif.
 
+### Compléments des 25 et 26/10/2026
+
+- **Ratio d'admission** : points obtenus ÷ points atteignables du score avec les données disponibles ; il faut `scoring.buy_min_ratio` (0,75), ou `buy_min_ratio_orange` (0,80) en marché orange, pour un achat. « WATCH : ratio d'admission 0,60 < 0,80 » : 60 % des points possibles seulement.
+- **Régime par place** : vert / orange / rouge de chaque place sur son propre indice ; **régime européen** : STOXX 600 et tout l'univers (docs/32).
+- **Cotation principale** : la place d'origine d'une valeur, seule suivie (docs/05).
+- **Niveau de risque du jour** : multiplicateur de taille conseillé chaque matin (docs/28).
+- **Buzz précoce / emballement / solidité** : accélération des échanges avant publication et avant le prix ; agitation portée par peu de comptes ou des messages promotionnels sur une petite valeur (entrée bloquée) ; qualité d'un échange (fort / faible / bruit) selon le thème, la diversité des auteurs et la promotion (docs/26, docs/30).
+- **Banc pré-enregistré, période scellée, contrôle apparié** : vocabulaire de la recherche de déclencheurs (docs/31).
+- **Actionnable** : proposition sur laquelle on peut agir aujourd'hui (achat retenu ou limite préparée au prix maximal), c'est-à-dire ce qui figure au carnet d'ordres.
+
 ## 16.2 Règles de marché (à encoder, sources 09/09/2026)
 
 - Euronext Paris (continu) : pré-ouverture 07:15 ; fixing d'ouverture 09:00 ; continu 09:00–17:30 ; pré-clôture 17:30–17:35 ; fixing 17:35 ; trading at last 17:35–17:40. Demi-séances 24 et 31 décembre (clôture 14:00/14:05, à confirmer dans l'appendice Euronext).

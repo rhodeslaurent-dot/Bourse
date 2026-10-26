@@ -57,6 +57,10 @@ Tenu à jour par Claude Code en fin de chaque session (statut ∈ {à faire, en 
 - **Plan de recherche n° 1 (docs/31, 26/10/2026)** : le plan arbitré annonçait 203 cellules (dont 126 d'étape 0) ; ses lignes en font **195** (118 d'étape 0). Appliqué : 195, aucune cellule retirée ; écarts d'implémentation listés en docs/31 §31.8 (contrôle apparié exhaustif par strate, stops posés au prix exécuté, Romano–Wolf studentisé, calibration sur le R brut).
 
 ## Décisions en attente de l'utilisateur
+- **Détecteurs d2 à d7 (backtest du 26/10/2026, espérance négative au coût complet)** : passage en « surveillance seulement » ou refonte des sorties. Décision au tour 2 de la recherche, par ADR, avec les résultats du banc (docs/31).
+- **Mesure du radar sur l'historique** (proposée le 26/10/2026) : consultations Wikipédia depuis 2015 et sujets du forum sur plusieurs années, pour mesurer « buzz précoce » et « attention sans nouvelle » sur un vrai historique. En attente de l'accord de l'utilisateur.
+- **Activation de New York, Londres et Zurich** (`universe.markets_us`, `universe.markets_ex_pea`) : après l'exécution du banc de recherche (pour ne pas changer les données pendant la mesure), et une fois les codes d'indices confirmés par `index-check`.
+- ~~**Valeurs étrangères cotées seulement sur Xetra**~~ : **tranché le 26/10/2026**. L'utilisateur veut garder et élargir les marchés étrangers. Elles restent suivies tant que leur place d'origine n'est pas activée, puis passent sur leur place d'origine (docs/32).
 - **ADR-012 (proposé le 26/10/2026)** — banc de recherche de déclencheurs pré-enregistré (docs/31) : lancer `research calibrate --run 2`, `research decompose --run 2` et `research run --universe all` sur le PC ; aucun résultat ne change un paramètre sans ADR.
 
 - ~~**docs/30 (lot S4 du radar)**~~ : **validé le 25/10/2026** (options recommandées : A, exclusion des prétendues informations privilégiées, lecture sur déclenchement + positions + à la demande, S4a → S4b → S4c).

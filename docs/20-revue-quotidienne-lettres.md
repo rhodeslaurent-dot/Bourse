@@ -45,6 +45,8 @@ Sur `window_days` jours glissants (5), par valeur identifiée :
 - Telegram : à la réception, **P2** pour chaque préconisation nouvelle d'une valeur (à étudier, recommandation explicite, contradiction) et pour la vigilance sur positions, dédupliquées par valeur, type et jour ; le soir, un digest **≤ 12 lignes** (P3) de la journée.
 - Journée guidée : étape « Lire la revue des lettres » (soir).
 
+**Mise à jour du 26/10/2026.** Chaque synthèse affiche **ses sources** : les lettres utilisées (source, date de réception, objet) et le nombre d'articles de la revue de presse, détaillés dans la section « Contexte macro ».
+
 ## 20.7 Paramètres (`config/params.yaml`)
 
 ```yaml

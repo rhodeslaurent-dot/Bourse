@@ -44,6 +44,13 @@ Hors périmètre : vente à découvert, passage d'ordre, multi-utilisateurs, hé
 - **données** : sources gratuites ou déjà payées d'abord ; tout abonnement nouveau exige un retour sur investissement démontré (docs/22 §22.7) ;
 - **pas de nombre maximal d'idées** : toutes les opportunités sont classées (espérance nette, ratio gain/risque net, gain net à l'objectif) ; seules les premières sont notifiées (`ranking.notify_top_n`).
 
+**Mise à jour des 25 et 26/10/2026 (décisions utilisateur)** — l'objectif premier est la **maximisation du gain**, la gestion du risque en second ; les deux ne doivent pas se neutraliser au point de créer de l'immobilisme (dilution sur 5 à 7 lignes simultanées). En découlent :
+- un **niveau de risque du jour** conseillé chaque matin, appliqué par défaut et modifiable (docs/28) ;
+- un **radar des signaux faibles** public : Wikipédia, volume, forums et réseaux (comptages), puis **contenu des messages** analysé sans rien conserver de nominatif (docs/26, docs/30) ;
+- des **marchés étrangers** à part entière : un régime de marché **par place**, le CAC 40 ne bloque plus les autres places ; New York, Londres et Zurich prêts à activer (docs/32) ;
+- une **recherche de déclencheurs à espérance positive** par un banc pré-enregistré, conçu par une équipe d'agents, exécuté sur le PC, avant toute conversion en détecteur (docs/31) — le backtest du 26/10/2026 ayant montré que les détecteurs d2 à d7 perdent au coût complet (docs/27) ;
+- la **lisibilité** : page « Fonctionnement » (logigramme en direct) et page « Aide » (lecture des pages, glossaire, réglages, reconnexion des liens) (docs/09 §9.5).
+
 ## 0.5 Utilisateur et contraintes
 
 - Un seul utilisateur, à La Réunion (UTC+4, pas d'heure d'été). Paris = UTC+2 (été) / UTC+1 (hiver) → l'ouverture de 9h00 Paris tombe à **11h00 (été) / 12h00 (hiver) heure Réunion**, la clôture 17h30 Paris à **19h30 / 20h30**. Wall Street ouvre à 15h30 Paris = 17h30/18h30 Réunion.

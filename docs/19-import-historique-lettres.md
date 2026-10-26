@@ -48,3 +48,9 @@ Certaines lettres (ex. notifications `noreply@zonebourse.com`) ne contiennent qu
 - **Contrôle** : `newsletter-link-check --user … --query …` lit la lettre la plus récente (lecture seule), suit son lien et affiche le statut, l'hôte final et la longueur du texte récupéré (sans le contenu).
 
 Critères : A19.5 un lien vers un domaine non autorisé ou une IP est refusé sans requête vers la destination ; A19.6 une page réservée donne `reserve` et aucune valeur n'est tirée de la page ; A19.7 le texte de la page liée est ajouté et ses valeurs extraites (tests sur pages figées).
+
+## 19.7 Reconnaissance des lettres (correctif du 26/10/2026)
+
+- **Expéditeur** : un motif `@capital.fr` reconnaît le domaine **et ses sous-domaines** (`…@info.capital.fr`), jamais un domaine ressemblant (`notcapital.fr`, `capital.fr.exemple.com`). Un motif sans extension (`@prismamedia`) reconnaît un libellé de domaine. Défaut corrigé : la lettre Momentum Capital, envoyée depuis un sous-domaine, n'était jamais reconnue.
+- **Lettres déjà ouvertes** : `data.imap.include_read: true` (par défaut). Une lettre lue sur le téléphone avant le passage de l'outil était perdue. Les doublons sont écartés avant tout suivi de lien.
+- **Rattrapage** : `newsletters-history --user <gmail> --query "from:capital.fr" --dry-run` liste les lettres présentes (expéditeurs, dates), puis les importe sans `--dry-run`.

@@ -73,3 +73,12 @@ Conventions : clés `id` (bigint), horodatages `timestamptz` en UTC, montants `n
 - ★ `signal_outcomes` (proposal_id unique, signal_id, isin, status, final, decision_group, ref_price, entry/exit day & price, exit_reason, r_gross, r_net, costs_counted, ret_pct, mfe/mae en % et en R, ret_1d/5d/20d, last_bar_day, note) — tient lieu des `signal_outcomes` de la phase 5 (docs/15-roadmap).
 - ★ `learning_reviews` (ts, trigger, status, summary, findings json, dossier json, rejected json, cost_usd, model) ; ★ `learning_questions` (review_id, question, why, kind, choices, answer, status) ; ★ `learning_suggestions` (review_id, kind, title, rationale, expected_effect, params_key, current_value, proposed_value, status, user_comment, decided_at).
 - ★ `trader_memory` (ts, text, source ∈ {utilisateur, reponse, suggestion}, ref, active) — précise la table prévue en §13.5.
+
+## 13.10 Compléments des 25 et 26/10/2026
+
+- `risk_settings`, `risk_dial_daily` (migration 0021, docs/28).
+- `social_content` (migration 0022, docs/30) : agrégats du contenu des forums par valeur et par fenêtre (messages, auteurs distincts, concentration, thèmes, natures, solidité, effet), au plus 3 résumés neutres, liens des fils, coût. **Ni texte, ni auteur, ni pseudonyme.**
+- `attention_daily` : les sources `forum_boursorama`, `reddit` et `bluesky` comptent les **sujets créés** par jour (forum) ou les mentions (réseaux). Un rattrapage remplace les valeurs (correction de mesure du 25/10/2026).
+- `market_regime.market` (migration 0023, docs/32) : MIC de la place ou `EU` ; les lignes antérieures deviennent `EU`.
+- `prices_eod` porte aussi les **indices** des places, sous un pseudo-ISIN `IDX.<code>` (hors univers).
+- Recherche de déclencheurs (docs/31) : aucune table. Les rapports agrégés, le registre et le cache vont dans `data/research/`, et le plan pré-enregistré dans `research/prereg/`.

@@ -41,3 +41,11 @@ Passer de règles « raisonnables » à des règles **mesurées** : rejouer, sé
 ## 27.7 Suites prévues
 
 **Fait (25/10/2026)** : backtest **au niveau du portefeuille** — les trades de production rejoués dans l'ordre chronologique avec au plus « plafond de risque ouvert ÷ risque par trade » lignes simultanées (6), sans puis avec le coupe-circuit glissant (sur le R réalisé), sur tout le run et la période de contrôle ; R par an, recul maximal, pire mois ; verdict « adopter » seulement si le recul maximal baisse d'au moins 20 % pour au plus 10 % de R annuel perdu (`summary.portefeuille`, commande `backtest`, `/apprentissage`). Reste à faire : t et intervalle par rééchantillonnage **par semaine** (signaux groupés) ; Sharpe déflaté ; analyse MFE / MAE pour les sorties (prise partielle, stop suiveur), sensibilité de quelques paramètres avec compte des essais et Sharpe déflaté, univers point-in-time si une source des radiations devient disponible.
+
+## 27.8 Résultats et compléments du 26/10/2026
+
+- **Backtest n° 2** (PC, 2018-10-26 → 2026-10-24, 825 valeurs, 8 631 trades) : aucune espérance positive au coût complet. En production : d7 −0,137 R (n 2 716, t −2,9), d4 −0,382 R, d3 −0,342 R, d2 −0,246 R (n 17). Sur la période de contrôle, d4 et d7 ont un intervalle entièrement négatif. Aucun a priori n'est donc accordé (§27.5), et le niveau de risque reste plafonné à 1.
+- **`backtest-report`** décompose chaque détecteur : R brut, coût, R net ; part des sorties (objectif, stop, gap, durée) ; gain visé ; meilleur et pire moment (MFE, MAE) ; part des trades passés par +1 R ; résultat par régime. Constat : d7 est à +0,04 R brut ; les stops sont serrés, les objectifs lointains, et 40 % des perdants étaient passés par +1 R.
+- **Défaut corrigé** dans le rejeu du portefeuille : le « plus haut des 21 séances » gardait 0 comme plancher, et le rejeu restait bloqué après 12 R perdus (18 trades en 8 ans). Le coupe-circuit réel n'est pas concerné.
+- **Régime par place** : chaque trade est classé selon le régime de sa place (docs/32). Le classement « inconnu » venait d'indices non chargés.
+- **Suite** : recherche de déclencheurs et de sorties à espérance positive par un banc pré-enregistré (docs/31) ; décision sur les détecteurs actuels par ADR au tour 2.

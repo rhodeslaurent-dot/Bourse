@@ -51,6 +51,16 @@
 - Commandes : `env-setup reddit`, `env-setup bluesky`, `social-check --isins …` (contrôle de lecture des pages et du format des dates, sans afficher de message).
 - **Suite proposée (docs/30, lot S4)** : lecture du contenu des messages (thème, nature, précision, diversité des auteurs), croisement des familles de sources, vérification par l'actualité et corrélations — à valider.
 
+### Mise en service sur le PC (25 et 26/10/2026)
+
+- **Structure du forum relevée** (`social-check --structure --threads`). La liste des sujets porte une date de création par sujet (`c-source__time`) et l'heure du dernier message (`c-table__last-message`). Les fils portent les messages (`c-message`), leurs auteurs, leurs textes et leurs heures ; les citations d'un autre message sont ignorées. Ces classes sont les valeurs par défaut.
+- **Mesure corrigée** : les comptages quotidiens et leur base de 60 jours comptent les **sujets créés par jour**, une date fixe (`date_class`). L'heure du dernier message (`activity_class`) sert à la veille de 20 minutes et à savoir jusqu'où lire les pages. Défaut corrigé : compter chaque sujet au jour de son dernier message faisait paraître les jours passés calmes, donc toutes les valeurs « en buzz ».
+- **Comptages faibles** : les forums ont leur propre plancher de dispersion (`weak_signals.social_min_mad` 0,3) et un minimum de 5 sujets ou messages sur 3 jours (`social_min_recent`). Deux sujets en trois jours sur un forum calme ne sont plus un « buzz ».
+- **Couverture** : le forum Boursorama ne couvre que Paris ; les autres places dépendent de Reddit et Bluesky (à configurer) ou d'un forum par place (à étudier).
+- **Premier passage** (`radar-check --views`, 26/10/2026) : 1 115 articles Wikipédia pour 1 635 couples valeur × langue, 45 étiquettes, dont 2 « buzz précoce » plausibles.
+- **Contenu des messages** : lot S4a (docs/30).
+- **Mesure sur l'historique** (proposée, à valider) : Wikipédia depuis 2015 et sujets du forum sur plusieurs années, pour juger les étiquettes sur un vrai historique.
+
 ## 26.4 Calculs (Python, `app/domain/weak_signals.py`)
 
 - **z robuste** : `z = (x − médiane) / (1,4826 × MAD)` sur une base de `weak_signals.baseline_days` (60) jours qui **exclut** la fenêtre récente ; `x` = moyenne des `recent_days` (3) derniers jours ; consultations en log (`log(1 + vues)`), plancher de MAD pour les pages peu vues (`min_mad`). Moins de `min_history_days` (30) jours → « historique insuffisant », jamais d'estimation.

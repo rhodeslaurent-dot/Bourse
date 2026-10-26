@@ -21,6 +21,8 @@ Par ligne : **conviction** × 1,15 si l'espérance mesurée du signal ≥ 0,15 R
 
 `taille = floor((capital × risque de référence × niveau × facteurs de ligne − frais) / R_par_action)` — la formule de la règle 7 (prix maximal, stop glissé, marge de change) est inchangée.
 
+**Mise à jour du 26/10/2026 (docs/32).** La composante « marché » du niveau du jour lit le **régime européen** (STOXX 600 et tout l'univers), et non plus le CAC 40. Le régime de la place de chaque valeur s'applique ligne par ligne, par le portail (docs/07 §7.9.4).
+
 ## 28.3 Ce qui a changé par rapport au 25/10 matin
 
 - Les réductions « marché » (orange, portail restreint) ne s'appliquent plus ligne par ligne : elles sont dans le niveau du jour ; un **portail restreint par absence d'avis récent des lettres** ne réduit plus la taille (la sélection exigeante R10 reste).
