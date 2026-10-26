@@ -475,14 +475,18 @@ def select_calibration(
     return verdict, f"{verdict} (concordance {d.get('concordance')}, run {run_id}, {name})"
 
 
-def calibration_status(out_dir: Path, plan_sha256: str, run_id: int | None, data_end: date | None) -> tuple[str, str]:
+def _calibrations(out_dir: Path) -> list[tuple[str, dict[str, Any]]]:
     cals = []
     for f in sorted(out_dir.glob("calibration_*.json")):
         try:
             cals.append((f.name, json.loads(f.read_text(encoding="utf-8"))))
         except (OSError, ValueError):
             continue
-    return select_calibration(cals, plan_sha256, run_id, data_end)
+    return cals
+
+
+def calibration_status(out_dir: Path, plan_sha256: str, run_id: int | None, data_end: date | None) -> tuple[str, str]:
+    return select_calibration(_calibrations(out_dir), plan_sha256, run_id, data_end)
 
 
 def freeze_candidates(
@@ -571,9 +575,20 @@ def run(
     ledger = read_ledger(out_dir)
     check_ledger(ledger, prereg)
     st, prod = resolve_settings(config, prereg, universe)
+    run2, rid = load_run2(s, run2_id)
+    pre = calibration_status(out_dir, prereg.sha256, rid, None)
+    if pre[0] != "VALIDE":  # 26/10/2026: a run against the wrong reference backtest is refused before any work
+        runs = sorted({str(d.get("run")) for _, d in _calibrations(out_dir) if d.get("plan_sha256") == prereg.sha256})
+        raise PreregError(
+            f"{pre[1]} — backtest de référence de ce run : n° {rid}"
+            + (
+                f" ; calibrations de ce plan : run(s) {', '.join(runs)} → relancer avec --run {runs[-1]}"
+                if runs
+                else ""
+            )
+        )
     panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, max_instruments,
                                out_dir / "cache" if use_cache else None, progress)  # fmt: skip
-    run2, rid = load_run2(s, run2_id)
     res = run_registration(panels, prereg, st, run2, prod, stage, None, progress, True, max_f0_candidates)
     cal = calibration_status(out_dir, prereg.sha256, rid, meta.end)
     header = _header(meta, universe, cal, st, config, prereg, rid, t0)

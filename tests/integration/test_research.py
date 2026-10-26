@@ -109,9 +109,17 @@ def test_research_commands_end_to_end(research_db, tmp_path):
     for row in rep["G_couts_et_comptes"].values():
         if row.get("cout_moyen_r") is not None:
             assert row["cout_moyen_r"] >= 0
-    # a calibration of another plan does not count: the next report is INVALIDE and freezes no candidate
+    # a calibration of another plan or of another reference backtest does not count: the run is refused before any
+    # work (26/10/2026: a weekly backtest had become the latest run, the report came out INVALIDE after the full run)
+    n_reports = len(list((tmp_path / "research").glob("2*.json")))
     cal_path = next((tmp_path / "research").glob("calibration_*.json"))
     cal_path.write_text(json.dumps({**cal, "plan_sha256": "autre plan"}), encoding="utf-8")
+    assert main(args) == 2
+    assert len(list((tmp_path / "research").glob("2*.json"))) == n_reports  # no report, no ledger line
+    cal_path.write_text(json.dumps({**cal, "run": run_id + 1}), encoding="utf-8")
+    assert main([*args, "--run", str(run_id)]) == 2  # calibrated on another backtest than the one named
+    # a calibration made before the end of the data still produces a report, INVALIDE, with no candidate frozen
+    cal_path.write_text(json.dumps({**cal, "fin_donnees": "2017-01-02"}), encoding="utf-8")
     assert main(args) == 0
     last = sorted(p for p in (tmp_path / "research").glob("2*.json") if "candidates" not in p.name)[-1]
     rep2 = json.loads(last.read_text())
