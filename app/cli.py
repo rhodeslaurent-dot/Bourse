@@ -1238,8 +1238,10 @@ def cmd_index_check(args: argparse.Namespace) -> int:
             failed = failed or bool(err) or not last
             print(f"{spec.market:<5} {spec.name:<22} {spec.eodhd:<14} +{n:>5} séances · {state}")
     if failed:  # the advice only when a venue actually failed
-        print("Un code en échec : corriger regime.indices_by_mic dans config/params.yaml (la place suit sinon le "
-              "régime européen), puis relancer index-check. Chercher un code : index-check --search <texte>.")  # fmt: skip
+        print(
+            "Un code en échec : corriger regime.indices_by_mic dans config/params.yaml (la place suit sinon le "
+            "régime européen), puis relancer index-check. Chercher un code : index-check --search <texte>."
+        )
     else:
         print("Tous les indices sont à jour.")
     return 0
