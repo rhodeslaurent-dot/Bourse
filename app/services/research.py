@@ -14,8 +14,8 @@ import hashlib
 import json
 import logging
 import time
-from collections import defaultdict
-from collections.abc import Callable
+from collections import Counter, defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -30,18 +30,28 @@ from app.config import LoadedConfig
 from app.db.models import BacktestRun, BacktestTrade, FxRate, Instrument, PriceEod
 from app.domain.calendar import MarketCalendars
 from app.domain.research import f0 as F0
+from app.domain.research.classify import Tier, unseal_confirmed
 from app.domain.research.costs import Account, ttf_rates
-from app.domain.research.panel import FeatureParams, IndexSeries, Panel
-from app.domain.research.pipeline import Settings, prepare_group
-from app.domain.research.prereg import Prereg, PreregError, check_ledger, check_unseal, file_sha256, parse_prereg
+from app.domain.research.panel import FeatureParams, IndexSeries, Panel, fx_path
+from app.domain.research.pipeline import VENUE_GROUPS, Settings, prepare_group
+from app.domain.research.prereg import (
+    CELL_SEP,
+    Prereg,
+    PreregError,
+    check_ledger,
+    check_unseal,
+    file_sha256,
+    parse_prereg,
+)
 from app.domain.research.registration import run_registration
-from app.domain.research.report import build_report, render_fr
+from app.domain.research.report import assert_no_price_fields, build_report, render_fr, suppress_deep
 
 log = logging.getLogger("bourse.research")
-GROUPS = ("P0", "P1", "P2")
+GROUPS = VENUE_GROUPS
 LEDGER_FIELDS = ["timestamp", "kind", "prereg_id", "prereg_sha256", "cell_set_sha256", "m_total", "cells_run",
-                 "candidates", "universe", "report"]  # fmt: skip
+                 "candidates", "universe", "report", "candidates_sha256", "candidate_cells", "calibration"]  # fmt: skip
 Progress = Callable[[str], None]
+DEFAULT_MAX_F0_CANDIDATES = 20_000  # evaluations of the real detectors per venue group (F0 g/h), stratified
 
 
 @dataclass(frozen=True)
@@ -53,6 +63,7 @@ class PanelMeta:
     without_group: int
     delisted_or_inactive: int
     fx_fallback_currencies: list[str]
+    fx_static_days: dict[str, dict[str, Any]]  # currency → days on the plan's static rate (before any ECB rate)
 
 
 # --- plan and settings -----------------------------------------------------------------------------
@@ -112,6 +123,10 @@ def resolve_settings(config: LoadedConfig, prereg: Prereg, universe: str) -> tup
         detectors=dict(p.detectors or {}),
         universe_label=universe,
         max_dividend_yield=float((a.get("dividend_yield_sanity") or [0.0, 0.12])[1]),
+        ca_mask_sessions=int(prereg.segments.warmup_sessions),
+        dividend_window_sessions=int(prereg.segments.warmup_sessions),
+        min_turnover_cto_eur=float(u["min_adv_eur_cto"]) if u.get("min_adv_eur_cto") is not None else None,
+        seal_start=prereg.segments.holdout_start,
     )
     stop_p = risk.stop
     prod = {
@@ -128,6 +143,7 @@ def resolved_parameters(st: Settings, config: LoadedConfig) -> dict[str, Any]:
     return {
         "universe.min_price": st.features.min_price,
         "universe.min_adv_eur_pea": st.features.min_turnover_eur,
+        "universe.min_adv_eur_cto": st.min_turnover_cto_eur,
         "regime.breadth_green": st.features.breadth_green,
         "risk.slippage_pct": st.slippage,
         "budget_risque_eur": st.risk_budget_eur,
@@ -158,26 +174,26 @@ def mic_groups(config: LoadedConfig, calendars: MarketCalendars) -> dict[str, st
 
 def _fx_series(
     s: Session, currencies: set[str], days: np.ndarray, static: dict[str, float]
-) -> tuple[dict[str, np.ndarray], list[str]]:
-    """EUR per unit for each currency on each day: last ECB rate on or before the day; before the first known
-    rate the earliest one; without any rate the static table of the plan (flagged)."""
+) -> tuple[dict[str, np.ndarray], list[str], dict[str, np.ndarray]]:
+    """EUR per unit for each currency on each day: last ECB rate on or before the day — never back-filled from
+    a later rate; before the first known rate (or without any) the static table of the plan, flagged: the
+    days on that rate are returned per currency (listed in the report header)."""
     out: dict[str, np.ndarray] = {"EUR": np.ones(days.size)}
-    fallback = []
+    fallback: list[str] = []
+    static_days: dict[str, np.ndarray] = {}
     for cur in sorted(currencies - {"EUR"}):
         base, div = ("GBP", 100.0) if cur in ("GBX", "GBp") else (cur, 1.0)
         rows = s.execute(select(FxRate.day, FxRate.rate).where(FxRate.pair == f"EUR{base}").order_by(FxRate.day)).all()
-        if rows:
-            d = np.array([np.datetime64(r[0], "D") for r in rows])
-            v = np.array([1.0 / float(r[1]) / div if r[1] else np.nan for r in rows])
-            k = np.searchsorted(d, days, side="right") - 1
-            out[cur] = np.where(k >= 0, v[np.maximum(k, 0)], v[0])
-            if (k < 0).any():
-                fallback.append(cur)
-        else:
-            rate = static.get(cur)
-            out[cur] = np.full(days.size, float(rate) if rate else np.nan)
+        rows = [r for r in rows if r[1]]
+        d = np.array([np.datetime64(r[0], "D") for r in rows], dtype="datetime64[D]")
+        v = np.array([1.0 / float(r[1]) / div for r in rows], dtype=np.float64)
+        rate = static.get(cur)
+        out[cur], flagged = fx_path(days, d, v, float(rate) if rate else None)
+        if not rows or flagged.any():
             fallback.append(cur)
-    return out, fallback
+        if flagged.any():
+            static_days[cur] = days[flagged]
+    return out, fallback, static_days
 
 
 def _index_series(s: Session, isin: str | None, start: date, end: date) -> IndexSeries | None:
@@ -227,7 +243,10 @@ def select_instruments(s: Session, config: LoadedConfig, calendars: MarketCalend
 def load_panels(
     s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg: Prereg, start: date, end: date,
     universe: str, max_instruments: int | None, cache_dir: Path | None, progress: Progress | None = None,
+    drop_illiquid: bool = True,
 ) -> tuple[list[Panel], PanelMeta]:  # fmt: skip
+    """Panels of the venue groups. ``drop_illiquid`` removes the instruments never liquid on the period (the
+    registration); the calibration keeps them (every run-2 trade must be locatable)."""
     import pandas as pd
 
     p = config.params
@@ -251,6 +270,7 @@ def load_panels(
     dropped = 0
     delisted = 0
     fx_fb: set[str] = set()
+    fx_static: dict[str, set[Any]] = defaultdict(set)
     lo_all: date | None = None
     hi_all: date | None = None
     for grp in GROUPS:
@@ -258,13 +278,13 @@ def load_panels(
         if not insts:
             continue
         key = _cache_key(
-            [grp, start, end, universe, max_instruments, rows_total, last_day, sorted(i.isin for i in insts)]
+            ["v2", grp, start, end, universe, max_instruments, rows_total, last_day, sorted(i.isin for i in insts)]
         )
         path = cache_dir / f"{grp}_{start}_{end}_{key}.npz" if cache_dir else None
         if path is not None and path.exists():
             z = np.load(path, allow_pickle=False)
             days, isins = z["days"], [str(x) for x in z["isins"]]
-            arrays = {k: z[k] for k in ("open", "high", "low", "close", "adj_close", "volume")}
+            arrays = {k: z[k] for k in ("open", "high", "low", "close", "adj_close", "volume", "vintage")}
             if progress:
                 progress(f"{grp} : panneau lu depuis le cache ({len(isins)} valeurs)")
         else:
@@ -272,7 +292,7 @@ def load_panels(
                 progress(f"{grp} : lecture des cours de {len(insts)} valeurs")
             stmt = (
                 select(PriceEod.isin, PriceEod.day, PriceEod.open, PriceEod.high, PriceEod.low, PriceEod.close,
-                       PriceEod.adj_close, PriceEod.volume)
+                       PriceEod.adj_close, PriceEod.volume, PriceEod.source, PriceEod.received_at)
                 .where(PriceEod.isin.in_([i.isin for i in insts]), PriceEod.day >= start, PriceEod.day <= end)
             )  # fmt: skip
             frames = []
@@ -292,6 +312,13 @@ def load_panels(
                 a = np.full((days.size, len(isins)), np.nan)
                 a[r, c] = pd.to_numeric(df[k], errors="coerce").to_numpy(dtype=np.float64)
                 arrays[k] = a
+            # download vintage of each bar (source × UTC reception day): adjusted closes of different vintages
+            # are not on the same adjustment basis (rescaled at their boundaries, docs/31 §31.3)
+            rec = pd.to_datetime(df["received_at"], utc=True, errors="coerce").dt.strftime("%Y-%m-%d").fillna("?")
+            codes, _ = pd.factorize(df["source"].astype(str) + "|" + rec)
+            vin = np.full((days.size, len(isins)), -1, dtype=np.int64)
+            vin[r, c] = codes.astype(np.int64)
+            arrays["vintage"] = vin
             # adjusted close missing → the last known adjustment factor (1 before any)
             fac = arrays["adj_close"] / arrays["close"]
             fac = pd.DataFrame(fac).ffill().fillna(1.0).to_numpy()
@@ -304,8 +331,10 @@ def load_panels(
         isins = [isins[k] for k in known]
         arrays = {k: v[:, known] for k, v in arrays.items()}
         cur = {meta[x].currency or "EUR" for x in isins}
-        fxs, fb = _fx_series(s, cur, days, static)
+        fxs, fb, sd = _fx_series(s, cur, days, static)
         fx_fb |= set(fb)
+        for k_, v_ in sd.items():
+            fx_static[k_] |= set(v_.tolist())
         fx = (
             np.column_stack([fxs.get(meta[x].currency or "EUR", np.full(days.size, np.nan)) for x in isins])
             if isins
@@ -313,6 +342,8 @@ def load_panels(
         )
         turn = arrays["close"] * arrays["volume"] * fx
         liquid = (np.nan_to_num(turn) >= min_turn).sum(axis=0) >= 30  # a 60-session median above needs ≥ 30 such days
+        if not drop_illiquid:
+            liquid = np.ones(len(isins), dtype=bool)
         keep = np.nonzero(liquid)[0]
         dropped += int((~liquid).sum())
         isins_k = [isins[k] for k in keep.tolist()]
@@ -334,7 +365,7 @@ def load_panels(
             np.array([float(ftt.get(x[:2], 0.0)) for x in isins_k]),
             np.array([fx_fee if (meta[x].currency or "EUR") != "EUR" else 0.0 for x in isins_k]),
             np.array([bool(meta[x].in_universe) for x in isins_k], dtype=bool),
-            cac, stoxx,
+            cac, stoxx, arrays["vintage"][:, keep].astype(np.int64),
         )  # fmt: skip
         panels.append(panel)
         counts[grp] = len(isins_k)
@@ -343,7 +374,12 @@ def load_panels(
             d1 = date.fromisoformat(str(days[-1]))
             lo_all = d0 if lo_all is None or d0 < lo_all else lo_all
             hi_all = d1 if hi_all is None or d1 > hi_all else hi_all
-    return panels, PanelMeta(lo_all, hi_all, counts, dropped, without, delisted, sorted(fx_fb))
+    static_days = {
+        cur: {"jours": len(ds), "du": str(min(ds)), "au": str(max(ds)), "taux_statique": static.get(cur)}
+        for cur, ds in sorted(fx_static.items())
+        if ds
+    }
+    return panels, PanelMeta(lo_all, hi_all, counts, dropped, without, delisted, sorted(fx_fb), static_days)
 
 
 # --- run 2 --------------------------------------------------------------------------------------------
@@ -374,8 +410,17 @@ def read_ledger(out_dir: Path) -> list[dict[str, str]]:
 
 def append_ledger(out_dir: Path, row: dict[str, Any]) -> None:
     path = out_dir / "ledger.csv"
-    new = not path.exists()
     out_dir.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        with path.open(encoding="utf-8", newline="") as fh:
+            header = next(csv.reader(fh), [])
+        if header != LEDGER_FIELDS:  # a ledger of an older layout: rewritten with the new columns (rows kept)
+            old = read_ledger(out_dir)
+            with path.open("w", encoding="utf-8", newline="") as fh:
+                w = csv.DictWriter(fh, fieldnames=LEDGER_FIELDS, extrasaction="ignore")
+                w.writeheader()
+                w.writerows([{k: r.get(k) or "" for k in LEDGER_FIELDS} for r in old])
+    new = not path.exists()
     with path.open("a", encoding="utf-8", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=LEDGER_FIELDS)
         if new:
@@ -405,12 +450,74 @@ def _json_default(x: Any) -> Any:
     return str(x)
 
 
-def latest_calibration(out_dir: Path) -> str:
-    files = sorted(out_dir.glob("calibration_*.json"))
-    if not files:
-        return "non exécutée (research calibrate --run 2)"
-    d = json.loads(files[-1].read_text(encoding="utf-8"))
-    return f"{d.get('verdict')} (concordance {d.get('concordance')}, {files[-1].name})"
+CALIBRATION_MISSING = "INVALIDE : aucune calibration de ce plan et de ce run couvrant la fin des données"
+
+
+def select_calibration(
+    calibrations: Sequence[tuple[str, Mapping[str, Any]]], plan_sha256: str, run_id: int | None, data_end: date | None,
+) -> tuple[str, str]:  # fmt: skip
+    """The calibration a report relies on: the newest one (by file name) of the same plan sha256 and the same
+    run id whose price data reach the report's data end. Returns (verdict, label); no such calibration →
+    INVALIDE (never the newest file of another plan or run)."""
+    ok = []
+    for name, d in calibrations:
+        end = d.get("fin_donnees")
+        if d.get("plan_sha256") != plan_sha256 or run_id is None or d.get("run") != run_id or not end:
+            continue
+        if data_end is not None and date.fromisoformat(str(end)) < data_end:
+            continue
+        ok.append((name, d))
+    if not ok:
+        hint = f" (research calibrate --run {run_id})" if run_id is not None else " (aucun backtest de référence)"
+        return "INVALIDE", CALIBRATION_MISSING + hint
+    name, d = sorted(ok, key=lambda x: x[0])[-1]
+    verdict = "VALIDE" if d.get("verdict") == "VALIDE" else "INVALIDE"
+    return verdict, f"{verdict} (concordance {d.get('concordance')}, run {run_id}, {name})"
+
+
+def calibration_status(out_dir: Path, plan_sha256: str, run_id: int | None, data_end: date | None) -> tuple[str, str]:
+    cals = []
+    for f in sorted(out_dir.glob("calibration_*.json")):
+        try:
+            cals.append((f.name, json.loads(f.read_text(encoding="utf-8"))))
+        except (OSError, ValueError):
+            continue
+    return select_calibration(cals, plan_sha256, run_id, data_end)
+
+
+def freeze_candidates(
+    out_dir: Path, name: str, prereg: Prereg, res: Mapping[str, Any], calibration_verdict: str
+) -> tuple[str, list[str]] | None:  # fmt: skip
+    """Write the frozen candidate file of a run (its sha256 and cells go to the ledger, the only proof an unseal
+    accepts) — never when the calibration is not VALIDE (the report is not exploitable)."""
+    cells = res.get("cellules") or {}
+    cands = [c for c in res.get("candidats") or [] if (cells.get(c) or {}).get("niveau") == Tier.CANDIDATE.value]
+    if not cands or calibration_verdict != "VALIDE":
+        return None
+    disc = {c: {k: cells[c].get(k) for k in ("n", "mean_r", "mean_eur_300", "mean_excess", "profit_factor",
+                                            "mean_pct_notionnel")} for c in cands}  # fmt: skip
+    body = yaml.safe_dump(
+        {"prereg_id": prereg.id, "prereg_sha256": prereg.sha256, "cells": cands,
+         "niveaux": {c: Tier.CANDIDATE.value for c in cands}, "decouverte": disc},
+        allow_unicode=True, sort_keys=False,
+    ).encode("utf-8")  # fmt: skip
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / f"{name}_candidates.yaml").write_bytes(body)
+    return file_sha256(body), cands
+
+
+def run_ledger_row(
+    name: str, prereg: Prereg, res: Mapping[str, Any], universe: str, report: str,
+    frozen: tuple[str, list[str]] | None, calibration_verdict: str,
+) -> dict[str, Any]:  # fmt: skip
+    return {
+        "timestamp": name, "kind": "run", "prereg_id": prereg.id, "prereg_sha256": prereg.sha256,
+        "cell_set_sha256": prereg.cell_set_hash, "m_total": prereg.total_cells,
+        "cells_run": (res.get("comptes_cellules") or {}).get("total_execute", ""),
+        "candidates": len(res.get("candidats") or []), "universe": universe, "report": report,
+        "candidates_sha256": frozen[0] if frozen else "", "candidate_cells": CELL_SEP.join(frozen[1]) if frozen else "",
+        "calibration": calibration_verdict,
+    }  # fmt: skip
 
 
 LIMITS = [
@@ -424,8 +531,8 @@ LIMITS = [
 ]
 
 
-def _header(meta: PanelMeta, universe: str, out_dir: Path, st: Settings, config: LoadedConfig, prereg: Prereg,
-            run2_id: int | None, t0: float) -> dict[str, Any]:  # fmt: skip
+def _header(meta: PanelMeta, universe: str, calibration: tuple[str, str], st: Settings, config: LoadedConfig,
+            prereg: Prereg, run2_id: int | None, t0: float) -> dict[str, Any]:  # fmt: skip
     return {
         "genere_le": datetime.now(UTC).isoformat(timespec="seconds"),
         "debut_donnees": meta.start.isoformat() if meta.start else None,
@@ -436,7 +543,9 @@ def _header(meta: PanelMeta, universe: str, out_dir: Path, st: Settings, config:
         "sans_groupe_de_places": meta.without_group,
         "radies_ou_inactifs": meta.delisted_or_inactive,
         "devises_taux_de_repli": meta.fx_fallback_currencies,
-        "calibration": latest_calibration(out_dir),
+        "jours_devise_taux_statique": meta.fx_static_days,
+        "calibration": calibration[1],
+        "calibration_verdict": calibration[0],
         "run2": run2_id,
         "parametres": resolved_parameters(st, config),
         "hypotheses": {
@@ -455,7 +564,7 @@ def run(
     s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_path: str, out_dir: Path, start: date,
     end: date, universe: str = "in_universe", max_instruments: int | None = None, stage: str = "all",
     run2_id: int | None = None, progress: Progress | None = None, use_cache: bool = True,
-    max_f0_candidates: int = 100_000,
+    max_f0_candidates: int = DEFAULT_MAX_F0_CANDIDATES,
 ) -> dict[str, Any]:  # fmt: skip
     t0 = time.time()
     prereg = load_prereg(prereg_path)
@@ -466,26 +575,15 @@ def run(
                                out_dir / "cache" if use_cache else None, progress)  # fmt: skip
     run2, rid = load_run2(s, run2_id)
     res = run_registration(panels, prereg, st, run2, prod, stage, None, progress, True, max_f0_candidates)
-    header = _header(meta, universe, out_dir, st, config, prereg, rid, t0)
+    cal = calibration_status(out_dir, prereg.sha256, rid, meta.end)
+    header = _header(meta, universe, cal, st, config, prereg, rid, t0)
     report = build_report(prereg, res, header)
     name = _stamp()
     j, t = _write(out_dir, name, report, render_fr(report))
-    cands = res.get("candidats") or []
-    if cands:
-        disc = {
-            c: {k: res["cellules"][c].get(k) for k in ("n", "mean_r", "mean_eur_300", "mean_excess")} for c in cands
-        }
-        (out_dir / f"{name}_candidates.yaml").write_text(
-            yaml.safe_dump({"prereg_id": prereg.id, "prereg_sha256": prereg.sha256, "cells": cands, "decouverte": disc},
-                           allow_unicode=True, sort_keys=False), encoding="utf-8")  # fmt: skip
-    append_ledger(out_dir, {
-        "timestamp": name, "kind": "run", "prereg_id": prereg.id, "prereg_sha256": prereg.sha256,
-        "cell_set_sha256": prereg.cell_set_hash, "m_total": prereg.total_cells,
-        "cells_run": (res.get("comptes_cellules") or {}).get("total_execute", ""), "candidates": len(cands),
-        "universe": universe, "report": j.name,
-    })  # fmt: skip
-    return {"json": str(j), "txt": str(t), "titre": report["A_resume"]["titre"], "candidats": cands,
-            "duree_s": round(time.time() - t0, 1)}  # fmt: skip
+    frozen = freeze_candidates(out_dir, name, prereg, res, cal[0])
+    append_ledger(out_dir, run_ledger_row(name, prereg, res, universe, j.name, frozen, cal[0]))
+    return {"json": str(j), "txt": str(t), "titre": report["A_resume"]["titre"], "candidats": res.get("candidats") or [],
+            "candidats_figes": frozen is not None, "calibration": cal[0], "duree_s": round(time.time() - t0, 1)}  # fmt: skip
 
 
 def decompose(s: Session, config: LoadedConfig, calendars: MarketCalendars, run_id: int | None, out_dir: Path,
@@ -508,7 +606,9 @@ def decompose(s: Session, config: LoadedConfig, calendars: MarketCalendars, run_
             divs[isin] = [
                 date.fromordinal(base + int(x)) for x in p.days[t].astype("datetime64[D]").astype(np.int64).tolist()
             ]
-    out = {"run": rid, "decomposition": F0.decompose(run2, divs)}
+    min_n = int(prereg_like.thresholds["report_min_n"])
+    out = {"run": rid, "decomposition": suppress_deep(F0.decompose(run2, divs), min_n)}
+    assert_no_price_fields(out)
     name = f"decomposition_run{rid}_{_stamp()}"
     text = _decomp_text(out)
     _write(out_dir, name, out, text)
@@ -519,6 +619,9 @@ def decompose(s: Session, config: LoadedConfig, calendars: MarketCalendars, run_
 def _decomp_text(d: dict[str, Any]) -> str:
     lines = [f"Décomposition du backtest n° {d['run']} (trades de production)"]
     for det, v in d["decomposition"].items():
+        if "supprime" in v:
+            lines.append(f"\n{det} : {v['supprime']} (n {v.get('n')})")
+            continue
         lines.append(
             f"\n{det} : n {v['n']} ; R brut {v['r_brut_moyen']:+.3f} ; coûts {v['cout_moyen_r']:.3f} R ; R net {v['r_net_moyen']:+.3f}"
         )
@@ -546,7 +649,8 @@ def _panels_for(s: Session, config: LoadedConfig, calendars: MarketCalendars, pr
                 run2: list[F0.Run2Trade], progress: Progress | None) -> tuple[list[Panel], PanelMeta]:  # fmt: skip
     start = min(t.signal_day for t in run2) - timedelta(days=420)
     end = max(t.exit_day for t in run2) + timedelta(days=10)
-    panels, meta = load_panels(s, config, calendars, prereg, start, end, "all", None, None, progress)
+    panels, meta = load_panels(s, config, calendars, prereg, start, end, "all", None, None, progress,
+                               drop_illiquid=False)  # fmt: skip
     keep = set(isins)
     out = []
     for p in panels:
@@ -571,13 +675,17 @@ def calibrate(s: Session, config: LoadedConfig, calendars: MarketCalendars, run_
         g = prepare_group(k, p, st)
         for key, v in F0.calibration_parts(g, run2, st, holds).items():
             parts[key] += v
-    verdict = F0.calibration_verdict(parts, len(parts.get("match", [])), len(run2))
+    verdict = F0.calibration_verdict(parts, Counter(t.detector for t in run2))
     verdict["run"] = rid
     verdict["plan_sha256"] = prereg.sha256
+    last_day = s.scalar(select(func.max(PriceEod.day)))
+    verdict["fin_donnees"] = last_day.isoformat() if last_day else None  # price data the replay was made with
     name = f"calibration_{_stamp()}"
     text = (f"Calibration (rejeu du backtest n° {rid}) : {verdict['verdict']}\n"
-            f"concordance {verdict['concordance']} sur {verdict['trades_localises']} trades localisés / {verdict['trades_run2']}\n"
-            + "".join(f"  {d} : {v}\n" for d, v in verdict["par_detecteur"].items()) + f"règle : {verdict['regle']}\n")  # fmt: skip
+            f"concordance {verdict['concordance']} sur les {verdict['trades_run2']} trades du run 2 "
+            f"({verdict['trades_localises']} localisés)\n"
+            + "".join(f"  {d} : {v}\n" for d, v in verdict["par_detecteur"].items()) + f"règle : {verdict['regle']}\n"
+            + f"portée : {verdict['portee']}\n")  # fmt: skip
     _write(out_dir, name, verdict, text)
     verdict["fichier"] = str(out_dir / f"{name}.json")
     return verdict
@@ -597,16 +705,14 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
     panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, None, out_dir / "cache", progress)
     res = run_registration(panels, prereg, st, (), prod, "0", ids, progress, False)
     disc = (raw or {}).get("decouverte") or {}
-    a2 = prereg.thresholds["a2"]
     verdicts = {}
     for cid in ids:
         c = res["cellules"].get(cid, {})
         d = disc.get(cid) or {}
-        same = (c.get("mean_r") or 0) * (d.get("mean_r") or 0) > 0
-        ok = (same and (c.get("mean_r") or -1) >= a2["min_mean_r"] and (c.get("mean_eur_300") or -1) >= a2["min_eur_per_budget"]
-              and (c.get("profit_factor") or 0) >= a2["min_profit_factor"])  # fmt: skip
+        ok = unseal_confirmed(c, d, prereg.thresholds)  # A2 in full (incl. % of notional) and the same sign
         verdicts[cid] = {"n": c.get("n"), "mean_r": c.get("mean_r"), "mean_eur_300": c.get("mean_eur_300"),
-                         "profit_factor": c.get("profit_factor"), "decouverte_mean_r": d.get("mean_r"),
+                         "profit_factor": c.get("profit_factor"), "mean_pct_notionnel": c.get("mean_pct_notionnel"),
+                         "decouverte_mean_r": d.get("mean_r"),
                          "verdict": "confirmé — ADR de mise en production à 50 % du risque par trade" if ok else "non confirmé"}  # fmt: skip
     out = {"plan": prereg.id, "plan_sha256": prereg.sha256, "candidats_sha256": sha, "periode": "scellée",
            "fin_donnees": meta.end.isoformat() if meta.end else None, "verdicts": verdicts}  # fmt: skip
@@ -615,7 +721,8 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
     _write(out_dir, name, out, text)
     append_ledger(out_dir, {"timestamp": name, "kind": "unseal", "prereg_id": prereg.id, "prereg_sha256": prereg.sha256,
                             "cell_set_sha256": prereg.cell_set_hash, "candidates": len(ids), "universe": universe,
-                            "report": f"{name}.json"})  # fmt: skip
+                            "report": f"{name}.json", "candidates_sha256": sha or "",
+                            "candidate_cells": CELL_SEP.join(ids)})  # fmt: skip
     return out
 
 

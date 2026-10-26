@@ -2,7 +2,9 @@
 
 Legs as ``app.domain.costs``: buy = commission + notional · (TTF + foreign tax + change fee); sell =
 commission + notional · change fee; SRD carry = daily rate · buy notional · calendar days. On top, the
-half-spread (Corwin–Schultz, per instrument-month, floored at ``risk.slippage_pct``) on both legs. Sizing on
+half-spread (Corwin–Schultz, per instrument-month, floored at ``risk.slippage_pct``) on both legs — charged
+**once** on the exit: a stop, gap or market exit already carries ``risk.slippage_pct`` in the engine's price
+(``LegInputs.exit_slip``), so only the part of the half-spread above it is added. Sizing on
 the slipped stop and the risk budget (CLAUDE.md rule 7): ``shares = floor((budget − fees) / R_per_share_eur)``,
 R per share widened by the change haircut outside the euro, notional capped by ``risk.max_position_pct_of_capital``.
 """
@@ -65,6 +67,7 @@ class LegInputs:
     days: F64  # calendar days held (SRD carry)
     unit_frac: F64  # risk unit of the R metric as a fraction of the notional (2 σ √h)
     stop_exit: Bool  # exit by a stop order (stress: extra slippage)
+    exit_slip: F64 | None = None  # slippage already in exit_px (engine-slipped exits), 0 otherwise; None: 0
 
 
 @dataclass(frozen=True)
@@ -100,13 +103,20 @@ def economics(
         frac = np.minimum(np.maximum(risk_budget_eur - est, 0.0) / rps, notional_cap_eur / unit_px)
         frac = np.where(np.isfinite(frac) & (frac > 0), frac, 0.0)
     whole = np.floor(frac)
+    # exit friction charged once: on an engine-slipped exit at P·(1 − s), the spread leg adds
+    # max(hs − s, 0) / (1 − s) of the slipped notional, so the exit costs P · max(hs, s) as a close exit would
+    if x.exit_slip is None:
+        hs_out = x.hs_out
+    else:
+        es = np.asarray(x.exit_slip, dtype=np.float64)
+        hs_out = np.maximum(x.hs_out - es, 0.0) / (1 - es)
 
     def result(s: F64) -> tuple[F64, F64, F64]:
         nb = s * unit_px
         ns = s * x.exit_px * x.fx_out
         div = s * x.div_cash * div_rate * x.fx_out
         fees = commission(acct.fees, nb) + nb * (x.ttf + x.ftt + x.fx_fee) + commission(acct.fees, ns) + ns * x.fx_fee
-        cost = fee_mult * fees + spread_mult * (x.hs_in * nb + x.hs_out * ns) + extra_exit_slip * ns * x.stop_exit
+        cost = fee_mult * fees + spread_mult * (x.hs_in * nb + hs_out * ns) + extra_exit_slip * ns * x.stop_exit
         cost = cost + acct.srd_daily_rate * nb * x.days
         gross = ns - nb + div
         return gross - cost, gross, nb

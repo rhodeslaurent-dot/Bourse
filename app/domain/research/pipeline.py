@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any
 
@@ -45,7 +45,10 @@ from app.domain.research.entries import (
 )
 from app.domain.research.exits import (
     CLOSED,
+    DELISTED,
+    DIVIDEND_SUSPECT,
     GAP_STOP,
+    SLIPPED_EXITS,
     STOP,
     TRAIL,
     Bars,
@@ -62,16 +65,32 @@ from app.domain.research.panel import (
     Bool,
     FeatureParams,
     Features,
+    Packing,
     Panel,
     adj_factor_events,
+    adjustment_factor,
     build_features,
+    make_packing,
+    mass_jump_days,
+    pack,
+    recent_any,
+    rescale_vintage_boundaries,
     unpack,
+    unpack_bool,
+    valid_bars,
 )
 from app.domain.research.prereg import Cell, Prereg
 
 Arr = npt.NDArray[Any]
-ComboKey = tuple[str, float, int, int, int | None]
+ComboKey = tuple[str, float, int, int, int | None, str | None]  # exit, cap ATR, validity, h, max hold, D2x cap
 FWD_H = (1, 3, 5, 20, 60)
+VENUE_GROUPS = ("P0", "P1", "P2")  # the venue groups of params.yaml (universe.markets_p0/p1/p2)
+
+
+def venue_code(group: str) -> int:
+    """Index of a panel's venue group in ``VENUE_GROUPS`` (−1 when unknown) — never the enumeration index of
+    the panels, which shifts when a group has no instrument."""
+    return VENUE_GROUPS.index(group) if group in VENUE_GROUPS else -1
 
 
 @dataclass(frozen=True)
@@ -97,7 +116,12 @@ class Settings:
     seed: int
     detectors: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     universe_label: str = "in_universe"
-    max_dividend_yield: float = 0.12  # yearly implied yield above which a year's dividends are not trusted
+    max_dividend_yield: float = 0.12  # trailing implied yield above which a dividend is not trusted
+    ca_mask_sessions: int = 252  # own sessions after a corporate action without signal (= segments.warmup_sessions)
+    dividend_window_sessions: int = 252  # trailing window of the implied dividend yield
+    mass_jump_share: float = 0.20  # safety net: share of a group's instruments with a factor jump on one day
+    min_turnover_cto_eur: float | None = None  # universe.min_adv_eur_cto: robustness split (plan §1.1)
+    seal_start: date | None = None  # segments.holdout_start: no data-quality exclusion crosses it
 
 
 # --- group data ------------------------------------------------------------------------------------
@@ -113,7 +137,9 @@ class GroupData:
     week: I64  # (T,) Monday-based week number
     month: I64
     year: I64
-    suspect_dividend_years: int = 0
+    suspect_dividend_years: int = 0  # instrument-years with a rejected dividend (their trades excluded)
+    div_unreliable: Bool | None = None  # (T, N) rows of those instrument-years
+    quality: dict[str, int] = field(default_factory=dict)  # data-quality counts for the report
     _fwd: dict[int, F64] = field(default_factory=dict)
 
     def fwd(self, h: int) -> F64:
@@ -131,32 +157,93 @@ def day_ids(days: npt.NDArray[np.datetime64]) -> tuple[I64, I64, I64]:
 
 
 def prepare_group(gid: int, p: Panel, st: Settings) -> GroupData:
-    f = build_features(p, st.features)
-    ca, div = adj_factor_events(f.adj_factor, p.close, f.pk, st.ca_jump, st.div_min)
+    """Vintage boundaries neutralised, corporate actions and dividends from the adjustment factor, eligibility
+    masked for ``ca_mask_sessions`` own sessions after a corporate action (raw-price features span the split),
+    dividends checked on a trailing implied yield, then features, bars and half-spreads."""
+    p, n_vintage = rescale_vintage_boundaries(p, st.div_min, st.ca_jump)
+    t_len = p.shape[0]
+    pk = make_packing(valid_bars(p))
+    ca, div = adj_factor_events(adjustment_factor(p, pk), p.close, pk, st.ca_jump, st.div_min)
+    block = unpack_bool(recent_any(pack(ca.astype(np.float64), pk) == 1.0, st.ca_mask_sessions), pk, t_len)
+    f = build_features(p, st.features, exclude=block)
     week, month, year = day_ids(p.days)
-    div, suspect = sanitize_dividends(div, p.close, year, st.max_dividend_yield)
+    seal_row = int(np.searchsorted(p.days, np.datetime64(st.seal_start, "D"))) if st.seal_start else None
+    div, unreliable, n_years, n_rejected = sanitize_dividends(
+        div, p.close, f.pk, year, st.max_dividend_yield, st.dividend_window_sessions, seal_row
+    )
+    mass = mass_jump_days(f.adj_factor, f.pk, st.div_min, st.mass_jump_share)
     bars = bars_from(p, f, ca, div)
-    cs = unpack(corwin_schultz(bars.high, bars.low), f.pk, p.shape[0])
+    cs = unpack(corwin_schultz(bars.high, bars.low), f.pk, t_len)
     hs = monthly_half_spread(cs, p.days, st.slippage)
-    return GroupData(gid, p, f, bars, hs, week, month, year, suspect)
+    quality = {
+        "frontieres_millesime_neutralisees": n_vintage,
+        "dividendes_rejetes": n_rejected,
+        "jours_sauts_de_masse": int(mass.sum()),
+        "evenements_jours_sauts_de_masse": int(((div > 0) | ca)[mass].sum()),
+        "operations_sur_titres": int(ca.sum()),
+    }
+    return GroupData(gid, p, f, bars, hs, week, month, year, n_years, unreliable, quality)
 
 
-def sanitize_dividends(div: F64, close: F64, year: I64, max_yield: float) -> tuple[F64, int]:
-    """Dividends inferred from the adjustment factor are dropped for an instrument-year whose implied yield
-    (sum of the amounts ÷ mean close) is above ``max_yield`` (unreliable factors, e.g. Yahoo for Milan)."""
-    out = div.copy()
-    bad = 0
-    for y in np.unique(year).tolist():
-        r = year == y
-        with np.errstate(invalid="ignore", divide="ignore"):
-            yld = out[r].sum(axis=0) / np.nanmean(np.where(np.isfinite(close[r]), close[r], np.nan), axis=0)
-        cols = np.nonzero(np.isfinite(yld) & (yld > max_yield))[0]
-        if cols.size:
-            sub = out[r]
-            sub[:, cols] = 0.0
-            out[r] = sub
-            bad += int(cols.size)
-    return out, bad
+def sanitize_dividends(
+    div: F64, close: F64, pk: Packing, year: I64, max_yield: float, sessions: int, seal_row: int | None = None
+) -> tuple[F64, Bool, int, int]:  # fmt: skip
+    """Each dividend inferred from the adjustment factor is checked on its ex-date against the trailing
+    implied yield (accepted amounts of the previous ``sessions`` own sessions + this one, ÷ mean close of
+    those sessions — no look-ahead); above ``max_yield`` it is rejected (unreliable factor, e.g. Yahoo for
+    Milan) and its instrument-year marked unreliable (its trades are excluded). The marking never crosses
+    ``seal_row`` (first row of the sealed period): a dividend rejected in the sealed period cannot exclude a
+    discovery trade of the same calendar year, nor the reverse. Returns the amounts, the unreliable mask
+    (T, N), the number of unreliable instrument-years (per side of the seal) and of rejected dividends."""
+    t_len, n = div.shape
+    d = np.nan_to_num(pack(div, pk))
+    c = pack(close, pk)
+    ok = np.isfinite(c)
+    cs = np.cumsum(np.where(ok, c, 0.0), axis=0)
+    cn = np.cumsum(ok, axis=0).astype(np.float64)
+    cs_p, cn_p = np.zeros_like(cs), np.zeros_like(cn)
+    if sessions < cs.shape[0]:
+        cs_p[sessions:], cn_p[sessions:] = cs[:-sessions], cn[:-sessions]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mean_c = (cs - cs_p) / (cn - cn_p)
+    rows, cols = np.nonzero(d > 0)
+    rejected = np.zeros(d.shape, dtype=bool)
+    accepted: list[tuple[int, float]] = []
+    last_col = -1
+    for k in np.lexsort((rows, cols)).tolist():
+        r, col = int(rows[k]), int(cols[k])
+        if col != last_col:
+            accepted, last_col = [], col
+        amount = float(d[r, col])
+        trailing = sum(a for pos, a in accepted if pos > r - sessions) + amount
+        m = float(mean_c[r, col])
+        if not (math.isfinite(m) and m > 0 and trailing / m <= max_yield):
+            rejected[r, col] = True
+            d[r, col] = 0.0
+        else:
+            accepted.append((r, amount))
+    rej = unpack_bool(rejected, pk, t_len)
+    unreliable = np.zeros((t_len, n), dtype=bool)
+    sealed = np.arange(t_len) >= (seal_row if seal_row is not None else t_len + 1)
+    bad = sorted({(int(col), int(year[t]), bool(sealed[t])) for t, col in zip(*np.nonzero(rej), strict=True)})
+    for col, y, side in bad:
+        unreliable[:, col] |= (year == y) & (sealed == side)
+    return np.nan_to_num(unpack(d, pk, t_len)), unreliable, len(bad), int(rejected.sum())
+
+
+def exclude_unreliable(g: GroupData, ts: I64, cols: I64, sim: SimResult) -> SimResult:
+    """Closed trades whose signal or exit falls in an instrument-year with a rejected dividend → excluded
+    (status ``DIVIDEND_SUSPECT``, counted in the report)."""
+    if g.div_unreliable is None or not g.div_unreliable.any() or ts.size == 0:
+        return sim
+    exit_t = calendar_of(g.f.pk, cols, sim.exit_pos)
+    bad = g.div_unreliable[ts, cols] | ((exit_t >= 0) & g.div_unreliable[np.maximum(exit_t, 0), cols])
+    m = bad & (sim.status == CLOSED)
+    if not m.any():
+        return sim
+    status = sim.status.copy()
+    status[m] = DIVIDEND_SUSPECT
+    return replace(sim, status=status)
 
 
 def signal_rows(days: npt.NDArray[np.datetime64], start: date, end: date, end_margin: int) -> tuple[int, int]:
@@ -262,12 +349,29 @@ def cell_signals(g: GroupData, cell: Cell, st: Settings, rows: tuple[int, int], 
     )
 
 
+def masked_signal_count(g: GroupData, cell: Cell, st: Settings, rows: tuple[int, int]) -> int:
+    """Signal days of a cell in the rows window that the corporate-action mask removed (the trigger evaluated
+    with the masked rows eligible again, ranked against the day's population)."""
+    cm = g.f.ca_masked
+    lo, hi = rows
+    if hi < lo or not cm[lo : hi + 1].any():
+        return 0
+    g2 = replace(g, f=replace(g.f, elig=g.f.elig | cm), _fwd={})
+    m, _ = raw_trigger(g2, cell, st)
+    return int((m & cm)[lo : hi + 1].sum())
+
+
 # --- combinations simulated on the whole eligible panel -------------------------------------------------
 
 
 def combo_model(key: ComboKey) -> ExitModel:
-    code, _, _, h, max_hold = key
+    code, _, _, h, max_hold, _ = key
     return exit_model(code, h, max_hold)
+
+
+def combo_label(key: ComboKey) -> str:
+    cap = f"plafond {key[5]}" if key[5] is not None else f"cap {key[1]}"
+    return f"{key[0]} {cap} validité {key[2]} h {key[3]}"
 
 
 def primary_unit(key: ComboKey) -> str:
@@ -288,7 +392,9 @@ class Combo:
     all_mean: tuple[float, int]
 
 
-def legs(g: GroupData, ts: I64, cols: I64, sim: SimResult, model: ExitModel, fx_haircut: float) -> LegInputs:
+def legs(
+    g: GroupData, ts: I64, cols: I64, sim: SimResult, model: ExitModel, fx_haircut: float, slippage: float
+) -> LegInputs:  # fmt: skip
     pk = g.f.pk
     fill_t = calendar_of(pk, cols, sim.fill_pos)
     exit_t = calendar_of(pk, cols, sim.exit_pos)
@@ -302,6 +408,7 @@ def legs(g: GroupData, ts: I64, cols: I64, sim: SimResult, model: ExitModel, fx_
         haircut=np.where(non_eur, fx_haircut, 0.0), hs_in=g.hs[ft, cols], hs_out=g.hs[et, cols], days=days,
         unit_frac=unit_fraction(g.f.sigma20[ts, cols], model.h_ref),
         stop_exit=np.isin(sim.reason, (STOP, GAP_STOP, TRAIL)),
+        exit_slip=np.where(np.isin(sim.reason, SLIPPED_EXITS), slippage, 0.0),
     )  # fmt: skip
 
 
@@ -313,7 +420,7 @@ def unit_value(e: Economics, unit: str, gross: bool = False) -> F64:
 
 def simulate_combo(g: GroupData, key: ComboKey, st: Settings, rows: tuple[int, int]) -> Combo:
     model = combo_model(key)
-    _, cap, validity, _, _ = key
+    _, cap, validity, _, _, cap_rule = key
     f = g.f
     m = f.elig.copy()
     m[: rows[0]] = False
@@ -322,9 +429,13 @@ def simulate_combo(g: GroupData, key: ComboKey, st: Settings, rows: tuple[int, i
         m &= np.isfinite(f.atr14) & (f.atr14 > 0) & np.isfinite(f.sigma20) & (f.sigma20 > 0)
     ts, cols = np.nonzero(m)
     ts, cols = ts.astype(np.int64), cols.astype(np.int64)
-    od = make_orders(g.p, f, ts, cols, model, validity, cap)
-    sim = simulate(g.bars, od, model.spec, st.slippage)
-    lg = legs(g, ts, cols, sim, model, st.fx_haircut)
+    p_max = None
+    if cap_rule is not None:  # D2x: the controls enter with the cell's own cap rule (no pivot → no order)
+        kind, value = cap_rule.split(":")
+        p_max = T.d2_cap(g.p, f, kind, float(value))[ts, cols]
+    od = make_orders(g.p, f, ts, cols, model, validity, cap, p_max)
+    sim = exclude_unreliable(g, ts, cols, simulate(g.bars, od, model.spec, st.slippage))
+    lg = legs(g, ts, cols, sim, model, st.fx_haircut, st.slippage)
     e = economics(lg, st.cto, st.risk_budget_eur, st.notional_cap_eur)
     unit = primary_unit(key)
     val = np.where(sim.status == CLOSED, unit_value(e, unit), np.nan)
@@ -354,8 +465,9 @@ def trade_rows(
     """Full metrics of a cell's signals (NaN where not closed)."""
     ts, cols = sig.ts, sig.cols
     n = ts.size
+    sim = exclude_unreliable(g, ts, cols, sim)
     closed = sim.status == CLOSED
-    lg = legs(g, ts, cols, sim, model, st.fx_haircut)
+    lg = legs(g, ts, cols, sim, model, st.fx_haircut, st.slippage)
     cto = economics(lg, st.cto, st.risk_budget_eur, st.notional_cap_eur)
     net_div = economics(lg, st.cto, st.risk_budget_eur, st.notional_cap_eur, div_rate=1 - st.cto.dividend_tax)
     no_div = economics(lg, st.cto, st.risk_budget_eur, st.notional_cap_eur, div_rate=0.0)
@@ -363,6 +475,12 @@ def trade_rows(
         lg, st.cto, st.risk_budget_eur, st.notional_cap_eur, fee_mult=st.cost_stress,
         spread_mult=st.slip_stress, extra_exit_slip=st.slippage * (st.slip_stress - 1),
     )  # fmt: skip
+    delisted = closed & (sim.reason == DELISTED)
+    if delisted.any():  # survivorship stress: the delisted exit loses 100 % of the notional
+        dl = replace(lg, exit_px=np.where(delisted, 0.0, lg.exit_px), div_cash=np.where(delisted, 0.0, lg.div_cash))
+        r_dl = unit_value(economics(dl, st.cto, st.risk_budget_eur, st.notional_cap_eur), unit)
+    else:
+        r_dl = unit_value(cto, unit)
     pea_ok = g.p.pea_eligible[cols]
     pea = economics(lg, st.pea, st.risk_budget_eur, st.notional_cap_eur)
     srd = economics(lg, st.srd, st.risk_budget_eur, st.notional_cap_eur)
@@ -389,6 +507,7 @@ def trade_rows(
     return Trades(
         {
             "group": np.full(n, g.gid, dtype=np.int64),
+            "venue": np.full(n, venue_code(g.p.group), dtype=np.int64),
             "inst": g.gid * 1_000_000 + cols,
             "t": ts,
             "day": days[ts].astype("datetime64[D]").astype(np.int64),
@@ -417,9 +536,16 @@ def trade_rows(
             "ctrl": np.where(closed, ctrl, np.nan),
             "ew": np.where(closed, ew, np.nan),
             "hazard": cl(hz),
+            "delisted": delisted,
+            "r_delist_loss": cl(r_dl),
             "capacity_ok": cap_ok & closed,
             "small": g.p.small_cap[cols],
             "liq": g.f.liq_terc[ts, cols].astype(np.int64),
+            "liq_cto": (
+                np.nan_to_num(g.f.turnover_med60[ts, cols], nan=-1.0) >= st.min_turnover_cto_eur
+                if st.min_turnover_cto_eur is not None
+                else np.zeros(n, dtype=bool)
+            ),
             "t13": g.f.t13[ts, cols],
             "in_universe": g.p.in_universe[cols],
             "pea_eligible": pea_ok,
@@ -443,7 +569,7 @@ def evaluate_cell(
     model = cell_model(cell)
     if sig.ts.size == 0:
         return Trades({})
-    cap = cell.cap_atr if cell.cap_atr is not None else 1.0
+    cap = cell.entry_cap_atr
     if sig.p_max is None and path_rule == "stop_first":
         idx = combo.index[sig.ts, sig.cols]
         if (idx >= 0).all():
@@ -514,6 +640,45 @@ def series_of(tr: Trades, monthly: bool, value: str = "excess") -> tuple[I64, F6
     return S.weekly_series(tr["week"], v)
 
 
+SESSIONS_PER_WEEK = 5
+SESSIONS_PER_MONTH = 21
+
+
+def _median_hold(tr: Trades) -> float:
+    h = tr["hold"][tr["closed"].astype(bool)] if tr.n and "closed" in tr else np.zeros(0)
+    return float(np.median(h)) if h.size else 0.0
+
+
+def nw_lag_of(tr: Trades, cell: Cell) -> int:
+    """Newey–West lag of a cell's own series: monthly cells max(2, ⌈h/21⌉) months, event cells
+    max(2, ⌈median hold / 5⌉) weeks (the overlap of the holds)."""
+    if cell.mode != "event":
+        return max(2, math.ceil(cell.h / SESSIONS_PER_MONTH))
+    return S.nw_lag(_median_hold(tr))
+
+
+def weekly_lag_of(tr: Trades, cell: Cell) -> int:
+    """The same lag in weeks — the rows of the cross-cell weekly matrix (a monthly cell's months there)."""
+    lag = nw_lag_of(tr, cell)
+    return math.ceil(lag * SESSIONS_PER_MONTH / SESSIONS_PER_WEEK) if cell.mode != "event" else lag
+
+
+def max_hold_of(cell: Cell) -> int:
+    return int(cell_model(cell).spec.max_hold)
+
+
+def block_of(cell: Cell, block_weeks: int) -> int:
+    """Bootstrap block of a cell's own series: at least the plan's ``block_weeks`` and at least the longest
+    hold (⌈max hold / 5⌉ weeks; monthly series: ⌈max hold / 21⌉ months)."""
+    per = SESSIONS_PER_MONTH if cell.mode != "event" else SESSIONS_PER_WEEK
+    return max(int(block_weeks), math.ceil(max_hold_of(cell) / per))
+
+
+def weekly_block_of(cell: Cell, block_weeks: int) -> int:
+    """Block in weeks for a weekly-row matrix: ⌈max hold / 5⌉ weeks, at least ``block_weeks``."""
+    return max(int(block_weeks), math.ceil(max_hold_of(cell) / SESSIONS_PER_WEEK))
+
+
 def add_excess(tr: Trades, monthly: bool) -> Trades:
     if tr.n == 0:
         return tr
@@ -539,6 +704,8 @@ def cell_stats(tr_all: Trades, cell: Cell, prereg: Prereg, st: Settings) -> dict
     out["annules"] = int((status == 1).sum())
     out["issue_inconnue"] = int((status == 3).sum())
     out["operations_sur_titres"] = int((status == 4).sum())
+    out["exclus_dividendes_douteux"] = int((status == DIVIDEND_SUSPECT).sum())
+    out["sorties_cotation_interrompue"] = int(tr_all["delisted"].sum()) if "delisted" in tr_all else 0
     fwd = tr_all["fwd"]
     out["selection_adverse"] = {
         "excès_futur_executes": _f(_mean(fwd[tr_all["closed"]])),
@@ -563,7 +730,10 @@ def cell_stats(tr_all: Trades, cell: Cell, prereg: Prereg, st: Settings) -> dict
     out["mean_excess_ctrl"] = _f(_mean(tr["excess_ctrl"]))
     out["mean_excess_ew"] = _f(_mean(tr["excess_ew"]))
     out["duree_mediane"] = _f(float(np.median(tr["hold"])), 1)
-    lag = max(2, math.ceil(cell.h / 21)) if monthly else S.nw_lag(float(np.median(tr["hold"])))
+    lag = nw_lag_of(tr, cell)
+    block = block_of(cell, int(inf["block_weeks"]))
+    unit = "mois" if monthly else "semaines"
+    out["inference"] = {"lag_newey_west": lag, "bloc_bootstrap": block, "unite": unit}
     wk, ws = series_of(tr, monthly)
     out["semaines"] = int(wk.size)
     out["mois"] = int(np.unique(tr["month"]).size)
@@ -575,19 +745,24 @@ def cell_stats(tr_all: Trades, cell: Cell, prereg: Prereg, st: Settings) -> dict
     out["se_grappes_mois"] = _f(S.cluster_se(ex, tr["month"]), 4)
     out["se_grappes_mois_valeur"] = _f(S.cluster_se(ex, tr["month"] * 10_000_000 + tr["inst"] % 10_000_000), 4)
     seed = prereg.seed
-    lo, hi = S.block_bootstrap_ci(ws, int(inf["block_weeks"]), int(inf["bootstrap_draws"]), seed)
+    lo, hi = S.block_bootstrap_ci(ws, block, int(inf["bootstrap_draws"]), seed)
     out["excess_ic"] = [_f(lo), _f(hi)]
     ce = tr["excess_ctrl"]
     _, cs = series_of(Trades({**tr.cols, "excess": ce}), monthly)
-    clo, chi = S.block_bootstrap_ci(cs, int(inf["block_weeks"]), int(inf["bootstrap_draws"]), seed + 1)
+    clo, chi = S.block_bootstrap_ci(cs, block, int(inf["bootstrap_draws"]), seed + 1)
     out["excess_ctrl_ic"] = [_f(clo), _f(chi)]
+    t_ctrl = S.newey_west_t(cs, lag) if cs.size > 2 else math.nan
+    out["t_week_controle"] = _f(t_ctrl, 3)
     _, rs = series_of(tr, monthly, "r")
-    rlo, rhi = S.block_bootstrap_ci(rs, int(inf["block_weeks"]), int(inf["bootstrap_draws"]), seed + 2)
+    rlo, rhi = S.block_bootstrap_ci(rs, block, int(inf["bootstrap_draws"]), seed + 2)
     out["r_ic"] = [_f(rlo), _f(rhi)]
     out["p_unilateral"] = _f(S.one_sided_p(t_week if math.isfinite(t_week) else None), 6)
     sr, sk, ku = S.moments(ws)
     out["_sr"], out["_skew"], out["_kurt"], out["_nobs"] = sr, sk, ku, int(ws.size)
-    out["gate"] = bool(math.isfinite(t_week) and t_week >= float(th["gate_t_week"]) and (_mean(ex) or 0) > 0)
+    # stage-0 gate: excess over the matched control in every mode (monthly cells too, not the EW benchmark)
+    out["gate"] = bool(
+        math.isfinite(t_ctrl) and t_ctrl >= float(th["gate_t_week"]) and (_mean(tr["excess_ctrl"]) or 0) > 0
+    )
     # walk-forward (test years) and folds
     folds: list[dict[str, Any]] = []
     oos = np.zeros(n, dtype=bool)
@@ -622,6 +797,8 @@ def cell_stats(tr_all: Trades, cell: Cell, prereg: Prereg, st: Settings) -> dict
     # survivorship
     lam = breakeven_hazard_multiple(r, tr["hazard"])
     out["survie"] = {"multiple_risque_equilibre": _f(lam, 2) if math.isfinite(lam) else "infini",
+                     "sorties_cotation_interrompue": int(tr["delisted"].sum()) if "delisted" in tr else 0,
+                     "mean_r_radiees_perte_totale": _f(_mean(tr["r_delist_loss"])) if "r_delist_loss" in tr else None,
                      "hors_univers_actuel": {"n": int((~tr["in_universe"].astype(bool)).sum()),
                                              "mean_r": _f(_mean(r[~tr["in_universe"].astype(bool)]))},
                      "univers_actuel": {"n": int(tr["in_universe"].astype(bool).sum()),
@@ -630,7 +807,7 @@ def cell_stats(tr_all: Trades, cell: Cell, prereg: Prereg, st: Settings) -> dict
     cap = tr["capacity_ok"].astype(bool)
     out["capacite"] = {"part_ok": _f(float(cap.mean()), 3), "oos": _summary(o.select(o["capacity_ok"].astype(bool)))}
     out["concentration"] = concentration(tr)
-    out["splits"] = splits(tr)
+    out["splits"] = splits(tr, st.min_turnover_cto_eur is not None)
     out["ambigus"] = int(tr["ambiguous"].sum())
     return out
 
@@ -671,16 +848,20 @@ def concentration(tr: Trades) -> dict[str, Any]:
     }
 
 
-def splits(tr: Trades) -> dict[str, Any]:
+def splits(tr: Trades, cto_split: bool = False) -> dict[str, Any]:
     r = tr["r"]
 
     def sm(m: Arr) -> dict[str, Any]:
         return {"n": int(m.sum()), "mean_r": _f(_mean(r[m]))}
 
-    p0 = tr["group"] == 0
-    out: dict[str, Any] = {"P0": sm(p0), "P1_P2": sm(~p0)}
+    venue = tr["venue"]  # the venue group of the trade (P0 = 0), not the panel's enumeration index
+    out: dict[str, Any] = {"P0": sm(venue == 0), "P1_P2": sm((venue == 1) | (venue == 2))}
     for k in range(3):
         out[f"liquidite_t{k + 1}"] = sm(tr["liq"] == k)
+    if cto_split and "liq_cto" in tr:  # plan §1.1: the CTO liquidity floor (60-session median turnover)
+        lc = tr["liq_cto"].astype(bool)
+        out["liquidite_seuil_cto_atteint"] = sm(lc)
+        out["liquidite_sous_seuil_cto"] = sm(~lc)
     sc = tr["small"].astype(bool)
     out["petites_capitalisations"] = sm(sc)
     out["grandes_capitalisations"] = sm(~sc)
@@ -701,11 +882,15 @@ def weekly_matrix(series: Sequence[tuple[I64, F64]]) -> tuple[I64, F64]:
 
 def family_walk_forward(cells: Sequence[Cell], trades: Mapping[str, Trades], prereg: Prereg) -> dict[str, Any]:
     """Selection walk-forward of a family: for each test year, the variant with the best train mean excess
-    (train from the discovery start to the test start minus the purge) is evaluated on the test year."""
+    (closed trades from the discovery start to the test start minus the purge) is evaluated on the test year.
+    The concatenated test-year trades of the chosen variants are the family's out-of-sample series — the only
+    one on which A2 (effect) and A5 (folds) of an exploratory cell are judged (a cell's own test years were
+    also seen by the selection across the family)."""
     seg = prereg.segments
     purge_days = int(seg.purge_sessions * 7 / 5) + 1
-    picked: list[Arr] = []
-    choices = []
+    picked: list[Trades] = []
+    choices: list[dict[str, Any]] = []
+    folds: list[dict[str, Any]] = []
     for a, b in seg.wf_test:
         best, best_v = None, -math.inf
         train_end = np.datetime64(a, "D").astype(np.int64) - purge_days
@@ -713,17 +898,39 @@ def family_walk_forward(cells: Sequence[Cell], trades: Mapping[str, Trades], pre
             tr = trades.get(c.id)
             if tr is None or tr.n == 0:
                 continue
-            m = tr["day"] <= train_end
-            v = _mean(tr["excess"][m])
-            if v is not None and m.sum() >= 20 and v > best_v:
+            cl = tr.closed
+            m = cl["day"] <= train_end
+            v = _mean(cl["excess"][m])
+            if v is not None and int(m.sum()) >= 20 and v > best_v:
                 best, best_v = c, v
         if best is None:
+            folds.append({"annee": a.year, "variante": None, "n": 0, "mean_r": None})
             continue
-        tr = trades[best.id]
-        picked.append(tr["excess"][_window(tr, a, b)])
+        cl = trades[best.id].closed
+        test = cl.select(_window(cl, a, b))
+        picked.append(test)
         choices.append({"annee": a.year, "variante": best.id})
-    x = np.concatenate(picked) if picked else np.zeros(0)
-    return {"choix": choices, "n": int(np.isfinite(x).sum()), "mean_excess_oos": _f(_mean(x))}
+        folds.append({"annee": a.year, "variante": best.id, **_summary(test)})
+    oos = Trades.concat(picked)
+    x = oos["excess"] if oos.n else np.zeros(0)
+    pea = Trades({**oos.cols, "r": oos["r_pea"], "eur": oos["eur_pea"]}) if oos.n and "r_pea" in oos else oos
+    return {
+        "choix": choices,
+        "annees_test": len(seg.wf_test),
+        "n": int(np.isfinite(x).sum()),
+        "mean_excess_oos": _f(_mean(x)),
+        "oos": _summary(oos),
+        "oos_pea": _summary(pea),
+        "oos_capacite": _summary(oos.select(oos["capacity_ok"].astype(bool))) if oos.n else {"n": 0},
+        "plis": folds,
+        "plis_positifs": int(sum(1 for f in folds if (f.get("mean_r") or 0) > 0)),
+    }
+
+
+def walk_forward_choice(cell_id: str, wf: Mapping[str, Any]) -> bool:
+    """The cell is the family's walk-forward choice in every test year (a choice in each one)."""
+    ch = wf.get("choix") or []
+    return len(ch) == int(wf.get("annees_test", 0)) > 0 and all(x.get("variante") == cell_id for x in ch)
 
 
 # --- permutation and power ------------------------------------------------------------------------------
@@ -846,6 +1053,8 @@ class StageResult:
     baselines: dict[ComboKey, dict[str, float | None]]
     signals_rows: dict[int, tuple[int, int]]
     suspect_dividend_years: int = 0
+    masked_signals: dict[str, int] = field(default_factory=dict)  # per cell: signal days masked after a CA
+    quality: dict[str, int] = field(default_factory=dict)  # data-quality counts summed over the groups
 
 
 def run_cells(
@@ -863,17 +1072,24 @@ def run_cells(
     base_acc: dict[ComboKey, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
     rows_by: dict[int, tuple[int, int]] = {}
     suspect = 0
+    masked: dict[str, int] = defaultdict(int)
+    quality: dict[str, int] = defaultdict(int)
     for g in groups:
         rows = signal_rows(g.p.days, window[0], window[1], end_margin)
         rows_by[g.gid] = rows
         suspect += g.suspect_dividend_years
+        for k, v in g.quality.items():
+            quality[k] += v
         if rows[1] < rows[0]:
             continue
+        quality["observations_masquees_ost"] += int(g.f.ca_masked[rows[0] : rows[1] + 1].sum())
+        for c in cells:
+            masked[c.id] += masked_signal_count(g, c, st, rows)
         if hook is not None:
             hook(g, rows)
         for key, cs in sorted(by_combo.items(), key=lambda kv: str(kv[0])):
             if progress:
-                progress(f"{g.p.group} : combinaison {key[0]} cap {key[1]} validité {key[2]} h {key[3]}")
+                progress(f"{g.p.group} : combinaison {combo_label(key)}")
             combo = simulate_combo(g, key, st, rows)
             acc = base_acc[key]
             acc[0] += combo.all_mean[0]
@@ -896,7 +1112,10 @@ def run_cells(
         k: {"univers_ew": v[0] / v[1] if v[1] else None, "tendance_t04": v[2] / v[3] if v[3] else None}
         for k, v in base_acc.items()
     }
-    return StageResult({k: Trades.concat(v) for k, v in parts.items()}, dict(dense), baselines, rows_by, suspect)
+    return StageResult(
+        {k: Trades.concat(v) for k, v in parts.items()}, dict(dense), baselines, rows_by, suspect, dict(masked),
+        dict(quality),
+    )  # fmt: skip
 
 
 def finalize_monthly(tr: Trades, cell: Cell, st: Settings) -> Trades:
@@ -925,17 +1144,20 @@ def paired_overlay(b: Trades, o: Trades, base_all: Trades, ov_all: Trades) -> Tr
     year = np.array([int(o["year"][o["month"] == m].min()) for m in common.tolist()], dtype=np.int64)
     nan = np.full(k, np.nan)
     cols: dict[str, Arr] = {key: nan.copy() for key in ("r", "r_gross", "r_ref", "r_stop", "pct", "eur", "r_div_net",
-                            "r_div_excl", "r_stress", "r_pea", "eur_pea", "r_srd", "hazard", "fwd", "score")}  # fmt: skip
+                            "r_div_excl", "r_stress", "r_pea", "eur_pea", "r_srd", "hazard", "fwd", "score",
+                            "r_delist_loss")}  # fmt: skip
     cols.update(
-        group=np.zeros(k, dtype=np.int64), inst=np.arange(k, dtype=np.int64), t=np.zeros(k, dtype=np.int64),
+        group=np.zeros(k, dtype=np.int64), venue=np.full(k, -1, dtype=np.int64), inst=np.arange(k, dtype=np.int64),
+        t=np.zeros(k, dtype=np.int64),
         day=day, week=first, month=common, year=year, status=np.full(k, CLOSED, dtype=np.int64),
         closed=np.ones(k, dtype=bool), entry_day=day, exit_day=day, hold=np.full(k, 21, dtype=np.int64),
         reason=np.full(k, -1, dtype=np.int64), ambiguous=np.zeros(k, dtype=bool), ctrl=np.zeros(k), ew=np.zeros(k),
         capacity_ok=np.ones(k, dtype=bool), small=np.zeros(k, dtype=bool), liq=np.zeros(k, dtype=np.int64),
         t13=np.zeros(k, dtype=bool), in_universe=np.ones(k, dtype=bool), pea_eligible=np.ones(k, dtype=bool),
-        overlay=np.ones(k, dtype=bool),
+        overlay=np.ones(k, dtype=bool), delisted=np.zeros(k, dtype=bool),
     )  # fmt: skip
     cols["r"] = d
+    cols["r_delist_loss"] = d
     cols["r_gross"] = d
     cols["r_stress"] = d
     cols["r_div_net"] = d

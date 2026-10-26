@@ -3,9 +3,11 @@
 
 (a) run-2 decomposition from its stored trades; (b) matched geometry: the run-2 trades against random entries
 of the same day with identical stop and target distances in ATR; (c) the d7 frozen entries under 11 exit
-variants; (d)–(f) forward excess returns of vectorised detector conditions; (g)–(h) refused and unfilled
-setups of the real detectors (``run_detectors`` path: zones, admission at the maximum entry price), evaluated
-only on the days that pass the vectorised necessary conditions.
+variants — (b) and (c) on the run-2 trades of the discovery window only (the sealed-period ones are reported
+apart, labelled, by the registration); (d)–(f) forward excess returns of vectorised detector conditions;
+(g)–(h) refused and unfilled setups of the real detectors (``run_detectors`` path: zones, admission at the
+maximum entry price), on a sample stratified by detector of the days that pass each detector's vectorised
+necessary conditions (inverse-sampling-fraction weights).
 """
 
 from __future__ import annotations
@@ -27,9 +29,19 @@ from app.domain.indicators import Bar, compute_daily_features
 from app.domain.research import stats as S
 from app.domain.research import triggers as T
 from app.domain.research.costs import LegInputs, economics
-from app.domain.research.entries import absolute_orders, calendar_of
-from app.domain.research.exits import CLOSED, GAP_STOP, STOP, TRAIL, UNFILLED, ExitSpec, Orders, simulate
-from app.domain.research.panel import F64, I64, Bool, pack, rolling_min, shift, unpack
+from app.domain.research.entries import absolute_orders, calendar_of, forward_excess
+from app.domain.research.exits import (
+    CLOSED,
+    GAP_STOP,
+    SLIPPED_EXITS,
+    STOP,
+    TRAIL,
+    UNFILLED,
+    ExitSpec,
+    Orders,
+    simulate,
+)
+from app.domain.research.panel import F32, F64, I64, Bool, Packing, pack, rolling_min, shift, unpack
 from app.domain.research.pipeline import GroupData, Settings, _f, _mean
 from app.domain.zones import detect_zones
 
@@ -156,6 +168,7 @@ def _r_prod(g: GroupData, cols: I64, sim_entry: F64, sim: Any, st: Settings, sto
         ftt=g.p.ftt_rate[cols], fx_fee=g.p.fx_fee_pct[cols], haircut=np.zeros(cols.size), hs_in=g.hs[ft, cols],
         hs_out=g.hs[et, cols], days=np.zeros(cols.size), unit_frac=unit,
         stop_exit=np.isin(sim.reason, (STOP, GAP_STOP, TRAIL)),
+        exit_slip=np.where(np.isin(sim.reason, SLIPPED_EXITS), st.slippage, 0.0),
     )  # fmt: skip
     e = economics(x, st.cto, st.risk_budget_eur, st.notional_cap_eur)
     return np.where(sim.status == CLOSED, e.r_unit, np.nan)
@@ -286,29 +299,30 @@ def d7_exit_parts(
 # --- (d)–(f) forward excess of vectorised detector conditions ------------------------------------------------
 
 
-def _fwd_parts(g: GroupData, mask: Bool, h: int, rows: tuple[int, int]) -> dict[str, list[Any]]:
+def _fwd_parts(g: GroupData, mask: Bool, fw: F32, rows: tuple[int, int]) -> dict[str, list[Any]]:
     m = mask.copy()
     m[: rows[0]] = False
     m[rows[1] + 1 :] = False
     t, c = np.nonzero(m)
-    v = g.fwd(h)[t, c]
+    v = fw[t, c].astype(np.float64)
     return {"v": v.tolist(), "week": g.week[t].tolist()}
 
 
 def forward_cells(g: GroupData, st: Settings, rows: tuple[int, int]) -> dict[str, dict[str, list[Any]]]:
     det = st.detectors
     p, f = g.p, g.f
+    fw = {h: _fwd32(g, h) for h in (1, 3, 5, 20, 60)}
     out: dict[str, dict[str, list[Any]]] = {}
     d3 = T.d3_base(p, f, det.get("d3_range_expansion") or {})
     for h in (1, 3, 5):
-        out[f"F0d.d3_inverted.h{h}"] = _fwd_parts(g, d3, h, rows)
+        out[f"F0d.d3_inverted.h{h}"] = _fwd_parts(g, d3, fw[h], rows)
     d2p = det.get("d2_breakout") or {}
     d2 = T.d2_base(p, f, d2p)
     with np.errstate(invalid="ignore", divide="ignore"):
         dist = p.close / f.pivot60 - 1
     for name, lo, hi in (("0_1pct", 0.0, 0.01), ("1_3pct", 0.01, 0.03), ("gt3pct", 0.03, math.inf)):
         with np.errstate(invalid="ignore"):
-            out[f"F0e.d2_distance.{name}.h20"] = _fwd_parts(g, d2 & (dist > lo) & (dist <= hi), 20, rows)
+            out[f"F0e.d2_distance.{name}.h20"] = _fwd_parts(g, d2 & (dist > lo) & (dist <= hi), fw[20], rows)
     d7p = det.get("d7_trend_quality") or {}
     d7 = T.d7_base(p, f, d7p)
     pmax7 = p.high * (1 + float(d7p.get("entry_max_pct_above_high", 0.008)))
@@ -320,66 +334,126 @@ def forward_cells(g: GroupData, st: Settings, rows: tuple[int, int]) -> dict[str
         no7 = d7 & (f.high_250 <= pmax7 * 1.005)
         no2 = d2 & (np.fmax(f.high_250, measured) <= pmax2 * 1.005)
     for h in (20, 60):
-        out[f"F0f.no_target.h{h}"] = _fwd_parts(g, no7 | no2, h, rows)
+        out[f"F0f.no_target.h{h}"] = _fwd_parts(g, no7 | no2, fw[h], rows)
     return out
 
 
 # --- (g)–(h) the real detectors on pre-filtered days ---------------------------------------------------------
 
 
+def _quotas(sizes: Mapping[str, int], total: int) -> dict[str, int]:
+    """Stratified allocation of ``total`` evaluations among the detectors: an equal share each, a detector with
+    fewer candidate days than its share gives the rest to the others (water-filling)."""
+    out: dict[str, int] = {}
+    left = total
+    names = sorted(sizes, key=lambda k: (sizes[k], k))
+    for k, name in enumerate(names):
+        share = left // (len(names) - k)
+        out[name] = min(sizes[name], share)
+        left -= out[name]
+    return out
+
+
+def _pack_cols(x: F64, pk: Packing, cols: I64) -> F64:
+    """``pack`` restricted to some columns (the heavy OHLCV arrays are packed one chunk of columns at a time)."""
+    order = pk.order[:, cols]
+    safe = np.where(order >= 0, order, 0)
+    out = np.take_along_axis(x[:, cols], safe, axis=0).astype(np.float64)
+    return np.where(order >= 0, out, np.nan)
+
+
+PRODUCTION_DETECTORS = ("d2_breakout", "d3_range_expansion", "d4_pullback", "d7_trend_quality")
+COLUMN_CHUNK = 256
+
+
 def production_parts(
     g: GroupData, st: Settings, rows: tuple[int, int], prod: Mapping[str, Any], max_candidates: int, seed: int
 ) -> tuple[dict[str, dict[str, list[Any]]], dict[str, int]]:  # fmt: skip
     """Run ``DETECTORS`` (zones, admission at the maximum entry price, CTO round-trip fees) on the days passing
-    the vectorised necessary conditions; collect R/R-refused setups (forward excess, by distance to the
-    52-week high) and admitted setups whose order never filled (gap above the maximum price)."""
+    each detector's vectorised necessary conditions; collect R/R-refused setups (forward excess, by distance to
+    the 52-week high) and admitted setups whose order never filled (gap above the maximum price).
+
+    At most ``max_candidates`` evaluations per group, **stratified by detector** (each detector's own candidate
+    days, equal shares, seeded draw); every setup carries the inverse sampling fraction of its stratum as a
+    weight. Each sampled (day, instrument, detector) calls ``detect`` once, with the zones (computed once per
+    day and instrument); the OHLCV arrays are packed by chunks of columns."""
     det = st.detectors
     p, f = g.p, g.f
-    names = [n for n in ("d2_breakout", "d3_range_expansion", "d4_pullback", "d7_trend_quality")
-             if (det.get(n) or {}).get("enabled", False)]  # fmt: skip
+    names = [n for n in PRODUCTION_DETECTORS if (det.get(n) or {}).get("enabled", False)]
     pre = {
         "d2_breakout": lambda: T.d2_base(p, f, det["d2_breakout"]),
         "d3_range_expansion": lambda: T.d3_base(p, f, det["d3_range_expansion"]),
         "d4_pullback": lambda: T.d4_prefilter(p, f, det["d4_pullback"]),
         "d7_trend_quality": lambda: T.d7_base(p, f, det["d7_trend_quality"]),
     }
-    cand = np.zeros(p.shape, dtype=bool)
+    rng = np.random.default_rng(seed + g.gid)
+    found: dict[str, tuple[I64, I64]] = {}
     for n in names:
-        cand |= pre[n]()
-    cand[: rows[0]] = False
-    cand[rows[1] + 1 :] = False
-    t_all, c_all = np.nonzero(cand)
-    counts = {"candidats": int(t_all.size), "evalues": int(min(t_all.size, max_candidates))}
-    if t_all.size > max_candidates:
-        keep = np.sort(np.random.default_rng(seed + g.gid).choice(t_all.size, max_candidates, replace=False))
-        t_all, c_all = t_all[keep], c_all[keep]
+        m = pre[n]()
+        m[: rows[0]] = False
+        m[rows[1] + 1 :] = False
+        t_d, c_d = np.nonzero(m)
+        found[n] = (t_d.astype(np.int64), c_d.astype(np.int64))
+        del m
+    quota = _quotas({n: int(v[0].size) for n, v in found.items()}, max(0, int(max_candidates)))
+    counts: dict[str, int] = {"candidats": 0, "evalues": 0}
+    weight: dict[str, float] = {}
+    s_t, s_c, s_d = [], [], []
+    for k, n in enumerate(names):
+        t_d, c_d = found[n]
+        size, q = int(t_d.size), quota.get(n, 0)
+        if size > q:
+            keep = np.sort(rng.choice(size, q, replace=False))
+            t_d, c_d = t_d[keep], c_d[keep]
+        counts["candidats"] += size
+        counts["evalues"] += int(t_d.size)
+        counts[f"candidats_{n}"] = size
+        counts[f"evalues_{n}"] = int(t_d.size)
+        weight[n] = size / t_d.size if t_d.size else 0.0
+        s_t.append(t_d)
+        s_c.append(c_d)
+        s_d.append(np.full(t_d.size, k, dtype=np.int64))
+    st_t = np.concatenate(s_t) if s_t else np.zeros(0, dtype=np.int64)
+    st_c = np.concatenate(s_c) if s_c else np.zeros(0, dtype=np.int64)
+    st_d = np.concatenate(s_d) if s_d else np.zeros(0, dtype=np.int64)
+    order = np.lexsort((st_d, st_t, st_c))  # by column, then day: one window per (day, instrument)
+    st_t, st_c, st_d = st_t[order], st_c[order], st_d[order]
     zp = prod.get("zones") or {}
     wick, buf = float(prod.get("wick_buffer_pct", 0.005)), float(prod.get("stop_buffer_atr_mult", 0.25))
     k_rr, expiry = float(prod.get("min_reward_risk", 2.0)), int(prod.get("expiry_sessions", 3))
     pos = f.pk.pos
-    o, h, lo, c, v = (pack(x, f.pk) for x in (p.open, p.high, p.low, p.close, p.volume))
-    refused: dict[str, list[Any]] = {"t": [], "c": [], "dist": []}
-    admitted: dict[str, list[Any]] = {"t": [], "c": [], "pmax": [], "stop": [], "target": []}
-    for t, col in zip(t_all.tolist(), c_all.tolist(), strict=True):
-        k = int(pos[t, col])
-        a = max(0, k - 279)
-        window = [Bar(float(o[j, col]), float(h[j, col]), float(lo[j, col]), float(c[j, col]), int(v[j, col]))
-                  for j in range(a, k + 1)]  # fmt: skip
-        rank = f.rs_rank[t, col]
-        ctx = DetectorContext(float(rank) if np.isfinite(rank) else None, [], wick, buf)
-        cp = CostParams(st.cto.fees, ttf_rate=float(p.ttf_rate[col]), ftt_rate=float(p.ftt_rate[col]),
-                        fx_fee_pct=float(p.fx_fee_pct[col]))  # fmt: skip
-        for name in names:
-            dp = det[name]
-            if not DETECTORS[name](dict(dp)).detect(window, ctx):
-                continue
-            ff = compute_daily_features(window)
-            zones = detect_zones(
-                window[-int(zp.get("lookback_sessions", 250)) :], ff.atr14 or 0.0, int(zp.get("pivot_window", 5)),
-                float(zp.get("merge_atr_mult", 0.5)), int(zp.get("min_touches", 2)),
-            )  # fmt: skip
-            zctx = DetectorContext(ctx.rs_rank, zones, wick, buf)
-            for s_ in DETECTORS[name](dict(dp)).detect(window, zctx):
+    detectors = {n: DETECTORS[n](dict(det[n])) for n in names}
+    refused: dict[str, list[Any]] = {"t": [], "c": [], "dist": [], "det": [], "w": []}
+    admitted: dict[str, list[Any]] = {"t": [], "c": [], "pmax": [], "stop": [], "target": [], "det": [], "w": []}
+    ucols = np.unique(st_c)
+    for a0 in range(0, ucols.size, COLUMN_CHUNK):
+        chunk = ucols[a0 : a0 + COLUMN_CHUNK]
+        o, h, lo, c, v = (_pack_cols(x, f.pk, chunk) for x in (p.open, p.high, p.low, p.close, p.volume))
+        local = {int(col): j for j, col in enumerate(chunk.tolist())}
+        sel = np.nonzero(np.isin(st_c, chunk))[0]
+        last_key: tuple[int, int] | None = None
+        window: list[Bar] = []
+        zctx: DetectorContext | None = None
+        for i in sel.tolist():
+            t, col, name = int(st_t[i]), int(st_c[i]), names[int(st_d[i])]
+            if last_key != (t, col):  # one window, one feature set and one zone set per (day, instrument)
+                last_key = (t, col)
+                j = local[col]
+                kk = int(pos[t, col])
+                a = max(0, kk - 279)
+                window = [Bar(float(o[r, j]), float(h[r, j]), float(lo[r, j]), float(c[r, j]), int(v[r, j]))
+                          for r in range(a, kk + 1)]  # fmt: skip
+                rank = f.rs_rank[t, col]
+                ff = compute_daily_features(window)
+                zones = detect_zones(
+                    window[-int(zp.get("lookback_sessions", 250)) :], ff.atr14 or 0.0, int(zp.get("pivot_window", 5)),
+                    float(zp.get("merge_atr_mult", 0.5)), int(zp.get("min_touches", 2)),
+                )  # fmt: skip
+                zctx = DetectorContext(float(rank) if np.isfinite(rank) else None, zones, wick, buf)
+            assert zctx is not None
+            cp = CostParams(st.cto.fees, ttf_rate=float(p.ttf_rate[col]), ftt_rate=float(p.ftt_rate[col]),
+                            fx_fee_pct=float(p.fx_fee_pct[col]))  # fmt: skip
+            for s_ in detectors[name].detect(window, zctx):
                 if not s_.targets:
                     continue
                 tgt = s_.targets[0]
@@ -393,18 +467,25 @@ def production_parts(
                     refused["t"].append(t)
                     refused["c"].append(col)
                     refused["dist"].append(float(hi52 / window[-1].close - 1) if np.isfinite(hi52) else math.nan)
+                    refused["det"].append(name)
+                    refused["w"].append(weight[name])
                 elif adm.status == Status.ADMITTED and not s_.warnings and adm.p_max is not None:
                     admitted["t"].append(t)
                     admitted["c"].append(col)
                     admitted["pmax"].append(adm.p_max)
                     admitted["stop"].append(s_.stop)
                     admitted["target"].append(tgt)
+                    admitted["det"].append(name)
+                    admitted["w"].append(weight[name])
+        del o, h, lo, c, v
     out: dict[str, dict[str, list[Any]]] = {}
+    fws = {hh: _fwd32(g, hh) for hh in (20, 60)}
     rt, rc = np.array(refused["t"], dtype=np.int64), np.array(refused["c"], dtype=np.int64)
-    dist = np.array(refused["dist"])
     for hh in (20, 60):
-        vals = g.fwd(hh)[rt, rc] if rt.size else np.zeros(0)
-        out[f"F0g.rr_refused.h{hh}"] = {"v": vals.tolist(), "week": g.week[rt].tolist(), "dist": dist.tolist()}
+        vals = fws[hh][rt, rc] if rt.size else np.zeros(0, dtype=np.float32)
+        out[f"F0g.rr_refused.h{hh}"] = {"v": vals.astype(np.float64).tolist(), "week": g.week[rt].tolist(),
+                                        "dist": list(refused["dist"]), "det": list(refused["det"]),
+                                        "w": list(refused["w"])}  # fmt: skip
     at, ac = np.array(admitted["t"], dtype=np.int64), np.array(admitted["c"], dtype=np.int64)
     unfilled = np.zeros(at.size, dtype=bool)
     if at.size:
@@ -416,27 +497,73 @@ def production_parts(
     counts["admis"] = int(at.size)
     counts["admis_non_executes"] = int(unfilled.sum())
     ut, uc = at[unfilled], ac[unfilled]
+    u_idx = np.nonzero(unfilled)[0].tolist()
     for hh in (20, 60):
-        vals = g.fwd(hh)[ut, uc] if ut.size else np.zeros(0)
-        out[f"F0h.unfilled.h{hh}"] = {"v": vals.tolist(), "week": g.week[ut].tolist()}
+        vals = fws[hh][ut, uc] if ut.size else np.zeros(0, dtype=np.float32)
+        out[f"F0h.unfilled.h{hh}"] = {"v": vals.astype(np.float64).tolist(), "week": g.week[ut].tolist(),
+                                      "det": [admitted["det"][i] for i in u_idx],
+                                      "w": [admitted["w"][i] for i in u_idx]}  # fmt: skip
     return out, counts
+
+
+def _fwd32(g: GroupData, h: int) -> F32:
+    """Forward excess of horizon ``h`` as float32, without adding it to the group's cache (F0 reads five
+    horizons the cells never use; float32 halves their footprint)."""
+    cached = g._fwd.get(h)
+    if cached is not None:
+        return cached.astype(np.float32)
+    return forward_excess(g.p, g.f, h).astype(np.float32)
+
+
+def _weighted_weekly(week: I64, v: F64, w: F64) -> tuple[I64, F64]:
+    """Weighted mean of each week (weights = inverse sampling fractions of the strata)."""
+    if v.size == 0:
+        return np.zeros(0, dtype=np.int64), np.zeros(0)
+    uw, inv = np.unique(week, return_inverse=True)
+    sw = np.bincount(inv, weights=w)
+    return uw.astype(np.int64), np.bincount(inv, weights=w * v) / np.where(sw > 0, sw, 1.0)
 
 
 def summarize_forward(parts: Mapping[str, list[Any]], seed: int) -> dict[str, Any]:
     v = np.array(parts.get("v", []), dtype=np.float64)
-    w = np.array(parts.get("week", []), dtype=np.int64)
+    w_ = np.array(parts.get("week", []), dtype=np.int64)
+    weights = np.array(parts["w"], dtype=np.float64) if parts.get("w") else None
+    dets = np.array(parts["det"], dtype=object) if parts.get("det") else None
     ok = np.isfinite(v)
-    v, w = v[ok], w[ok]
-    out: dict[str, Any] = {"n": int(v.size), "exces_moyen": _f(_mean(v))}
+    if weights is not None:
+        ok &= np.isfinite(weights) & (weights > 0)
+    v, w_ = v[ok], w_[ok]
+    wt = weights[ok] if weights is not None else None
+    mean: float | None
+    if wt is not None and v.size:  # stratified sample: means weighted by the inverse sampling fractions
+        mean = float(np.average(v, weights=wt))
+        wk, ws = _weighted_weekly(w_, v, wt)
+    else:
+        mean = _mean(v) if v.size else None
+        wk, ws = S.weekly_series(w_, v) if v.size else (np.zeros(0, dtype=np.int64), np.zeros(0))
+    out: dict[str, Any] = {"n": int(v.size), "exces_moyen": _f(mean)}
+    if wt is not None:
+        out["ponderation"] = "inverse de la fraction échantillonnée de chaque détecteur"
     if v.size:
-        wk, ws = S.weekly_series(w, v)
         out["t_semaine"] = _f(S.newey_west_t(ws, 4) if ws.size > 2 else math.nan, 3)
         lo, hi = S.block_bootstrap_ci(ws, 4, 1000, seed) if ws.size > 2 else (math.nan, math.nan)
         out["ic"] = [_f(lo), _f(hi)]
+    if dets is not None and v.size:
+        d_ok = dets[ok]
+        out["par_detecteur"] = {
+            str(name): {"n": int((d_ok == name).sum()), "exces_moyen": _f(_mean(v[d_ok == name]))}
+            for name in sorted(set(d_ok.tolist()))
+        }
     if "dist" in parts and v.size:
         d = np.array(parts["dist"], dtype=np.float64)[ok]
+
+        def wmean(m: Bool) -> float | None:
+            if not m.any():
+                return None
+            return float(np.average(v[m], weights=wt[m])) if wt is not None else _mean(v[m])
+
         out["par_distance_plus_haut_52s"] = {
-            name: {"n": int(m.sum()), "exces_moyen": _f(_mean(v[m]))}
+            name: {"n": int(m.sum()), "exces_moyen": _f(wmean(m))}
             for name, m in (
                 ("<2%", d < 0.02),
                 ("2–5%", (d >= 0.02) & (d < 0.05)),
@@ -488,27 +615,46 @@ def calibration_parts(
     return out
 
 
-def calibration_verdict(parts: Mapping[str, list[Any]], located: int, total: int) -> dict[str, Any]:
+CALIBRATION_SCOPE = (
+    "entrées rejouées depuis le prix exécuté du run 2 (limite = prix exécuté, séance d'exécution stockée) : "
+    "les règles d'entrée (prix maximal, validité, ouverture en gap) ne sont PAS testées — le prix maximal "
+    "n'est pas stocké dans le run 2 ; seules les sorties et le R brut le sont"
+)
+
+
+def calibration_verdict(parts: Mapping[str, list[Any]], totals: Mapping[str, int]) -> dict[str, Any]:
+    """Concordance over **all** stored run-2 trades (``totals`` per detector): a trade that cannot be located
+    in the panels (instrument or session missing) counts as a mismatch, and ≥ 99 % must be located."""
     det = np.array(parts.get("detector", []), dtype=object)
     match = np.array(parts.get("match", []), dtype=bool)
     rr = np.array(parts.get("r_gross_replay", []), dtype=np.float64)
     r2 = np.array(parts.get("r_gross_run2", []), dtype=np.float64)
+    total = int(sum(totals.values()))
+    located = int(match.size)
     rows: dict[str, Any] = {}
     ok_means = True
-    for d in sorted(set(det.tolist())):
+    for d in sorted(set(totals) | set(det.tolist())):
         m = det == d
-        diff = float(np.nanmean(rr[m]) - np.nanmean(r2[m])) if m.any() else math.nan
+        n_d = int(totals.get(str(d), 0))
+        with np.errstate(invalid="ignore"):
+            diff = float(np.nanmean(rr[m]) - np.nanmean(r2[m])) if m.any() else math.nan
         ok_means &= math.isfinite(diff) and abs(diff) <= 0.02
-        rows[str(d)] = {"n": int(m.sum()), "concordance": _f(float(match[m].mean()), 4),
-                        "r_brut_rejeu": _f(float(np.nanmean(rr[m]))), "r_brut_run2": _f(float(np.nanmean(r2[m]))),
+        rows[str(d)] = {"n": n_d, "localises": int(m.sum()),
+                        "concordance": _f(float(match[m].sum()) / n_d, 4) if n_d else None,
+                        "r_brut_rejeu": _f(float(np.nanmean(rr[m])) if m.any() else None),
+                        "r_brut_run2": _f(float(np.nanmean(r2[m])) if m.any() else None),
                         "ecart_moyen_r": _f(diff)}  # fmt: skip
-    rate = float(match.mean()) if match.size else 0.0
-    valid = match.size > 0 and rate >= 0.99 and ok_means
+    rate = float(match.sum()) / total if total else 0.0
+    located_share = located / total if total else 0.0
+    valid = total > 0 and rate >= 0.99 and located_share >= 0.99 and ok_means
     return {
         "verdict": "VALIDE" if valid else "INVALIDE",
         "concordance": _f(rate, 4),
         "trades_run2": total,
         "trades_localises": located,
+        "part_localisee": _f(located_share, 4),
         "par_detecteur": rows,
-        "regle": "≥ 99 % des trades identiques (jour et motif de sortie, prix d'entrée) et R brut moyen à ±0,02 R par détecteur",
+        "regle": "≥ 99 % de TOUS les trades du run 2 identiques (jour et motif de sortie, prix d'entrée ; un trade "
+        "non localisé compte comme différent), ≥ 99 % localisés, et R brut moyen à ±0,02 R par détecteur",
+        "portee": CALIBRATION_SCOPE,
     }

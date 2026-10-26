@@ -9,7 +9,8 @@ population of the day only. Nothing at row ``t`` depends on a bar after ``t``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 
 import numpy as np
 import numpy.typing as npt
@@ -51,6 +52,7 @@ class Panel:
     in_universe: Bool  # today's universe membership (survivorship split)
     index_cac: IndexSeries | None = None
     index_stoxx: IndexSeries | None = None
+    vintage: I64 | None = None  # (T, N) download vintage of each bar (source × reception day), None: one vintage
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -64,7 +66,7 @@ class Panel:
             self.open[:, c], self.high[:, c], self.low[:, c], self.close[:, c], self.adj_close[:, c],
             self.volume[:, c], self.fx_to_eur[:, c], self.is_xpar[c], self.small_cap[c], self.pea_eligible[c],
             self.ttf_rate[c], self.ftt_rate[c], self.fx_fee_pct[c], self.in_universe[c], self.index_cac,
-            self.index_stoxx,
+            self.index_stoxx, None if self.vintage is None else self.vintage[:, c],
         )  # fmt: skip
 
 
@@ -230,6 +232,15 @@ def rs_score_packed(close: F64) -> F64:
     )
 
 
+def recent_any(cond: Bool, n: int) -> Bool:
+    """True when ``cond`` held on the row itself or on one of the ``n − 1`` previous rows (packed)."""
+    cs = np.cumsum(cond.astype(np.int64), axis=0)
+    prev = np.zeros_like(cs)
+    if n < cs.shape[0]:
+        prev[n:] = cs[:-n]
+    return np.asarray(cs - prev > 0, dtype=np.bool_)
+
+
 def prior_any(cond: Bool, n: int) -> Bool:
     """True when ``cond`` held on at least one of the ``n`` previous rows (packed, own sessions)."""
     x = cond.astype(np.float64)
@@ -243,9 +254,10 @@ def prior_any(cond: Bool, n: int) -> Bool:
 # --- cross-sectional helpers (calendar) ------------------------------------------------------------
 
 
-def pct_rank(x: F64, mask: Bool) -> F64:
+def pct_rank(x: F64, mask: Bool, extra: Bool | None = None) -> F64:
     """Percentile 0–100 within ``mask`` of each day, as ``indicators.percentile_rank`` (strictly below +
-    half of the other ties, over n − 1). NaN outside the mask."""
+    half of the other ties, over n − 1). NaN outside the mask, except on ``extra`` rows: ranked against the
+    day's population as if each one joined it alone (counting of masked signals; never a population member)."""
     out = np.full(x.shape, np.nan)
     for t in range(x.shape[0]):
         m = mask[t] & np.isfinite(x[t])
@@ -253,6 +265,13 @@ def pct_rank(x: F64, mask: Bool) -> F64:
         n = v.size
         if n == 0:
             continue
+        if extra is not None:
+            e = extra[t] & ~mask[t] & np.isfinite(x[t])
+            if e.any():
+                s_ = np.sort(v)
+                ve = x[t, e]
+                lo_ = np.searchsorted(s_, ve, side="left")
+                out[t, e] = 100.0 * (lo_ + 0.5 * (np.searchsorted(s_, ve, side="right") - lo_)) / n
         if n == 1:
             out[t, m] = 100.0
             continue
@@ -360,15 +379,30 @@ class Features:
     stratum: I8  # liq · 6 + sig · 2 + T04 ∈ 0..17, −1 when not eligible
     month_end: Bool  # (T,)
     adj_factor: F64  # adj_close / close
+    ca_masked: Bool  # eligible but for a recent corporate action (``exclude``): never a signal, counted
 
 
-def build_features(p: Panel, fp: FeatureParams) -> Features:
+def packed_adjusted(p: Panel, pk: Packing) -> F64:
+    """Adjusted closes on own sessions, the raw close where the adjusted one is missing."""
+    c, adj = pack(p.close, pk), pack(p.adj_close, pk)
+    return np.where(np.isfinite(adj) & (adj > 0), adj, c)
+
+
+def adjustment_factor(p: Panel, pk: Packing) -> F64:
+    """``adj_close / close`` on the calendar (NaN where no valid bar)."""
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return unpack(packed_adjusted(p, pk) / pack(p.close, pk), pk, p.shape[0])
+
+
+def build_features(p: Panel, fp: FeatureParams, exclude: Bool | None = None) -> Features:
+    """Features of a panel; ``exclude`` (T, N) removes rows from the eligible population before every
+    cross-sectional feature (recent corporate actions: raw-price features unreliable)."""
     t_len, _ = p.shape
     valid = valid_bars(p)
     pk = make_packing(valid)
     h, lo, c = pack(p.high, pk), pack(p.low, pk), pack(p.close, pk)
-    v, adj, fx = pack(p.volume, pk), pack(p.adj_close, pk), pack(p.fx_to_eur, pk)
-    adj = np.where(np.isfinite(adj) & (adj > 0), adj, c)
+    v, fx = pack(p.volume, pk), pack(p.fx_to_eur, pk)
+    adj = packed_adjusted(p, pk)
 
     def u(x: F64) -> F64:
         return unpack(x, pk, t_len)
@@ -429,6 +463,9 @@ def build_features(p: Panel, fp: FeatureParams) -> Features:
             & (close >= fp.min_price)
             & (np.nan_to_num(f["turnover_med60"], nan=-1.0) >= fp.min_turnover_eur)
         )
+    ca_masked = np.zeros_like(elig) if exclude is None else elig & exclude
+    elig = elig & ~ca_masked
+    with np.errstate(invalid="ignore"):
         t04 = (close > f["sma200"]) & (f["sma50"] > f["sma200"])
         above50 = elig & np.isfinite(f["sma50"]) & (close > f["sma50"])
     known50 = elig & np.isfinite(f["sma50"])
@@ -459,13 +496,54 @@ def build_features(p: Panel, fp: FeatureParams) -> Features:
         sig_terc=sgt,
         stratum=stratum,
         month_end=month_end(p.days),
-        mom_rank=pct_rank(f["mom_12_1"], elig),
-        rs_rank=pct_rank(f["rs_score"], elig),
+        mom_rank=pct_rank(f["mom_12_1"], elig, ca_masked),
+        rs_rank=pct_rank(f["rs_score"], elig, ca_masked),
+        ca_masked=ca_masked,
         **f,
     )
 
 
 # --- corporate actions and dividends (docs/31 §2.4) --------------------------------------------------
+
+
+def rescale_vintage_boundaries(p: Panel, min_jump: float, ca_jump: float) -> tuple[Panel, int]:
+    """Adjusted closes downloaded at different times carry different adjustment vintages: the factor
+    ``adj_close / close`` jumps where two vintages meet although nothing happened to the share. At every
+    change of ``p.vintage`` between two own sessions, the later rows' factor is rescaled so that it is
+    continuous (anchored on the oldest rows: a row depends on its past only) — no dividend nor corporate
+    action is inferred there — unless the raw close itself moves by ``ca_jump`` with the factor (a split on
+    the boundary day stays a corporate action). Returns the panel and the number of boundaries whose factor
+    moved by at least ``min_jump`` (the events avoided)."""
+    if p.vintage is None:
+        return p, 0
+    pk = make_packing(valid_bars(p))
+    c = pack(p.close, pk)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        fac = packed_adjusted(p, pk) / c
+        ratio = fac / shift(fac, 1)
+        split = (np.abs(c / shift(c, 1) - 1) >= ca_jump) & (np.abs(ratio - 1) >= ca_jump)
+    vin = pack(p.vintage.astype(np.float64), pk)
+    prev = shift(vin, 1)
+    boundary = np.isfinite(prev) & np.isfinite(vin) & (vin != prev) & np.isfinite(ratio) & (ratio > 0) & ~split
+    corr = np.where(boundary, 1.0 / np.where(boundary, ratio, 1.0), 1.0)
+    scale = unpack(np.cumprod(corr, axis=0), pk, p.shape[0])
+    adj = np.where(np.isfinite(scale), p.adj_close * scale, p.adj_close)
+    n = int((boundary & (np.abs(ratio - 1) >= min_jump)).sum())
+    return replace(p, adj_close=adj), n
+
+
+def mass_jump_days(adj_factor: F64, pk: Packing, min_jump: float, share: float, min_count: int = 10) -> Bool:
+    """Safety net: days (T,) where more than ``share`` of the instruments with a known factor change show a
+    jump ≥ ``min_jump`` (a vintage boundary the data did not reveal, not a dividend season). Flagged and
+    counted in the report."""
+    f = pack(adj_factor, pk)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ratio = shift(f, 1) / f
+    known = unpack_bool(np.isfinite(ratio), pk, adj_factor.shape[0])
+    jump = unpack_bool(np.isfinite(ratio) & (np.abs(ratio - 1) >= min_jump), pk, adj_factor.shape[0])
+    n_known = known.sum(axis=1)
+    n_jump = jump.sum(axis=1)
+    return np.asarray((n_known >= min_count) & (n_jump > share * np.maximum(n_known, 1)), dtype=np.bool_)
 
 
 def adj_factor_events(adj_factor: F64, close: F64, pk: Packing, ca_jump: float, div_min: float) -> tuple[Bool, F64]:
@@ -480,3 +558,25 @@ def adj_factor_events(adj_factor: F64, close: F64, pk: Packing, ca_jump: float, 
         ca = np.isfinite(ratio) & (np.abs(ratio - 1) >= ca_jump)
         div = np.where(~ca & np.isfinite(ratio) & (ratio < 1 - div_min), shift(c, 1) * (1 - ratio), 0.0)
     return unpack_bool(ca, pk, t_len), np.nan_to_num(unpack(div, pk, t_len))
+
+
+# --- exchange rates (docs/31 §1.1) --------------------------------------------------------------------------
+
+
+def fx_path(days: Days, rate_days: Days, eur_per_unit: F64, static: float | None) -> tuple[F64, Bool]:
+    """EUR per unit of a currency on each day: the last ECB rate published on or before the day — never a
+    later one (no back-fill from the future). Before the first rate (or without any) the plan's static table
+    ``static`` is used and those days are returned flagged; without a static rate they stay NaN (unknown)."""
+    out = np.full(days.shape[0], np.nan)
+    if rate_days.size:
+        k = np.searchsorted(rate_days, days, side="right") - 1
+        known = k >= 0
+        out[known] = eur_per_unit[k[known]]
+    else:
+        known = np.zeros(days.shape[0], dtype=bool)
+    flagged = ~known
+    if static is not None and math.isfinite(static) and static > 0:
+        out[flagged] = float(static)
+    else:
+        flagged = np.zeros(days.shape[0], dtype=bool)
+    return out, np.asarray(flagged, dtype=np.bool_)

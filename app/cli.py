@@ -1153,8 +1153,10 @@ def cmd_research(args: argparse.Namespace) -> int:
                     args.max_f0_candidates,
                 )
                 print(f"\n{r['titre']}\nrapport : {r['txt']}\n          {r['json']}\ndurée : {r['duree_s']} s")
-                if r["candidats"]:
+                if r["candidats_figes"]:
                     print("candidats figés : fichier *_candidates.yaml à côté du rapport (research unseal)")
+                elif r["candidats"]:
+                    print("candidats NON figés : calibration non valide (research calibrate --run N, puis relancer)")
             elif args.action == "decompose":
                 d = research.decompose(s, cfg, calendars, args.run, out, progress)
                 print(research._decomp_text(d) if "decomposition" in d else d.get("erreur"))
@@ -1753,8 +1755,8 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument(
         "--universe",
         default="in_universe",
-        choices=["in_universe", "all", "pit"],
-        help="in_universe : univers actuel ; all / pit : toutes les actions, liquidité point-in-time",
+        choices=["in_universe", "all"],
+        help="in_universe : univers actuel ; all : toutes les actions, liquidité point-in-time",
     )
     rs.add_argument("--max-instruments", dest="max_instruments", type=int, default=None)
     rs.add_argument("--stage", default="all", choices=["0", "1", "2", "all"])
@@ -1764,7 +1766,13 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument("--run", type=int, default=None, help="backtest de référence (défaut : le dernier)")
     rs.add_argument("--candidates", default=None, help="fichier de candidats figé (unseal)")
     rs.add_argument("--no-cache", dest="no_cache", action="store_true")
-    rs.add_argument("--max-f0-candidates", dest="max_f0_candidates", type=int, default=100_000)
+    rs.add_argument(
+        "--max-f0-candidates",
+        dest="max_f0_candidates",
+        type=int,
+        default=20_000,
+        help="évaluations des vrais détecteurs par groupe de places (F0 g/h), stratifiées par détecteur",
+    )
     rs.set_defaults(fn=cmd_research)
     sub.add_parser("llm-costs", help="coût de l'API Claude par usage (docs/25 L6)").set_defaults(fn=cmd_llm_costs)
     le = sub.add_parser("llm-eval", help="compare les modèles de génération 5 sur des réponses enregistrées (ADR-011)")

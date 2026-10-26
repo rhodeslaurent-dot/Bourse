@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -159,41 +160,62 @@ def block_bootstrap_ci(x: F64, block: int, draws: int, seed: int, level: float =
     return float(np.quantile(m, a)), float(np.quantile(m, 1 - a))
 
 
-def _nw_columns(x: F64, lag: int) -> tuple[F64, F64]:
+def _column_lags(lag: int | I64, m: int) -> I64:
+    lags = np.broadcast_to(np.asarray(lag, dtype=np.int64), (m,)).copy()
+    return np.maximum(lags, 0)
+
+
+def _nw_columns(x: F64, lag: int | I64) -> tuple[F64, F64]:
     """Column means and Newey–West standard errors of the means of a matrix with gaps (NaN): the gaps
-    contribute nothing to the autocovariances (rows = weeks)."""
+    contribute nothing to the autocovariances (rows = weeks). ``lag`` is one lag for every column or one lag
+    per column (Bartlett weights ``1 − k/(lag_j + 1)`` for ``k ≤ lag_j``, 0 beyond)."""
     ok = np.isfinite(x)
+    lags = _column_lags(lag, x.shape[1])
     n = ok.sum(axis=0).astype(np.float64)
     with np.errstate(invalid="ignore", divide="ignore"):
         mean = np.where(n > 0, np.where(ok, x, 0.0).sum(axis=0) / np.maximum(n, 1), np.nan)
         e = np.where(ok, x - mean, 0.0)
         v = (e * e).sum(axis=0) / n
-        for k in range(1, lag + 1):
+        for k in range(1, int(lags.max(initial=0)) + 1):
             if k < x.shape[0]:
-                v = v + 2 * (1 - k / (lag + 1)) * (e[k:] * e[:-k]).sum(axis=0) / n
+                w = np.where(k <= lags, 1 - k / (lags + 1), 0.0)
+                v = v + 2 * w * (e[k:] * e[:-k]).sum(axis=0) / n
         se = np.sqrt(np.maximum(v, 0.0) / n)
     return mean, np.where((n >= 3) & (se > 0), se, np.nan)
 
 
-def romano_wolf(matrix: F64, block: int, draws: int, seed: int, lag: int = 4) -> tuple[F64, F64]:
+@dataclass(frozen=True)
+class RomanoWolf:
+    t: F64  # studentised statistic of each column (NaN when not computable)
+    p_adj: F64  # one-sided step-down adjusted p-values
+    max_t_crit: float  # (1 − alpha) quantile of the bootstrap max-t over all the columns (first step)
+    block: int  # rows (weeks) per resampled block
+    lags: I64  # Newey–West lag of each column (rows)
+
+
+def romano_wolf_full(
+    matrix: F64, block: int, draws: int, seed: int, lag: int | I64 = 4, alpha: float = 0.05
+) -> RomanoWolf:
     """One-sided Romano–Wolf step-down adjusted p-values of the column means of ``matrix`` (rows = weeks,
     NaN = no trade that week): circular block bootstrap of the rows (joint, so the correlation between cells
-    is kept), statistics studentised by the Newey–West standard error in the sample and in each resample.
-    Returns (t, adjusted p)."""
+    is kept), statistics studentised by the Newey–West standard error — each column with its own lag — in
+    the sample and in each resample. Also returns the first-step critical value of the max-t."""
     w, m = matrix.shape
+    lags = _column_lags(lag, m)
     p_adj = np.ones(m)
-    means, se = _nw_columns(matrix, lag)
+    means, se = _nw_columns(matrix, lags)
     with np.errstate(invalid="ignore", divide="ignore"):
         t = means / se
     cols = np.nonzero(np.isfinite(t))[0]
     if cols.size == 0 or w < 2:
-        return t, p_adj
+        return RomanoWolf(t, p_adj, math.nan, block, lags)
     rng = np.random.default_rng(seed)
     sub = matrix[:, cols]
+    sub_lags = lags[cols]
     stars = np.empty((draws, cols.size))
     with np.errstate(invalid="ignore", divide="ignore"):
         for b in range(draws):
-            mb, sb = _nw_columns(sub[block_indices(w, block, rng)], lag)
+            mb, sb = _nw_columns(sub[block_indices(w, block, rng)], sub_lags)
             stars[b] = (mb - means[cols]) / sb
     order = np.argsort(-t[cols])
     st = np.nan_to_num(stars[:, order], nan=-np.inf)
@@ -201,7 +223,14 @@ def romano_wolf(matrix: F64, block: int, draws: int, seed: int, lag: int = 4) ->
     p = (1 + (suffix_max >= t[cols][order][None, :]).sum(axis=0)) / (1 + draws)
     p = np.maximum.accumulate(p)
     p_adj[cols[order]] = np.minimum(p, 1.0)
-    return t, p_adj
+    crit = float(np.quantile(suffix_max[:, 0], 1 - alpha)) if draws else math.nan
+    return RomanoWolf(t, p_adj, crit if math.isfinite(crit) else math.nan, block, lags)
+
+
+def romano_wolf(matrix: F64, block: int, draws: int, seed: int, lag: int | I64 = 4) -> tuple[F64, F64]:
+    """(t, adjusted p) of :func:`romano_wolf_full`."""
+    rw = romano_wolf_full(matrix, block, draws, seed, lag)
+    return rw.t, rw.p_adj
 
 
 def holm(p: F64) -> F64:

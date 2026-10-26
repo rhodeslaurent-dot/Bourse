@@ -91,6 +91,10 @@ def test_research_commands_end_to_end(research_db, tmp_path):
     h = rep["entete"]
     assert h["plan"] == "2026-10-27_reg1" and h["univers"] == "all" and h["instruments"]["P0"] > 0
     assert h["calibration"].startswith("VALIDE") and h["cellules_enregistrees"]["total"] == 195
+    assert h["calibration_verdict"] == "VALIDE" and f"run {run_id}" in h["calibration"]
+    # the SEK rate starts on 2017-06-01: the days before it use the plan's static rate (listed), never that rate
+    assert h["jours_devise_taux_statique"]["SEK"]["du"] == "2016-01-04"
+    assert h["jours_devise_taux_statique"]["SEK"]["au"] < "2017-06-01"
     assert rep["A_resume"]["titre"]
     for row in rep["I_classement"].values():
         assert row["niveau"] in ("CANDIDAT", "SURVEILLANCE", "REJET")
@@ -100,10 +104,22 @@ def test_research_commands_end_to_end(research_db, tmp_path):
     with open(tmp_path / "research" / "ledger.csv", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     assert rows[-1]["kind"] == "run" and rows[-1]["prereg_sha256"] == h["plan_sha256"]
+    assert rows[-1]["calibration"] == "VALIDE"
     # costs never improve a trade: gross R ≥ net R on average in every reported cell
     for row in rep["G_couts_et_comptes"].values():
         if row.get("cout_moyen_r") is not None:
             assert row["cout_moyen_r"] >= 0
+    # a calibration of another plan does not count: the next report is INVALIDE and freezes no candidate
+    cal_path = next((tmp_path / "research").glob("calibration_*.json"))
+    cal_path.write_text(json.dumps({**cal, "plan_sha256": "autre plan"}), encoding="utf-8")
+    assert main(args) == 0
+    last = sorted(p for p in (tmp_path / "research").glob("2*.json") if "candidates" not in p.name)[-1]
+    rep2 = json.loads(last.read_text())
+    assert rep2["entete"]["calibration_verdict"] == "INVALIDE" and rep2["A_resume"]["titre"].startswith("INVALIDE")
+    assert not list((tmp_path / "research").glob(f"{last.stem}_candidates.yaml"))
+    with open(tmp_path / "research" / "ledger.csv", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert rows[-1]["calibration"] == "INVALIDE" and rows[-1]["candidates_sha256"] == ""
     # same plan, another cell set in the ledger → refused
     rows[-1]["cell_set_sha256"] = "autre"
     with open(tmp_path / "research" / "ledger.csv", "w", encoding="utf-8", newline="") as fh:

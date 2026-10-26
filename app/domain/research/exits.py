@@ -5,14 +5,24 @@ One loop over the sessions of the holding window, vectorised over all orders: th
 it; an open at or below the invalidation level cancels the order; stop assumed hit after the fill on the fill
 session; gap through the stop → exit at the open, slipped; time exit at the close). With
 ``ExitSpec(target_on_fill_bar="always", require_bracket=True)``, the ``stop_first`` rule and no dividends, the
-results are identical to ``simulate_trade`` (unit-tested on random brackets).
+entries, exits and MAE are identical to ``simulate_trade`` (unit-tested on random brackets); the MFE differs
+on intraday fills only, where the high of the fill session is not counted (it may precede the fill).
 
 Levels are formulas of the executed entry price (``stop = stop_mult · entry − stop_off``, ``target =
 tgt_mult · entry + tgt_off``): an absolute level uses a zero multiplier. Path rules when the stop and the
 target are both inside one session: ``stop_first`` (primary, conservative), ``ohlc`` (the level closer to the
 open first; an open beyond the target exits there) and ``target_first`` (optimism bound); such sessions are
-flagged ``ambiguous``. Dividends (ex-date after the fill): stop and target lowered by the amount, cash
-credited per share.
+flagged ``ambiguous``. On a fill session filled intraday at the limit (open above it), the order of the
+session's prices before the fill is unknown: the stop wins under every rule, the target needs a target-on-fill
+spec, and the highest high starts from the entry (every price before the fill was above the limit, so only
+the low of that session is known to come after it). Dividends (ex-date after the fill): stop and target lowered
+by the amount, cash credited per share.
+
+A trade whose instrument history ends during the hold (``Bars.ended``: no bar in the last sessions of the
+panel — delisting, takeover, suspension) is closed at the last available close with reason ``DELISTED`` and
+counted (survivorship: dropping it would keep only the survivors); the pipeline reports a stressed variant
+where that exit loses 100 % of the notional. A history that only stops at the end of the data stays
+``UNKNOWN`` (never counted).
 """
 
 from __future__ import annotations
@@ -23,14 +33,16 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
-from app.domain.research.panel import F64, I64, Bool, Features, Panel, pack
+from app.domain.research.panel import F64, I64, Bool, Features, Packing, Panel, pack
 
 I8 = npt.NDArray[np.int8]
 
-UNFILLED, CANCELLED, CLOSED, UNKNOWN, CORPORATE_ACTION, INVALID = 0, 1, 2, 3, 4, 5
-STOP, GAP_STOP, TARGET, TIME, TRAIL, MA20, COND_TIME = 0, 1, 2, 3, 4, 5, 6
+UNFILLED, CANCELLED, CLOSED, UNKNOWN, CORPORATE_ACTION, INVALID, DIVIDEND_SUSPECT = 0, 1, 2, 3, 4, 5, 6
+STOP, GAP_STOP, TARGET, TIME, TRAIL, MA20, COND_TIME, DELISTED = 0, 1, 2, 3, 4, 5, 6, 7
 REASONS = {STOP: "stop", GAP_STOP: "gap_stop", TARGET: "target", TIME: "time", TRAIL: "trail", MA20: "ma20",
-           COND_TIME: "cond_time"}  # fmt: skip
+           COND_TIME: "cond_time", DELISTED: "delisted"}  # fmt: skip
+SLIPPED_EXITS = (STOP, GAP_STOP, TRAIL, MA20)  # exit prices already slipped by the engine (stop / market orders)
+ENDED_MARGIN_ROWS = 5  # no bar in the last 5 calendar rows of the panel: the instrument's history has ended
 PathRule = Literal["stop_first", "ohlc", "target_first"]
 
 
@@ -47,10 +59,21 @@ class Bars:
     div: F64  # dividend amount on its ex-date bar (raw price units), 0 otherwise
     ca: Bool  # corporate action (split…) on that bar
     n_bars: I64  # (N,)
+    ended: Bool | None = None  # (N,) history ends inside the panel (delisted…); None: never
 
     @property
     def width(self) -> int:
         return int(self.open.shape[1])
+
+
+def history_ended(pk: Packing, t_len: int, margin: int = ENDED_MARGIN_ROWS) -> Bool:
+    """Instruments whose last bar is more than ``margin`` calendar rows before the end of the panel."""
+    n = pk.n_bars.size
+    last = np.full(n, -1, dtype=np.int64)
+    has = pk.n_bars > 0
+    cols = np.arange(n)[has]
+    last[has] = pk.order[pk.n_bars[has] - 1, cols]
+    return np.asarray(has & (last < t_len - 1 - margin), dtype=np.bool_)
 
 
 def bars_from(p: Panel, f: Features, ca: Bool, div: F64) -> Bars:
@@ -65,6 +88,7 @@ def bars_from(p: Panel, f: Features, ca: Bool, div: F64) -> Bars:
         np.ascontiguousarray(np.nan_to_num(pack(div, pk))),
         np.ascontiguousarray(pack(ca.astype(np.float64), pk) == 1.0),
         pk.n_bars,
+        history_ended(pk, p.shape[0]),
     )
 
 
@@ -238,13 +262,21 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
     out_amb = np.zeros(fidx.size, dtype=bool)
     out_status = np.full(fidx.size, UNKNOWN, dtype=np.int8)
     always = spec.target_on_fill_bar == "always"
+    ended = np.zeros(bars.width, dtype=bool) if bars.ended is None else bars.ended
     for s in range(spec.max_hold):
         a = np.nonzero(active)[0]
         if a.size == 0:
             break
         p = f_fill[a] + s
         avail = p < bars.n_bars[f_inst[a]]
-        active[a[~avail]] = False  # history too short: outcome unknown, never counted
+        gone = a[~avail]
+        active[gone] = False
+        # history ended inside the panel (delisting…): closed at the last available close, counted and flagged;
+        # history stopped by the end of the data: outcome unknown, never counted
+        dl = gone[ended[f_inst[gone]]]
+        last_pos = bars.n_bars[f_inst[dl]] - 1
+        out_pos[dl], out_px[dl], out_rsn[dl] = last_pos, c_all[last_pos * w + f_inst[dl]], DELISTED
+        out_status[dl] = CLOSED
         a, p = a[avail], p[avail]
         g = p * w + f_inst[a]
         o, h, lw, c = o_all[g], h_all[g], l_all[g], c_all[g]
@@ -256,7 +288,10 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
                 cur_tgt[a] = cur_tgt[a] - dv
                 f_cash[a] += dv
         st, tg = cur_stop[a], cur_tgt[a]
-        hh = np.maximum(f_hi[a], h)
+        # fill session filled intraday at the limit: the high may precede the fill (MFE, X6, trail, breakeven
+        # start from the entry); every price below the limit — the low — follows it
+        pre = (~f_open[a]) if s == 0 else np.zeros(a.size, dtype=bool)
+        hh = np.where(pre, f_hi[a], np.maximum(f_hi[a], h))
         ll = np.minimum(f_lo[a], lw)
         f_hi[a], f_lo[a] = hh, ll
         done = np.zeros(a.size, dtype=bool)
@@ -282,6 +317,7 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
             stop_wins = sh & ~(to | th)
         else:
             stop_wins = sh & ~to & ~(th & ((o - st) >= (tg - o)))
+        stop_wins |= sh & pre  # intraday fill: the pre-fill open says nothing of the order after the fill
         raised = st > stop_init[fidx[a]]
         px[stop_wins] = st[stop_wins] * (1 - slip)
         rsn[stop_wins] = np.where(raised[stop_wins], TRAIL, STOP)

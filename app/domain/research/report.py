@@ -1,9 +1,12 @@
 # ruff: noqa: E501
 """Aggregated report of a registration run (docs/31 §4.3): statistics only — no price, no instrument (EODHD
-data must not be redistributed). Cells with fewer than ``report_min_n`` trades are suppressed. Pure."""
+data must not be redistributed). Every row with fewer than ``report_min_n`` trades is suppressed, at any depth
+(cells, splits, folds, regimes, decomposition, stage-1 rows…); no key may be price-like and no string may
+look like an ISIN. Pure."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -15,33 +18,69 @@ CELL_KEYS_C = ("id", "n", "mean_r", "median_r", "hit_rate", "profit_factor", "me
                "t_week", "p_romano_wolf", "p_holm", "q_bh", "gate", "semaines", "mois", "duree_mediane")  # fmt: skip
 
 
+# an ISIN anywhere in a key or a value (2 letters, 9 alphanumerics, 1 check digit, as a whole token)
+ISIN_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}[A-Z0-9]{9}[0-9](?![A-Za-z0-9])")
+# labels kept on a suppressed row (no statistic)
+SUPPRESSED_KEEP = ("id", "famille", "declencheur", "h", "niveau", "signaux", "annee", "variante", "periode")
+
+
 class ReportError(ValueError):
     pass
 
 
+def _no_isin(text: str, path: str) -> None:
+    if ISIN_RE.search(text):
+        raise ReportError(f"identifiant d'instrument (ISIN) dans le rapport : {path}")
+
+
 def assert_no_price_fields(report: Any, path: str = "") -> None:
-    """Refuse any price-like or instrument-identifying key, at any depth."""
+    """Refuse any price-like or instrument-identifying key, and any ISIN-shaped key or string value, at any
+    depth."""
     if isinstance(report, Mapping):
         for k, v in report.items():
             if str(k).lower() in FORBIDDEN_KEYS:
                 raise ReportError(f"champ interdit dans le rapport : {path}/{k}")
+            _no_isin(str(k), f"{path}/{k}")
             assert_no_price_fields(v, f"{path}/{k}")
-    elif isinstance(report, list | tuple):
+    elif isinstance(report, list | tuple | set | frozenset):
         for i, v in enumerate(report):
             assert_no_price_fields(v, f"{path}[{i}]")
+    elif isinstance(report, str):
+        _no_isin(report, path)
 
 
 def _public(d: Mapping[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in d.items() if not str(k).startswith("_")}
 
 
-def suppress(row: Mapping[str, Any], min_n: int) -> dict[str, Any]:
+def _small(row: Mapping[str, Any], min_n: int) -> bool:
     n = row.get("n")
-    if isinstance(n, int) and n < min_n:
-        keep = {k: row[k] for k in ("id", "famille", "declencheur", "h", "niveau", "signaux") if k in row}
-        keep.update(n=n, supprime=f"moins de {min_n} trades")
-        return keep
-    return _public(row)
+    return isinstance(n, int) and not isinstance(n, bool) and n < min_n
+
+
+def _suppressed(row: Mapping[str, Any], min_n: int) -> dict[str, Any]:
+    keep = {k: row[k] for k in SUPPRESSED_KEEP if k in row}
+    keep.update(n=row["n"], supprime=f"moins de {min_n} trades")
+    return keep
+
+
+def suppress_deep(x: Any, min_n: int) -> Any:
+    """Every mapping carrying an integer ``n`` below ``min_n`` is replaced by its labels and ``n``, at any
+    depth (a large cell keeps its rows; its small splits, folds or regimes are masked one by one)."""
+    if isinstance(x, Mapping):
+        if _small(x, min_n):
+            return _suppressed(x, min_n)
+        return {k: suppress_deep(v, min_n) for k, v in x.items()}
+    if isinstance(x, list | tuple):
+        return [suppress_deep(v, min_n) for v in x]
+    return x
+
+
+def suppress(row: Mapping[str, Any], min_n: int) -> dict[str, Any]:
+    if _small(row, min_n):
+        return _suppressed(row, min_n)
+    out: dict[str, Any] = suppress_deep(_public(row), min_n)
+    return out
 
 
 def build_report(prereg: Prereg, results: Mapping[str, Any], header: Mapping[str, Any]) -> dict[str, Any]:
@@ -62,6 +101,9 @@ def build_report(prereg: Prereg, results: Mapping[str, Any], header: Mapping[str
         return {cid: {k: r.get(k) for k in keys if k in r} for cid, r in rows.items() if "supprime" not in r}
 
     f0 = {k: (suppress(v, min_n) if isinstance(v, Mapping) else v) for k, v in (results.get("f0") or {}).items()}
+    cal = header.get("calibration_verdict")
+    if cal is not None and cal != "VALIDE":  # a report without a valid calibration is not exploitable
+        headline = f"INVALIDE (calibration non valide) — {headline}"
     report: dict[str, Any] = {
         "entete": {
             **dict(header),
@@ -73,9 +115,20 @@ def build_report(prereg: Prereg, results: Mapping[str, Any], header: Mapping[str
             "effet_minimal_detectable": {
                 k: v.get("effet_minimal_detectable") for k, v in (results.get("familles") or {}).items()
             },
-            "puissance_effet_plante": {k: v.get("puissance") for k, v in (results.get("familles") or {}).items()},
+            "puissance_effet_plante": {
+                k: {
+                    "valeurs": v.get("puissance"),
+                    "seuil_t": v.get("seuil_t_puissance"),
+                    "nature": v.get("puissance_nature"),
+                }
+                for k, v in (results.get("familles") or {}).items()
+            },  # fmt: skip
+            "romano_wolf": results.get("romano_wolf", {}),
+            "lignes_portefeuille": results.get("lignes_portefeuille"),
+            "avertissements": list(results.get("avertissements", [])),
             "segment": results.get("segment"),
             "annees_dividendes_ecartees": results.get("annees_dividendes_ecartees"),
+            "qualite_donnees": results.get("qualite_donnees", {}),
         },
         "A_resume": {
             "titre": headline,
@@ -105,6 +158,11 @@ def build_report(prereg: Prereg, results: Mapping[str, Any], header: Mapping[str
                     "executes",
                     "non_executes",
                     "annules",
+                    "issue_inconnue",
+                    "operations_sur_titres",
+                    "signaux_masques_ost",
+                    "exclus_dividendes_douteux",
+                    "sorties_cotation_interrompue",
                 )
             ),  # fmt: skip
             "references_imbriquees": results.get("references", {}),
@@ -119,6 +177,13 @@ def build_report(prereg: Prereg, results: Mapping[str, Any], header: Mapping[str
                 "regime",
                 "plis",
                 "oos",
+                "oos_sous_ensemble_cellule",
+                "plis_sous_ensemble_cellule",
+                "plis_positifs_sous_ensemble_cellule",
+                "walk_forward_famille",
+                "inference",
+                "lag_romano_wolf_semaines",
+                "t_week_controle",
                 "design_effect",
                 "se_grappes_mois",
                 "se_grappes_mois_valeur",
@@ -145,6 +210,7 @@ def build_report(prereg: Prereg, results: Mapping[str, Any], header: Mapping[str
         "J_portefeuille": results.get("etape2", {}),
         "K_limites": list(header.get("limites", [])),
     }
+    report = suppress_deep(report, min_n)
     assert_no_price_fields(report)
     return report
 
@@ -170,11 +236,19 @@ def render_fr(report: Mapping[str, Any]) -> str:
         "En-tête",
         f"  données : {h.get('debut_donnees')} → {h.get('fin_donnees')} ; univers : {h.get('univers')}",
         f"  instruments couverts : {h.get('instruments')} ; inactifs ou sans cours depuis 30 jours : {h.get('radies_ou_inactifs')}",
-        f"  calibration (rejeu du run 2) : {h.get('calibration')}",
+        f"  calibration (rejeu du run 2, même plan et même run, couvrant la fin des données) : {h.get('calibration')}",
+        f"  jours au taux de change statique du plan (avant le premier taux BCE) : {h.get('jours_devise_taux_statique')}",
         f"  plan sha256 : {h.get('plan_sha256')}",
         f"  cellules enregistrées : {h.get('cellules_enregistrees')}",
         f"  cellules exécutées : {h.get('cellules_executees')}",
         f"  durée : {h.get('duree_s')} s",
+        f"  années-valeurs aux dividendes écartés (trades exclus) : {h.get('annees_dividendes_ecartees')}",
+        f"  qualité des données (millésimes neutralisés, dividendes rejetés, jours de sauts de masse, OST, "
+        f"observations masquées après OST) : {h.get('qualite_donnees')}",
+        f"  Romano–Wolf (bloc en semaines, t max critique à 5 %) : {(h.get('romano_wolf') or {}).get('bloc_semaines')}, "
+        f"{(h.get('romano_wolf') or {}).get('t_max_critique_5pct')} ; lignes du portefeuille : {h.get('lignes_portefeuille')}",
+        "  puissance de l'effet planté : borne supérieure (A2 et A5 ne sont pas simulés)",
+        *[f"  AVERTISSEMENT : {w}" for w in h.get("avertissements") or []],
         "",
         "A — Résumé",
         f"  candidats : {', '.join(a['candidats']) or 'aucun'}",
@@ -194,14 +268,19 @@ def render_fr(report: Mapping[str, Any]) -> str:
     for det, v in (b.get("decomposition") or {}).items():
         lines.append(f"  {det} : n {v.get('n')} brut {_fmt(v.get('r_brut_moyen'))} net {_fmt(v.get('r_net_moyen'))} "
                      f"coûts {_fmt(v.get('cout_moyen_r'))} ; perdants passés par +1 R {v.get('perdants_passes_par_1r')}")  # fmt: skip
-    for cid, v in (b.get("cellules_f0") or {}).items():
-        if cid.startswith("_"):
+    core_keys = ("n", "difference_moyenne", "exces_moyen", "r_moyen", "ic", "t_semaine", "supprime")
+    f0 = b.get("cellules_f0") or {}
+    for cid, v in f0.items():
+        if cid.startswith("_") or cid == "periode_scellee_run2":
             continue
         if isinstance(v, Mapping):
-            core = {
-                k: v.get(k) for k in ("n", "difference_moyenne", "exces_moyen", "r_moyen", "ic", "t_semaine") if k in v
-            }
-            lines.append(f"  {cid} : {core}")
+            lines.append(f"  {cid} : { {k: v.get(k) for k in core_keys if k in v} }")
+    sealed = f0.get("periode_scellee_run2")
+    if isinstance(sealed, Mapping):
+        lines.append(f"  [{sealed.get('libelle')}] trades du run 2 : {sealed.get('trades_run2')}")
+        for cid, v in (sealed.get("cellules") or {}).items():
+            if isinstance(v, Mapping):
+                lines.append(f"    {cid} (scellée) : { {k: v.get(k) for k in core_keys if k in v} }")
     lines += ["", "C — Étape 0 par famille (n, R moyen, excès, t semaine, p Romano–Wolf, q BH, porte)"]
     for fam, rows in report["C_etape0_par_famille"].items():
         lines.append(f"  [{fam}]")

@@ -9,9 +9,11 @@ most once per frozen candidate file.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import itertools
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -19,6 +21,7 @@ from typing import Any, Literal
 
 CellTier = Literal["confirmatory", "exploratory", "f0"]
 Mode = Literal["event", "monthly", "monthly_overlay"]
+MOMENTUM_TRIGGERS = frozenset({"t01", "t03", "c1"})
 
 
 class PreregError(ValueError):
@@ -45,10 +48,21 @@ class Cell:
     max_hold: int | None = None
 
     @property
-    def combo_key(self) -> tuple[str, float, int, int, int | None]:
-        """Entry / exit combination simulated once on the whole eligible panel (controls)."""
-        cap = self.cap_atr if self.cap_atr is not None else 1.0
-        return (self.exit, float(cap), self.validity, self.h, self.max_hold)
+    def entry_cap_atr(self) -> float:
+        """E_open(x) cap of the cell's orders. Only a D2x cell (its own cap rule ``cap``, as ``p_max``) may
+        have none; every other cell gets it from the plan (``momentum_entry_cap_atr`` for T01 / T03 / C1)."""
+        if self.cap_atr is not None:
+            return float(self.cap_atr)
+        if self.cap is not None:
+            return math.nan  # unused: the orders' limit is the D2x cap rule
+        raise ValueError(f"cellule {self.id} : plafond d'entrée absent du plan")
+
+    @property
+    def combo_key(self) -> tuple[str, float, int, int, int | None, str | None]:
+        """Entry / exit combination simulated once on the whole eligible panel (controls); a D2x cell carries
+        its own cap rule, so its controls enter with the same rule."""
+        cap = self.cap_atr if self.cap_atr is not None else 0.0
+        return (self.exit, float(cap), self.validity, self.h, self.max_hold, self.cap)
 
 
 @dataclass(frozen=True)
@@ -188,6 +202,13 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
     assumptions = {
         k: (v["value"] if isinstance(v, Mapping) and "value" in v else v) for k, v in raw["assumptions"].items()
     }
+    # the E_open cap of the momentum cells is a registered assumption of the plan (never a code default)
+    mom_cap = assumptions.get("momentum_entry_cap_atr")
+    for k, c in enumerate(cells):
+        if c.trigger in MOMENTUM_TRIGGERS and c.cap_atr is None:
+            if mom_cap is None:
+                raise PreregError(f"cellule {c.id} : hypothèse momentum_entry_cap_atr absente du plan")
+            cells[k] = dataclasses.replace(c, cap_atr=float(mom_cap))
     flags = {
         k: bool(v.get("assumption", False)) if isinstance(v, Mapping) else False for k, v in raw["assumptions"].items()
     }
@@ -234,12 +255,21 @@ def check_ledger(rows: Sequence[Mapping[str, str]], prereg: Prereg) -> None:
             )
 
 
+CELL_SEP = ";"  # separator of the cell ids in a ledger column
+
+
+def ledger_cells(text: str | None) -> list[str]:
+    return [x for x in (text or "").split(CELL_SEP) if x]
+
+
 def check_unseal(
     candidates: Mapping[str, Any] | None, candidates_sha256: str | None, prereg: Prereg,
     rows: Sequence[Mapping[str, str]],
 ) -> list[str]:  # fmt: skip
     """The single holdout unseal: needs a frozen candidate file of this plan (≤ ``candidates_max`` cells),
-    never used before. Returns the candidate cell ids."""
+    never used before, **written by a ledgered run**: a ``run`` row of the ledger with the same plan hash and
+    cell set, the same candidate-file sha256 and the same cells, all classified CANDIDAT by that run (a file
+    edited or made by hand has another hash and is refused). Returns the candidate cell ids."""
     if candidates is None or candidates_sha256 is None:
         raise PreregError("descellement refusé : fichier de candidats figé absent")
     if candidates.get("prereg_sha256") != prereg.sha256:
@@ -247,6 +277,8 @@ def check_unseal(
     ids = [str(x) for x in candidates.get("cells") or []]
     if not ids:
         raise PreregError("descellement refusé : aucun candidat dans le fichier")
+    if len(set(ids)) != len(ids):
+        raise PreregError("descellement refusé : cellule en double dans le fichier")
     if len(ids) > int(prereg.thresholds["candidates_max"]):
         raise PreregError(f"descellement refusé : plus de {prereg.thresholds['candidates_max']} candidats")
     known = {c.id for c in prereg.cells}
@@ -256,4 +288,20 @@ def check_unseal(
     for r in rows:
         if r.get("kind") == "unseal" and r.get("prereg_sha256") == prereg.sha256:
             raise PreregError("descellement refusé : la période scellée de ce plan a déjà été ouverte une fois")
+    runs = [
+        r for r in rows
+        if r.get("kind", "run") == "run" and r.get("prereg_sha256") == prereg.sha256
+        and r.get("cell_set_sha256") == prereg.cell_set_hash and r.get("candidates_sha256") == candidates_sha256
+    ]  # fmt: skip
+    if not runs:
+        raise PreregError(
+            "descellement refusé : aucune exécution inscrite au registre n'a écrit ce fichier de candidats "
+            "(empreinte inconnue : fichier modifié ou fait à la main)"
+        )
+    ledgered = ledger_cells(runs[-1].get("candidate_cells"))
+    if sorted(ledgered) != sorted(ids):
+        raise PreregError("descellement refusé : les cellules du fichier ne sont pas celles inscrites au registre")
+    levels = candidates.get("niveaux") or {}
+    if any(levels.get(i) != "CANDIDAT" for i in ids):
+        raise PreregError("descellement refusé : toutes les cellules du fichier doivent être classées CANDIDAT")
     return ids
