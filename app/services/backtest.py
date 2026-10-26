@@ -10,6 +10,7 @@ and shown with every figure (survivorship, no historical fundamentals or letters
 from __future__ import annotations
 
 import logging
+import statistics
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -292,3 +293,52 @@ def prior_expected_r(s: Session, detector: str, shrinkage_k: int = 20) -> tuple[
     n = int(ctl["n"])
     w = min(n, 30)
     return 0.5 * float(ctl["mean_r"]) * w / (w + shrinkage_k), n
+
+
+def diagnostics(s: Session, run_id: int | None = None) -> dict[str, Any]:
+    """Why a detector wins or loses, from the stored trades of a run (production conditions: admitted, no
+    warning): gross R (the edge before costs) vs net R (after costs), how trades end, how far they went in
+    the trade's favour before ending (MFE) and against it (MAE), the planned reward / risk, and the result by
+    market regime. Facts for a decision on the exits — no parameter is changed here."""
+    run = s.get(BacktestRun, run_id) if run_id else s.scalar(select(BacktestRun).order_by(BacktestRun.id.desc()))
+    if run is None:
+        return {}
+    rows = list(
+        s.scalars(
+            select(BacktestTrade).where(
+                BacktestTrade.run_id == run.id, BacktestTrade.status == "admis", BacktestTrade.warned.is_(False)
+            )
+        )
+    )
+    by: dict[str, list[BacktestTrade]] = defaultdict(list)
+    for t in rows:
+        by[t.detector].append(t)
+
+    def med(xs: list[float]) -> float | None:
+        return round(statistics.median(xs), 2) if xs else None
+
+    out: dict[str, Any] = {"run": run.id, "start": run.start.isoformat(), "end": run.end.isoformat(), "detecteurs": {}}
+    for det, ts in sorted(by.items()):
+        n = len(ts)
+        planned = [(t.target - t.entry) / (t.entry - t.stop) for t in ts if t.entry > t.stop]
+        losers = [t for t in ts if t.r_net < 0]
+        regimes_: dict[str, list[float]] = defaultdict(list)
+        for t in ts:
+            regimes_[t.regime or "inconnu"].append(t.r_net)
+        out["detecteurs"][det] = {
+            "n": n,
+            "r_brut_moyen": round(statistics.fmean(t.r_gross for t in ts), 3),
+            "r_net_moyen": round(statistics.fmean(t.r_net for t in ts), 3),
+            "cout_moyen_r": round(statistics.fmean(t.r_gross - t.r_net for t in ts), 3),
+            "sorties": {
+                r: round(sum(t.reason == r for t in ts) / n, 2) for r in ("target", "stop", "gap_stop", "time")
+            },
+            "gain_vise_r_median": med(planned),
+            "mfe_median_r": med([t.mfe_r for t in ts]),
+            "mae_median_r": med([t.mae_r for t in ts]),
+            "part_mfe_1r": round(sum(t.mfe_r >= 1 for t in ts) / n, 2),
+            "perdants_passes_par_1r": round(sum(t.mfe_r >= 1 for t in losers) / len(losers), 2) if losers else None,
+            "duree_mediane": med([float(t.sessions) for t in ts]),
+            "par_regime": {k: {"n": len(v), "r_net_moyen": round(statistics.fmean(v), 3)} for k, v in regimes_.items()},
+        }
+    return out

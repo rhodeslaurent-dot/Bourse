@@ -61,3 +61,18 @@ def test_portfolio_replay_respects_the_cap_and_the_breaker():
     plain, guarded = portfolio_replay(streak, 1), portfolio_replay(streak, 1, BreakerRule())
     assert plain.total_r == -8.0 and guarded.skipped_breaker > 0 and guarded.total_r > plain.total_r
     assert plain.max_drawdown_r == -8.0 and guarded.max_drawdown_r > -8.0
+
+
+def test_the_replay_resumes_after_a_block():
+    """26/10/2026: the « peak of 21 sessions » kept 0 as a floor, i.e. the drawdown since the start: a slow
+    bleed of 13 R over months blocked the replay for ever (18 trades in 8 years). The peak is now the level at
+    the window start or above: a slow bleed is not a 12 R give-back, and later trades are taken."""
+    from datetime import date, timedelta
+
+    from app.domain.backtest import BreakerRule, ReplayTrade, portfolio_replay
+
+    d0 = date(2020, 1, 6)
+    bleed = [ReplayTrade(d0 + timedelta(days=8 * k), d0 + timedelta(days=8 * k + 1), -1.0) for k in range(14)]
+    later = [ReplayTrade(d0 + timedelta(days=200 + 7 * k), d0 + timedelta(days=202 + 7 * k), 2.0) for k in range(10)]
+    r = portfolio_replay(bleed + later, 1, BreakerRule())
+    assert r.skipped_breaker == 0 and r.taken == 24 and r.total_r == 6.0

@@ -218,7 +218,12 @@ def portfolio_replay(
             now = vals[-1] if vals else 0.0
             days = [d for d, _ in cum]
 
-            peak = max([0.0, *[c for d, c in zip(days, vals, strict=True) if d >= t.entry_day - timedelta(days=30)]])
+            # peak of the last 21 sessions = the curve level at the window start or any level reached since; a
+            # 0 floor kept the replay blocked for ever once 12 R were lost (18 trades in 8 years, 26/10/2026)
+            w0 = t.entry_day - timedelta(days=30)
+            before = [c for d, c in zip(days, vals, strict=True) if d < w0]
+            inside = [c for d, c in zip(days, vals, strict=True) if d >= w0]
+            peak = max([before[-1] if before else 0.0, *inside])
             if (
                 _change(days, vals, now, t.entry_day, 5) <= -breaker.loss_5_r
                 or _change(days, vals, now, t.entry_day, 21) <= -breaker.loss_21_r

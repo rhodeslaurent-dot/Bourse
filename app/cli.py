@@ -1007,6 +1007,36 @@ def cmd_exchange_list_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backtest_report(args: argparse.Namespace) -> int:
+    """docs/27 — diagnostics of the last backtest: edge before / after costs, exits, excursions, regimes."""
+    from app.db.session import db_session
+    from app.services.backtest import diagnostics
+
+    with db_session() as s:
+        d = diagnostics(s, args.run)
+    if not d:
+        print("aucun backtest enregistré (commande backtest)")
+        return 0
+    print(f"backtest n° {d['run']} ({d['start']} → {d['end']}), trades proposables (admis, sans avertissement)")
+    for det, v in d["detecteurs"].items():
+        so = v["sorties"]
+        print(f"\n{det} : {v['n']} trades, durée médiane {v['duree_mediane']} séances")
+        print(
+            f"  R brut moyen {v['r_brut_moyen']:+.3f} · coûts {v['cout_moyen_r']:.3f} R · "
+            f"R net moyen {v['r_net_moyen']:+.3f}"
+        )
+        print(f"  sorties : objectif {so['target']:.0%} · stop {so['stop']:.0%} · stop en gap {so['gap_stop']:.0%} · "
+              f"durée {so['time']:.0%}")  # fmt: skip
+        print(f"  gain visé médian {v['gain_vise_r_median']} R · meilleur moment médian (MFE) {v['mfe_median_r']} R · "
+              f"pire moment médian (MAE) {v['mae_median_r']} R")  # fmt: skip
+        lost = v["perdants_passes_par_1r"]
+        print(f"  trades passés par +1 R : {v['part_mfe_1r']:.0%}"
+              + (f" · perdants qui avaient été à +1 R : {lost:.0%}" if lost is not None else ""))  # fmt: skip
+        reg = " · ".join(f"{k} {x['r_net_moyen']:+.2f} (n {x['n']})" for k, x in sorted(v["par_regime"].items()))
+        print(f"  par régime de marché : {reg}")
+    return 0
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     """docs/27 — replay the detectors on the stored history at full cost; prints the production segments
     (admitted, no warning) and the run's known biases. Stored for the ranking prior and /apprentissage."""
@@ -1620,6 +1650,9 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--to", default=None)
     bt.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous les actifs)")
     bt.set_defaults(fn=cmd_backtest)
+    br = sub.add_parser("backtest-report", help="diagnostic du dernier backtest : coûts, sorties, excursions, régimes")
+    br.add_argument("--run", type=int, default=None)
+    br.set_defaults(fn=cmd_backtest_report)
     sub.add_parser("llm-costs", help="coût de l'API Claude par usage (docs/25 L6)").set_defaults(fn=cmd_llm_costs)
     le = sub.add_parser("llm-eval", help="compare les modèles de génération 5 sur des réponses enregistrées (ADR-011)")
     le.add_argument("--news", type=int, default=200)

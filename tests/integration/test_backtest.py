@@ -54,6 +54,14 @@ def test_backtest_runs_on_history_and_reports_segments_biases_and_prior(db_engin
                 assert ctl and ctl["ci_low"] > 0 and abs(prior[0]) <= 0.5 * abs(ctl["mean_r"]) + 1e-9
         assert prior_expected_r(s, "inconnu") is None
         assert s.query(BacktestRun).count() == 1
+        from app.services.backtest import diagnostics
+
+        diag = diagnostics(s)  # docs/27: edge before / after costs, exits, excursions, regimes
+        prod = [t for t in trades if t.status == "admis" and not t.warned]
+        assert diag["run"] == run.id and sum(v["n"] for v in diag["detecteurs"].values()) == len(prod)
+        for v in diag["detecteurs"].values():
+            assert v["cout_moyen_r"] >= 0 and abs(sum(v["sorties"].values()) - 1) < 0.05
+            assert v["r_net_moyen"] <= v["r_brut_moyen"] + 1e-9
 
 
 def test_prior_needs_a_positive_control_interval_and_is_halved(db_engine):
