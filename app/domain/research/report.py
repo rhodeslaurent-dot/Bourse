@@ -14,7 +14,7 @@ from app.domain.research.prereg import Prereg
 
 FORBIDDEN_KEYS = frozenset({"entry", "exit", "stop", "target", "open", "high", "low", "close", "isin", "name"})
 HEADLINE_NONE = "AUCUN DÉCLENCHEUR RETENU"
-CELL_KEYS_C = ("id", "n", "mean_r", "median_r", "hit_rate", "profit_factor", "mean_eur_300", "mean_excess",
+CELL_KEYS_C = ("id", "n", "mean_r", "median_r", "hit_rate", "profit_factor", "mean_eur_300", "mean_excess", "mean_excess_ctrl",
                "t_week", "p_romano_wolf", "p_holm", "q_bh", "gate", "semaines", "mois", "duree_mediane")  # fmt: skip
 
 
@@ -281,7 +281,12 @@ def render_fr(report: Mapping[str, Any]) -> str:
         for cid, v in (sealed.get("cellules") or {}).items():
             if isinstance(v, Mapping):
                 lines.append(f"    {cid} (scellée) : { {k: v.get(k) for k in core_keys if k in v} }")
-    lines += ["", "C — Étape 0 par famille (n, R moyen, excès, t semaine, p Romano–Wolf, q BH, porte)"]
+    lines += [
+        "",
+        "C — Étape 0 par famille (n, R moyen, excès, t semaine, p Romano–Wolf, q BH, porte)",
+        "  excès = R − moyenne équipondérée du marché pour une cellule mensuelle, R − contrôles appariés pour une "
+        "cellule événementielle ; « ctrl » = R − contrôles appariés (celui que juge A4)",
+    ]
     for fam, rows in report["C_etape0_par_famille"].items():
         lines.append(f"  [{fam}]")
         for r in sorted(rows, key=lambda r: -(r.get("t_week") or -99)):
@@ -289,6 +294,7 @@ def render_fr(report: Mapping[str, Any]) -> str:
                 lines.append(f"    {r.get('id')} : {r['supprime']} (n {r.get('n')})")
                 continue
             lines.append(f"    {r.get('id')} : n {r.get('n')} R {_fmt(r.get('mean_r'))} excès {_fmt(r.get('mean_excess'))} "
+                         f"ctrl {_fmt(r.get('mean_excess_ctrl'))} "
                          f"t {_fmt(r.get('t_week'), 2)} pRW {_fmt(r.get('p_romano_wolf'), 3)} q {_fmt(r.get('q_bh'), 3)} "
                          f"porte {_fmt(r.get('gate'))}")  # fmt: skip
     lines += ["", "E — Étape 1 (sorties, ΔR appariés)"]

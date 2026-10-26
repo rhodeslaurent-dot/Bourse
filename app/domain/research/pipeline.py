@@ -707,9 +707,12 @@ def cell_stats(tr_all: Trades, cell: Cell, prereg: Prereg, st: Settings) -> dict
     out["exclus_dividendes_douteux"] = int((status == DIVIDEND_SUSPECT).sum())
     out["sorties_cotation_interrompue"] = int(tr_all["delisted"].sum()) if "delisted" in tr_all else 0
     fwd = tr_all["fwd"]
+    # round 2 (26/10/2026): each group with its n (masked under report_min_n), and all signals together — the
+    # « not filled » group is conditioned on its future path (the low never reached the limit), so the gap between
+    # the two groups is not a missed gain; the all-signals mean is the unconditioned reference
+    sel = {"executes": tr_all["closed"], "non_executes": status == 0, "tous_signaux": np.isfinite(fwd)}
     out["selection_adverse"] = {
-        "excès_futur_executes": _f(_mean(fwd[tr_all["closed"]])),
-        "excès_futur_non_executes": _f(_mean(fwd[status == 0])),
+        k: {"n": int(np.isfinite(fwd[m]).sum()), "exces_futur": _f(_mean(fwd[m]))} for k, m in sel.items()
     }
     tr = add_excess(tr_all.closed, monthly)
     n = tr.n

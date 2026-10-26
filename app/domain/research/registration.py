@@ -116,7 +116,7 @@ class F0Accumulator:
                 h0[det][fld] += vals
         for name, part in F0.d7_exit_parts(g, trades, st, holds.get("d7_trend_quality", 60)).items():
             for fld, vals in part.items():
-                d7[name][fld] += vals
+                d7[name].setdefault(fld, []).extend(vals)
 
     def __call__(self, g: GroupData, rows: tuple[int, int]) -> None:
         st = self.st
@@ -160,7 +160,11 @@ class F0Accumulator:
                 r = np.array(d["r"], dtype=np.float64)
                 row = F0._diff_stats(wk, r - r0, seed)
                 row.update(r_moyen=_f(_mean(r)), eur_300_moyen=_f(_mean(r * 300.0), 2),
-                           delta_eur_300=_f(_mean((r - r0) * 300.0), 2), periode=period)  # fmt: skip
+                           delta_eur_300=_f(_mean((r - r0) * 300.0), 2), periode=period,
+                           libelle=F0.D7_LABELS.get(name, name))  # fmt: skip
+                if d.get("r_run2"):  # the base of the replay against run 2 (round 2: −0.51 vs −0.137 unexplained)
+                    row.update(r_moyen_sans_ecart=_f(_mean(np.array(d["r_sans_ecart"], dtype=np.float64))),
+                               r_net_run2_memes_trades=_f(_mean(np.array(d["r_run2"], dtype=np.float64))))  # fmt: skip
                 out[f"F0c.d7.{name}"] = row
         return out
 
@@ -193,6 +197,7 @@ def existing_detectors(run2: Sequence[F0.Run2Trade], prereg: Prereg, seed: int) 
         _, ws = S.weekly_series(wk, r)
         lo, hi = S.block_bootstrap_ci(ws, 4, 2000, seed) if ws.size > 2 else (math.nan, math.nan)
         out[det] = {"n": int(r.size), "r_net_moyen_oos": _f(float(r.mean())), "ic": [_f(lo), _f(hi)],
+                    "r_net_moyen_hebdo_oos": _f(_mean(ws)) if ws.size else None,  # same quantity as the interval
                     "adr_requis": bool(math.isfinite(hi) and hi < float(prereg.thresholds["existing_detectors_ci_high_max"]))}  # fmt: skip
     return out
 

@@ -169,6 +169,9 @@ def test_planted_edge_passes_gate_effect_placebo_romano_wolf_and_power(prereg):
     tr = add_excess(evaluate_cell(g, cell, combo, st, rows, mask=mask), False)
     s = cell_stats(tr, cell, pr, st)
     assert s["n"] >= 400 and s["gate"] and s["t_week"] >= 3
+    sel = s["selection_adverse"]  # round 2: each group with its n; all signals = the unconditioned reference
+    assert set(sel) == {"executes", "non_executes", "tous_signaux"}
+    assert sel["tous_signaux"]["n"] >= sel["executes"]["n"] + sel["non_executes"]["n"] and sel["executes"]["n"] > 0
     assert s["mean_r"] >= 0.10 and s["mean_excess_ctrl"] >= 0.08 and s["excess_ctrl_ic"][0] > 0  # A2, A4
     cl = tr.closed
     assert (cl["r"] <= cl["r_gross"] + 1e-12).all()  # costs never improve a trade
@@ -1060,6 +1063,12 @@ def test_f0_run2_diagnostics_use_discovery_trades_and_report_the_sealed_period_a
     row = out["F0b.h0_geometry.d7_trend_quality"]
     assert row["n"] == len(disc) and row["periode"] == "decouverte"
     assert out["F0c.d7.e4_production"]["n"] == len(disc)
+    # round 2: the replay base is reconciled with run 2 (same trades), with and without the half-spread legs
+    base = out["F0c.d7.e4_production"]
+    assert base["r_net_run2_memes_trades"] == 0.0 and "r_moyen_sans_ecart" in base
+    assert base["r_moyen_sans_ecart"] >= base["r_moyen"]  # the spread legs only cost
+    assert "objectif de production conservé" in out["F0c.d7.s_atr3_t0"]["libelle"]
+    assert "difference_moyenne_hebdo" in out["F0c.d7.s_atr3_t0"]
     sealed_part = out["periode_scellee_run2"]
     assert sealed_part["trades_run2"] == len(sealed) and "scellée" in sealed_part["libelle"]
     assert sealed_part["cellules"]["F0b.h0_geometry.d7_trend_quality"]["n"] == len(sealed)

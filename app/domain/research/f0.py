@@ -156,8 +156,11 @@ def _locate(g: GroupData, trades: Sequence[Run2Trade]) -> tuple[list[Run2Trade],
     return keep, np.array(cols, dtype=np.int64), np.array(ts, dtype=np.int64), np.array(te, dtype=np.int64)
 
 
-def _r_prod(g: GroupData, cols: I64, sim_entry: F64, sim: Any, st: Settings, stop_exec: F64) -> F64:
-    """Net R (CTO, dividends ignored as in run 2) in the production risk unit (entry − slipped stop)."""
+def _r_prod(
+    g: GroupData, cols: I64, sim_entry: F64, sim: Any, st: Settings, stop_exec: F64, spread_mult: float = 1.0
+) -> F64:
+    """Net R (CTO, dividends ignored as in run 2) in the production risk unit (entry − slipped stop).
+    ``spread_mult`` 0: without the half-spread legs, which run 2 does not charge (reconciliation only)."""
     pk = g.f.pk
     ft = np.maximum(calendar_of(pk, cols, sim.fill_pos), 0)
     et = np.maximum(calendar_of(pk, cols, sim.exit_pos), 0)
@@ -170,14 +173,17 @@ def _r_prod(g: GroupData, cols: I64, sim_entry: F64, sim: Any, st: Settings, sto
         stop_exit=np.isin(sim.reason, (STOP, GAP_STOP, TRAIL)),
         exit_slip=np.where(np.isin(sim.reason, SLIPPED_EXITS), st.slippage, 0.0),
     )  # fmt: skip
-    e = economics(x, st.cto, st.risk_budget_eur, st.notional_cap_eur)
+    e = economics(x, st.cto, st.risk_budget_eur, st.notional_cap_eur, spread_mult=spread_mult)
     return np.where(sim.status == CLOSED, e.r_unit, np.nan)
 
 
 def _diff_stats(week: I64, diff: F64, seed: int, draws: int = 1000) -> dict[str, Any]:
     wk, ws = S.weekly_series(week, diff)
     lo, hi = S.block_bootstrap_ci(ws, 4, draws, seed) if ws.size > 2 else (math.nan, math.nan)
+    # round 2: the interval is on weekly means — their mean is printed too, so the point and the interval are read
+    # on the same quantity (the per-trade mean stays the headline, as pre-registered)
     return {"n": int(np.isfinite(diff).sum()), "difference_moyenne": _f(_mean(diff)), "ic": [_f(lo), _f(hi)],
+            "difference_moyenne_hebdo": _f(_mean(ws)) if ws.size else None,
             "t_semaine": _f(S.newey_west_t(ws, 4) if ws.size > 2 else math.nan, 3)}  # fmt: skip
 
 
@@ -241,6 +247,22 @@ def h0_geometry_parts(
     return out
 
 
+# what each variant really changes (round 2, 26/10/2026: « s_atr3_t0 » keeps the production target and is not
+# sized at constant risk — the R stays in the production unit, entry − slipped production stop)
+D7_LABELS = {
+    "e4_production": "sorties de production (référence)",
+    "s_atr2_t0": "stop 2 × ATR, objectif de production conservé, R en unité de production",
+    "s_atr2.5_t0": "stop 2,5 × ATR, objectif de production conservé, R en unité de production",
+    "s_atr3_t0": "stop 3 × ATR, objectif de production conservé, R en unité de production",
+    "s0_no_target_ch3": "stop de production, sans objectif, suiveur chandelier 3 ATR",
+    "s0_t1.5r": "stop de production, objectif 1,5 R",
+    "s0_t3r": "stop de production, objectif 3 R",
+    "s0_t0_time20": "sorties de production, durée max 20 séances",
+    "s0_t0_time40": "sorties de production, durée max 40 séances",
+    "cond_time5": "sorties de production + sortie à 5 séances si le gain reste sous 0,5 R",
+    "breakeven_1r": "sorties de production + stop au prix d'entrée après +1 R",
+}
+
 D7_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (
     ("e4_production", {}),
     ("s_atr2_t0", {"stop_atr": 2.0}),
@@ -264,6 +286,7 @@ def d7_exit_parts(
     out: dict[str, dict[str, list[Any]]] = defaultdict(lambda: {"r": [], "eur": [], "week": []})
     if not tr:
         return out
+    out["e4_production"].update(r_sans_ecart=[], r_run2=[])
     entry = np.array([t.entry for t in tr])
     stop = np.array([t.stop for t in tr])
     target = np.array([t.target for t in tr])
@@ -290,6 +313,9 @@ def d7_exit_parts(
         sim = simulate(g.bars, od, spec, st.slippage, dividends=False)
         r = _r_prod(g, cols, sim.entry, sim, st, stop_exec_prod)
         d = out[name]
+        if name == "e4_production":  # reconciliation with the run-2 decomposition (same trades)
+            d["r_sans_ecart"] += _r_prod(g, cols, sim.entry, sim, st, stop_exec_prod, spread_mult=0.0).tolist()
+            d["r_run2"] += [t.r_net for t in tr]
         d["r"] += r.tolist()
         d["eur"] += (r * 300.0).tolist()
         d["week"] += g.week[ts].tolist()
