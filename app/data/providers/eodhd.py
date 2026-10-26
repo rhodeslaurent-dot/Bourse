@@ -95,6 +95,11 @@ class EodhdProvider(MarketDataProvider):
         rows = self._get(f"/exchange-symbol-list/{exchange}")
         return [r for r in rows if str(r.get("Type", "")).lower() in types]  # type: ignore[union-attr]
 
+    def index_symbols(self) -> list[dict[str, str]]:
+        """Every index EODHD lists (``exchange-symbol-list/INDX``, any type): to find the code of an index."""
+        rows = self._get("/exchange-symbol-list/INDX")
+        return list(rows) if isinstance(rows, list) else []
+
     def fetch_eod_bulk(self, exchange: str, day: date | None = None) -> list[EodBar]:
         """One call for a whole exchange (``eod-bulk-last-day``)."""
         params: dict[str, object] = {}

@@ -331,22 +331,23 @@ regime:
   # docs/32 — un régime PAR PLACE (décision de l'utilisateur du 26/10/2026 : le CAC 40 ne doit plus bloquer les autres
   # marchés). Codes EODHD à vérifier avec `index-check` ; un indice introuvable → la place suit le régime européen.
   europe_index: {id: "EU0009658202", eodhd: "STOXX.INDX", nom: "STOXX Europe 600"}   # niveau de risque du jour et repli
+  index_max_age_days: 5                 # docs/32 : un indice plus ancien ne donne pas de régime (la place suit le régime européen)
   indices_by_mic:
     XPAR: {id: "FR0003500008", eodhd: "FCHI.INDX", nom: "CAC 40"}
     XETR: {id: "IDX.GDAXI", eodhd: "GDAXI.INDX", nom: "DAX"}
     XAMS: {id: "IDX.AEX", eodhd: "AEX.INDX", nom: "AEX"}
     XBRU: {id: "IDX.BFX", eodhd: "BFX.INDX", nom: "BEL 20"}
     XMAD: {id: "IDX.IBEX", eodhd: "IBEX.INDX", nom: "IBEX 35"}
-    XMIL: {id: "IDX.FTSEMIB", eodhd: "FTSEMIB.INDX", nom: "FTSE MIB"}
+    XMIL: {id: "IDX.FTSEMIB", eodhd: "FTSEMIB.INDX", yahoo: "FTSEMIB.MI", nom: "FTSE MIB"}   # absent du forfait EODHD (26/10/2026) : Yahoo
     XSTO: {id: "IDX.OMXS30", eodhd: "OMXS30.INDX", nom: "OMX Stockholm 30"}
     XCSE: {id: "IDX.OMXC25", eodhd: "OMXC25.INDX", nom: "OMX Copenhague 25"}
     XHEL: {id: "IDX.OMXH25", eodhd: "OMXH25.INDX", nom: "OMX Helsinki 25"}
     XOSL: {id: "IDX.OBX", eodhd: "OBX.INDX", nom: "OBX (Oslo)"}
     XLIS: {id: "IDX.PSI", eodhd: "PSI20.INDX", nom: "PSI (Lisbonne)"}
-    XDUB: {id: "IDX.ISEQ", eodhd: "ISEQ.INDX", nom: "ISEQ (Dublin)"}
+    XDUB: {id: "IDX.ISEQ", eodhd: "ISEQ.INDX", yahoo: "^ISEQ", nom: "ISEQ (Dublin)"}   # EODHD arrêté au 06/10/2022 : Yahoo
     XWBO: {id: "IDX.ATX", eodhd: "ATX.INDX", nom: "ATX (Vienne)"}
     XWAR: {id: "IDX.WIG20", eodhd: "WIG20.INDX", nom: "WIG 20 (Varsovie)"}
-    XLON: {id: "IDX.FTSE", eodhd: "FTSE.INDX", nom: "FTSE 100"}
+    XLON: {id: "IDX.FTSE", eodhd: "FTSE.INDX", yahoo: "^FTSE", nom: "FTSE 100"}   # absent du forfait EODHD (26/10/2026) : Yahoo
     XSWX: {id: "IDX.SSMI", eodhd: "SSMI.INDX", nom: "SMI (Zurich)"}
     XNYS: {id: "IDX.GSPC", eodhd: "GSPC.INDX", nom: "S&P 500"}
 

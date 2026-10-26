@@ -6,17 +6,17 @@ a venue without index. Missing components are reported, never guessed."""
 from __future__ import annotations
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Instrument, MarketRegimeRow
+from app.db.models import Instrument, MarketRegimeRow, PriceEod
 from app.db.session import db_session
 from app.domain.indicators import breadth_above_ma, distribution_days, sma, vol_percentile
 from app.domain.regime import RegimeInputs, RegimeParams, compute_regime
 from app.scheduler.runner import JobContext
-from app.services.indices import EUROPE, index_specs
+from app.services.indices import EUROPE, index_specs, max_age_days
 from app.services.market_data import load_bars
 
 log = logging.getLogger("bourse.jobs.daily_regime")
@@ -91,9 +91,18 @@ def compute_and_store(ctx: JobContext) -> str:
     by_market: dict[str, str] = {}
     with db_session() as s:
         followed = {m for m in s.scalars(select(Instrument.mic).where(Instrument.in_universe.is_(True)).distinct())}
+        oldest = ctx.run_date - timedelta(days=max_age_days(ctx.config))
         for spec in specs:
             if spec.market != EUROPE and spec.market not in followed:
                 continue  # a venue without any value in the universe: nothing to gate
+            last = s.scalar(
+                select(func.max(PriceEod.day)).where(PriceEod.isin == spec.id, PriceEod.day <= ctx.run_date)
+            )
+            if spec.market != EUROPE and (last is None or last < oldest):
+                # docs/32: an absent or stale index gives no regime (the venue follows Europe, said so on the
+                # fiche) — never a « today » regime computed on old closes (ISEQ stopped in 2022, 26/10/2026)
+                log.warning("régime %s non calculé : indice %s absent ou périmé", spec.market, spec.id)
+                continue
             mics = None if spec.market == EUROPE else {spec.market}
             row = compute_market(s, ctx.config, ctx.run_date, spec.market, spec.id, europe.id, mics)
             s.add(row)

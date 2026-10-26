@@ -22,6 +22,9 @@
 5. **Indices :**
    - `eod_backfill_check` charge chaque jour, de façon incrémentale, l'indice de chaque place et le STOXX 600 (historique depuis 2016 au premier passage). Ils sont stockés dans `prices_eod` sous un pseudo-ISIN (`IDX.GDAXI`…), sans entrer dans l'univers.
    - Un code refusé par EODHD est signalé (alerte P4, `index-check`), jamais remplacé par un autre indice.
+   - **Secours Yahoo pour le même indice** (26/10/2026) : quand EODHD échoue, ne renvoie rien ou laisse la série périmée, l'indice est lu sur Yahoo si `indices_by_mic.<MIC>.yahoo` le nomme (FTSE MIB `FTSEMIB.MI`, FTSE 100 `^FTSE` : absents du forfait EODHD ; ISEQ `^ISEQ` : arrêté chez EODHD le 06/10/2022). Chaque séance garde sa source (`yfinance`), affichée par `index-check`.
+   - **Indice périmé** : plus ancien que `regime.index_max_age_days` (5 jours), il ne donne **aucun** régime ; la place suit le régime européen (défaut corrigé le 26/10/2026 : un régime « du jour » pouvait être calculé sur des clôtures de 2022). `index-check` l'affiche « périmé », jamais « à jour ».
+   - `index-check --search <texte>` liste les codes d'indices EODHD qui contiennent ce texte (code ou nom).
 6. **Backtest et recherche :** chaque trade est classé selon le régime de sa place (haussier ou baissier, au-dessus ou au-dessous de la moyenne 200 de son indice). À défaut, il est classé selon le régime européen.
 
 ## 32.3 Places hors PEA (compte-titres Saxo seulement)
@@ -62,4 +65,5 @@ docker compose exec app python -m app.cli run-job daily_regime
 - **A32.2** Une place sans régime propre suit le régime européen, et la fiche le dit (test).
 - **A32.3** Les indices se chargent de façon incrémentale ; un code inconnu est signalé, jamais remplacé (test).
 - **A32.4** Les conditions des lettres ne ferment pas une place qu'elles ne couvrent pas (test).
+- **A32.6** Un indice absent du forfait EODHD est lu sur Yahoo (même indice, source visible) ; un indice périmé ne donne pas de régime (tests `test_regime_per_market.py`).
 - **A32.5** Une valeur en dollars cotée aussi sur Xetra montre le change évité et sa part du gain net ; la cotation en euros n'est jamais la cotation suivie ; une valeur en euros n'a pas d'alternative (test `tests/integration/test_alt_listing.py`).

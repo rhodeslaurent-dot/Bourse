@@ -101,7 +101,10 @@ def run(ctx: JobContext) -> int:
 
         try:  # docs/32: the index of each venue (regime per market), incremental, full history the first time
             with s.begin_nested():
-                for market, (k, err) in refresh_indices(s, provider, ctx.config, ctx.run_date).items():
+                from app.data.providers.yfinance_eod import YFinanceProvider
+
+                out = refresh_indices(s, provider, ctx.config, ctx.run_date, fallback=YFinanceProvider())
+                for market, (k, err) in out.items():
                     n += k
                     if err:
                         alerts.append(f"indice {market} : {err[:80]}")

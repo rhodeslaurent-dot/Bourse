@@ -1210,15 +1210,33 @@ def cmd_index_check(args: argparse.Namespace) -> int:
         print("EODHD_API_TOKEN absent (env-setup eodhd)")
         return 1
     cfg = load_params(args.params)
+    if getattr(args, "search", None):  # find an index code: EODHD's list of indices, by code or name
+        q = args.search.lower()
+        rows = [r for r in eodhd_from(cfg).index_symbols() if q in f"{r.get('Code', '')} {r.get('Name', '')}".lower()]
+        for r in rows[:40]:
+            print(f"{r.get('Code', '')}.INDX".ljust(22) + f"{r.get('Name', '')[:60]} ({r.get('Country', '')})")
+        print(f"{len(rows)} indice(s) EODHD contenant « {args.search} »" + (" (40 premiers)" if len(rows) > 40 else ""))
+        return 0
+    from sqlalchemy import select
+
+    from app.data.providers.yfinance_eod import YFinanceProvider
+    from app.db.models import PriceEod
+
     with db_session() as s:
-        out = refresh_indices(s, eodhd_from(cfg), cfg, date.today())
+        out = refresh_indices(s, eodhd_from(cfg), cfg, date.today(), fallback=YFinanceProvider())
         for spec in index_specs(cfg):
             n, err = out.get(spec.market, (0, None))
             last = last_eod_day(s, spec.id)
-            state = f"ÉCHEC : {err}" if err else (f"à jour au {last}" if last else "aucune donnée")
+            src = (
+                s.scalar(select(PriceEod.source).where(PriceEod.isin == spec.id, PriceEod.day == last))
+                if last
+                else None
+            )
+            via = f" (via {src})" if src and src != "eodhd" else ""
+            state = f"ÉCHEC : {err}" if err else (f"à jour au {last}{via}" if last else "aucune donnée")
             print(f"{spec.market:<5} {spec.name:<22} {spec.eodhd:<14} +{n:>5} séances · {state}")
     print("Un code en échec : corriger regime.indices_by_mic dans config/params.yaml (la place suit sinon le régime "
-          "européen), puis relancer index-check.")  # fmt: skip
+          "européen), puis relancer index-check. Chercher un code : index-check --search <texte>.")  # fmt: skip
     return 0
 
 
@@ -1946,9 +1964,9 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--to", default=None)
     bt.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous les actifs)")
     bt.set_defaults(fn=cmd_backtest)
-    sub.add_parser(
-        "index-check", help="charge et contrôle l'indice de chaque place (régime par marché, docs/32)"
-    ).set_defaults(fn=cmd_index_check)
+    ic = sub.add_parser("index-check", help="charge et contrôle l'indice de chaque place (régime par marché, docs/32)")
+    ic.add_argument("--search", default=None, help="chercher un code d'indice EODHD (ex. MIB, FTSE, ISEQ)")
+    ic.set_defaults(fn=cmd_index_check)
     br = sub.add_parser("backtest-report", help="diagnostic du dernier backtest : coûts, sorties, excursions, régimes")
     br.add_argument("--run", type=int, default=None)
     br.set_defaults(fn=cmd_backtest_report)
