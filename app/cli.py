@@ -321,7 +321,7 @@ def init_params(
         text, blocks = merge_missing_blocks(example_text, text, NEW_TOP_BLOCKS)
         if blocks:
             print("blocs ajoutés depuis params.example.yaml : " + ", ".join(blocks))
-        for parent in NEW_CHILD_PARENTS:
+        for parent in mapping_paths(example_text):
             text, children = merge_missing_children(example_text, text, parent)
             if children:
                 print(f"clés ajoutées sous {parent} : " + ", ".join(children))
@@ -429,27 +429,28 @@ NEW_TOP_BLOCKS = [
     "pea",  # docs/26
     "committee",  # docs/24 v2
 ]
-NEW_CHILD_PARENTS = [
-    "risk",
-    "risk.stop",
-    "risk.circuit_breaker",  # rolling windows and peak give-back (25/10/2026)
-    "risk.risk_dial",  # docs/28
-    "weak_signals",
-    "llm",
-    "llm.prices_usd_per_mtok",
-    "llm.model_options",
-    "srd",
-    "data",
-    "data.imap",
-    "events",
-    "letters_review",
-    "detectors",
-    "scoring",
-    "scoring.admission_blocks",
-    "universe",  # primary_listing_overrides (25/10/2026)
-    "brokers.boursobank",
-    "pea",
-]
+
+
+def mapping_paths(example: str) -> list[str]:
+    """Every block mapping of the example, parents first (``risk``, ``risk.stop``…): ``params-init --update``
+    completes each of them, so that no new key is forgotten (26/10/2026: ``regime.indices_by_mic`` and
+    ``weak_signals.social.history`` were missed by a fixed list of sections). ``jobs`` has its own merge."""
+    import re
+
+    import yaml
+
+    out: list[str] = []
+
+    def walk(d: dict, prefix: str) -> None:
+        for k, v in d.items():
+            if isinstance(v, dict) and re.fullmatch(r"[A-Za-z0-9_\-]+", str(k)):
+                path = f"{prefix}.{k}" if prefix else str(k)
+                if path != "jobs":
+                    out.append(path)
+                    walk(v, path)
+
+    walk(yaml.safe_load(example) or {}, "")
+    return out
 
 
 def _block_range(lines: list[str], path: str) -> tuple[int, int, int]:
@@ -529,6 +530,9 @@ def merge_missing_children(example: str, target: str, path: str) -> tuple[str, l
     ts, te, _ = _block_range(tg, path)
     if es < 0 or ts < 0:
         return target, []
+    block = re.compile(r"^\s*[A-Za-z0-9_\-]+:\s*(#.*)?$")
+    if not block.match(ex[es]) or not block.match(tg[ts]):
+        return target, []  # an inline value ({…}, [...], a scalar) on either side: never appended to
     child = re.compile(rf"^{' ' * ind}([A-Za-z0-9_\-]+):")  # model names carry dashes (claude-haiku-5-5)
     have = {m.group(1) for ln in tg[ts + 1 : te] if (m := child.match(ln))}
     add: list[str] = []
@@ -553,7 +557,14 @@ def merge_missing_children(example: str, target: str, path: str) -> tuple[str, l
         insert_at -= 1
     if insert_at > 0 and not tg[insert_at - 1].endswith("\n"):
         tg[insert_at - 1] += "\n"
-    return "".join(tg[:insert_at] + add + tg[insert_at:]), added
+    out = "".join(tg[:insert_at] + add + tg[insert_at:])
+    try:
+        import yaml
+
+        yaml.safe_load(out)
+    except yaml.YAMLError:
+        return target, []  # never write a file that no longer parses
+    return out, added
 
 
 def reset_block(example: str, target: str, path: str) -> tuple[str, bool]:

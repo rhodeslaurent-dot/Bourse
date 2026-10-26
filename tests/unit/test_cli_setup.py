@@ -233,3 +233,35 @@ def test_archive_mentions_dry_run_then_apply(db_engine, capsys):
     assert cli.main(["archive-mentions", "--apply"]) == 0
     with db_session() as s:
         assert s.query(Proposal).one().deleted_at is not None
+
+
+def test_params_update_completes_every_section_of_the_example(tmp_path):
+    """26/10/2026: a fixed list of sections missed ``regime.indices_by_mic``, ``market_gate.letters_markets`` and
+    ``weak_signals.social.history`` — every block mapping of the example is now completed, the user's values kept."""
+    example = Path("config/params.example.yaml").read_text(encoding="utf-8")
+    full = yaml.safe_load(example)
+    lines = example.splitlines(keepends=True)
+    for path in ("regime.indices_by_mic", "market_gate.letters_markets", "weak_signals.social.history"):
+        s, e, _ = cli._block_range(lines, path)
+        if e == s + 1 or not lines[s].rstrip().endswith(":"):  # a one-line key
+            e = s + 1
+        del lines[s:e]
+    old = "".join(lines).replace("  min_reward_risk: 2.0", "  min_reward_risk: 2.5")
+    assert "indices_by_mic" not in old and "2.5" in old
+    target = tmp_path / "params.yaml"
+    target.write_text(old, encoding="utf-8")
+    assert init_params("config/params.example.yaml", str(target), "42", "a@b.c", update=True)
+    got = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert got["regime"]["indices_by_mic"] == full["regime"]["indices_by_mic"]
+    assert got["market_gate"]["letters_markets"] == full["market_gate"]["letters_markets"]
+    assert got["weak_signals"]["social"]["history"] == full["weak_signals"]["social"]["history"]
+    assert got["admission"]["min_reward_risk"] == 2.5  # the user's value is kept
+    again = target.read_text(encoding="utf-8")
+    init_params("config/params.example.yaml", str(target), "42", "a@b.c", update=True)
+    assert target.read_text(encoding="utf-8") == again  # idempotent
+
+
+def test_merge_never_appends_under_an_inline_value():
+    example = "a:\n  b:\n    x: 1\n    y: 2\n"
+    target = "a:\n  b: {x: 5}\n"
+    assert cli.merge_missing_children(example, target, "a.b") == (target, [])
