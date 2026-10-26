@@ -975,6 +975,37 @@ def cmd_sources_check(args: argparse.Namespace) -> int:
     return 0 if ok == len(feeds) else 1
 
 
+def cmd_radar_history(args: argparse.Namespace) -> int:
+    """docs/26 (user decision of 26/10/2026, option B): load years of radar history — ``wiki`` (Wikipedia views
+    since --from, fast), ``forum`` (one night slice of the slow forum reading, the job forum_history does the
+    rest), ``status`` (progress)."""
+    import httpx
+
+    from app.db.session import db_session
+
+    cfg = load_params(args.params)
+    with httpx.Client(follow_redirects=True) as client, db_session() as s:
+        if args.what == "wiki":
+            from app.services.weak_signals import attention_history
+
+            n, days, errors = attention_history(s, cfg, client, date.fromisoformat(args.from_date))
+            print(f"{n} article(s) lus, {days} jour(s) de consultations ajoutés"
+                  + (f", {len(errors)} en échec : {errors[:3]}" if errors else ""))  # fmt: skip
+        elif args.what == "forum":
+            from app.services.forum_history import run_pass
+
+            for note in run_pass(s, cfg, client):
+                print(note)
+        else:
+            from app.services.forum_history import progress_summary
+
+            p = progress_summary(s)
+            print(
+                f"forum : {p['terminees']}/{p['valeurs']} valeur(s) terminée(s) (le job forum_history continue la nuit)"
+            )
+    return 0
+
+
 def cmd_media_check(args: argparse.Namespace) -> int:
     """docs/23 §23.7 — why media opinions show up or not: for each media feed of the example, whether it is in
     params.yaml, its last read, the episodes of the last 7 days stored, those read by the LLM and the values
@@ -1743,7 +1774,14 @@ def cmd_backfill(args: argparse.Namespace) -> int:
         return 2
     start = date.fromisoformat(args.from_date)
     end = date.fromisoformat(args.to) if args.to else date.today()
-    n = backfill_history(EodhdProvider(), start, end, args.isin.split(",") if args.isin else None)
+    n = backfill_history(
+        EodhdProvider(),
+        start,
+        end,
+        args.isin.split(",") if args.isin else None,
+        [x.strip() for x in args.exchanges.split(",")] if args.exchanges else None,
+        args.missing_only,
+    )
     print(f"{n} barres EOD insérées/mises à jour")
     return 0
 
@@ -1819,6 +1857,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser(
         "media-check", help="podcasts et médias : flux présents, épisodes lus, valeurs citées (docs/23)"
     ).set_defaults(fn=cmd_media_check)
+    rh = sub.add_parser("radar-history", help="historique du radar : wiki (depuis 2015), forum (la nuit), status")
+    rh.add_argument("what", choices=["wiki", "forum", "status"])
+    rh.add_argument("--from", dest="from_date", default="2015-07-01")
+    rh.set_defaults(fn=cmd_radar_history)
     sk = sub.add_parser("sources-check", help="lit chaque flux configuré et affiche son état (docs/23)")
     sk.add_argument("--name", default=None)
     sk.set_defaults(fn=cmd_sources_check)
@@ -1912,6 +1954,13 @@ def main(argv: list[str] | None = None) -> int:
     bf.add_argument("--from", dest="from_date", required=True)
     bf.add_argument("--to", default=None)
     bf.add_argument("--isin", default=None, help="liste d'ISIN séparés par des virgules (défaut : tout le référentiel)")
+    bf.add_argument("--exchanges", default=None, help="codes EODHD de places, ex. US,LSE,SW (docs/32)")
+    bf.add_argument(
+        "--missing-only",
+        dest="missing_only",
+        action="store_true",
+        help="seulement les valeurs dont l'historique ne remonte pas à --from",
+    )
     bf.set_defaults(fn=cmd_backfill)
     pi = sub.add_parser("params-init", help="créer config/params.yaml depuis l'exemple (user.* renseignés)")
     pi.add_argument("--email", default=None)

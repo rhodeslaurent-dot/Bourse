@@ -341,3 +341,48 @@ def measure(s: Session, horizons: tuple[int, ...] = (5, 20)) -> dict[str, dict[s
                 by[hit.label][h].append(r - m)
     # note: labels of the same day are correlated and 20-session windows overlap — the t is optimistic
     return {lab: {f"{h}_seances": summarize(v).as_dict() for h, v in hs.items()} for lab, hs in by.items()}
+
+
+def attention_history(
+    s: Session, config: LoadedConfig, client: httpx.Client, start: date, today: date | None = None
+) -> tuple[int, int, list[str]]:
+    """docs/26 (user decision of 26/10/2026, option B): the daily Wikipedia views of every mapped article of the
+    universe back to ``start`` (the API starts in July 2015), so that the attention labels can be measured on years
+    of history (research registration n° 2). Only the part older than what is stored is fetched. Returns
+    (articles read, days stored, errors)."""
+    st = settings(config)
+    today = today or date.today()
+    first: dict[tuple[str, str], date] = {
+        (r.isin, r.lang): r.d
+        for r in s.execute(
+            select(AttentionDaily.isin, AttentionDaily.lang, func.min(AttentionDaily.day).label("d"))
+            .where(AttentionDaily.source == "wikipedia")
+            .group_by(AttentionDaily.isin, AttentionDaily.lang)
+        )
+    }
+    universe = {i.isin for i in _universe(s)}
+    n_art = n_days = 0
+    errors: list[str] = []
+    for a in s.scalars(select(WikiArticle).where(WikiArticle.title.is_not(None))):
+        if a.isin not in universe or a.title is None:
+            continue
+        end = first[(a.isin, a.lang)] - timedelta(days=1) if (a.isin, a.lang) in first else today - timedelta(days=1)
+        if end < start:
+            continue
+        try:
+            pv = wikimedia.pageviews(a.lang, a.title, start, end, client, st.user_agent)
+        except Exception as exc:  # noqa: BLE001 — one article failing never stops the others
+            errors.append(f"{a.isin}/{a.lang}: {exc.__class__.__name__}")
+            continue
+        finally:
+            time.sleep(st.request_interval_s)
+        n_art += 1
+        for d, v in (pv.views if pv else {}).items():
+            s.add(
+                AttentionDaily(isin=a.isin, day=d, source="wikipedia", lang=a.lang, value=v, received_at=pv.received_at)
+            )
+            n_days += 1
+        if n_art % 50 == 0:
+            s.commit()
+    s.flush()
+    return n_art, n_days, errors

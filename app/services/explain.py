@@ -165,6 +165,11 @@ def explain_proposal(
 
 _PLAIN: list[tuple[str, str]] = [
     (
+        "espérance historique négative",
+        "Ce détecteur perd en moyenne une fois les coûts payés (backtest sur 8 ans) : ses idées restent visibles "
+        "pour information, sans ordre, en attendant la refonte issue de la recherche (décision du 26/10/2026).",
+    ),
+    (
         "ratio d'admission",
         "Le score de la valeur n'atteint pas le minimum : il compte les points obtenus (tendance, "
         "risque, marché, catalyseurs…) sur les points possibles avec les données disponibles. Il faut "

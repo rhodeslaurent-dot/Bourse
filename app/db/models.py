@@ -1141,3 +1141,19 @@ class SocialContent(Base):
     threads: Mapped[list | None] = mapped_column(JSON, nullable=True)
     cost_usd: Mapped[float] = mapped_column(default=0.0)
     note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+
+class ForumHistoryProgress(Base):
+    """docs/26 (user decision of 26/10/2026): the multi-night reading of a value's forum list pages back to
+    ``weak_signals.history.forum_from`` — next page, oldest last activity reached, thread numbers already
+    counted (a thread that moves up during the reading is never counted twice), state."""
+
+    __tablename__ = "forum_history_progress"
+    isin: Mapped[str] = mapped_column(String(12), primary_key=True)
+    next_page: Mapped[int] = mapped_column(Integer, default=1)
+    oldest_activity: Mapped[date | None] = mapped_column(Date, nullable=True)
+    cutoff: Mapped[date | None] = mapped_column(Date, nullable=True)  # first day already counted by the 60-day backfill
+    seen: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    done: Mapped[bool] = mapped_column(Boolean, default=False)
+    blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

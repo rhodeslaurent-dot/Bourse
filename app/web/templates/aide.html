@@ -39,7 +39,8 @@
     <li><b>Ligne d'action</b> : détecteur à l'origine (ex. <code>d8_buzz_precoce</code>), <b>limite</b> = prix maximal d'entrée (au-delà, le gain ne compense plus le risque), <b>stop</b> (prix de sortie si l'idée est invalidée), <b>objectifs</b>, <b>titres</b> (quantité calculée), <b>risque</b> en € et en % du capital.</li>
     <li><b>Gain net / perte nette</b> : depuis la limite jusqu'au 1er objectif / jusqu'au stop glissé, après frais, taxes, change et impôt du compte. <b>Ratio net</b> = gain net ÷ perte nette (il faut au moins 2 à l'admission).</li>
     <li><b>Objectifs</b> : chacun avec son origine (résistance, plus haut, objectif des analystes), son gain brut et net.</li>
-    <li><b>Lignes rouges</b> : la règle qui empêche l'achat (WATCH : …) ou le bloque (BLOQUÉ : …), suivies de « En clair » qui l'explique.</li>
+    <li><b>Lignes rouges</b> : la règle qui empêche l'achat (WATCH : …) ou le bloque (BLOQUÉ : …), suivies de « En clair » qui l'explique. Les détecteurs d2, d3, d4 et d7 sont en <b>surveillance seulement</b> (espérance négative au coût complet, ADR-013) : jamais au carnet.</li>
+    <li><b>Place d'exécution</b> (valeurs hors euro) : la place principale par défaut. Si la valeur est aussi cotée en euros sur Xetra, la fiche montre le change évité et sa part du gain net ; « à privilégier » à partir de 10 % du gain net. Les niveaux en euros sont indicatifs : vérifier la liquidité et la fourchette avant de saisir.</li>
     <li><b>Détail</b> (clic) : fiche complète, données utilisées (instantané figé), régime de la place, décisions, votre note. Les boutons Vu / Watch / Ordre saisi / Ignorer enregistrent votre décision.</li>
   </ul>
 </section>
@@ -114,6 +115,8 @@
     <li><code>sources-check</code> : chaque flux d'actualité répond-il ? · <code>media-check</code> : podcasts lus et valeurs citées.</li>
     <li><code>newsletters-history --user &lt;gmail&gt; --query "from:capital.fr" --dry-run</code> : quelles lettres sont dans la boîte, de quel expéditeur.</li>
     <li><code>index-check</code> : indice de chaque place (régime par place) · <code>radar-check --views</code> : radar.</li>
+    <li><code>radar-history wiki</code> : consultations Wikipédia depuis 2015 · <code>radar-history status</code> : avancement de l'historique du forum (lu la nuit par le job <code>forum_history</code>).</li>
+    <li><code>backfill --from 2016-01-01 --exchanges US,LSE,SW --missing-only</code> : historique des valeurs des places nouvellement activées.</li>
     <li><code>social-check --isins &lt;ISIN&gt; --threads</code> : lecture du forum · <code>social-content --isins &lt;ISIN&gt;</code> : contenu des messages.</li>
     <li><code>backtest</code>, <code>backtest-report</code>, <code>research …</code> : mesure des règles (docs/27, docs/31).</li>
     <li><code>run-job &lt;nom&gt;</code> : relancer un job (les noms sont sur la page <a href="/fonctionnement" class="underline">Fonctionnement</a>).</li>

@@ -9,7 +9,7 @@ The engine never places an order (rule 1): it prepares limit-order cards at the 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -22,6 +22,7 @@ from app.db.models import (
     Account,
     FeatureDaily,
     Instrument,
+    InstrumentAlias,
     MacroEvent,
     NewsItem,
     NewsletterItem,
@@ -33,7 +34,13 @@ from app.db.models import (
 )
 from app.domain.admission import AdmissionInput, Status, admit
 from app.domain.admission import Setup as SetupKind
-from app.domain.costs import CostParams, envelope_tax_rate, net_outcome, round_trip_fee_fraction
+from app.domain.costs import (
+    CostParams,
+    alt_listing_saving,
+    envelope_tax_rate,
+    net_outcome,
+    round_trip_fee_fraction,
+)
 from app.domain.detectors import DetectorContext, Setup, run_detectors
 from app.domain.events import EventParams, abs_gaps, event_exposure
 from app.domain.heat import (
@@ -256,6 +263,13 @@ def evaluate(
     k = float(adm_p.get("min_reward_risk", 2.0))
     tax = _tax(config)
     ev = Evaluation(inst.isin, setup.detector, source, setup, "WATCH", price, price_status)
+    if setup.detector in ((config.params.scoring or {}).get("watch_only_detectors") or []):
+        # ADR-013 (user decision of 26/10/2026): measured negative at full cost — first, so that no early return
+        # (a limit waiting for a pullback, a missing target…) can leave it orderable
+        ev.blocked.append(
+            "WATCH : espérance historique négative au coût complet (backtest n° 2, docs/27) — surveillance seulement "
+            "(ADR-013)"
+        )
     fx = fx_to_eur(s, inst.currency) or (1.0 if inst.currency == "EUR" else None)
     if fx is None:
         ev.blocked.append(f"BLOQUÉ : taux de change {inst.currency} indisponible (fx_refresh)")
@@ -350,6 +364,16 @@ def evaluate(
     per_account: dict[str, Any] = {}
     sized: dict[str, tuple[Any, Any, float]] = {}  # account → (sizing, cost params, P_max): net gain per target
     best: tuple[str, Any, Any, Any] | None = None
+    alt_cfg = (p.universe or {}).get("alt_listing") or {}
+    alt = (
+        s.scalar(
+            select(InstrumentAlias.alias)
+            .where(InstrumentAlias.isin == inst.isin, InstrumentAlias.provider == "eodhd_alt")
+            .order_by(InstrumentAlias.alias)
+        )
+        if fx != 1.0 and alt_cfg
+        else None
+    )
     for acc in options:
         fees = _fees(config, acc)
         cp = CostParams(
@@ -378,6 +402,13 @@ def evaluate(
             "p_max": adm.p_max,
             "statut": adm.status.value,
         }
+        if alt and cp.fx_fee_pct > 0:  # docs/32 §32.3: the same entry on the euro listing, without the change fee
+            adm_eur = admit(
+                AdmissionInput(price, target, setup.stop, setup.kind, setup.level_low,
+                               round_trip_fee_fraction(est_notional, replace(cp, fx_fee_pct=0.0)), k,
+                               setup.p_max_technical)
+            )  # fmt: skip
+            row["sans_change"] = {"p_max": adm_eur.p_max, "statut": adm_eur.status.value}
         if adm.p_max is not None and target is not None:
             sz = size_position(
                 SizingInput(
@@ -421,6 +452,9 @@ def evaluate(
                 row["blocage_taille"] = sz.blocked
         per_account[acc] = row
     ev.details["comptes"] = per_account
+    if alt and target is not None:
+        _alt_execution(ev, alt, best[0] if best else None, sized, per_account, target, fx, setup,
+                       float(alt_cfg.get("min_share_of_gain", 0.10)))  # fmt: skip
     if "pea" in per_account and (p.pea or {}).get("no_withdrawal_before_5y") and (pea_age is None or pea_age < 5):
         ev.details["fiscalite_pea"] = (
             "PEA imposé aux seuls prélèvements sociaux : suppose aucun retrait avant 5 ans (choix du 25/10/2026)"
@@ -642,6 +676,60 @@ def evaluate(
             tc.__dict__ if tc else {"note": "aucun produit compatible avec le stop et le levier maximal"}
         )
     return ev
+
+
+def _alt_execution(
+    ev: Evaluation,
+    alt: str,
+    acc: str | None,
+    sized: dict[str, tuple[Any, Any, float]],
+    per_account: dict[str, Any],
+    target: float,
+    fx: float,
+    setup: Setup,
+    min_share: float,
+) -> None:
+    """docs/32 §32.3 (user decision of 26/10/2026): the primary venue first; a euro listing (Xetra) is shown as an
+    execution alternative, recommended only when the change fee it avoids weighs in the net gain — or when the
+    change fee alone makes the entry fail its admission (information only: the proposal stays refused)."""
+    warn = (
+        "liquidité et fourchette de la cotation en euros non vérifiées : à contrôler avant la saisie ; "
+        "niveaux convertis au change du jour, à recaler sur son cours"
+    )
+    acc = acc or next(iter(sized), None)
+    if acc is not None:
+        sz, cp, p_max = sized[acc]
+        al = alt_listing_saving(
+            alt, sz.notional_max_eur, sz.shares * target * fx, per_account[acc]["gain_net_eur"], cp.fx_fee_pct,
+            min_share,
+        )  # fmt: skip
+        if al is None:
+            return
+        ev.details["execution_alternative"] = {
+            "cotation": al.listing,
+            "compte": acc,
+            "change_evite_eur": round(al.fx_saving_eur, 2),
+            "part_du_gain_net": round(al.share_of_gain, 4) if al.share_of_gain is not None else None,
+            "seuil": min_share,
+            "recommandee": al.recommended,
+            "niveaux_indicatifs_eur": {"limite": round(p_max * fx, 2), "stop": round(setup.stop * fx, 2)},
+            "avertissement": warn,
+        }
+        return
+    for name, row in per_account.items():  # nothing sized: refused on the primary venue — because of the change?
+        eur = row.get("sans_change") or {}
+        if eur.get("statut") == Status.ADMITTED.value and row.get("statut") != Status.ADMITTED.value:
+            ev.details["execution_alternative"] = {
+                "cotation": alt,
+                "compte": name,
+                "recommandee": True,
+                "admise_seulement_sans_change": True,
+                "seuil": min_share,
+                "niveaux_indicatifs_eur": {"limite": round(eur["p_max"] * fx, 2), "stop": round(setup.stop * fx, 2)},
+                "avertissement": warn + " ; proposition refusée sur la place principale : à réévaluer sur la "
+                "cotation en euros avant toute saisie",
+            }
+            return
 
 
 def _portfolio_caps(

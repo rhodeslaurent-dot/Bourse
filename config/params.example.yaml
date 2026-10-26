@@ -255,6 +255,13 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
       window_hours: 2                   # messages des 2 dernières heures…
       base_hours: 24                    # … comparés au rythme des 24 h précédentes (ou de la semaine, compteurs stockés)
       backfill_values: 60               # rattrapage automatique (forum, Reddit) des valeurs suivies sans historique
+    history:                            # décision du 26/10/2026 (option B) : mesurer le radar sur des années — lecture lente, la nuit (job forum_history)
+      enabled: true
+      forum_from: "2019-01-01"          # sujets du forum comptés jusqu'à cette date (jour de création)
+      values_max: 200                   # valeurs de Paris (positions, watchlist, propositions, meilleures forces relatives)
+      pages_per_run: 400                # pages par passage (≈ 14 min à une page toutes les 2 s) ; 11 passages par nuit
+      block_hours: 24                   # refus du site (HTTP 403 / 429) : pause, jamais d'insistance
+      row_class: "c-table__row"         # ligne d'un sujet sur la liste (vue le 25/10/2026)
   content:                              # docs/30 S4a (décisions de l'utilisateur du 25/10/2026) : contenu des messages lu et classé, jamais conservé
     effective_from: "2026-10-25"
     enabled: true                       # sans les classes du forum réglées : statut « structure », rien n'est deviné
@@ -296,12 +303,15 @@ universe:
   opening_list_max: 15   # [phase 3]
   realtime_symbols_max: 150   # [phase 3]
   blacklist: []
-  markets_ex_pea: []                   # docs/22 §22.6 M2 — ex. ["LSE", "SW"] (Londres, Zurich ; CTO seulement)
-  markets_us: []                       # M3 — ex. ["US"] (NYSE / NASDAQ, jamais l'OTC ; CTO seulement)
+  markets_ex_pea: ["LSE", "SW"]        # docs/22 §22.6 M2, docs/32 — Londres, Zurich (CTO seulement) ; décision du 26/10/2026, à activer dans params.yaml après le banc de recherche
+  markets_us: ["US"]                   # M3, docs/32 — NYSE / NASDAQ, jamais l'OTC (CTO seulement) ; décision du 26/10/2026
   market_overrides:                    # filtres propres à une place (sinon ceux ci-dessus)
     US: {min_market_cap_eur: 2000000000, min_adv_eur_cto: 20000000, min_adv_eur_pea: 20000000}
     LSE: {min_market_cap_eur: 1000000000}
     SW: {min_market_cap_eur: 1000000000}
+  alt_listing:                         # docs/32 §32.3, décision du 26/10/2026 : place principale d'abord ; cotation en euros (Xetra) proposée seulement si le change pèse
+    exchanges: ["XETRA"]               # cotations secondaires en euros retenues comme alternative d'exécution
+    min_share_of_gain: 0.10            # recommandée si le change aller-retour évité ≥ 10 % du gain net à l'objectif
   include_etf: true                    # docs/22 §22.5 rang 2 : ETF des places chargées (liquidité seule, sans capitalisation)
   min_adv_eur_etf: 1000000
   etf_pea_isins: []                    # ETF éligibles au PEA confirmés (sinon présumés par « PEA » dans le nom, à confirmer)
@@ -424,6 +434,7 @@ detectors:
 scoring:
   buy_min_ratio: 0.75                 # total / total_atteignable (F non attribué si fondamentaux indisponibles)
   buy_min_ratio_orange: 0.80
+  watch_only_detectors: ["d2_breakout", "d3_range_expansion", "d4_pullback", "d7_trend_quality"]   # ADR-013 (décision du 26/10/2026) : espérance négative au coût complet → surveillance seulement, sans ordre, jusqu'à la refonte (recherche docs/31)
   d1_min_c: 12                        # [phase 3] catalyseur requis pour D1 seulement
   c_bonus_cap: 5                      # D2/D3/D4 : min(C, 5) ajouté au numérateur du ratio d'admission, pas au dénominateur
   admission_blocks:                   # blocs au dénominateur du ratio d'admission (F ajouté si >= 2 sous-critères disponibles)
@@ -792,6 +803,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   backtest_weekly: {cron: "30 10 * * 0", misfire_grace_min: 1440, market_days_only: false}   # docs/27 : rejeu des détecteurs au coût complet (≈ 20 min)
   short_positions_refresh: {cron: "40 19 * * 1-5", misfire_grace_min: 720, market_days_only: false}   # docs/23 S2 : positions courtes nettes publiées par les autorités
   social_watch: {cron: "*/20 7-22 * * *", misfire_grace_min: 10, market_days_only: false}   # docs/26 S3 : veille des forums et réseaux toutes les 20 min, tous les jours (l'information circule aussi le soir et le week-end)
+  forum_history: {cron: "*/30 0-5 * * *", misfire_grace_min: 20, market_days_only: false}   # docs/26 : historique du forum lu lentement la nuit, jusqu'à forum_from (décision du 26/10/2026)
   committee_review: {cron: "10 8 * * 1-5", misfire_grace_min: 90, market_days_only: true}   # docs/24 v2 : comité d'investissement en observation (verdicts mesurés, jamais appliqués)
   weak_signals: {cron: "40 6 * * 1-5", misfire_grace_min: 60, market_days_only: true}   # docs/26 : radar des signaux faibles publics (Wikipédia, volume, presse)
   fundamentals_refresh: {cron: "0 9 * * 0", misfire_grace_min: 1440, market_days_only: false}   # fondamentaux et consensus gratuits (Yahoo), hebdomadaire

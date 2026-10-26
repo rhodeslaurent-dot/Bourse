@@ -105,8 +105,9 @@ STAGES: tuple[Stage, ...] = (
             ),
             Node(
                 "Radar des signaux faibles",
-                "Consultations Wikipédia, volume, forums : attention anormale, buzz précoce, emballement.",
-                ("weak_signals",),
+                "Consultations Wikipédia, volume, forums : attention anormale, buzz précoce, emballement ; "
+                "historique du forum lu lentement la nuit.",
+                ("weak_signals", "forum_history"),
                 "/opportunites",
                 "Opportunités",
             ),

@@ -81,4 +81,6 @@ Conventions : clés `id` (bigint), horodatages `timestamptz` en UTC, montants `n
 - `attention_daily` : les sources `forum_boursorama`, `reddit` et `bluesky` comptent les **sujets créés** par jour (forum) ou les mentions (réseaux). Un rattrapage remplace les valeurs (correction de mesure du 25/10/2026).
 - `market_regime.market` (migration 0023, docs/32) : MIC de la place ou `EU` ; les lignes antérieures deviennent `EU`.
 - `prices_eod` porte aussi les **indices** des places, sous un pseudo-ISIN `IDX.<code>` (hors univers).
+- `forum_history_progress` (migration 0024, docs/26) : avancement de la lecture lente de l'historique du forum, par valeur — page suivante, plus ancienne activité lue, date limite, numéros de fils déjà comptés, terminé, pause jusqu'à (après un refus du site), mise à jour. **Aucun texte, aucun auteur.**
+- `instrument_aliases` avec le fournisseur `eodhd_alt` (sans migration, docs/32 §32.3) : cotation en euros d'une valeur hors euro (`AMZ.XETRA`), proposée comme alternative d'exécution, jamais suivie.
 - Recherche de déclencheurs (docs/31) : aucune table. Les rapports agrégés, le registre et le cache vont dans `data/research/`, et le plan pré-enregistré dans `research/prereg/`.

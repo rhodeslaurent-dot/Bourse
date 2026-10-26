@@ -108,3 +108,28 @@ def envelope_tax_rate(
     if account == "pea" and (no_withdrawal_before_5y or (pea_age_years is not None and pea_age_years >= 5)):
         return pea_social_rate
     return pfu_total_rate
+
+
+@dataclass(frozen=True)
+class AltListing:
+    """Executing a non-euro value on a secondary euro listing (Xetra) instead of its primary venue
+    (user decision of 26/10/2026, docs/32 §32.3): primary venue first, the euro listing only when the
+    change fee it avoids weighs in the expected gain."""
+
+    listing: str
+    fx_saving_eur: float  # both conversions avoided, before tax
+    share_of_gain: float | None  # of the net gain at the target; None when that gain is not positive
+    recommended: bool
+
+
+def alt_listing_saving(
+    listing: str, buy_notional_eur: float, sell_notional_eur: float, gain_net_eur: float, fx_fee_pct: float,
+    min_share_of_gain: float,
+) -> AltListing | None:  # fmt: skip
+    """Change fees avoided by trading ``listing`` in euros: one conversion per leg (buy at the maximum entry
+    price, sell at the target). None when the value trades in euros already (no fee to avoid)."""
+    if fx_fee_pct <= 0 or buy_notional_eur <= 0:
+        return None
+    saving = fx_fee_pct * (buy_notional_eur + max(0.0, sell_notional_eur))
+    share = saving / gain_net_eur if gain_net_eur > 0 else None
+    return AltListing(listing, saving, share, share is not None and share >= min_share_of_gain)

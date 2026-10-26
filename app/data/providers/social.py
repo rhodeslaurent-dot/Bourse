@@ -54,7 +54,7 @@ _TIME = re.compile(r"^\s*(?:à\s*)?(\d{1,2})[:h](\d{2})")
 _AGO = re.compile(r"il y a (\d+)\s*(min|h|heure)", re.I)
 
 
-def forum_times(html: str, now: datetime) -> list[tuple[date, datetime | None]]:
+def forum_times(html: str, now: datetime, max_age_days: int | None = 400) -> list[tuple[date, datetime | None]]:
     """(date, time when shown) of each message of a forum page, in reading order; ``now`` in the forum's
     time zone (Paris). Unknown formats give nothing (never a guess)."""
     out: list[tuple[date, datetime | None]] = []
@@ -83,7 +83,7 @@ def forum_times(html: str, now: datetime) -> list[tuple[date, datetime | None]]:
                 d = today
         except (ValueError, KeyError):
             continue
-        if not (today - timedelta(days=400) <= d <= today):
+        if d > today or (max_age_days is not None and d < today - timedelta(days=max_age_days)):
             continue
         ts = None
         if tm is not None and int(tm.group(1)) < 24 and int(tm.group(2)) < 60:
@@ -122,12 +122,12 @@ def _no_year(text: str, now: datetime) -> datetime | None:
     return ts.replace(year=now.year - 1) if ts.date() > now.date() else ts
 
 
-def message_time(text: str, now: datetime) -> tuple[date | None, datetime | None]:
+def message_time(text: str, now: datetime, max_age_days: int | None = 400) -> tuple[date | None, datetime | None]:
     """Date and time of one date field: « 24 oct. 14:32 », « 14:32 » alone (today), or the generic formats."""
     short = _no_year(text, now)
     if short is not None:
         return short.date(), short
-    found = forum_times(text, now)
+    found = forum_times(text, now, max_age_days)
     if found:
         return found[0]
     bare = _LEADING_TIME.match(text)  # « 14:32 » (today) — possibly shown twice in the field
@@ -137,7 +137,9 @@ def message_time(text: str, now: datetime) -> tuple[date | None, datetime | None
     return None, None
 
 
-def forum_times_in(html: str, now: datetime, date_class: str) -> list[tuple[date, datetime | None]]:
+def forum_times_in(
+    html: str, now: datetime, date_class: str, max_age_days: int | None = 400
+) -> list[tuple[date, datetime | None]]:
     """Date (and time) of each element whose class contains ``date_class``, read from that element's own
     text only — e.g. the « last message » column of a thread list: « 14:32 » (today), « 24 oct. 14:32 »."""
     c = _Collector({"message": date_class})
@@ -145,7 +147,7 @@ def forum_times_in(html: str, now: datetime, date_class: str) -> list[tuple[date
     c.close()
     out: list[tuple[date, datetime | None]] = []
     for it in c.items:
-        d, ts = message_time(it["all"], now)
+        d, ts = message_time(it["all"], now, max_age_days)
         if d is not None and not (ts is not None and out and out[-1][1] == ts):  # same row shown twice
             out.append((d, ts))
     return out
@@ -506,3 +508,24 @@ def ancestors_of(html: str, token: str, depth: int = 5) -> list[tuple[str, int]]
     p.feed(html)
     p.close()
     return p.chains.most_common(3)
+
+
+_TOPIC_ID = re.compile(r"/detail/(\d+)")
+
+
+def topic_rows(
+    html: str, now: datetime, row_class: str, created_class: str, activity_class: str
+) -> list[tuple[str, date | None, date | None]]:
+    """(topic id, creation day, last activity day) of each row of a forum list page (docs/26, history).
+    Ids are the public thread numbers of the address; no title, no author leaves this function."""
+    out: list[tuple[str, date | None, date | None]] = []
+    starts = [m.start() for m in re.finditer(r"<tr\b[^>]*class=[\"'][^\"']*\b" + re.escape(row_class) + r"\b", html)]
+    for k, a in enumerate(starts):
+        seg = html[a : starts[k + 1] if k + 1 < len(starts) else len(html)]
+        m = _TOPIC_ID.search(seg)
+        if not m:
+            continue
+        created = forum_times_in(seg, now, created_class, None)  # history: no age limit
+        active = forum_times_in(seg, now, activity_class, None)
+        out.append((m.group(1), created[0][0] if created else None, active[0][0] if active else None))
+    return out

@@ -22,7 +22,11 @@ def example_raw() -> dict:
 
 @pytest.fixture
 def raw(example_raw: dict) -> dict:
-    return copy.deepcopy(example_raw)
+    out = copy.deepcopy(example_raw)
+    # ADR-013 puts d2/d3/d4/d7 in watch-only; the engine tests exercise their full BUY path, so the default test
+    # configuration clears the list (tests/integration/test_watch_only_detectors.py covers the decision itself)
+    out.get("scoring", {})["watch_only_detectors"] = []
+    return out
 
 
 @pytest.fixture

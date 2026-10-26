@@ -222,6 +222,16 @@ def refresh_universe(
                 is None
             ):
                 s.add(InstrumentAlias(isin=r.isin, provider="eodhd", alias=alias))
+        alt_ex = set((config.params.universe or {}).get("alt_listing", {}).get("exchanges") or [])
+        for alt in r.extra.get("autres_cotations") or []:  # docs/32 §32.3: euro listing as execution alternative
+            if (
+                alt.rsplit(".", 1)[-1] in alt_ex
+                and s.scalar(
+                    select(InstrumentAlias).where(InstrumentAlias.provider == "eodhd_alt", InstrumentAlias.alias == alt)
+                )
+                is None
+            ):
+                s.add(InstrumentAlias(isin=r.isin, provider="eodhd_alt", alias=alt))
         if dec.included:
             included.append(
                 (r.isin, {"cto_ok": dec.cto_ok, "small_cap": dec.small_cap, "pea": pea.eligible, "srd": srd.value})

@@ -21,7 +21,14 @@ from app.services.market_data import compute_features_for_day, detect_gaps, upse
 log = logging.getLogger("bourse.jobs.eod_backfill")
 
 
-def backfill_history(provider: EodhdProvider, start: date, end: date, isins: list[str] | None = None) -> int:
+def backfill_history(
+    provider: EodhdProvider,
+    start: date,
+    end: date,
+    isins: list[str] | None = None,
+    exchanges: list[str] | None = None,
+    missing_only: bool = False,
+) -> int:
     """EOD history for the referential, one instrument at a time. Progress is logged every 50
     instruments and committed as it goes; a symbol EODHD refuses is skipped (logged), and a quota
     exhaustion stops the run cleanly with what was already stored."""
@@ -30,7 +37,16 @@ def backfill_history(provider: EodhdProvider, start: date, end: date, isins: lis
         q = select(Instrument).where(Instrument.active.is_(True))
         if isins:
             q = q.where(Instrument.isin.in_(isins))
+        if exchanges:  # docs/32: e.g. the full history of the markets just enabled (US, LSE, SW)
+            q = q.where(Instrument.exchange.in_(exchanges))
         insts = [i for i in s.scalars(q) if i.ticker_eodhd]
+        if missing_only:  # only the instruments whose stored history does not reach back to ``start``
+            from sqlalchemy import func
+
+            from app.db.models import PriceEod
+
+            first = dict(s.execute(select(PriceEod.isin, func.min(PriceEod.day)).group_by(PriceEod.isin)).all())
+            insts = [i for i in insts if first.get(i.isin) is None or first[i.isin] > start + timedelta(days=10)]
         log.info("backfill EOD %s → %s : %d instruments", start, end, len(insts))
         for k, inst in enumerate(insts, 1):
             try:

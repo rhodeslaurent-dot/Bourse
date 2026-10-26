@@ -59,7 +59,10 @@
 - **Couverture** : le forum Boursorama ne couvre que Paris ; les autres places dépendent de Reddit et Bluesky (à configurer) ou d'un forum par place (à étudier).
 - **Premier passage** (`radar-check --views`, 26/10/2026) : 1 115 articles Wikipédia pour 1 635 couples valeur × langue, 45 étiquettes, dont 2 « buzz précoce » plausibles.
 - **Contenu des messages** : lot S4a (docs/30).
-- **Mesure sur l'historique** (proposée, à valider) : Wikipédia depuis 2015 et sujets du forum sur plusieurs années, pour juger les étiquettes sur un vrai historique.
+- **Mesure sur l'historique** (décision de l'utilisateur du 26/10/2026, option B) : juger les étiquettes sur un vrai historique.
+  - **Wikipédia depuis juillet 2015** (début des statistiques de consultation) : `radar-history wiki` charge en une fois les consultations quotidiennes des articles des valeurs suivies (`--from`, défaut 2015-07-01).
+  - **Forum Boursorama depuis `weak_signals.social.history.forum_from`** (2019-01-01) : lecture **lente**, la nuit, par le job `forum_history` (toutes les 30 min de 0 h à 5 h, Paris), au plus `pages_per_run` pages par passage et `values_max` valeurs de Paris (positions, watchlist, propositions, meilleures forces relatives). Les sujets sont comptés au **jour de leur création**, chaque numéro de fil une seule fois (un sujet qui descend d'une page pendant la lecture n'est pas recompté). Un jour ne vaut zéro que si les pages lues le couvrent. Un refus du site (HTTP 403 ou 429) arrête la lecture pendant `block_hours` (24 h) : jamais de relance en boucle. L'avancement par valeur est dans `forum_history_progress` ; `radar-history status` l'affiche.
+  - Ces séries servent à l'enregistrement n° 2 du banc de recherche (docs/31) : aucune étiquette ne change de rôle sans ADR.
 
 ## 26.4 Calculs (Python, `app/domain/weak_signals.py`)
 

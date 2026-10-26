@@ -50,7 +50,8 @@ def test_markets_without_calendar_are_not_requested(config, calendars, monkeypat
     ctx = JobContext(config, calendars, date(2026, 10, 20), ("XPAR",), "normal")
     assert job.run(ctx) >= 0
     p0_p1_p2 = {"PA", "AS", "BR", "XETRA", "MI", "MC", "ST", "CO", "HE", "OL", "LS", "IR", "VI", "WAR"}
-    assert set(fake.calls) == p0_p1_p2  # toutes les places PEA ont un calendrier depuis le 22/10/2026
+    ex_pea = {"US", "LSE", "SW"}  # New York, Londres, Zurich activés par défaut (décision du 26/10/2026, docs/32)
+    assert set(fake.calls) == p0_p1_p2 | ex_pea  # toutes les places PEA ont un calendrier depuis le 22/10/2026
 
 
 def test_new_listings_get_their_history_so_they_can_enter_the_universe(config, db_engine):

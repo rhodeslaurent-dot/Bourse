@@ -98,6 +98,15 @@
     </div>
   </div>
 
+  {% set xa = dd.execution_alternative or {} %}{% if xa %}
+  <div class="text-xs rounded-lg {% if xa.recommandee %}bg-amber-50 dark:bg-amber-500/10{% else %}bg-slate-50 dark:bg-slate-800/40{% endif %} p-2">
+    <b>Place d'exécution</b> : place principale par défaut.
+    {% if xa.admise_seulement_sans_change %}Refusée ici à cause des frais de change ; sans change, l'entrée serait admise sur la cotation en euros {{ xa.cotation }} ({{ label('account', xa.compte) }}) — <b>information seulement</b>.
+    {% else %}Cotation en euros {{ xa.cotation }} : change aller-retour évité {{ xa.change_evite_eur|eur }}{% if xa.part_du_gain_net is not none %}, soit {{ '%.0f %%'|format(xa.part_du_gain_net * 100) }} du gain net ({{ label('account', xa.compte) }}){% endif %} —
+    {% if xa.recommandee %}<b>à privilégier</b> (seuil {{ '%.0f %%'|format(xa.seuil * 100) }} du gain net atteint){% else %}place principale conservée (sous le seuil de {{ '%.0f %%'|format(xa.seuil * 100) }}){% endif %}.{% endif %}
+    Niveaux indicatifs en euros : limite {{ xa.niveaux_indicatifs_eur.limite }} €, stop {{ xa.niveaux_indicatifs_eur.stop }} €. <span class="text-slate-500">{{ xa.avertissement }}.</span>
+  </div>
+  {% endif %}
   {% set pl = dd.produit_levier or {} %}{% if pl %}
   <div class="text-xs rounded-lg bg-slate-50 dark:bg-slate-800/40 p-2">
     <b>Variante à levier (turbo / mini-future, acheteur)</b> :{% if pl.barrier_max %} barrière désactivante ≤ {{ pl.barrier_max }}, levier indicatif {{ pl.leverage_indicative }}, prime ≈ {{ pl.intrinsic_per_unit }} par unité de sous-jacent, quantité pour le budget de risque {{ pl.units_for_budget }} (équivalent sous-jacent){% endif %} — {{ pl.note }}.
