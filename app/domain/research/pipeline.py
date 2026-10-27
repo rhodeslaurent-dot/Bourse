@@ -84,7 +84,8 @@ from app.domain.research.prereg import Cell, Prereg
 Arr = npt.NDArray[Any]
 ComboKey = tuple[str, float, int, int, int | None, str | None]  # exit, cap ATR, validity, h, max hold, D2x cap
 FWD_H = (1, 3, 5, 20, 60)
-VENUE_GROUPS = ("P0", "P1", "P2")  # the venue groups of params.yaml (universe.markets_p0/p1/p2)
+# the venue groups of params.yaml (universe.markets_p0/p1/p2), then the one-venue groups of registration n° 2
+VENUE_GROUPS = ("P0", "P1", "P2", "US", "LSE", "SW")
 
 
 def venue_code(group: str) -> int:
@@ -303,7 +304,9 @@ def raw_trigger(g: GroupData, cell: Cell, st: Settings) -> tuple[Bool, F64 | Non
     p, f, q = g.p, g.f, cell.params
     gate = T.gate_mask(f, cell.gate)
     pmax: F64 | None = None
-    if cell.trigger == "t01":
+    if cell.trigger == "t00":
+        m = T.t00_placebo(f, float(q.get("rate", 0.0)), int(q["seed"]) * 1000 + g.gid, cell.mode != "event")
+    elif cell.trigger == "t01":
         m = T.t01_momentum(f, float(q["rank_min"]), month_end_only=cell.mode != "event")
     elif cell.trigger == "t03":
         m = T.t03_pth(p, f, float(q["pth_min"]), float(q["rs_min"]))
@@ -340,11 +343,14 @@ def cell_signals(g: GroupData, cell: Cell, st: Settings, rows: tuple[int, int], 
         ts, cols = lockout(m, g.f.pk, rows[0], rows[1], cell.h)
     else:  # monthly: lockout applied at the selection (outcome-free)
         ts, cols = lockout(m, g.f.pk, rows[0], rows[1], 1)
+    score = g.f.mom_rank
+    if cell.trigger == "t00":  # placebo: a random monthly ranking
+        score = T.placebo_score(g.f.mom_rank.shape, int(cell.params["seed"]) * 1000 + g.gid)
     return Signals(
         ts,
         cols,
         pmax[ts, cols] if pmax is not None else None,
-        g.f.mom_rank[ts, cols] if cell.mode != "event" else None,
+        score[ts, cols] if cell.mode != "event" else None,
         g.f.low_vol[ts, cols] if cell.overlay == "t11" else None,
     )
 

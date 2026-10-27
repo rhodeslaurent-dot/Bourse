@@ -39,6 +39,21 @@ def t03_pth(p: Panel, f: Features, pth_min: float, rs_min: float, quiet_sessions
     return cond & ~before
 
 
+def t00_placebo(f: Features, rate: float, seed: int, month_end_only: bool) -> Bool:
+    """T00 placebo (registration n° 2, X1): eligible bars drawn at random with probability ``rate`` (event
+    mode), or every eligible month end (monthly mode, the top-N then drawn by ``placebo_score``). Any excess
+    it shows is a bias of the measure, not an edge — it runs before the cells it controls."""
+    if month_end_only:
+        return f.elig & f.month_end[:, None]
+    u = np.random.default_rng(seed).random(f.elig.shape)
+    return f.elig & (u < rate)
+
+
+def placebo_score(shape: tuple[int, int], seed: int) -> F64:
+    """Random monthly ranking score of T00 (never a price-derived quantity)."""
+    return np.random.default_rng(seed + 1).random(shape)
+
+
 def t04_trend(f: Features) -> Bool:
     return f.elig & f.t04
 

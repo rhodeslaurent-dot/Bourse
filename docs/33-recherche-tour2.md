@@ -87,6 +87,26 @@
 - CANDIDAT sur les données de test → **suivi en ombre d'abord** (durée et critère de suspension pré-déclarés), puis ADR d'entrée en production à 50 % de `risk.max_risk_per_trade_pct`.
 - Sinon REJET, ou NON CONCLUANT si la puissance est sous 0,5. L'issue la plus probable, annoncée d'avance, est l'échec.
 
+### État au 27/10/2026 (lancement décidé par l'utilisateur)
+
+**Données**
+- `delisted-check` : EODHD fournit les valeurs radiées.
+  - New York : 33 185 radiées, dont 8 295 avec ISIN, historique accessible.
+  - Londres : 2 845 radiées, dont 1 475 avec ISIN, historique accessible.
+  - Zurich : 167 radiées, historique à revérifier, l'exemple testé n'ayant aucune séance.
+- **`delisted-load`** (codé, pas encore exécuté). Il garde les marchés principaux (jamais l'OTC à New York). Il trie ensuite par liquidité sur un instantané mensuel de toute la place, sans lire d'historique : une radiée est retenue si un instantané atteint la moitié du seuil de volume de la place. Les radiées retenues sont enregistrées comme valeurs inactives, hors univers. Une valeur sans ISIN reçoit une clé interne de 12 caractères, qui n'a jamais la forme d'un ISIN. `--history` charge ensuite leur historique.
+  - Coût : un instantané par mois depuis 2017, soit environ 118 instantanés par place, que la commande `--dry-run` chiffre avant tout appel.
+
+**Banc**
+- Le plan peut déclarer ses propres groupes (`venue_groups`). Un groupe d'une seule place est jugé sur l'indice de cette place (`regime.indices_by_mic`). Le rejeu de calibration reste sur les groupes européens, car le backtest de référence est européen.
+- Déclencheur placebo T00 : événements tirés au hasard au taux déclaré, ou classement mensuel aléatoire. Il est graine-fixé.
+- Brouillon du plan : `research/prereg/brouillon_reg2.yaml`. Il contient C1, C2, le placebo X1 (3 cellules) et X2, sans étape 1, avec une étape 2 de 3 cellules au plus, soit 9 cellules. Il a été exécuté de bout en bout sur une base synthétique.
+  - X3, X4, X6 et X7 demandent du code supplémentaire : ils sont reportés à un enregistrement suivant.
+- **À faire avant de geler le plan** :
+  1. Relecture du brouillon par l'utilisateur.
+  2. Renommage du fichier avec sa date.
+  3. Exécution de `delisted-load`, puis activation des places et chargement des historiques des valeurs actives. Aucune donnée de test n'est lue avant le gel.
+
 ## 33.4 Corrections de méthode du banc (faites le 27/10/2026)
 
 - **Sélection adverse** : effectif par groupe (masqué sous 20), plus la moyenne sur tous les signaux.

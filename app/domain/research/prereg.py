@@ -92,6 +92,9 @@ class Prereg:
     stage1_max_cells: int
     stage2_max_cells: int
     max_total_cells: int
+    # registration n° 2: group → EODHD exchange codes, each group judged on its own venue index (None: the
+    # P0 / P1 / P2 groups of params.yaml, regime on the CAC 40 for Paris and the STOXX 600 elsewhere)
+    venue_groups: dict[str, tuple[str, ...]] | None = None
 
     @property
     def confirmatory(self) -> list[Cell]:
@@ -227,6 +230,9 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
         stage1_max_cells=int(raw["stage1"]["max_cells"]),
         stage2_max_cells=int(raw["stage2"]["max_cells"]),
         max_total_cells=int(raw["max_total_cells"]),
+        venue_groups={str(k): tuple(str(x) for x in v) for k, v in raw["venue_groups"].items()}
+        if raw.get("venue_groups")
+        else None,
     )
     if p.total_cells > p.max_total_cells:
         raise PreregError(f"{p.total_cells} cellules enregistrées > plafond {p.max_total_cells}")

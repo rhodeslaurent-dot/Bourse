@@ -161,15 +161,32 @@ def resolved_parameters(st: Settings, config: LoadedConfig) -> dict[str, Any]:
 # --- panels ---------------------------------------------------------------------------------------
 
 
-def mic_groups(config: LoadedConfig, calendars: MarketCalendars) -> dict[str, str]:
+def mic_groups(
+    config: LoadedConfig, calendars: MarketCalendars, venue_groups: dict[str, tuple[str, ...]] | None = None
+) -> dict[str, str]:
+    """MIC → venue group: the plan's own groups (registration n° 2) or the P0 / P1 / P2 lists of params.yaml."""
     u = config.params.universe or {}
+    pairs = (
+        list(venue_groups.items())
+        if venue_groups
+        else [(g, tuple(u.get(k) or [])) for g, k in (("P0", "markets_p0"), ("P1", "markets_p1"), ("P2", "markets_p2"))]
+    )
     out: dict[str, str] = {}
-    for grp, key in (("P0", "markets_p0"), ("P1", "markets_p1"), ("P2", "markets_p2")):
-        for code in u.get(key) or []:
+    for grp, codes in pairs:
+        for code in codes:
             mic = calendars.eodhd_to_mic.get(code)
             if mic:
                 out[mic] = grp
     return out
+
+
+def own_index_id(config: LoadedConfig, calendars: MarketCalendars, codes: tuple[str, ...]) -> str | None:
+    """The index of a one-venue group (docs/32: each venue judged on its own index), from regime.indices_by_mic."""
+    if len(codes) != 1:
+        return None
+    mic = calendars.eodhd_to_mic.get(codes[0])
+    spec = ((getattr(config.params, "regime", None) or {}).get("indices_by_mic") or {}).get(mic) or {}
+    return str(spec["id"]) if spec.get("id") else None
 
 
 def _fx_series(
@@ -212,8 +229,9 @@ def _cache_key(parts: list[Any]) -> str:
 
 
 def select_instruments(s: Session, config: LoadedConfig, calendars: MarketCalendars, universe: str,
-                       max_instruments: int | None) -> tuple[dict[str, list[Instrument]], int]:  # fmt: skip
-    groups = mic_groups(config, calendars)
+                       max_instruments: int | None,
+                       venue_groups: dict[str, tuple[str, ...]] | None = None) -> tuple[dict[str, list[Instrument]], int]:  # fmt: skip
+    groups = mic_groups(config, calendars, venue_groups)
     reg = getattr(config.params, "regime", None) or {}
     idx = set((reg.get("index_isins") or {}).values())  # index pseudo-instruments are never traded
     idx |= {str(v.get("id")) for v in (reg.get("indices_by_mic") or {}).values() if isinstance(v, dict)}
@@ -243,7 +261,7 @@ def select_instruments(s: Session, config: LoadedConfig, calendars: MarketCalend
 def load_panels(
     s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg: Prereg, start: date, end: date,
     universe: str, max_instruments: int | None, cache_dir: Path | None, progress: Progress | None = None,
-    drop_illiquid: bool = True,
+    drop_illiquid: bool = True, default_groups: bool = False,
 ) -> tuple[list[Panel], PanelMeta]:  # fmt: skip
     """Panels of the venue groups. ``drop_illiquid`` removes the instruments never liquid on the period (the
     registration); the calibration keeps them (every run-2 trade must be locatable)."""
@@ -263,7 +281,8 @@ def load_panels(
     stoxx = _index_series(s, idx_isins.get("stoxx600"), start, end)
     rows_total = s.scalar(select(func.count(PriceEod.id))) or 0
     last_day = s.scalar(select(func.max(PriceEod.day)))
-    by_group, without = select_instruments(s, config, calendars, universe, max_instruments)
+    vgroups = None if default_groups else prereg.venue_groups  # the run-2 replay is always on P0 / P1 / P2
+    by_group, without = select_instruments(s, config, calendars, universe, max_instruments, vgroups)
     static = dict(prereg.a("fx_static_eur_per_unit") or {})
     panels: list[Panel] = []
     counts: dict[str, int] = {}
@@ -273,8 +292,10 @@ def load_panels(
     fx_static: dict[str, set[Any]] = defaultdict(set)
     lo_all: date | None = None
     hi_all: date | None = None
-    for grp in GROUPS:
+    for grp in list(vgroups) if vgroups else GROUPS:
         insts = by_group.get(grp) or []
+        own = own_index_id(config, calendars, vgroups[grp]) if vgroups else None
+        own_idx = _index_series(s, own, start, end) if own else None
         if not insts:
             continue
         key = _cache_key(
@@ -358,14 +379,15 @@ def load_panels(
             grp, days, tuple(isins_k),
             *(arrays[k][:, keep] for k in ("open", "high", "low", "close", "adj_close", "volume")),
             fx[:, keep],
-            np.array([meta[x].mic == "XPAR" for x in isins_k], dtype=bool),
+            # the « local index » flag: Paris on the CAC 40 (registration n° 1); a one-venue group on its own index
+            np.ones(len(isins_k), dtype=bool) if own_idx is not None else np.array([meta[x].mic == "XPAR" for x in isins_k], dtype=bool),
             np.array([bool(meta[x].small_cap) or (meta[x].market_cap_eur or 0) < float(u.get("small_cap_threshold_eur", 1e9)) for x in isins_k], dtype=bool),
             np.array([bool(meta[x].pea_eligible) or (meta[x].pea_eligible is None and x[:2] in pea_countries) for x in isins_k], dtype=bool),
             ttf_rates(isins_k, caps.tolist(), ttf_rate, ttf_cap),
             np.array([float(ftt.get(x[:2], 0.0)) for x in isins_k]),
             np.array([fx_fee if (meta[x].currency or "EUR") != "EUR" else 0.0 for x in isins_k]),
             np.array([bool(meta[x].in_universe) for x in isins_k], dtype=bool),
-            cac, stoxx, arrays["vintage"][:, keep].astype(np.int64),
+            own_idx if own_idx is not None else cac, stoxx, arrays["vintage"][:, keep].astype(np.int64),
         )  # fmt: skip
         panels.append(panel)
         counts[grp] = len(isins_k)
@@ -665,7 +687,7 @@ def _panels_for(s: Session, config: LoadedConfig, calendars: MarketCalendars, pr
     start = min(t.signal_day for t in run2) - timedelta(days=420)
     end = max(t.exit_day for t in run2) + timedelta(days=10)
     panels, meta = load_panels(s, config, calendars, prereg, start, end, "all", None, None, progress,
-                               drop_illiquid=False)  # fmt: skip
+                               drop_illiquid=False, default_groups=True)  # fmt: skip
     keep = set(isins)
     out = []
     for p in panels:

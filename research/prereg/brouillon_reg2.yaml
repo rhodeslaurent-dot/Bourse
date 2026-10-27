@@ -1,0 +1,117 @@
+# BROUILLON — plan de l'enregistrement n° 2 (docs/33 §33.3). PAS ENCORE GELÉ : à relire par l'utilisateur, puis
+# renommé `<date>_reg2.yaml` et enregistré AVANT toute lecture des données de test (Londres, Zurich, New York).
+# Seuils A1–A13, hypothèses et inférence recopiés à l'identique du plan n° 1 ; modifications déclarées, choisies
+# avant toute donnée de test : groupes = une place chacun, jugée sur son propre indice (docs/32) ; compte CTO seul
+# (le PEA ne détient pas ces titres) ; placebo X1 exécuté et lu AVANT C1/C2 ; Holm sur 2 ; fenêtres de test
+# couvrant 2018-01 → 2026-07 (la période scellée européenne n'est pas concernée : autres places).
+id: "brouillon_reg2"
+title: "Recherche de déclencheurs — enregistrement n° 2 : réplication géographique (Londres, Zurich, New York)"
+registered_on: "à fixer au gel"
+seed: 20261028
+
+venue_groups:                                # un groupe = une place, régime sur l'indice de la place (indices_by_mic)
+  US: [US]
+  LSE: [LSE]
+  SW: [SW]
+
+segments:
+  warmup_sessions: 252
+  discovery: ["2017-01-02", "2026-07-31"]    # toute la période est « test » : rien n'a été choisi sur ces places
+  embargo: ["2099-01-01", "2099-01-02"]      # sans objet (pas de période scellée dans ce plan)
+  holdout_start: "2099-01-03"
+  end_margin_sessions: 65
+  purge_sessions: 65
+  wf_test:                                   # 5 plis (A5 : ≥ 4 positifs sur 5, comme au n° 1)
+    - ["2018-01-01", "2019-08-31"]
+    - ["2019-09-01", "2021-04-30"]
+    - ["2021-05-01", "2022-12-31"]
+    - ["2023-01-01", "2024-08-31"]
+    - ["2024-09-01", "2026-07-31"]
+
+parameters_keys:                             # lus dans config/params.yaml (règle 8 : source unique)
+  min_price: "universe.min_price"
+  min_turnover_eur: "universe.min_adv_eur_pea"
+  min_turnover_cto_eur: "universe.min_adv_eur_cto"
+  small_cap_threshold_eur: "universe.small_cap_threshold_eur"
+  breadth_green: "regime.breadth_green"
+  index_isins: "regime.index_isins"
+  slippage_pct: "risk.slippage_pct"
+  max_risk_per_trade_pct: "risk.max_risk_per_trade_pct"
+  max_position_pct_of_capital: "risk.max_position_pct_of_capital"
+  fx_haircut: "risk.fx_haircut"
+  max_open_risk_pct: "risk.max_open_risk_pct"
+  capital_pilote_eur: "capital.capital_pilote_eur"
+  expiry_sessions: "entry.expiry_sessions"
+  ma20_exit_closes: "detectors.exits.thesis_mm20_close_below_days"
+  ttf_rate: "tax.ttf_rate"
+  ttf_cap_threshold_eur: "tax.ttf_cap_threshold_eur"
+  pfu_total_rate: "tax.pfu_total_rate"
+  ftt_by_country: "tax.ftt_by_country"
+  srd_daily_rate: "srd.crd_daily_rate"
+  brokers: "brokers.saxo, brokers.boursobank"
+
+assumptions:
+  fx_static_eur_per_unit:                    # repli quand fx_rates ne couvre pas la date (seuil de liquidité seulement)
+    value: {SEK: 0.088, DKK: 0.134, NOK: 0.086, PLN: 0.232, GBP: 1.16, GBX: 0.0116, CHF: 1.04, USD: 0.92}
+    assumption: true
+  ca_jump: {value: 0.2, assumption: true}                  # saut du facteur d'ajustement = opération sur titres (exclue)
+  dividend_min_drop: {value: 0.002, assumption: true}      # baisse minimale du facteur = dividende
+  dividend_yield_sanity: {value: [0.0, 0.12], assumption: true}   # rendement annuel implicite plausible (contrôle Milan)
+  bankruptcy_hazard_small: {value: 0.03, assumption: true}  # par an, petites capitalisations
+  bankruptcy_hazard_large: {value: 0.005, assumption: true} # par an, grandes capitalisations
+  takeover_jump: {value: 0.25, assumption: true}           # OPA : +25 % (même taux annuel que la faillite)
+  capacity_pct_of_turnover: {value: 0.02, assumption: true} # capacité : notionnel ≤ 2 % du volume médian 20 séances
+  momentum_entry_cap_atr: {value: 1.0, assumption: true}   # E_open(1) pour T01 / T03 / C1 (non précisé par le plan)
+  cost_stress_multiplier: {value: 1.5, assumption: false}
+  slippage_stress_multiplier: {value: 2.0, assumption: false}
+  top_n_monthly: {value: 6, assumption: false}
+
+thresholds:
+  gate_t_week: 2.0
+  a1: {event_min_n: 300, event_min_weeks: 100, fold_min_trades: 40, rank_min_months: 60, rank_min_trades_slot: 200}
+  a2: {min_mean_r: 0.10, min_eur_per_budget: 30.0, min_profit_factor: 1.15}
+  a3: {holm_alpha: 0.05, rw_alpha: 0.05, min_t: 3.0, min_dsr: 0.95, max_pbo: 0.30}
+  a4: {min_excess: 0.08, max_perm_p: 0.01}
+  a5: {min_positive_folds: 4}
+  a9: {min_hazard_multiple: 2.0}
+  a10: {max_top10_share: 0.40}
+  a12: {max_hold_sessions: 63}
+  a13: {max_dd_ratio_vs_benchmark: 1.0, slots: 6}
+  watchlist_bh_q: 0.10
+  power_min: 0.5
+  report_min_n: 20
+  candidates_max: 5
+  stage1: {max_triggers: 4, min_delta_r: 0.05, min_positive_folds: 4, max_pbo: 0.30, max_dd_worse: 0.10}
+  existing_detectors_ci_high_max: 0.0
+
+inference:
+  bootstrap_draws: 2000
+  block_weeks: 4
+  permutation_draws: 500
+  permutation_top: 30
+  pbo_blocks: 16
+  power_edges: [0.10, 0.20]
+  power_decision_edge: 0.20
+  power_reps: 50
+
+confirmatory:                                # Holm sur 2, unilatéral
+  # C1 = la cellule « F1.t01.rank_min80.h63.gatet13_t11 » du n° 1, figée à l'identique
+  - {id: C1, trigger: t01, mode: monthly, params: {rank_min: 80}, gate: t13_t11, h: 63, exit: X3, validity: 3, accounts: [cto]}
+  # C2 = C1 sans porte de régime (garde-fou : la porte a été choisie après coup au n° 1)
+  - {id: C2, trigger: t01, mode: monthly, params: {rank_min: 80}, gate: none, h: 63, exit: X3, validity: 3, accounts: [cto]}
+
+exploratory:                                 # jamais une conséquence de production
+  # X1 placebo, lu AVANT C1/C2 : mêmes fréquences, valeurs et dates tirées au hasard (graine du plan)
+  - {family: X1, trigger: t00, mode: monthly, params: {seed: 20261028}, cap_atr: 1.0, validity: 3, exit: X3, accounts: [cto], grid: {gate: [t13_t11, none], h: [63]}}
+  - {family: X1, trigger: t00, params: {seed: 20261028, rate: 0.001}, cap_atr: 1.0, validity: 3, exit: X3, accounts: [cto], grid: {gate: [t13], h: [21]}}
+  # X2 réplication figée de « F1.t03.pth_min0.9.rs_min80.h21.gatet13 » du n° 1 (seule cellule significative après Romano–Wolf)
+  - {family: X2, trigger: t03, params: {pth_min: 0.90, rs_min: 80}, validity: 3, exit: X3, accounts: [cto], grid: {gate: [t13], h: [21]}}
+
+stage1:
+  exits: [X1, X2, X3, X4, X5, X6, X7, X8]
+  max_cells: 0                               # pas d'étape 1 : aucune sortie choisie dans ce plan
+stage2:
+  max_cells: 3
+
+max_total_cells: 20
+expected_total_cells: 9            # 2 confirmatoires + 3 placebo + 1 réplication + 0 étape 1 + 0 F0 + 3 portefeuille

@@ -145,3 +145,44 @@ def test_research_commands_end_to_end(research_db, tmp_path, capsys):
     # the sealed period cannot be opened without a frozen candidate file, nor with another seed
     assert main(["--params", PARAMS, "research", "unseal", "--prereg", PREREG, "--out", out]) == 2
     assert main([*args, "--seed", "1"]) == 2
+
+
+def test_registration_2_draft_runs_on_one_venue_groups(research_db, tmp_path, capsys):
+    """docs/33 §33.3: the draft of registration n° 2 — groups US / LSE / SW, each judged on its own index, CTO
+    only, the placebo first. Runs end to end on a synthetic base; the calibration still replays run 2 on the
+    P0 / P1 / P2 groups (the reference backtest is European)."""
+    plan = "research/prereg/brouillon_reg2.yaml"
+    out = str(tmp_path / "research")
+    with db_session() as s:
+        for k, (mic, cur, cc) in enumerate([("XNYS", "USD", "US"), ("XLON", "GBP", "GB"), ("XSWX", "CHF", "CH")] * 4):
+            isin = f"{cc}10000000{k:02d}"
+            s.add(Instrument(isin=isin, name=f"W{k}", mic=mic, currency=cur, in_universe=False, active=k % 4 != 0,
+                             market_cap_eur=5e9, kind="stock"))  # fmt: skip
+            s.add_all(_series(isin, 760, 0.0008 if k % 2 else -0.0002, seed=100 + k))
+        for idx in ("IDX.GSPC", "IDX.FTSE", "IDX.SSMI"):
+            s.add(Instrument(isin=idx, name=idx, mic="XNYS", currency="USD", kind="index"))
+            s.add_all(_series(idx, 760, 0.0004, seed=7))
+        for pair, rate in (("EURUSD", 1.1), ("EURGBP", 0.85), ("EURCHF", 1.08)):
+            s.add(FxRate(pair=pair, day=date(2016, 1, 4), rate=rate, source="ecb"))
+    assert main(["--params", PARAMS, "research", "calibrate", "--run", str(research_db), "--prereg", plan,
+                 "--out", out]) == 0  # fmt: skip
+    args = ["--params", PARAMS, "research", "run", "--prereg", plan, "--universe", "all", "--to", "2018-12-31",
+            "--out", out, "--run", str(research_db)]  # fmt: skip
+    assert main(args) == 0
+    rep = json.loads(sorted(p for p in (tmp_path / "research").glob("2*.json") if "candidates" not in p.name)[-1]
+                     .read_text())  # fmt: skip
+    h = rep["entete"]
+    assert set(h["instruments"]) <= {"US", "LSE", "SW"} and sum(h["instruments"].values()) > 0
+    assert h["calibration_verdict"] == "VALIDE" and h["cellules_enregistrees"]["confirmatoires"] == 2
+    assert set(rep["A_resume"]["confirmatoires"]) == {"C1", "C2"}
+    assert any(c.startswith("X1.t00") for c in rep["I_classement"])  # the placebo is in the report
+
+
+def test_one_venue_groups_use_their_own_index(config, calendars):
+    from app.services.research import mic_groups, own_index_id
+
+    vg = {"US": ("US",), "LSE": ("LSE",), "SW": ("SW",)}
+    assert mic_groups(config, calendars, vg) == {"XNYS": "US", "XLON": "LSE", "XSWX": "SW"}
+    assert mic_groups(config, calendars)["XPAR"] == "P0"  # registration n° 1 groups unchanged
+    assert [own_index_id(config, calendars, vg[g]) for g in vg] == ["IDX.GSPC", "IDX.FTSE", "IDX.SSMI"]
+    assert own_index_id(config, calendars, ("PA", "AS")) is None  # a multi-venue group: CAC 40 / STOXX 600 rule

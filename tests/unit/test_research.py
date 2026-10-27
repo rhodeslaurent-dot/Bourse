@@ -1279,3 +1279,19 @@ def test_holdout_bars_do_not_change_discovery_statistics(prereg):
     # the comparison is sensitive: the same perturbation from inside the discovery window changes the statistics
     c = run_registration([perturbed("2024-03-01", 98)], pr, st, f0=False)
     assert discovery(a) != discovery(c)
+
+
+def test_placebo_trigger_draws_at_the_declared_rate():
+    """Registration n° 2, X1: random eligible bars (event) or every eligible month end (monthly), seeded."""
+    from app.domain.research import triggers as T
+
+    st = settings()
+    g = prepare_group(0, synthetic_panel(40, 800, seed=5), st)
+    ev = T.t00_placebo(g.f, 0.01, 7, month_end_only=False)
+    assert ev.sum() > 0 and not (ev & ~g.f.elig).any()
+    assert abs(ev.sum() / g.f.elig.sum() - 0.01) < 0.004
+    assert (ev == T.t00_placebo(g.f, 0.01, 7, month_end_only=False)).all()  # seeded: reproducible
+    mo = T.t00_placebo(g.f, 0.0, 7, month_end_only=True)
+    assert (mo == (g.f.elig & g.f.month_end[:, None])).all()
+    s1, s2 = T.placebo_score((3, 4), 7), T.placebo_score((3, 4), 8)
+    assert s1.shape == (3, 4) and not np.allclose(s1, s2)
