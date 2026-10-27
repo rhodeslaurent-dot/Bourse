@@ -1007,6 +1007,18 @@ def cmd_radar_history(args: argparse.Namespace) -> int:
 
             for note in run_pass(s, cfg, client):
                 print(note)
+        elif args.what == "reset":  # restart the history reading (after a date-format fix): progress only
+            from sqlalchemy import delete
+
+            from app.db.models import ForumHistoryProgress
+
+            n = s.execute(delete(ForumHistoryProgress)).rowcount
+            print(f"avancement de l'historique du forum remis à zéro ({n} valeur(s)) ; comptages déjà faits conservés")
+        elif args.what == "probe":
+            from app.services.forum_history import probe_pages
+
+            for line in probe_pages(s, cfg, client, args.isin, [int(x) for x in args.pages.split(",") if x.strip()]):
+                print(line)
         else:
             from app.services.forum_history import progress_summary
 
@@ -2073,7 +2085,9 @@ def main(argv: list[str] | None = None) -> int:
     mc.add_argument("--feed", default=None, help="détail d'un flux : contenu actuel, filtres, valeurs, rejets")
     mc.set_defaults(fn=cmd_media_check)
     rh = sub.add_parser("radar-history", help="historique du radar : wiki (depuis 2015), forum (la nuit), status")
-    rh.add_argument("what", choices=["wiki", "forum", "status"])
+    rh.add_argument("what", choices=["wiki", "forum", "status", "probe", "reset"])
+    rh.add_argument("--isin", default=None, help="probe : valeur dont on lit quelques pages de la liste des sujets")
+    rh.add_argument("--pages", default="1,20,100,300", help="probe : numéros de pages")
     rh.add_argument("--from", dest="from_date", default="2015-07-01")
     rh.set_defaults(fn=cmd_radar_history)
     sk = sub.add_parser("sources-check", help="lit chaque flux configuré et affiche son état (docs/23)")

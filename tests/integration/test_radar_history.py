@@ -102,3 +102,39 @@ def test_wikipedia_history_fills_only_the_missing_older_part(db_engine, config):
         n, days, errors = attention_history(s, config, c, date(2015, 7, 1), today=date(2026, 10, 26))
         assert (n, days, errors) == (1, 30, [])
         assert "20150701/20260731" in calls[0]  # up to the day before the first stored day
+
+
+def test_a_site_serving_the_same_pages_again_ends_the_value(db_engine, config):
+    """27/10/2026 on the PC: past a page number the site served the same list again (4 400 pages read, 1 518
+    threads, oldest activity stuck a year back). Three pages without any new thread end the value; undated
+    threads are reported, never counted."""
+    loop = _row(10, "20/10/2026", "25 oct. 10:00") + _row(11, "n.c.", "24 oct. 09:00")
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=loop)  # every page number: the same two threads
+
+    with db_session() as s, httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        _inst(s)
+        notes = run_pass(s, config, c, NOW, sleep=lambda x: None)
+        prog = s.get(ForumHistoryProgress, "FR0000000005")
+        assert prog.done and prog.next_page == 4  # page 1, then 3 pages without a new thread
+        assert any("pagination du site épuisée" in n and "FR0000000005" in n for n in notes)
+        assert any("1 sujet(s) sans date de création lisible" in n for n in notes)
+
+
+def test_probe_shows_new_threads_dates_and_formats(db_engine, config, monkeypatch):
+    from app.services.forum_history import probe_pages
+
+    monkeypatch.setattr("app.services.forum_history.time.sleep", lambda x: None)
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        k = int(req.url.path.rstrip("/").split("page-")[-1]) if "page-" in req.url.path else 1
+        return httpx.Response(200, text=PAGES.get(k, PAGES[3]))
+
+    with db_session() as s, httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        _inst(s)
+        out = probe_pages(s, config, c, "FR0000000005", [1, 2, 9])
+    assert out[0].startswith("page 1 : 2 sujet(s), 2 nouveau(x)")
+    assert any(line.startswith("page 2 : 3 sujet(s), 2 nouveau(x)") for line in out)
+    assert any("c-source__time : 99/99/9999" in line for line in out)  # the creation format, never a word
+    assert "sujet" not in " ".join(x for x in out if x.startswith("    "))

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.config import LoadedConfig
 from app.data.base import ProviderError
 from app.data.providers import social
-from app.db.models import AttentionDaily, ForumHistoryProgress
+from app.db.models import AttentionDaily, ForumHistoryProgress, Instrument
 from app.domain.timeutil import PARIS
 from app.services.social import followed_values, forum_url, social_params
 
@@ -35,6 +35,7 @@ def history_params(config: LoadedConfig) -> dict[str, Any]:
     h.setdefault("pages_per_run", 400)
     h.setdefault("block_hours", 24)
     h.setdefault("row_class", "c-table__row")
+    h.setdefault("stale_pages_max", 3)  # consecutive pages without any new thread: the site's pagination is exhausted
     return h
 
 
@@ -95,7 +96,8 @@ def run_pass(
     today = now.astimezone(PARIS).date()
     paris_now = now.astimezone(PARIS)
     budget = int(h["pages_per_run"])
-    pages = done_n = counted = 0
+    pages = done_n = counted = undated = 0
+    capped: list[str] = []
     values = followed_values(s, int(h["values_max"]), today, lambda i: forum_url(i, tpl) is not None)
     for inst in values:
         if budget <= 0:
@@ -116,6 +118,7 @@ def run_pass(
         assert url is not None
         seen = set(prog.seen or [])
         k, cutoff = prog.next_page, prog.cutoff or today
+        stale = 0
         while budget > 0 and not prog.done:
             page_url = url if k == 1 else url.rstrip("/") + "/" + suffix.format(n=k)
             try:
@@ -139,13 +142,24 @@ def run_pass(
             if not rows:
                 prog.done = True
                 break
+            new = 0
             for tid, created, _ in rows:
                 if tid in seen:
                     continue  # a thread moved during the reading: counted once
                 seen.add(tid)
-                if created is not None and start <= created < cutoff:
+                new += 1
+                if created is None:
+                    undated += 1  # creation date not read: never guessed (reported)
+                elif start <= created < cutoff:
                     _bump(s, inst.isin, created, now)
                     counted += 1
+            # 27/10/2026: past a page number, the site served the same pages again (4 400 pages, 1 518 threads):
+            # pages without any new thread end the reading of the value — never a night spent on one forum
+            stale = 0 if new else stale + 1
+            if stale >= int(h["stale_pages_max"]):
+                prog.done = True
+                capped.append(f"{inst.isin} (page {k}, plus ancienne activité {prog.oldest_activity})")
+                break
             acts = [a for _, _, a in rows if a is not None]
             if acts:
                 oldest = min(acts)
@@ -161,9 +175,65 @@ def run_pass(
         s.flush()
         s.commit()
     total = len(values)
-    return [
+    notes = [
         f"forum historique : {pages} page(s) lues, {counted} sujet(s) comptés, {done_n}/{total} valeur(s) terminées"
     ]
+    if undated:
+        notes.append(
+            f"{undated} sujet(s) sans date de création lisible (non comptés) : "
+            "vérifier date_class (radar-history probe)"
+        )
+    if capped:
+        notes.append("pagination du site épuisée avant forum_from : " + ", ".join(capped))
+    return notes
+
+
+def probe_pages(
+    s: Session, config: LoadedConfig, client: httpx.Client, isin: str | None, pages: list[int]
+) -> list[str]:
+    """``radar-history probe`` (27/10/2026): a few list pages of one value — rows, threads new against the
+    previous page, creation and activity days read (and how many could not be read), and the text shapes of the
+    two date fields (digits as 9, letters as x: a format, never a word). Tells a capped pagination from an
+    unreadable date format."""
+    h = history_params(config)
+    bp = social_params(config).get("boursorama") or {}
+    tpl = bp.get("url_template_by_mic") or {}
+    suffix = bp.get("page_suffix_template") or "page-{n}"
+    created_cls, active_cls = str(bp.get("date_class") or ""), str(bp.get("activity_class") or "")
+    inst = s.get(Instrument, isin) if isin else None
+    url = forum_url(inst, tpl) if inst is not None else None
+    if url is None:
+        return [f"{isin} : valeur inconnue ou sans forum (url_template_by_mic)"]
+    now = datetime.now(UTC).astimezone(PARIS)
+    out: list[str] = []
+    prev: set[str] = set()
+    for k in pages:
+        page_url = url if k == 1 else url.rstrip("/") + "/" + suffix.format(n=k)
+        try:
+            html = social.boursorama_page(page_url, client)
+        except (ProviderError, httpx.HTTPError) as exc:
+            out.append(f"page {k} : {exc}")
+            continue
+        finally:
+            time.sleep(float(bp.get("interval_s", 2.0)))
+        rows = social.topic_rows(html, now, str(h["row_class"]), created_cls, active_cls)
+        ids = {r[0] for r in rows}
+        cr = [r[1] for r in rows if r[1] is not None]
+        ac = [r[2] for r in rows if r[2] is not None]
+        shapes = {
+            key: sh
+            for key, _, sh in social.short_field_shapes(html, min_count=1)
+            if created_cls in key or active_cls in key
+        }
+        out.append(
+            f"page {k} : {len(rows)} sujet(s), {len(ids - prev)} nouveau(x) / page précédente lue ; création lue "
+            f"{len(cr)}/{len(rows)} ({min(cr) if cr else '—'} → {max(cr) if cr else '—'}) ; activité "
+            f"{min(ac) if ac else '—'} → {max(ac) if ac else '—'}"
+        )
+        for key, sh in sorted(shapes.items()):
+            out.append(f"    {key} : {', '.join(sh[:6])}")
+        prev = ids
+    return out
 
 
 def progress_summary(s: Session) -> dict[str, Any]:
