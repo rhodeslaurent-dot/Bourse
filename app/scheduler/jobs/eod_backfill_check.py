@@ -28,13 +28,16 @@ def backfill_history(
     isins: list[str] | None = None,
     exchanges: list[str] | None = None,
     missing_only: bool = False,
+    include_inactive: bool = False,
 ) -> int:
     """EOD history for the referential, one instrument at a time. Progress is logged every 50
     instruments and committed as it goes; a symbol EODHD refuses is skipped (logged), and a quota
     exhaustion stops the run cleanly with what was already stored."""
     n = skipped = 0
     with db_session() as s:
-        q = select(Instrument).where(Instrument.active.is_(True))
+        q = select(Instrument)
+        if not include_inactive:  # delisted shares (docs/33 §33.3) are inactive by construction
+            q = q.where(Instrument.active.is_(True))
         if isins:
             q = q.where(Instrument.isin.in_(isins))
         if exchanges:  # docs/32: e.g. the full history of the markets just enabled (US, LSE, SW)

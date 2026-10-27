@@ -1250,6 +1250,50 @@ def cmd_delisted_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_delisted_load(args: argparse.Namespace) -> int:
+    """docs/33 §33.3 — delisted shares for registration n° 2: list (main venues), liquidity screen on monthly
+    whole-exchange snapshots, storage as inactive instruments, then (``--history``) their EOD history.
+    ``--dry-run``: the counts and the API cost only, nothing read beyond the lists, nothing stored."""
+    import os
+
+    from app.data.providers.eodhd import eodhd_from
+    from app.db.session import db_session
+    from app.domain.calendar import load_market_calendars
+    from app.scheduler.jobs.eod_backfill_check import backfill_history
+    from app.services import delisted
+
+    if not os.environ.get("EODHD_API_TOKEN"):
+        print("EODHD_API_TOKEN absent (env-setup eodhd)")
+        return 1
+    cfg = load_params(args.params)
+    cals = load_market_calendars(args.calendars)
+    p = eodhd_from(cfg)
+    start = date.fromisoformat(args.from_date)
+    days = delisted.month_starts(start, date.today() - timedelta(days=1))
+    for ex in [x.strip() for x in args.exchanges.split(",") if x.strip()]:
+        mic = cals.eodhd_to_mic.get(ex)
+        if mic is None:
+            print(f"{ex:<6} place sans calendrier : ignorée")
+            continue
+        rows = delisted.main_venue_rows(p.delisted_symbols(ex), ex)
+        floor = delisted.min_turnover_eur(cfg, ex)
+        if args.dry_run:
+            print(f"{ex:<6} {len(rows)} radiée(s) sur les marchés principaux ; tri : {len(days)} instantané(s) "
+                  f"mensuel(s) (≈ {len(days) * 100} appels EODHD), seuil {delisted.SCREEN_FACTOR:g} × {floor:,.0f} €"
+                  .replace(",", " "))  # fmt: skip
+            continue
+        with db_session() as s:
+            rep = delisted.screen(s, p, ex, rows, days, floor)
+            keys = delisted.store(s, rows, set(rep.kept), ex, mic)
+            s.commit()
+        print(f"{ex:<6} {rep.listed} radiée(s), {rep.snapshots} instantané(s) lus, {rep.seen} vue(s) au moins une "
+              f"fois, {len(keys)} retenue(s)" + (f" — ARRÊT : {rep.stopped}" if rep.stopped else ""))  # fmt: skip
+        if args.history and keys:
+            n = backfill_history(p, start, date.today(), keys, None, args.missing_only, include_inactive=True)
+            print(f"{ex:<6} historique : {n} séance(s) chargées pour {len(keys)} radiée(s)")
+    return 0
+
+
 def cmd_fx_history(args: argparse.Namespace) -> int:
     """ECB reference rates since ``--from`` (full public history, one download): the research harness and the
     euro conversions of non-euro values use the rate of each day instead of the plan's static rate (26/10/2026:
@@ -2058,6 +2102,13 @@ def main(argv: list[str] | None = None) -> int:
     dc = sub.add_parser("delisted-check", help="valeurs radiées EODHD par place (enregistrement n° 2, docs/33)")
     dc.add_argument("--exchanges", default="US,LSE,SW")
     dc.set_defaults(fn=cmd_delisted_check)
+    dl = sub.add_parser("delisted-load", help="radiées pour l'enregistrement n° 2 : tri par liquidité, historique")
+    dl.add_argument("--exchanges", default="US,LSE,SW")
+    dl.add_argument("--from", dest="from_date", default="2017-01-01")
+    dl.add_argument("--dry-run", dest="dry_run", action="store_true", help="comptes et coût en appels seulement")
+    dl.add_argument("--history", action="store_true", help="charger aussi l'historique des radiées retenues")
+    dl.add_argument("--missing-only", dest="missing_only", action="store_true")
+    dl.set_defaults(fn=cmd_delisted_load)
     fh = sub.add_parser("fx-history", help="taux BCE historiques (une fois) : conversions et banc de recherche")
     fh.add_argument("--from", dest="from_date", default="2015-01-01")
     fh.set_defaults(fn=cmd_fx_history)
