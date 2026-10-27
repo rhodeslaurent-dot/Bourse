@@ -313,3 +313,4 @@ def test_delisted_check_reports_counts_isin_and_history(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "US     2 action(s) radiée(s), dont 1 avec ISIN · historique de OLD.US : 2 séance(s)" in out
     assert "SW     liste des radiées : ÉCHEC" in out
+    assert "Sans historique des radiées (SW)" in out

@@ -166,6 +166,28 @@ def run_pass(
     ]
 
 
-def progress_summary(s: Session) -> dict[str, int]:
+def progress_summary(s: Session) -> dict[str, Any]:
+    """Progress per value (pages read, oldest activity reached, pause) and the last runs of the job: enough to
+    tell a long forum from a job that did not run or a site refusal (27/10/2026: « 0/1 terminée »)."""
+    from app.db.models import JobRun
+
     rows = list(s.scalars(select(ForumHistoryProgress)))
-    return {"valeurs": len(rows), "terminees": sum(1 for r in rows if r.done)}
+    runs = list(s.scalars(select(JobRun).where(JobRun.job == "forum_history").order_by(JobRun.id.desc()).limit(5)))
+    return {
+        "valeurs": len(rows),
+        "terminees": sum(1 for r in rows if r.done),
+        "en_cours": [
+            {
+                "isin": r.isin,
+                "pages_lues": max((r.next_page or 1) - 1, 0),
+                "sujets_vus": len(r.seen or []),
+                "plus_ancienne_activite": r.oldest_activity,
+                "pause_jusqu_au": r.blocked_until,
+            }
+            for r in rows
+            if not r.done
+        ],  # fmt: skip
+        "derniers_passages": [
+            {"debut": j.started_at, "statut": j.status, "note": (j.note or j.error or "")[:160]} for j in runs
+        ],
+    }

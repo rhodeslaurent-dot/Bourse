@@ -72,6 +72,15 @@ def test_a_refusal_of_the_site_pauses_the_reading(db_engine, config):
         notes = run_pass(s, config, c, NOW, sleep=lambda x: None)
         assert "refus du site" in notes[0]
         assert run_pass(s, config, c, NOW + timedelta(hours=1), sleep=lambda x: None)[0].startswith("forum en pause")
+        from app.db.models import JobRun
+        from app.services.forum_history import progress_summary
+
+        s.add(JobRun(job="forum_history", started_at=NOW, ended_at=NOW, status="ok", note=notes[0]))
+        s.flush()
+        p = progress_summary(s)  # 27/10/2026: tell a long forum from a pause or a job that did not run
+        assert p["valeurs"] == 1 and p["terminees"] == 0
+        assert p["en_cours"][0]["pause_jusqu_au"] is not None and p["en_cours"][0]["pages_lues"] == 0
+        assert p["derniers_passages"][0]["statut"] == "ok" and "refus du site" in p["derniers_passages"][0]["note"]
 
 
 def test_wikipedia_history_fills_only_the_missing_older_part(db_engine, config):

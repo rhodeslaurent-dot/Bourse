@@ -1014,6 +1014,16 @@ def cmd_radar_history(args: argparse.Namespace) -> int:
             print(
                 f"forum : {p['terminees']}/{p['valeurs']} valeur(s) terminée(s) (le job forum_history continue la nuit)"
             )
+            for v in p["en_cours"]:
+                old = v["plus_ancienne_activite"]
+                pause = f", en pause jusqu'au {v['pause_jusqu_au']:%d/%m %H:%M} UTC" if v["pause_jusqu_au"] else ""
+                print(f"  en cours {v['isin']} : {v['pages_lues']} page(s) lues, {v['sujets_vus']} sujet(s) vus, "
+                      f"plus ancienne activité atteinte {old or '—'}{pause}")  # fmt: skip
+            if not p["derniers_passages"]:
+                print("  aucun passage du job forum_history enregistré "
+                      "(le PC était-il allumé de 0 h à 5 h, heure de Paris ?)")  # fmt: skip
+            for j in p["derniers_passages"]:
+                print(f"  passage {j['debut']:%d/%m %H:%M} UTC : {j['statut']} — {j['note']}")
     return 0
 
 
@@ -1208,25 +1218,35 @@ def cmd_delisted_check(args: argparse.Namespace) -> int:
         print("EODHD_API_TOKEN absent (env-setup eodhd)")
         return 1
     p = eodhd_from(load_params(args.params))
+    missing: list[str] = []
     for ex in [x.strip() for x in args.exchanges.split(",") if x.strip()]:
         try:
             rows = p.delisted_symbols(ex)
         except (ProviderError, QuotaExceeded) as exc:
             print(f"{ex:<6} liste des radiées : ÉCHEC — {str(exc)[:120]}")
+            missing.append(ex)
             continue
         with_isin = sum(1 for r in rows if r.get("Isin"))
         line = f"{ex:<6} {len(rows)} action(s) radiée(s), dont {with_isin} avec ISIN"
-        sample = next((r for r in rows if r.get("Isin")), rows[0] if rows else None)
-        if sample is not None:
+        found = False
+        # up to 3 samples with an ISIN (27/10/2026: an odd numeric code had no history while others may)
+        for sample in [r for r in rows if r.get("Isin")][:3] or rows[:1]:
             sym = f"{sample.get('Code')}.{ex}"
             try:
                 bars = p.fetch_eod([sym], date(2017, 1, 1), date.today())
                 span = f"{bars[0].day} → {bars[-1].day}" if bars else "aucune séance"
                 line += f" · historique de {sym} : {len(bars)} séance(s) ({span})"
+                found = found or bool(bars)
             except (ProviderError, QuotaExceeded) as exc:
                 line += f" · historique de {sym} : ÉCHEC — {str(exc)[:100]}"
+            if found:
+                break
+        if not found:
+            missing.append(ex)
         print(line)
-    print("Sans historique des radiées, l'enregistrement n° 2 reste exploratoire (biais de survie, docs/33 §33.3).")
+    if missing:
+        print(f"Sans historique des radiées ({', '.join(missing)}), l'enregistrement n° 2 y reste exploratoire "
+              "(biais de survie, docs/33 §33.3).")  # fmt: skip
     return 0
 
 
