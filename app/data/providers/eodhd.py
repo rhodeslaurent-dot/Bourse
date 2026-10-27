@@ -95,6 +95,14 @@ class EodhdProvider(MarketDataProvider):
         rows = self._get(f"/exchange-symbol-list/{exchange}")
         return [r for r in rows if str(r.get("Type", "")).lower() in types]  # type: ignore[union-attr]
 
+    def delisted_symbols(
+        self, exchange: str, types: tuple[str, ...] = ("common stock", "stock", "")
+    ) -> list[dict[str, str]]:
+        """``exchange-symbol-list/{ex}?delisted=1``: the listings that left the exchange (research registration
+        n° 2 needs them: a universe without its delisted values flatters every result)."""
+        rows = self._get(f"/exchange-symbol-list/{exchange}", delisted=1)
+        return [r for r in rows if str(r.get("Type", "")).lower() in types] if isinstance(rows, list) else []
+
     def index_symbols(self) -> list[dict[str, str]]:
         """Every index EODHD lists (``exchange-symbol-list/INDX``, any type): to find the code of an index."""
         rows = self._get("/exchange-symbol-list/INDX")

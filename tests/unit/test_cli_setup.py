@@ -285,3 +285,31 @@ def test_fx_history_loads_the_ecb_history_from_a_date(db_engine, monkeypatch, ca
     assert rows == {("EURSEK", date(2016, 1, 4)): 9.25, ("EURUSD", date(2016, 1, 4)): 1.09,
                     ("EURUSD", date(2016, 1, 5)): 1.07}  # fmt: skip
     assert "3 taux BCE enregistrés : 2 devises, 2 jours du 2016-01-04 au 2016-01-05" in capsys.readouterr().out
+
+
+def test_delisted_check_reports_counts_isin_and_history(monkeypatch, capsys):
+    """docs/33 §33.3: registration n° 2 needs the delisted shares of each venue, with their history."""
+    import argparse
+    from datetime import date as d
+
+    from app.data.base import ProviderError
+
+    class Bar:
+        def __init__(self, day):
+            self.day = day
+
+    class Fake:
+        def delisted_symbols(self, ex):
+            if ex == "SW":
+                raise ProviderError("EODHD 403 on /exchange-symbol-list/SW: plan")
+            return [{"Code": "OLD", "Isin": "US0000000001"}, {"Code": "NOISIN", "Isin": None}]
+
+        def fetch_eod(self, symbols, start, end):
+            return [Bar(d(2017, 1, 3)), Bar(d(2019, 5, 2))]
+
+    monkeypatch.setenv("EODHD_API_TOKEN", "t")
+    monkeypatch.setattr("app.data.providers.eodhd.eodhd_from", lambda cfg: Fake())
+    assert cli.cmd_delisted_check(argparse.Namespace(params="config/params.example.yaml", exchanges="US,SW")) == 0
+    out = capsys.readouterr().out
+    assert "US     2 action(s) radiée(s), dont 1 avec ISIN · historique de OLD.US : 2 séance(s)" in out
+    assert "SW     liste des radiées : ÉCHEC" in out

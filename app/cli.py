@@ -1196,6 +1196,40 @@ def cmd_exchange_list_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_delisted_check(args: argparse.Namespace) -> int:
+    """docs/33 §33.3 — before registration n° 2: does the EODHD plan list the delisted shares of each exchange,
+    with their ISIN, and serve their price history? Counts and one sample symbol per exchange (public tickers)."""
+    import os
+
+    from app.data.base import ProviderError, QuotaExceeded
+    from app.data.providers.eodhd import eodhd_from
+
+    if not os.environ.get("EODHD_API_TOKEN"):
+        print("EODHD_API_TOKEN absent (env-setup eodhd)")
+        return 1
+    p = eodhd_from(load_params(args.params))
+    for ex in [x.strip() for x in args.exchanges.split(",") if x.strip()]:
+        try:
+            rows = p.delisted_symbols(ex)
+        except (ProviderError, QuotaExceeded) as exc:
+            print(f"{ex:<6} liste des radiées : ÉCHEC — {str(exc)[:120]}")
+            continue
+        with_isin = sum(1 for r in rows if r.get("Isin"))
+        line = f"{ex:<6} {len(rows)} action(s) radiée(s), dont {with_isin} avec ISIN"
+        sample = next((r for r in rows if r.get("Isin")), rows[0] if rows else None)
+        if sample is not None:
+            sym = f"{sample.get('Code')}.{ex}"
+            try:
+                bars = p.fetch_eod([sym], date(2017, 1, 1), date.today())
+                span = f"{bars[0].day} → {bars[-1].day}" if bars else "aucune séance"
+                line += f" · historique de {sym} : {len(bars)} séance(s) ({span})"
+            except (ProviderError, QuotaExceeded) as exc:
+                line += f" · historique de {sym} : ÉCHEC — {str(exc)[:100]}"
+        print(line)
+    print("Sans historique des radiées, l'enregistrement n° 2 reste exploratoire (biais de survie, docs/33 §33.3).")
+    return 0
+
+
 def cmd_fx_history(args: argparse.Namespace) -> int:
     """ECB reference rates since ``--from`` (full public history, one download): the research harness and the
     euro conversions of non-euro values use the rate of each day instead of the plan's static rate (26/10/2026:
@@ -2001,6 +2035,9 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--to", default=None)
     bt.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous les actifs)")
     bt.set_defaults(fn=cmd_backtest)
+    dc = sub.add_parser("delisted-check", help="valeurs radiées EODHD par place (enregistrement n° 2, docs/33)")
+    dc.add_argument("--exchanges", default="US,LSE,SW")
+    dc.set_defaults(fn=cmd_delisted_check)
     fh = sub.add_parser("fx-history", help="taux BCE historiques (une fois) : conversions et banc de recherche")
     fh.add_argument("--from", dest="from_date", default="2015-01-01")
     fh.set_defaults(fn=cmd_fx_history)
