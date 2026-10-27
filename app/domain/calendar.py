@@ -107,6 +107,15 @@ class VenueCalendar:
         return out
 
 
+def order_expiry_session(venue: VenueCalendar, signal_day: date, sessions: int) -> date:
+    """Last session of an order prepared on ``signal_day`` and valid for ``sessions`` sessions of its own venue
+    (user decision of 27/10/2026: orders are posted with an expiry date — counted in sessions, not in days)."""
+    d = signal_day
+    for _ in range(max(int(sessions), 1)):
+        d = venue.next_session(d)
+    return d
+
+
 @dataclass
 class MarketCalendars:
     venues: dict[str, VenueCalendar]

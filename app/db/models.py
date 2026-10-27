@@ -775,6 +775,10 @@ class SignalOutcome(Base):
     ret_1d: Mapped[float | None] = mapped_column(nullable=True)
     ret_5d: Mapped[float | None] = mapped_column(nullable=True)
     ret_20d: Mapped[float | None] = mapped_column(nullable=True)
+    # ghost of a never-filled order (docs/33, migration 0025): stored, not shown
+    ghost_ref_price: Mapped[float | None] = mapped_column(nullable=True)
+    ghost_ret_pct: Mapped[float | None] = mapped_column(nullable=True)
+    ghost_gap_pct: Mapped[float | None] = mapped_column(nullable=True)
     last_bar_day: Mapped[date | None] = mapped_column(Date, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 

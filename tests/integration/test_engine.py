@@ -290,3 +290,17 @@ def test_a_recent_managers_purchase_is_detected_and_not_counted_as_a_catalyst(db
         s.flush()
         assert engine._insider_buy_days(s, ISIN, NOW, 30) == 6 and engine._insider_buy_days(s, ISIN, NOW, 5) is None
         assert engine._catalyst(s, ISIN, NOW)[0] is None  # docs/23 §23.3: scored on its own, not as a catalyst
+
+
+def test_a_proposal_expires_after_three_sessions_of_its_venue(db_engine, config):
+    """User decision of 27/10/2026 (orders with an expiry date): 3 sessions of the value's own venue after the
+    signal day, at its close — not calendar days."""
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        engine.scan(s, config, DAY, now=NOW)
+        props = s.query(Proposal).filter(Proposal.isin == ISIN).all()
+        assert props
+        for p in props:
+            assert p.details["validite"] == {"seances": 3, "jusqu_au": "2026-10-26", "place": "XPAR"}
+            exp = p.expires_at.replace(tzinfo=UTC) if p.expires_at.tzinfo is None else p.expires_at
+            assert exp == datetime(2026, 10, 26, 16, 30, tzinfo=UTC)  # 17:30 Paris, winter time

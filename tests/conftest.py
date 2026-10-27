@@ -26,6 +26,9 @@ def raw(example_raw: dict) -> dict:
     # ADR-013 puts d2/d3/d4/d7 in watch-only; the engine tests exercise their full BUY path, so the default test
     # configuration clears the list (tests/integration/test_watch_only_detectors.py covers the decision itself)
     out.get("scoring", {})["watch_only_detectors"] = []
+    # ADR-014 disables d3/d4 in the example; the engine tests still exercise their code path
+    for det in ("d3_range_expansion", "d4_pullback"):
+        out.get("detectors", {}).get(det, {})["enabled"] = True
     return out
 
 

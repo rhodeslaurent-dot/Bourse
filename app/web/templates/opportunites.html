@@ -25,9 +25,9 @@
 {% if book %}
 <section class="card">
   <h2 class="font-semibold">Carnet d'ordres préparés</h2>
-  <p class="text-xs text-slate-500 dark:text-slate-400">Achats retenus et limites en attente d’un repli seulement (une valeur en WATCH pour son score ou son stop n’y figure pas), une ligne par valeur. Ordres limites au prix maximal, à reposer chaque matin (validité jour) sur les dossiers les plus proches de leur limite ; stop à poser dès l'exécution ; péremption après {{ request.app.state.config.params.entry.expiry_sessions if request.app.state.config.params.entry else 3 }} séances. Un prix maximal atteint par une cassure du support n'est pas une entrée.</p>
+  <p class="text-xs text-slate-500 dark:text-slate-400">Achats retenus et limites en attente d’un repli seulement (une valeur en WATCH pour son score ou son stop n’y figure pas), une ligne par valeur. Ordres limites au prix maximal, à saisir avec une <b>date d'expiration</b> (colonne « Expire le » : {{ request.app.state.config.params.entry.expiry_sessions if request.app.state.config.params.entry else 3 }} séances de la place de la valeur), sur les dossiers les plus proches de leur limite ; stop à poser dès l'exécution. Un prix maximal atteint par une cassure du support n'est pas une entrée.</p>
   <div class="mt-2 overflow-x-auto"><table class="w-full text-sm">
-    <thead class="text-xs text-slate-500"><tr><th class="text-left py-1">Valeur</th><th class="text-right">Limite</th><th class="text-right">Titres</th><th class="text-right">Stop</th><th class="text-right">Écart au cours</th><th class="text-left pl-3">Statut</th></tr></thead>
+    <thead class="text-xs text-slate-500"><tr><th class="text-left py-1">Valeur</th><th class="text-right">Limite</th><th class="text-right">Titres</th><th class="text-right">Stop</th><th class="text-right">Écart au cours</th><th class="text-right">Expire le</th><th class="text-left pl-3">Statut</th></tr></thead>
     <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
     {% set n_orders = request.app.state.config.params.entry.standing_orders_max if request.app.state.config.params.entry else 4 %}
     {% for r in book %}
@@ -37,6 +37,7 @@
         <td class="text-right tabular">{{ r.titres or '—' }}</td>
         <td class="text-right tabular">{{ '%.4g'|format(r.stop) if r.stop else '—' }}</td>
         <td class="text-right tabular">{{ '%+.2f %%'|format(r.distance * 100) if r.distance is not none else '—' }}</td>
+        <td class="text-right tabular">{{ r.expire[8:10] ~ '/' ~ r.expire[5:7] ~ '/' ~ r.expire[:4] if r.expire else '—' }}</td>
         <td class="pl-3 text-xs">{% if r.blocked %}{{ badge('bloqué', 'red', r.blocked|join(' · ')) }}{% elif loop.index <= n_orders %}{{ badge('à poser ce matin', 'green') }}{% else %}{{ badge('en attente', 'slate') }}{% endif %}</td>
       </tr>
     {% endfor %}

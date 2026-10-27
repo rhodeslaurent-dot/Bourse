@@ -107,3 +107,16 @@ def test_latest_close_not_loaded_yet_is_running_not_unavailable():
     o = evaluate(inp(), ss, b)
     assert o.status == "running" and "pas encore chargée" in o.note
     assert evaluate(inp(), ss[:2], {}).status == "running"
+
+
+def test_a_never_filled_order_keeps_its_ghost_until_the_horizon():
+    """docs/33 (user decision of 27/10/2026): the order is not filled, the value is still followed from the first
+    open after the proposal to the horizon close — stored, never shown; final only then."""
+    rows = [(105, 106, 101, 105)] * 5 + [(106, 108, 105, 107)] * 15
+    b = bars_from(rows)
+    early = evaluate(inp(), sessions(5), dict(list(b.items())[:5]))
+    assert early.status == "not_filled" and not early.final and early.ghost_ret_pct is None
+    assert early.ghost_ref_price == 105 and early.ghost_gap_pct == pytest.approx(0.05)  # open 5 % above the limit
+    done = evaluate(inp(), sessions(20), b)
+    assert done.status == "not_filled" and done.final
+    assert done.ghost_ret_pct == pytest.approx(107 / 105 - 1) and done.r_gross is None  # no trade, no R

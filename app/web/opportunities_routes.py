@@ -197,8 +197,8 @@ def decide(
 
 def order_book(items: list[dict]) -> list[dict]:
     """R7 (docs/06 §6.7): open admitted proposals sorted by distance from the last price to the
-    maximum entry price; the closest ``entry.standing_orders_max`` are the limit orders to re-post
-    this morning (validity day, expiry after ``entry.expiry_sessions`` sessions)."""
+    maximum entry price; the closest ``entry.standing_orders_max`` are the limit orders to post, with an expiry
+    date after ``entry.expiry_sessions`` sessions of the value's venue (user decision of 27/10/2026)."""
     rows = []
     seen: set[str] = set()
     for it in sorted(items, key=lambda x: (x["p"].rank is None, x["p"].rank or 0, x["p"].id)):
@@ -225,6 +225,7 @@ def order_book(items: list[dict]) -> list[dict]:
                 "titres": acc.get("titres"),
                 "stop": p.stop,
                 "distance": (price / pmax - 1) if price else None,
+                "expire": (d.get("validite") or {}).get("jusqu_au"),  # the expiry date to type at the broker
                 "blocked": [b for b in (p.gates or {}).get("blocked", []) if b.startswith("BLOQUÉ")],
             }
         )

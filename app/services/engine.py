@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
+from functools import lru_cache
 from types import SimpleNamespace
 from typing import Any
 
@@ -34,6 +35,7 @@ from app.db.models import (
 )
 from app.domain.admission import AdmissionInput, Status, admit
 from app.domain.admission import Setup as SetupKind
+from app.domain.calendar import load_market_calendars, order_expiry_session
 from app.domain.costs import (
     CostParams,
     alt_listing_saving,
@@ -1185,6 +1187,33 @@ def rescan_today(s: Session, config: LoadedConfig, day: date, now: datetime | No
     return scan(s, config, day, now=now).created
 
 
+@lru_cache(maxsize=1)
+def _calendars() -> Any:
+    try:
+        return load_market_calendars()
+    except (OSError, ValueError, KeyError):  # no calendar file: the expiry falls back to calendar days, said so
+        return None
+
+
+def _expiry(s: Session, cals: Any, e: Evaluation, day: date, now: datetime, sessions: int) -> datetime:
+    """Expiry of the order: the close of the ``sessions``-th session of the value's own venue after the signal
+    day (user decision of 27/10/2026: an order with an expiry date). The date to type at the broker is stored in
+    ``details["validite"]``. Without a calendar for the venue, the former calendar-day rule, marked as such."""
+    inst = s.get(Instrument, e.isin)
+    mic = inst.mic if inst is not None else None
+    try:
+        venue = cals.get(mic) if cals is not None and mic else None
+        last = order_expiry_session(venue, day, sessions) if venue is not None else None
+        close = venue.session(last).close_utc() if venue is not None and last is not None else None
+    except (KeyError, ValueError):
+        last, close = None, None
+    if last is None or close is None:
+        e.details["validite"] = {"seances": sessions, "jusqu_au": None, "place": mic, "approximation": True}
+        return now + timedelta(days=sessions + 2)
+    e.details["validite"] = {"seances": sessions, "jusqu_au": last.isoformat(), "place": mic}
+    return close
+
+
 def _persist(
     s: Session, config: LoadedConfig, day: date, now: datetime, evals: list[Evaluation], rep: ScanReport
 ) -> None:
@@ -1214,6 +1243,7 @@ def _persist(
     o = (p.risk.model_extra or {}).get("override") if hasattr(p.risk, "model_extra") else None
     op = OverrideParams(o["min_score"], o["min_confidence"], o["min_net_rr"], o["max_multiplier"]) if o else None
     expiry_sessions = int((getattr(p, "entry", None) or {}).get("expiry_sessions", 3))
+    cals = _calendars()
     for e in evals:
         key = (e.isin, e.detector)
         if key in existing:
@@ -1270,7 +1300,7 @@ def _persist(
                     {"passed": e.passed, "blocked": e.blocked},
                     p.version,
                     to_verify=e.price_status not in ("realtime", "delayed", "eod"),
-                    expires_at=now + timedelta(days=expiry_sessions + 2),
+                    expires_at=_expiry(s, cals, e, day, now, expiry_sessions),
                     config=config,
                     account_recommended=e.account,
                     entry_zone=e.details.get("entree"),

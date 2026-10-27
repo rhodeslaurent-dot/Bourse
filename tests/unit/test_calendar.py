@@ -65,3 +65,15 @@ def test_srd_calendar_from_params(config, calendars):
 
 def test_eodhd_code_to_mic(calendars):
     assert calendars.mic_for_eodhd("XETRA") == "XETR" and calendars.mic_for_eodhd("PA") == "XPAR"
+
+
+def test_order_expiry_counts_sessions_of_the_venue(calendars):
+    """User decision of 27/10/2026: orders are posted with an expiry date, counted in sessions of the venue."""
+    from app.domain.calendar import order_expiry_session
+
+    xpar = calendars.get("XPAR")
+    assert order_expiry_session(xpar, date(2026, 10, 21), 3) == date(2026, 10, 26)  # Wed → Thu, Fri, Mon
+    assert order_expiry_session(xpar, date(2026, 10, 23), 3) == date(2026, 10, 28)  # Fri → Mon, Tue, Wed
+    # Euronext closed on Christmas: the 24th (half day) counts, the 25th does not
+    assert order_expiry_session(xpar, date(2026, 12, 23), 3) == date(2026, 12, 29)
+    assert order_expiry_session(calendars.get("XETR"), date(2026, 12, 23), 3) == date(2026, 12, 30)  # 24, 31 closed

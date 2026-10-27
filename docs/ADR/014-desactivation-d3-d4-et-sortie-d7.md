@@ -1,6 +1,6 @@
 # ADR-014 — Désactivation de d3 et d4 ; règle de sortie de d7 ; période scellée
 
-- **Statut** : **proposé le 27/10/2026** (tour 2 de la recherche, docs/33). À valider par l'utilisateur. Remplace en partie la section « Conséquences et sortie » de l'ADR-013, dont le texte reste inchangé.
+- **Statut** : **accepté le 27/10/2026** (décision de l'utilisateur, tour 2 de la recherche, docs/33). Remplace en partie la section « Conséquences et sortie » de l'ADR-013, dont le texte reste inchangé.
 - **Contexte** : enregistrement n° 1 de la recherche (plan `2026-10-27_reg1`, sha `85d37447…`), exécuté le 26/10/2026, calibration VALIDE (concordance 1,0). Le plan a fixé une règle avant toute mesure : un détecteur existant dont la borne haute de l'intervalle de confiance hors échantillon est sous 0 (`existing_detectors_ci_high_max: 0`) appelle un ADR de désactivation ou de refonte. Résultats hors échantillon (walk-forward du backtest n° 2) :
   - **d3** : R −0,402, IC [−0,776 ; −0,378] → règle atteinte.
   - **d4** : R −0,397, IC [−0,585 ; −0,002] → règle atteinte, de justesse.

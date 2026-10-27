@@ -379,7 +379,7 @@ detectors:
     stop_lookback_low: 10
     stop_max_adr_mult: 2.5
   d3_range_expansion:
-    enabled: true
+    enabled: false                      # ADR-014 (27/10/2026) : désactivé — perte hors échantillon démontrée (IC < 0), même avant frais
     close_ratio_min: 1.04
     rvol_min: 1.3
     close_in_top_third: true
@@ -390,7 +390,7 @@ detectors:
     stop_max_adr_mult: 2.5
     time_stop_sessions: 5
   d4_pullback:
-    enabled: true
+    enabled: false                      # ADR-014 (27/10/2026) : désactivé — perte hors échantillon démontrée (IC < 0), même avant frais
     rs_rank_min: 80
     pullback_pct: [0.03, 0.10]
     ma_refs: ["mm10", "mm20"]
@@ -435,7 +435,7 @@ detectors:
 scoring:
   buy_min_ratio: 0.75                 # total / total_atteignable (F non attribué si fondamentaux indisponibles)
   buy_min_ratio_orange: 0.80
-  watch_only_detectors: ["d2_breakout", "d3_range_expansion", "d4_pullback", "d7_trend_quality"]   # ADR-013 (décision du 26/10/2026) : espérance négative au coût complet → surveillance seulement, sans ordre, jusqu'à la refonte (recherche docs/31)
+  watch_only_detectors: ["d2_breakout", "d7_trend_quality"]   # ADR-013 (26/10/2026) : espérance négative au coût complet → surveillance seulement, sans ordre ; d3 et d4 désactivés par l'ADR-014 (detectors.*.enabled)
   d1_min_c: 12                        # [phase 3] catalyseur requis pour D1 seulement
   c_bonus_cap: 5                      # D2/D3/D4 : min(C, 5) ajouté au numérateur du ratio d'admission, pas au dénominateur
   admission_blocks:                   # blocs au dénominateur du ratio d'admission (F ajouté si >= 2 sous-critères disponibles)

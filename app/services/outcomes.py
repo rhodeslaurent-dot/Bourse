@@ -144,6 +144,9 @@ def outcome_for(
         "ret_20d",
         "last_bar_day",
         "note",
+        "ghost_ref_price",
+        "ghost_ret_pct",
+        "ghost_gap_pct",
     ):
         setattr(row, k, getattr(o, k))
     if o.status == "pending" and first:

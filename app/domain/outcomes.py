@@ -62,6 +62,12 @@ class Outcome:
     ret_20d: float | None = None
     last_bar_day: date | None = None
     note: str | None = None
+    # « ghost » of an order never filled (user decision of 27/10/2026, docs/33): what the value did from the first
+    # open after the proposal to the horizon close, and how far that open was above the maximum entry price.
+    # Stored, never shown nor learned from (an analysis needs a pre-registered registration n° 3).
+    ghost_ref_price: float | None = None
+    ghost_ret_pct: float | None = None
+    ghost_gap_pct: float | None = None
 
 
 def _forward(ref: float, closes: list[float], k: int) -> float | None:
@@ -131,7 +137,16 @@ def evaluate(inp: OutcomeInput, sessions: list[date], bars: dict[date, DayBar]) 
         )
         if not window_over:
             return out  # still within the validity window
-        out.status, out.final, out.note = "not_filled", True, "prix d'entrée jamais atteint"
+        out.status, out.note = "not_filled", "prix d'entrée jamais atteint"
+        # final once the ghost reaches its horizon (first open → close of the horizon-th session)
+        out.ghost_ref_price = avail[0].open
+        out.ghost_gap_pct = avail[0].open / inp.entry_price - 1
+        if len(avail) >= inp.horizon_sessions:
+            out.ghost_ret_pct = avail[inp.horizon_sessions - 1].close / avail[0].open - 1
+            out.final = True
+        elif missing is not None and missing != path[-1]:
+            out.note += f" ; suivi fantôme interrompu : séance manquante {missing:%d/%m/%Y}"
+            out.final = True
         return out
     fill_bar = avail[fill_idx]
     fill = min(fill_bar.open, inp.entry_price)
