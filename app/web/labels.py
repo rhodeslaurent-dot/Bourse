@@ -112,6 +112,7 @@ LABELS: dict[str, dict[str, str]] = {
 
 HELP: dict[str, str] = {
     "rs_rank": "Force relative (rang 0–100) : performance relative à l'univers sur 1, 3, 6 et 12 mois ; 100 = la plus forte",  # noqa: E501
+    "cours_live": "Dernier cours relevé (Saxo toutes les 15 s si disponible, sinon EODHD toutes les 15 min), avec sa variation depuis la dernière clôture, son statut (temps réel, différé, périmé) et son heure de marché ; hors séance : dernière clôture",  # noqa: E501
     "mm50": "Moyenne mobile des 50 dernières clôtures",
     "mm200": "Moyenne mobile des 200 dernières clôtures",
     "pivot_60": "Plus haut des 60 dernières séances : niveau de cassure potentiel",

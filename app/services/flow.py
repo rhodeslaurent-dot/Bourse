@@ -157,6 +157,14 @@ STAGES: tuple[Stage, ...] = (
             Node(
                 "Fiche de fixing", "Entrée au fixing de clôture sur un repli qui tient.", ("fixing_card",), None, None
             ),
+            Node(
+                "Réévaluation intraday",
+                "Cours frais (Saxo 15 s, EODHD 15 min) : prix d'entrée atteint, déclencheur franchi, configuration "
+                "dégradée ou limite dépassée ; seul un cours temps réel rend une entrée actionnable.",
+                ("intraday_reeval",),
+                "/opportunites",
+                "Opportunités",
+            ),
         ),
     ),
     Stage(

@@ -1196,3 +1196,22 @@ class ForumHistoryProgress(Base):
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProposalReevaluation(Base):
+    """Intraday re-evaluation of an open proposal with a fresh quote (job ``intraday_reeval``, user request of
+    28/10/2026): one row per *change* of status or actionability, never per tick. The proposal and its
+    decision snapshot are never modified (rule 10)."""
+
+    __tablename__ = "proposal_reevaluations"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    proposal_id: Mapped[int] = mapped_column(Integer, index=True)
+    isin: Mapped[str] = mapped_column(String(12))
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    price: Mapped[float] = mapped_column()
+    source: Mapped[str] = mapped_column(String(32))
+    market_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    data_status: Mapped[str] = mapped_column(String(12))
+    status: Mapped[str] = mapped_column(String(32))  # app.domain.reevaluation.ReevalStatus
+    actionable: Mapped[bool] = mapped_column(Boolean, default=False)  # rule 2: realtime and fresh only
+    reasons: Mapped[list | None] = mapped_column(JSON, nullable=True)

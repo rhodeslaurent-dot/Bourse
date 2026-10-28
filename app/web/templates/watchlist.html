@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_ui.html" import badge, dot, empty, field, select, button, note, th %}
+{% import "_live.html" as live %}
 {% block title %}Watchlist — BOURSE-PILOT{% endblock %}
 {% block content %}
 <section class="card">
@@ -13,18 +14,20 @@
       <a class="text-xs underline decoration-dotted" href="/watchlist/export.txt">Export TradingView</a>
     </div>
   </div>
+  {% if items %}<div class="mt-3">{{ live.refresh_bar() }}</div>{% endif %}
 </section>
 
 {% if items %}
 <section class="card overflow-x-auto">
   <table class="w-full text-sm">
     <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-      {{ th('Valeur') }}{{ th('Force relative', 'rs_rank', 'right') }}{{ th('Moyenne 50 j', 'mm50', 'right') }}{{ th('Moyenne 200 j', 'mm200', 'right') }}{{ th('Plus haut 60 j', 'pivot_60', 'right') }}{{ th('Amplitude 14 j', 'atr14', 'right') }}{{ th('Éligibilité') }}{{ th('Pourquoi') }}<th></th>
+      {{ th('Valeur') }}{{ th('Cours', 'cours_live', 'right') }}{{ th('Force relative', 'rs_rank', 'right') }}{{ th('Moyenne 50 j', 'mm50', 'right') }}{{ th('Moyenne 200 j', 'mm200', 'right') }}{{ th('Plus haut 60 j', 'pivot_60', 'right') }}{{ th('Amplitude 14 j', 'atr14', 'right') }}{{ th('Éligibilité') }}{{ th('Pourquoi') }}<th></th>
     </tr></thead>
     <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
     {% for it in items %}
       <tr>
         <td class="py-2 pr-3"><div class="font-medium"><a href="/valeur/{{ it.isin }}" class="hover:underline">{{ it.name }}</a> <a href="/assistant?isin={{ it.isin }}" data-ai-isin="{{ it.isin }}" data-ai-name="{{ it.name }}" class="inline-flex items-center gap-1 rounded-full border border-sky-200 dark:border-sky-800 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10" title="Poser une question sur cette valeur"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Demander</a></div><div class="text-xs text-slate-500 dark:text-slate-400 font-mono">{{ it.isin }} · {{ it.mic }}</div></td>
+        <td class="py-2 pr-3 text-right"><div data-live-isin="{{ it.isin }}" class="flex flex-col items-end gap-0.5 whitespace-nowrap"><div><b data-live-field="price" class="tabular">—</b> <span data-live-field="variation" class="text-xs tabular"></span></div><div class="flex items-center gap-1"><span data-live-field="badge"></span><span data-live-field="time" class="text-[11px] text-slate-400"></span></div></div></td>
         <td class="py-2 pr-3 text-right tabular">{% if it.rs_rank is not none %}<span class="inline-block rounded-md px-1.5 py-0.5 font-semibold {% if it.rs_rank >= 90 %}bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200{% elif it.rs_rank >= 80 %}bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200{% else %}bg-slate-100 dark:bg-slate-800{% endif %}">{{ '%.0f'|format(it.rs_rank) }}</span>{% else %}—{% endif %}</td>
         <td class="py-2 pr-3 text-right tabular">{{ '%.2f'|format(it.feat.mm50) if it.feat and it.feat.mm50 else '—' }}</td>
         <td class="py-2 pr-3 text-right tabular">{{ '%.2f'|format(it.feat.mm200) if it.feat and it.feat.mm200 else '—' }}</td>
@@ -34,7 +37,7 @@
         <td class="py-2 pr-3 text-xs text-slate-500 dark:text-slate-400">{{ label('watch_reason', it.reason) }}<div class="text-slate-400">{{ 'règles' if it.source == 'rules' else it.source }}{% if it.feat %} · clôture {{ it.feat.day }}{% endif %}</div></td>
         <td class="py-2"></td>
       </tr>
-      <tr class="border-0"><td colspan="9" class="p-0">
+      <tr class="border-0"><td colspan="10" class="p-0">
         <details class="group">
           <summary class="list-none cursor-pointer px-1 pb-2 text-[11px] text-slate-400 hover:text-sky-700">▸ note et explication</summary>
           <div class="px-2 pb-3 grid md:grid-cols-2 gap-3">

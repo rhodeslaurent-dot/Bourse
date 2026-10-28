@@ -691,6 +691,13 @@ data:
         min_interval_s: 3                     # import historique : pause entre deux pages
         timeout_s: 15
 
+live_quotes:                             # cours affichés en pseudo temps réel (opportunités, watchlist) et réévaluation intraday — décision du 28/10/2026
+  enabled: true                          # false : aucun relevé, dernière clôture seulement
+  saxo_seconds: 15                       # Saxo (appels OpenAPI gratuits) : un relevé au plus toutes les 15 s ; sans abonnement L1, cours différés (DelayedByMinutes) affichés comme tels
+  eodhd_minutes: 15                      # EODHD REST (1 appel par valeur) : relevé automatique au plus toutes les 15 min pour les valeurs sans cours Saxo
+  manual_min_seconds: 60                 # bouton « Rafraîchir les cours » : intervalle minimal entre deux demandes
+  eodhd_daily_calls_max: 15000           # budget quotidien d'appels EODHD pour l'affichage ; épuisé → message, derniers cours conservés
+
 notifications:
   telegram: {enabled: true, rate_limit_per_sec: 1, quiet_hours_local_display: ["22:00", "06:30"]}   # [non codé : rate_limit_per_sec, quiet_hours_local_display]
   email: {enabled: true, smtp: "smtp.gmail.com", daily_limit: 100}   # [non codé : daily_limit]
@@ -792,6 +799,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   intraday_watch_start: {cron: "55 8 * * 1-5", misfire_grace_min: 10, market_days_only: true, enabled: false}   # [phase 3] phase 3
   open_scan: {times_from: "detectors.d1_gap_catalyst.scan_times_local", misfire_grace_min: 10, market_days_only: true, enabled: false}   # [phase 3] phase 3 ; modes : availability.d1_allowed_modes
   position_monitor: {every_seconds: 60, window_local: ["09:00", "17:40"], half_day_end: "14:10", market_days_only: true}
+  intraday_reeval: {every_seconds: 15, window_local: ["09:00", "21:59"], misfire_grace_min: 1, market_days_only: true}   # décision du 28/10/2026 : propositions du jour réévaluées avec le cours frais (Saxo 15 s, EODHD 15 min) ; séance vérifiée place par place (New York jusqu'à 22:00 Paris)
   portfolio_sync_intraday: {every_minutes_from: "accounts.cto.sync_intraday_minutes", window_local: ["09:00", "17:40"], also_after: ["declaration", "before_proposal"], market_days_only: true}
   midday_digest: {cron: "0 12 * * 1-5", market_days_only: true}   # [phase 3]
   eod_pipeline: {cron: "50 17 * * 1-5", half_day: "14:20", misfire_grace_min: 240, market_days_only: true}

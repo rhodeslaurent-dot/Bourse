@@ -228,14 +228,15 @@ class SaxoPriceProvider(MarketDataProvider):
         self.client = client
         self.stale_after = stale_after or {"realtime": 3, "delayed": 20}
 
-    def fetch_quotes(self, symbols: Sequence[str]) -> list[Quote]:
-        """``symbols`` are Saxo Uics (as strings). ``DelayedByMinutes`` decides the status."""
+    def fetch_quotes(self, symbols: Sequence[str], asset_type: str = "Stock") -> list[Quote]:
+        """``symbols`` are Saxo Uics (as strings) of one ``asset_type`` (``Stock`` or ``Etf``: Saxo answers one
+        asset type per request). ``DelayedByMinutes`` decides the status."""
         if not symbols:
             return []
         data = self.client.get(
             "/trade/v1/infoprices/list",
             Uics=",".join(symbols),
-            AssetType="Stock",
+            AssetType=asset_type,
             FieldGroups="Quote,DisplayAndFormat,PriceInfoDetails",
         )
         now = datetime.now(UTC)
@@ -337,6 +338,21 @@ def _iso(ts: str | None) -> datetime:
     if not ts:
         return datetime.now(UTC)
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def find_uic(client: SaxoClient, isin: str, mic: str, asset_types: str = "Stock,Etf") -> str | None:
+    """Saxo Uic of the listing of ``isin`` on venue ``mic`` through the read-only reference endpoint
+    (``ref/v1/instruments``, keyword = ISIN). The listing is the one whose symbol carries the venue
+    (``DG:xpar`` → XPAR); none or several candidates → ``None``, never a guess."""
+    data = client.get("/ref/v1/instruments", Keywords=isin, AssetTypes=asset_types, IncludeNonTradable="false")
+    found = {
+        str(row.get("Identifier"))
+        for row in (data.get("Data") or [] if isinstance(data, dict) else [])
+        if row.get("Identifier") is not None
+        and (parsed := parse_saxo_symbol(str(row.get("Symbol") or ""))) is not None
+        and parsed[1] == mic.upper()
+    }
+    return found.pop() if len(found) == 1 else None
 
 
 NO_VENUE = "xxxx"  # Saxo exchange placeholder for instruments without a listing (delisted, locked)
