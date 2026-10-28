@@ -186,10 +186,12 @@ class TelegramBot:
         self.allowed_user_id = allowed_user_id
         self.store = store
         self._app = None
+        self._loop: asyncio.AbstractEventLoop | None = None  # the loop the bot runs in (uvicorn's)
 
     async def start(self) -> None:
         from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filters
 
+        self._loop = asyncio.get_running_loop()
         self._app = Application.builder().token(self.token).build()
         self._app.add_handler(MessageHandler(filters.TEXT, self._on_text))
         self._app.add_handler(CallbackQueryHandler(self._on_callback))
@@ -237,12 +239,21 @@ class TelegramBot:
         kb = build_keyboard(event.buttons, prefix=f"{event.kind}:") if event.buttons else None
         await self._app.bot.send_message(chat_id=self.allowed_user_id, text=event.telegram_text(), reply_markup=kb)
 
-    def send_event_sync(self, event: Event) -> None:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.run_coroutine_threadsafe(self.send_event(event), loop)
-        else:
-            loop.run_until_complete(self.send_event(event))
+    def send_event_sync(self, event: Event, timeout_s: float = 30.0) -> None:
+        """Send from any thread. The scheduler's jobs run in worker threads that have no event loop (an alert of a
+        job failed with « no current event loop », 28/10/2026): the message is handed to the bot's own loop and
+        awaited, so a failure reaches the notifier (logged, channel not counted as used) instead of vanishing."""
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            raise RuntimeError("bot Telegram non démarré")
+        try:
+            current = asyncio.get_running_loop()
+        except RuntimeError:
+            current = None
+        if current is loop:  # called from a coroutine of the bot's loop: never block it
+            loop.create_task(self.send_event(event))
+            return
+        asyncio.run_coroutine_threadsafe(self.send_event(event), loop).result(timeout=timeout_s)
 
 
 def telegram_settings() -> tuple[str, int] | None:

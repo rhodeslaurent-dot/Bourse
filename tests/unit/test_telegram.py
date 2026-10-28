@@ -67,3 +67,48 @@ def test_keyboard_and_message_length():
     assert len(ev.telegram_text().splitlines()) <= 12
     kb = build_keyboard(ev.buttons, prefix="proposal:")
     assert kb.inline_keyboard[0][0].callback_data == "proposal:vu"
+
+
+def test_a_job_thread_without_event_loop_can_send_through_the_bot_loop():
+    """28/10/2026: an alert raised by a scheduled job (worker thread, no event loop) failed with « no current event
+    loop »; the message must be handed to the bot's own loop and actually sent."""
+    import asyncio
+    import threading
+    from types import SimpleNamespace
+
+    from app.notify.base import Event
+    from app.notify.telegram import TelegramBot
+
+    sent: list[str] = []
+
+    async def send_message(chat_id, text, reply_markup=None):  # noqa: ANN001, ARG001
+        sent.append(text)
+
+    bot = TelegramBot("token", 42, store=None)  # type: ignore[arg-type]
+    bot._app = SimpleNamespace(bot=SimpleNamespace(send_message=send_message))  # type: ignore[assignment]
+    loop = asyncio.new_event_loop()
+    runner = threading.Thread(target=loop.run_forever, daemon=True)  # the app's loop (uvicorn)
+    runner.start()
+    bot._loop = loop
+    try:
+        errors: list[BaseException] = []
+
+        def job() -> None:  # an APScheduler worker: no event loop in this thread
+            try:
+                bot.send_event_sync(Event("P1", "stop", "Stop franchi", ["ligne"], []))
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        worker = threading.Thread(target=job)
+        worker.start()
+        worker.join(5)
+        assert not errors and len(sent) == 1 and "Stop franchi" in sent[0]
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        runner.join(5)
+        loop.close()
+    try:
+        bot.send_event_sync(Event("P1", "stop", "x", [], []))
+        raise AssertionError("a closed loop must raise, so that the notifier logs the failure")
+    except RuntimeError:
+        pass
