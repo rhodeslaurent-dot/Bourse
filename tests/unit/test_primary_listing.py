@@ -112,3 +112,28 @@ def test_relisted_instrument_history_is_replaced_never_mixed(config, calendars, 
         tte = s.get(Instrument, "FR0000120271")
         assert (tte.ticker_eodhd, tte.mic, tte.ticker_tv) == ("TTE.PA", "XPAR", None)
     assert repair_relisted_history(Eod(), rows, today) == (0, 0)  # once fixed, nothing more to do
+
+
+def test_an_etf_or_etp_is_followed_on_its_euro_listing():
+    """28/10/2026: once Zurich and London were followed, 1 210 ETFs / ETPs moved from Paris (EUR) to their
+    domicile's venue (AADA.PA → AADA.SW in CHF, AIGPP.PA → AIGP.LSE): a euro listing is now kept for them."""
+
+    def fund(isin, code, ex, cur, kind="etf"):  # type: ignore[no-untyped-def]
+        return SymbolRow(isin=isin, name=code, code=code, exchange=ex, currency=cur, kind=kind)
+
+    rows = [
+        fund("CH1146882316", "AADA", "SW", "CHF", "crypto_etp"),
+        fund("CH1146882316", "AADA", "PA", "EUR", "crypto_etp"),
+        fund("IE00BLRPRL42", "AIGP", "LSE", "GBX"), fund("IE00BLRPRL42", "AIGPP", "PA", "EUR"),
+        fund("IE00B4L5Y983", "SWDA", "LSE", "GBX"), fund("IE00B4L5Y983", "EUNL", "XETRA", "EUR"),
+        fund("CH0000000001", "ONLY", "SW", "CHF"),  # no euro listing: the domicile rule still applies
+    ]  # fmt: skip
+    got = {r.isin: f"{r.code}.{r.exchange}" for r in primary_listings(rows)}
+    assert got == {"CH1146882316": "AADA.PA", "IE00BLRPRL42": "AIGPP.PA", "IE00B4L5Y983": "EUNL.XETRA",
+                   "CH0000000001": "ONLY.SW"}  # fmt: skip
+    # a share keeps its home venue even with a euro listing elsewhere
+    shares = [
+        fund("CH0012005267", "NOVN", "SW", "CHF", "stock"),
+        fund("CH0012005267", "NVSE", "XETRA", "EUR", "stock"),
+    ]
+    assert [f"{r.code}.{r.exchange}" for r in primary_listings(shares)] == ["NOVN.SW"]

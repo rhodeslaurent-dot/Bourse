@@ -24,6 +24,7 @@ from app.db.models import (
 )
 from app.domain.calendar import MarketCalendars
 from app.domain.universe import (
+    SECONDARY_VENUES,
     InstrumentFacts,
     MomentumCandidate,
     SrdStatus,
@@ -82,6 +83,14 @@ def primary_listings(rows: list[SymbolRow], overrides: dict[str, str] | None = N
             out.append(group[0])
             continue
         ex = primary_exchange(isin, [r.exchange for r in group], overrides)
+        if isin not in (overrides or {}) and all(r.kind != "stock" for r in group):
+            # 28/10/2026: an ETF or ETP has no « home » venue for a euro investor — following its domicile moved
+            # 1 210 of them from Paris (EUR) to Zurich or London (CHF, GBP) once those venues were enabled. Its
+            # euro listing is followed when it has one (venues in configured order, Xetra last)
+            eur = [r for r in group if (r.currency or "EUR") == "EUR"]
+            if eur:
+                pick = next((r for r in eur if r.exchange not in SECONDARY_VENUES), eur[0])
+                ex = pick.exchange
         main = next(r for r in group if r.exchange == ex)
         for other in group:
             if other is main:
