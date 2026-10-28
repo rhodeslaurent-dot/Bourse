@@ -338,7 +338,16 @@ def init_params(
         path, _, value = item.partition("=")
         text, done = set_scalar(text, path.strip(), value.strip())
         print(f"{path.strip()} = {value.strip()}" if done else f"{path.strip()} introuvable : inchangé")
-    dst.write_text(text, encoding="utf-8")
+    try:
+        dst.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        if exc.errno == 30:  # the container mounts config/params.yaml read-only on purpose
+            print(
+                f"{dst} est en lecture seule (monté « :ro » dans le conteneur) : rien n'est modifié. "
+                "Lancer la commande sur le PC : uv run python -m app.cli params-init …"
+            )
+            raise SystemExit(2) from None
+        raise
     return True
 
 

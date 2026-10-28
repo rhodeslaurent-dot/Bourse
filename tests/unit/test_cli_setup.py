@@ -314,3 +314,45 @@ def test_delisted_check_reports_counts_isin_and_history(monkeypatch, capsys):
     assert "US     2 action(s) radiée(s), dont 1 avec ISIN · historique de OLD.US : 2 séance(s)" in out
     assert "SW     liste des radiées : ÉCHEC" in out
     assert "Sans historique des radiées (SW)" in out
+
+
+def test_a_read_only_params_file_says_where_to_run_the_command(tmp_path, monkeypatch, capsys):
+    """28/10/2026: params-init run inside the container hit the read-only mount with a traceback."""
+    import errno
+    from pathlib import Path
+
+    import pytest
+
+    from app.cli import init_params
+
+    target = tmp_path / "params.yaml"
+    init_params("config/params.example.yaml", str(target), "42", "a@b.c")
+
+    def read_only(self, *a, **k):  # noqa: ANN001, ANN002, ANN003, ARG001
+        raise OSError(errno.EROFS, "Read-only file system")
+
+    monkeypatch.setattr(Path, "write_text", read_only)
+    with pytest.raises(SystemExit) as exc:
+        init_params("config/params.example.yaml", str(target), "42", "a@b.c", update=True)
+    assert exc.value.code == 2 and "uv run python -m app.cli params-init" in capsys.readouterr().out
+
+
+def test_the_routine_lines_of_the_15_second_job_are_filtered():
+    import logging
+
+    from app.logging_setup import RoutineJobFilter
+
+    f = RoutineJobFilter()
+
+    def rec(name: str, level: int, msg: str) -> logging.LogRecord:
+        return logging.LogRecord(name, level, __file__, 1, msg, None, None)
+
+    assert not f.filter(
+        rec("apscheduler.executors.default", logging.INFO, 'Running job "intraday_reeval (trigger: …)"')
+    )
+    assert not f.filter(
+        rec("apscheduler.executors.default", logging.INFO, 'Job "intraday_reeval (trigger: …)" executed')
+    )
+    assert f.filter(rec("apscheduler.executors.default", logging.INFO, 'Running job "position_monitor (trigger: …)"'))
+    assert f.filter(rec("apscheduler.executors.default", logging.ERROR, 'Job "intraday_reeval (trigger)" raised'))
+    assert f.filter(rec("bourse.jobs", logging.INFO, "intraday_reeval : 2 changements"))

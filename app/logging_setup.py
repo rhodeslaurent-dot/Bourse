@@ -47,12 +47,27 @@ def quiet_http_clients() -> None:
         logging.getLogger(name).setLevel("WARNING")
 
 
+QUIET_JOBS = ("intraday_reeval",)  # every 15 s in session: its routine « Running / executed » lines drown the rest
+
+
+class RoutineJobFilter(logging.Filter):
+    """Drops the scheduler's INFO lines for the high-frequency jobs; their warnings and errors pass, and every run
+    still writes its ``jobs_runs`` row (visible on /sante)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno > logging.INFO or not record.name.startswith("apscheduler"):
+            return True
+        msg = record.getMessage()
+        return not any(f'"{job} (' in msg or f'Job "{job}' in msg or f'"{job}"' in msg for job in QUIET_JOBS)
+
+
 def setup_logging() -> None:
     root = logging.getLogger()
     if getattr(root, "_bourse_configured", False):
         return
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
+    handler.addFilter(RoutineJobFilter())
     root.handlers = [handler]
     root.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
     root._bourse_configured = True  # type: ignore[attr-defined]
