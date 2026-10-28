@@ -31,7 +31,7 @@ import statistics
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +75,7 @@ STAGES = (
     "configuration_degradee",
     "score",
     "portail",
+    "resultats_imminents",
     "ordre_non_execute",
     "ordre_execute",
 )
@@ -86,6 +87,7 @@ STAGE_FR = {
     "configuration_degradee": "configuration dégradée (support perdu ou cassure rendue)",
     "score": "score insuffisant (ratio d'admission, confiance ou risque élevé)",
     "portail": "portail de marché fermé (régime rouge de la place)",
+    "resultats_imminents": "publication de résultats imminente (R14 : un stop ne protège pas d'un écart)",
     "ordre_non_execute": "ordre limite au prix maximal jamais exécuté (le cours n'est pas revenu)",
     "ordre_execute": "ordre exécuté",
 }
@@ -103,6 +105,7 @@ FEATURES = (
     "rendement_20j",
     "rsi14",
     "au_dessus_mm50_et_mm200",
+    "jour_de_publication",
 )
 
 
@@ -166,6 +169,7 @@ class Replay:
     stop_buffer: float
     zone_p: dict[str, Any]
     scoring: dict[str, Any]
+    blackout_hours: float = 48.0
 
 
 def _replay_context(config: LoadedConfig) -> Replay:
@@ -186,6 +190,7 @@ def _replay_context(config: LoadedConfig) -> Replay:
         stop_buffer=float(p.risk.stop.buffer_atr_mult),
         zone_p=dict(getattr(p, "zones", None) or {}),
         scoring=dict(sp),
+        blackout_hours=float(getattr(p.risk, "earnings_blackout_hours", 48) or 48),
     )
 
 
@@ -229,6 +234,7 @@ def _score_ok(
     light: str | None,
     adv_eur: float | None,
     inst: Any,
+    next_earnings_days: int | None = None,
 ) -> bool:
     last = window[-1]
     sc = score(
@@ -242,7 +248,8 @@ def _score_ok(
             over_extended=bool(f.mm20 and f.atr14 and last.close > f.mm20 + 1.5 * f.atr14),
             resistance_within_3pct=bool(target < last.close * 1.03),
             stop_distance_adr=((p_max - setup.stop) / (f.adr20 * p_max)) if f.adr20 else None,
-            earnings_within_10_days=False,  # unknown in history: the favourable case (said in the report)
+            # history of announcements loaded (earnings-history): replayed; else unknown → the favourable case
+            earnings_within_10_days=next_earnings_days is not None and next_earnings_days <= 10,
             adv_eur=adv_eur,
             market_cap_eur=inst.market_cap_eur,
             gap_pct=(last.open / window[-2].close - 1) if window[-2].close else None,
@@ -272,6 +279,7 @@ def responses(
     light: str | None,
     cto: CostParams,
     pea: CostParams | None,
+    next_earnings_days: int | None = None,
 ) -> list[Response]:
     """What the engine would answer at the close of ``window[-1]``, per detector that fires (every detector is run
     with its production parameters; ``policy_blocked`` tells what the production policy does with it)."""
@@ -337,12 +345,16 @@ def responses(
             out.append(r)
             continue
         if adm.status == Status.ADMITTED:  # a refused one is a limit waiting for a pullback: no score, no gate
-            if not _score_ok(rp, name, window, f, rs, st, adm.p_max, target, light, adv, inst):
+            if not _score_ok(rp, name, window, f, rs, st, adm.p_max, target, light, adv, inst, next_earnings_days):
                 r.stage = "score"
                 out.append(r)
                 continue
             if gate == "restreint_plus":
                 r.stage = "portail"
+                out.append(r)
+                continue
+            if next_earnings_days is not None and next_earnings_days * 24 <= rp.blackout_hours + 24:
+                r.stage = "resultats_imminents"  # R14: a stop does not protect from the gap of an announcement
                 out.append(r)
                 continue
         hold = int(rp.det_params[name].get("time_stop_sessions") or HOLDING_DAYS.get(st.horizon, 20))
@@ -437,7 +449,53 @@ def _features(window: list[Bar], f: DailyFeatures, rs: float | None) -> dict[str
     }
 
 
-# --- study ------------------------------------------------------------------------------------------------
+class EarningsIndex:
+    """Announcements of one value placed on its sessions: the reaction session (the announcement day, or the next
+    session after an announcement after the close) and the days to the next announcement. Outside the span the
+    loaded history covers (first announcement − 100 days, last + 100 days), everything is unknown (None)."""
+
+    def __init__(self, days: list[date], events: list[tuple[date, str]]) -> None:
+        import bisect
+
+        self.days = days
+        self.dates = sorted({d for d, _ in events})
+        self.react: set[int] = set()
+        for d, when in events:
+            i = bisect.bisect_right(days, d) if when == "amc" else bisect.bisect_left(days, d)
+            if i < len(days):
+                self.react.add(i)
+        self.lo = (self.dates[0] - timedelta(days=100)) if self.dates else None
+        self.hi = (self.dates[-1] + timedelta(days=100)) if self.dates else None
+
+    def covered(self, k: int) -> bool:
+        return self.lo is not None and self.hi is not None and self.lo <= self.days[k] <= self.hi
+
+    def is_reaction(self, k: int) -> bool | None:
+        return (k in self.react) if self.covered(k) else None
+
+    def days_to_next(self, k: int) -> int | None:
+        import bisect
+
+        if not self.covered(k):
+            return None
+        i = bisect.bisect_right(self.dates, self.days[k])
+        return (self.dates[i] - self.days[k]).days if i < len(self.dates) else 999
+
+
+def _earnings(s: Session, isins: list[str], hist: dict[str, Any]) -> dict[str, EarningsIndex]:
+    from sqlalchemy import select
+
+    from app.db.models import EarningsEvent
+
+    ev: dict[str, dict[date, str]] = defaultdict(dict)
+    for e in s.scalars(select(EarningsEvent).where(EarningsEvent.isin.in_(isins))):
+        prev = ev[e.isin].get(e.day)
+        if prev is None or prev == "unknown":
+            ev[e.isin][e.day] = e.when
+    return {isin: EarningsIndex(hist[isin].days, list(ev[isin].items())) for isin in isins if isin in ev}
+
+
+# --- study ------------------------------------------------------------------------------------------------# --- study ------------------------------------------------------------------------------------------------
 
 
 def run_study(
@@ -488,17 +546,23 @@ def run_study(
     sample = rng.sample(pool, max_episodes) if n_pool > max_episodes else pool
     say(f"{n_pool} hausse(s) repérée(s) ; {len(sample)} rejouée(s)")
     costs = {isin: _costs(config, insts[isin]) for isin in hist}
+    earn = _earnings(s, sorted(hist), hist)
+    say(f"publications de résultats connues pour {len(earn)} valeur(s) (earnings-history)")
     results: list[EpisodeResult] = []
     for n, (isin, ep) in enumerate(sample, 1):
         if n % 1000 == 0:
             say(f"hausses : {n}/{len(sample)}")
-        results.append(_replay_episode(rp, insts[isin], hist[isin], ep, ranks, lights, costs[isin], groups_of, mp))
+        results.append(
+            _replay_episode(rp, insts[isin], hist[isin], ep, ranks, lights, costs[isin], groups_of, mp, earn.get(isin))
+        )
     # 2. control: every session of a random set of values
     ctrl_isins = rng.sample(sorted(hist), min(control_values, len(hist)))
     rows: list[ControlRow] = []
     for n, isin in enumerate(ctrl_isins, 1):
         say(f"contrôle : valeur {n}/{len(ctrl_isins)}")
-        rows += _control_rows(rp, insts[isin], hist[isin], ranks, lights, costs[isin], groups_of, mp, start, end)
+        rows += _control_rows(
+            rp, insts[isin], hist[isin], ranks, lights, costs[isin], groups_of, mp, start, end, earn.get(isin)
+        )
     say("agrégation…")
     return build_report(
         results,
@@ -515,6 +579,7 @@ def run_study(
             "valeurs_controle": len(ctrl_isins),
             "jours_controle": len(rows),
             "graine": seed,
+            "valeurs_avec_publications": len(earn),
             "parametres": asdict(mp),
             "politique": {
                 d: "désactivé (ADR-014)"
@@ -538,6 +603,7 @@ def _replay_episode(
     costs: tuple,
     groups_of: dict[str, str],
     mp: MoveParams,
+    earn: EarningsIndex | None = None,
 ) -> EpisodeResult:
     cto, pea = costs
     prod: list[str] = []
@@ -551,7 +617,8 @@ def _replay_episode(
         day = h.days[a]
         rs = ranks.get((inst.isin, day))
         light = lights.get((inst.mic or "", day))
-        rsp = responses(rp, inst, window, h.bars[a + 1 :], rs, light, cto, pea)
+        nxt = earn.days_to_next(a) if earn is not None else None
+        rsp = responses(rp, inst, window, h.bars[a + 1 :], rs, light, cto, pea, nxt)
         if rsp and lag is None:
             lag = a - ep.start
         for r in rsp:
@@ -582,6 +649,11 @@ def _replay_episode(
         else None,
         "apres_baisse_10pct_sur_20j": (closes[ep.start] / max(closes[max(0, ep.start - 20) : ep.start + 1]) - 1)
         <= -0.10,
+        "debut_sur_publication_de_resultats": (
+            any(earn.is_reaction(j) for j in range(ep.start, min(ep.start + 3, len(h.bars))))
+            if earn is not None and earn.covered(ep.start)
+            else None
+        ),
     }
     return EpisodeResult(
         group=groups_of.get(inst.mic or "", "?"), rise=ep.rise, sessions=ep.sessions, shape=ep.shape,
@@ -603,6 +675,7 @@ def _control_rows(
     mp: MoveParams,
     start: date,
     end: date,
+    earn: EarningsIndex | None = None,
 ) -> list[ControlRow]:
     cto, pea = costs
     atrs = atr_series(h.bars)
@@ -616,10 +689,14 @@ def _control_rows(
         rs = ranks.get((inst.isin, day))
         f = compute_daily_features(window)
         sigma = daily_sigma(closes, k + 1, mp.sigma_sessions)
-        rsp = responses(rp, inst, window, h.bars[k + 1 :], rs, lights.get((inst.mic or "", day)), cto, pea)
+        nxt = earn.days_to_next(k) if earn is not None else None
+        rsp = responses(rp, inst, window, h.bars[k + 1 :], rs, lights.get((inst.mic or "", day)), cto, pea, nxt)
+        feats = _features(window, f, rs)
+        react = earn.is_reaction(k) if earn is not None else None
+        feats["jour_de_publication"] = None if react is None else float(react)
         out.append(ControlRow(
             group=groups_of.get(inst.mic or "", "?"), vol=vol_bucket(sigma),
-            label=barrier_label(h.bars, k, atrs[k], sigma, mp), features=_features(window, f, rs),
+            label=barrier_label(h.bars, k, atrs[k], sigma, mp), features=feats,
             prod_stage=_best(["politique" if r.policy_blocked else r.stage for r in rsp]),
             fired=sorted({r.detector for r in rsp}),
             trades=[(r.detector, r.net_r_cto, r.net_r_pea, r.policy_blocked) for r in rsp if r.stage == "ordre_execute"],

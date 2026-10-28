@@ -15,6 +15,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     Index,
     Integer,
     String,
@@ -524,6 +525,24 @@ class EarningsCalendarRow(Base):
     source: Mapped[str] = mapped_column(String(32))
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     __table_args__ = (UniqueConstraint("isin", "day", "source", name="uq_earnings_isin_day_source"),)
+
+
+class EarningsEvent(Base):
+    """docs/34 §34.4 — past earnings announcements (date, time of day, reported and estimated EPS), one row per
+    source; the history the research and the study of the missed rises need (``earnings-history``)."""
+
+    __tablename__ = "earnings_events"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    when: Mapped[str] = mapped_column(String(10), default="unknown")  # bmo | amc | intraday | unknown
+    eps_actual: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eps_estimate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    surprise_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String(16))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("isin", "day", "source", name="uq_earnings_events_isin_day_source"),)
 
 
 # ---------------------------------------------------------------------------------------------

@@ -1454,6 +1454,32 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_earnings_history(args: argparse.Namespace) -> int:
+    """docs/34 §34.4 — past earnings announcements (EODHD calendar if the plan includes it, else Yahoo) and their
+    coverage per year and venue group. Dates and EPS only: no price is read."""
+    from app.db.session import db_session
+    from app.domain.calendar import load_market_calendars
+    from app.services import earnings
+
+    cfg = load_params(args.params)
+    calendars = load_market_calendars(args.calendars)
+    start, end = date.fromisoformat(args.from_date), date.fromisoformat(args.to) if args.to else date.today()
+    with db_session() as s:
+        if not args.coverage_only:
+            rep = earnings.load_history(
+                s, cfg, calendars, start, end, args.isin or None, args.source, args.pages,
+                progress=lambda m: print(f"  {m}", flush=True), max_values=args.max_values,
+            )  # fmt: skip
+            print(
+                f"{rep.values} valeur(s), {rep.with_events} avec au moins une publication, {rep.added} ajoutée(s) "
+                f"· par source {rep.source_counts} · sans symbole ou indisponibles : {len(rep.unavailable)}"
+            )
+            for n in rep.notes:
+                print(f"  note : {n}")
+        print(earnings.coverage_text(earnings.coverage(s, cfg, calendars, start, end)))
+    return 0
+
+
 def cmd_moves_study(args: argparse.Namespace) -> int:
     """docs/34 — the rises the tool missed: episodes, replay of the production rules, why not, control sample.
     Exploratory; European venues only (New York, London, Zurich stay unread until registration n° 2 has run).
@@ -2166,6 +2192,15 @@ def main(argv: list[str] | None = None) -> int:
     br = sub.add_parser("backtest-report", help="diagnostic du dernier backtest : coûts, sorties, excursions, régimes")
     br.add_argument("--run", type=int, default=None)
     br.set_defaults(fn=cmd_backtest_report)
+    eh = sub.add_parser("earnings-history", help="historique des publications de résultats (docs/34) et couverture")
+    eh.add_argument("--from", dest="from_date", default="2016-01-01")
+    eh.add_argument("--to", default=None)
+    eh.add_argument("--source", default="auto", choices=["auto", "eodhd", "yahoo"])
+    eh.add_argument("--pages", type=int, default=3, help="Yahoo : pages de 100 publications par valeur")
+    eh.add_argument("--isin", action="append", default=None, help="limiter à une ou plusieurs valeurs")
+    eh.add_argument("--max-values", dest="max_values", type=int, default=None)
+    eh.add_argument("--coverage-only", dest="coverage_only", action="store_true", help="couverture seulement")
+    eh.set_defaults(fn=cmd_earnings_history)
     mv = sub.add_parser("moves-study", help="hausses manquées (docs/34) : rejeu de l'outil, pourquoi pas, contrôle")
     mv.add_argument("--from", dest="from_date", default="2017-01-02", help="début (pas avant 2017-01-02)")
     mv.add_argument("--to", default=None, help="fin (défaut : hier)")
