@@ -202,6 +202,9 @@ def create_app(
     app.include_router(api_router)
     app.include_router(portfolio_api_router)
     app.include_router(ingest_router)
+    from app.api.live_quotes_routes import router as live_quotes_router
+
+    app.include_router(live_quotes_router)
     app.include_router(web_router)
     app.include_router(portfolio_web_router)
     app.include_router(watchlist_router)

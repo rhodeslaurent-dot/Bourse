@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.base import BaseTrigger
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config.schema import JobSpec, Params
 from app.domain.timeutil import PARIS
@@ -22,6 +21,7 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "portfolio_sync": "app.scheduler.jobs.portfolio_sync:run",
     "portfolio_sync_intraday": "app.scheduler.jobs.portfolio_sync:run",
     "position_monitor": "app.scheduler.jobs.position_monitor:run",
+    "intraday_reeval": "app.scheduler.jobs.intraday_reeval:run",
     "universe_refresh": "app.scheduler.jobs.universe_refresh:run",
     "eod_backfill_check": "app.scheduler.jobs.eod_backfill_check:run",
     "daily_regime": "app.scheduler.jobs.daily_regime:run",
@@ -70,12 +70,13 @@ def _window_interval(spec: JobSpec, tz: ZoneInfo) -> BaseTrigger:
     start, end = spec.window_local or ["09:00", "17:40"]
     sh, sm = (int(x) for x in start.split(":"))
     eh, em = (int(x) for x in end.split(":"))
-    if spec.every_seconds and spec.every_seconds < 60:
-        return IntervalTrigger(seconds=spec.every_seconds, timezone=tz)
-    minutes = spec.every_minutes or (spec.every_seconds or 60) // 60 or 1
     # cron day_of_week uses 0=mon; params use ISO 1=mon → convert ranges like "1-5" → "mon-fri"
     dow = _iso_days_to_cron(days)
     hour = f"{sh}-{eh}"
+    if spec.every_seconds and spec.every_seconds < 60:
+        # sub-minute cadence (intraday_reeval, 15 s) kept inside the window and the days, like the minute jobs
+        return CronTrigger(second=f"*/{spec.every_seconds}", minute="*", hour=hour, day_of_week=dow, timezone=tz)
+    minutes = spec.every_minutes or (spec.every_seconds or 60) // 60 or 1
     return CronTrigger(minute=f"*/{minutes}" if minutes > 1 else "*", hour=hour, day_of_week=dow, timezone=tz)
 
 

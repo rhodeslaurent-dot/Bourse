@@ -321,6 +321,13 @@ def evaluate(
     )
     ftt, ftt_basis = foreign_tax((tax.get("ftt_by_country") or {}).get(inst.isin[:2]), inst.market_cap_eur)
     target = setup.targets[0] if setup.targets else None
+    # what the intraday re-evaluation needs to recompute the admission with a fresh quote (intraday_reeval)
+    ev.details["configuration"] = {
+        "type": setup.kind.value,
+        "niveau_bas": setup.level_low,
+        "p_max_technique": setup.p_max_technical,
+        "declencheur": setup.entry_level,
+    }
     options = _account_options(inst, config)
     # size (docs/28): reference R × the day's risk level (market, portfolio, recent results, edge — already
     # in ``level``) × the line's own reductions (opening gaps, earnings, SRD restricted), floored, capped

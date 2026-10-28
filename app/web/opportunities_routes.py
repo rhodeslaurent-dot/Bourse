@@ -93,6 +93,9 @@ def opportunities_page(
                 .order_by(CommitteeRun.id)
             ):
                 committee[r.proposal_id] = r  # the latest deliberation per proposal
+        from app.services.reevaluations import latest_by_proposal, summary
+
+        reevals = latest_by_proposal(s, [p.id for p in props])
         items = []
         for p in props:
             sig = sigs.get(p.signal_id)
@@ -114,6 +117,7 @@ def opportunities_page(
                     "place": (venues[inst.mic].name if inst and inst.mic in venues else inst.mic if inst else None),
                     "secteur": " · ".join(x for x in (inst.sector, inst.industry) if x) if inst else None,
                     "devise": inst.currency if inst else None,
+                    "reeval": summary(reevals[p.id]) if p.id in reevals else None,  # intraday_reeval (live quote)
                 }
             )
         # docs/22 §22.4: the engine's ranking first (or net ratio / net gain on request); then the
