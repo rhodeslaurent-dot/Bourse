@@ -73,6 +73,7 @@ def test_the_study_replays_the_tool_on_each_rise(db_engine, example_raw, calenda
         assert abs(sum(v["k"] for v in rep[key].values()) - m["hausses_rejouees"]) == 0
     # the production policy can only lose stages compared with every detector active
     assert rep["entonnoir_production"]["ordre_execute"]["k"] <= rep["entonnoir_tous_detecteurs"]["ordre_execute"]["k"]
+    assert "n" in rep["paris_portail_restreint"]  # R10 on Paris: what the letters' gate would keep
     c = rep["controle"]
     assert c["jours"] > 0 and c["taux_de_base"]["n"] > 0
     text = moves.render_fr(rep)

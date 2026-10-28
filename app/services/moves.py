@@ -30,7 +30,7 @@ import random
 import statistics
 from collections import Counter, defaultdict
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -42,7 +42,7 @@ from app.domain.admission import AdmissionInput, Status, admit
 from app.domain.backtest import TradeResult, simulate_trade
 from app.domain.calendar import MarketCalendars
 from app.domain.conjuncture import market_gate
-from app.domain.costs import CostParams, ftt_rate_any, round_trip_fee_fraction
+from app.domain.costs import CostParams, ftt_rate_any, net_outcome, round_trip_fee_fraction
 from app.domain.detectors import DETECTORS, DetectorContext, Setup
 from app.domain.indicators import Bar, DailyFeatures, compute_daily_features, sma
 from app.domain.moves import (
@@ -119,6 +119,7 @@ class Response:
     net_r_cto: float | None = None
     net_r_pea: float | None = None
     entry: float | None = None
+    restricted_ok: bool | None = None  # admitted BUY path only: would it pass the restricted gate (R10)?
 
 
 @dataclass
@@ -138,6 +139,8 @@ class EpisodeResult:
     net_r_pea: float | None = None
     after_first_close: float | None = None  # share of the rise still to come after the first up close
     profile: dict[str, bool | None] = field(default_factory=dict)
+    paris: bool = False
+    prod_trade_restricted_ok: bool | None = None  # Paris, production order executed: still there under « restreint »?
 
 
 @dataclass
@@ -170,6 +173,9 @@ class Replay:
     zone_p: dict[str, Any]
     scoring: dict[str, Any]
     blackout_hours: float = 48.0
+    restricted_rr: float = 2.5
+    restricted_score: float = 75.0
+    pfu_rate: float = 0.314
 
 
 def _replay_context(config: LoadedConfig) -> Replay:
@@ -191,6 +197,11 @@ def _replay_context(config: LoadedConfig) -> Replay:
         zone_p=dict(getattr(p, "zones", None) or {}),
         scoring=dict(sp),
         blackout_hours=float(getattr(p.risk, "earnings_blackout_hours", 48) or 48),
+        restricted_rr=float((getattr(p, "market_gate", None) or {}).get("restricted_min_net_rr", 2.5)),
+        restricted_score=float((getattr(p, "market_gate", None) or {}).get("restricted_min_score", 75)),
+        pfu_rate=float(
+            (p.tax[0].model_dump() if p.tax and hasattr(p.tax[0], "model_dump") else {}).get("pfu_total_rate") or 0.0
+        ),
     )
 
 
@@ -235,7 +246,7 @@ def _score_ok(
     adv_eur: float | None,
     inst: Any,
     next_earnings_days: int | None = None,
-) -> bool:
+) -> tuple[bool, float]:
     last = window[-1]
     sc = score(
         ScoreInput(
@@ -263,11 +274,12 @@ def _score_ok(
         f_min_available=int(rp.scoring.get("f_min_available_subcriteria", 2)),
     )
     min_ratio = float(rp.scoring.get("buy_min_ratio_orange" if light == "orange" else "buy_min_ratio", 0.75))
-    return (
+    ok = (
         sc.admission_ratio >= min_ratio
         and sc.confidence >= int(rp.scoring.get("buy_min_confidence", 3))
         and sc.risk != "eleve"
     )
+    return ok, sc.total
 
 
 def responses(
@@ -345,10 +357,16 @@ def responses(
             out.append(r)
             continue
         if adm.status == Status.ADMITTED:  # a refused one is a limit waiting for a pullback: no score, no gate
-            if not _score_ok(rp, name, window, f, rs, st, adm.p_max, target, light, adv, inst, next_earnings_days):
+            ok, total = _score_ok(rp, name, window, f, rs, st, adm.p_max, target, light, adv, inst, next_earnings_days)
+            if not ok:
                 r.stage = "score"
                 out.append(r)
                 continue
+            # R10 on Euronext Paris: without the letters' published conditions the gate is « restreint »
+            stop_exec = st.stop * (1 - rp.slip)
+            shares = max(1, int(rp.risk_budget / max(1e-9, adm.p_max - stop_exec)))
+            no = net_outcome(shares, adm.p_max, target, stop_exec, replace(cto, tax_rate=rp.pfu_rate))
+            r.restricted_ok = (no.net_reward_risk or 0) >= rp.restricted_rr and total >= rp.restricted_score
             if gate == "restreint_plus":
                 r.stage = "portail"
                 out.append(r)
@@ -612,6 +630,7 @@ def _replay_episode(
     all_det: set[str] = set()
     lag: int | None = None
     best_trade: Response | None = None
+    prod_exec: list[Response] = []
     for a in range(max(MIN_BARS, ep.start - 2), min(ep.start + 5, ep.peak - 1) + 1):
         window = h.bars[max(0, a - WINDOW + 1) : a + 1]
         day = h.days[a]
@@ -629,6 +648,8 @@ def _replay_episode(
                 prod_det.add(r.detector)
             if r.stage == "ordre_execute" and best_trade is None:
                 best_trade = r
+            if r.stage == "ordre_execute" and not r.policy_blocked:
+                prod_exec.append(r)
     closes = [b.close for b in h.bars]
     low, top = closes[ep.start], closes[ep.peak]
     captured = None
@@ -660,7 +681,8 @@ def _replay_episode(
         vol=vol_bucket(ep.sigma), lag_first_signal=lag, prod_stage=_best(prod), all_stage=_best(allst),
         prod_detectors=sorted(prod_det), all_detectors=sorted(all_det), captured_share=captured,
         net_r_cto=best_trade.net_r_cto if best_trade else None, net_r_pea=best_trade.net_r_pea if best_trade else None,
-        after_first_close=after_first, profile=profile,
+        after_first_close=after_first, profile=profile, paris=inst.mic == "XPAR",
+        prod_trade_restricted_ok=any(r.restricted_ok is not False for r in prod_exec) if prod_exec else None,
     )  # fmt: skip
 
 
@@ -778,6 +800,8 @@ def build_report(
     }
     lags = [r.lag_first_signal for r in results if r.lag_first_signal is not None]
     rep["delai_premier_signal"] = dict(sorted(Counter(lags).items()))
+    par = [r for r in results if r.paris and r.prod_trade_restricted_ok is not None]
+    rep["paris_portail_restreint"] = _share(sum(1 for r in par if r.prod_trade_restricted_ok), len(par))
     ex = [r for r in results if r.all_stage == "ordre_execute"]
     rep["ordres_sur_les_hausses"] = {
         "part_capturee": _mean_ci([r.captured_share for r in ex if r.captured_share is not None]),
@@ -914,6 +938,12 @@ def render_fr(rep: dict[str, Any]) -> str:
     w(
         f"  ordres exécutés (tous actifs) : part de la hausse capturée {_mci(o['part_capturee'])} · R net CTO {_mci(o['r_net_cto'])} · R net PEA {_mci(o['r_net_pea'])}"
     )
+    pr2 = rep.get("paris_portail_restreint") or {}
+    if pr2.get("n"):
+        w(
+            f"  Paris : sur {pr2['n']} hausses avec un ordre exécuté en production, {_pct(pr2['part'])} le resteraient si les lettres "
+            "ne validaient pas le marché (portail restreint : ratio net ≥ 2,5 et score ≥ 75, R10)"
+        )
     c = rep["controle"]
     w("")
     w("6. CONTRÔLE (séances ordinaires, sans regarder la suite)")
