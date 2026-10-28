@@ -100,7 +100,7 @@
 **Banc**
 - Le plan peut déclarer ses propres groupes (`venue_groups`). Un groupe d'une seule place est jugé sur l'indice de cette place (`regime.indices_by_mic`). Le rejeu de calibration reste sur les groupes européens, car le backtest de référence est européen.
 - Déclencheur placebo T00 : événements tirés au hasard au taux déclaré, ou classement mensuel aléatoire. Il est graine-fixé.
-- Brouillon du plan : `research/prereg/brouillon_reg2.yaml`. Il contient C1, C2, le placebo X1 (3 cellules) et X2, sans étape 1, avec une étape 2 de 3 cellules au plus, soit 9 cellules. Il a été exécuté de bout en bout sur une base synthétique.
+- Plan **gelé le 28/10/2026** : `research/prereg/2026-10-28_reg2.yaml` (brouillon du 27/10 accepté tel quel). Il contient C1, C2, le placebo X1 (3 cellules) et X2, sans étape 1, avec une étape 2 de 3 cellules au plus, soit 9 cellules. Il a été exécuté de bout en bout sur une base synthétique.
   - X3, X4, X6 et X7 demandent du code supplémentaire : ils sont reportés à un enregistrement suivant.
 - **À faire avant de geler le plan** :
   1. Relecture du brouillon par l'utilisateur.

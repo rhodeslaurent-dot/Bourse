@@ -151,7 +151,7 @@ def test_registration_2_draft_runs_on_one_venue_groups(research_db, tmp_path, ca
     """docs/33 §33.3: the draft of registration n° 2 — groups US / LSE / SW, each judged on its own index, CTO
     only, the placebo first. Runs end to end on a synthetic base; the calibration still replays run 2 on the
     P0 / P1 / P2 groups (the reference backtest is European)."""
-    plan = "research/prereg/brouillon_reg2.yaml"
+    plan = "research/prereg/2026-10-28_reg2.yaml"
     out = str(tmp_path / "research")
     with db_session() as s:
         for k, (mic, cur, cc) in enumerate([("XNYS", "USD", "US"), ("XLON", "GBP", "GB"), ("XSWX", "CHF", "CH")] * 4):

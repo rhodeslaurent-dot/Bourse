@@ -1,12 +1,14 @@
-# BROUILLON — plan de l'enregistrement n° 2 (docs/33 §33.3). PAS ENCORE GELÉ : à relire par l'utilisateur, puis
-# renommé `<date>_reg2.yaml` et enregistré AVANT toute lecture des données de test (Londres, Zurich, New York).
+# Plan de recherche pré-enregistré — enregistrement n° 2 (docs/33 §33.3). Ce fichier EST le plan : il est GELÉ
+# le 28/10/2026 (feu vert de l'utilisateur), AVANT toute lecture par le banc des données de test (valeurs actives et
+# radiées de Londres, Zurich et New York, chargées le 27-28/10/2026). Son empreinte sha256 est inscrite au registre
+# à chaque exécution ; le modifier crée un NOUVEL enregistrement.
 # Seuils A1–A13, hypothèses et inférence recopiés à l'identique du plan n° 1 ; modifications déclarées, choisies
 # avant toute donnée de test : groupes = une place chacun, jugée sur son propre indice (docs/32) ; compte CTO seul
 # (le PEA ne détient pas ces titres) ; placebo X1 exécuté et lu AVANT C1/C2 ; Holm sur 2 ; fenêtres de test
 # couvrant 2018-01 → 2026-07 (la période scellée européenne n'est pas concernée : autres places).
-id: "brouillon_reg2"
+id: "2026-10-28_reg2"
 title: "Recherche de déclencheurs — enregistrement n° 2 : réplication géographique (Londres, Zurich, New York)"
-registered_on: "à fixer au gel"
+registered_on: "2026-10-28"
 seed: 20261028
 
 venue_groups:                                # un groupe = une place, régime sur l'indice de la place (indices_by_mic)
