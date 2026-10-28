@@ -123,6 +123,7 @@ class Settings:
     mass_jump_share: float = 0.20  # safety net: share of a group's instruments with a factor jump on one day
     min_turnover_cto_eur: float | None = None  # universe.min_adv_eur_cto: robustness split (plan §1.1)
     seal_start: date | None = None  # segments.holdout_start: no data-quality exclusion crosses it
+    min_earnings_coverage: float | None = None  # thresholds.min_earnings_coverage (registration n° 3)
 
 
 # --- group data ------------------------------------------------------------------------------------
@@ -142,6 +143,7 @@ class GroupData:
     div_unreliable: Bool | None = None  # (T, N) rows of those instrument-years
     quality: dict[str, int] = field(default_factory=dict)  # data-quality counts for the report
     _fwd: dict[int, F64] = field(default_factory=dict)
+    earn_ok: bool = True  # registration n° 3: earnings coverage of the signal window ≥ the plan's floor
 
     def fwd(self, h: int) -> F64:
         if h not in self._fwd:
@@ -322,6 +324,16 @@ def raw_trigger(g: GroupData, cell: Cell, st: Settings) -> tuple[Bool, F64 | Non
         m = T.t08_gap(p, f, float(q["gap_min"]), float(q.get("rvol_min", 2.0)))
     elif cell.trigger == "t09":
         m = T.t09_volume_shock(p, f, float(q.get("mult", 3.0)))
+    elif cell.trigger in T.EARNINGS_TRIGGERS and not g.earn_ok:  # coverage below the plan's floor: no signal
+        m = np.zeros(p.shape, dtype=np.bool_)
+    elif cell.trigger == "t14":
+        m = T.t14_earnings_reaction(p, f, float(q.get("k_sigma", 2.0)), float(q.get("rvol_min", 2.0)),
+                                    float(q.get("close_top", 0.5)), bool(q.get("require_surprise", False)))  # fmt: skip
+    elif cell.trigger == "t15":
+        m = T.t15_pre_earnings(p, f, int(q.get("lead", 5)))
+    elif cell.trigger == "t16":
+        m = T.t16_shock_without_news(p, f, float(q.get("k_sigma", 2.0)), float(q.get("rvol_min", 2.0)),
+                                     float(q.get("close_top", 0.5)))  # fmt: skip
     elif cell.trigger == "d2x":
         kind, value = str(cell.cap).split(":")
         m = T.d2_base(p, f, st.detectors.get("d2_breakout") or {})
@@ -1064,6 +1076,7 @@ class StageResult:
     suspect_dividend_years: int = 0
     masked_signals: dict[str, int] = field(default_factory=dict)  # per cell: signal days masked after a CA
     quality: dict[str, int] = field(default_factory=dict)  # data-quality counts summed over the groups
+    coverage: dict[str, dict[str, Any]] = field(default_factory=dict)  # earnings coverage per venue group (n° 3)
 
 
 def run_cells(
@@ -1083,6 +1096,7 @@ def run_cells(
     suspect = 0
     masked: dict[str, int] = defaultdict(int)
     quality: dict[str, int] = defaultdict(int)
+    coverage: dict[str, dict[str, Any]] = {}
     for g in groups:
         rows = signal_rows(g.p.days, window[0], window[1], end_margin)
         rows_by[g.gid] = rows
@@ -1091,6 +1105,10 @@ def run_cells(
             quality[k] += v
         if rows[1] < rows[0]:
             continue
+        if any(c.trigger in T.EARNINGS_TRIGGERS for c in cells):
+            cov = earnings_coverage(g, rows, st.min_earnings_coverage)
+            g.earn_ok = bool(cov["compte_dans_le_verdict"])
+            coverage[g.p.group] = cov
         quality["observations_masquees_ost"] += int(g.f.ca_masked[rows[0] : rows[1] + 1].sum())
         for c in cells:
             masked[c.id] += masked_signal_count(g, c, st, rows)
@@ -1123,8 +1141,34 @@ def run_cells(
     }
     return StageResult(
         {k: Trades.concat(v) for k, v in parts.items()}, dict(dense), baselines, rows_by, suspect, dict(masked),
-        dict(quality),
+        dict(quality), coverage,
     )  # fmt: skip
+
+
+INSUFFICIENT_COVERAGE = "couverture insuffisante"
+
+
+def earnings_coverage(g: GroupData, rows: tuple[int, int], floor: float | None) -> dict[str, Any]:
+    """Earnings coverage of a group on the signal window: the share of the eligible observations (value ×
+    session) inside the known span of the value's announcements (the plan's ``min_earnings_coverage`` is
+    judged on it), and the values eligible / covered at least once. Below the floor the group is reported
+    « couverture insuffisante » and its earnings cells give no signal (it does not count in the verdict)."""
+    lo, hi = rows
+    el = g.f.elig[lo : hi + 1]
+    kn = g.p.earn_known[lo : hi + 1] if g.p.earn_known is not None else np.zeros_like(el)
+    react = g.p.earn_react[lo : hi + 1] if g.p.earn_react is not None else np.zeros_like(el)
+    obs = int(el.sum())
+    share = float((el & kn).sum()) / obs if obs else 0.0
+    ok = floor is None or share >= float(floor)
+    return {
+        "part_observations_couvertes": _f(share, 3),
+        "valeurs_eligibles": int(el.any(axis=0).sum()),
+        "valeurs_couvertes": int((el & kn).any(axis=0).sum()),
+        "seances_de_reaction_eligibles": int((react & el).sum()),
+        "seuil": floor,
+        "compte_dans_le_verdict": ok,
+        "statut": "suffisante" if ok else INSUFFICIENT_COVERAGE,
+    }
 
 
 def finalize_monthly(tr: Trades, cell: Cell, st: Settings) -> Trades:

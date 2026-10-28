@@ -129,6 +129,9 @@ def build_report(prereg: Prereg, results: Mapping[str, Any], header: Mapping[str
             "segment": results.get("segment"),
             "annees_dividendes_ecartees": results.get("annees_dividendes_ecartees"),
             "qualite_donnees": results.get("qualite_donnees", {}),
+            **(
+                {"couverture_resultats": results["couverture_resultats"]} if results.get("couverture_resultats") else {}
+            ),
         },
         "A_resume": {
             "titre": headline,
@@ -248,6 +251,11 @@ def render_fr(report: Mapping[str, Any]) -> str:
         f"  Romano–Wolf (bloc en semaines, t max critique à 5 %) : {(h.get('romano_wolf') or {}).get('bloc_semaines')}, "
         f"{(h.get('romano_wolf') or {}).get('t_max_critique_5pct')} ; lignes du portefeuille : {h.get('lignes_portefeuille')}",
         "  puissance de l'effet planté : borne supérieure (A2 et A5 ne sont pas simulés)",
+        *[
+            f"  couverture des publications {g} : {v.get('part_observations_couvertes')} des observations éligibles "
+            f"({v.get('valeurs_couvertes')}/{v.get('valeurs_eligibles')} valeurs, seuil {v.get('seuil')}) → {v.get('statut')}"
+            for g, v in (h.get("couverture_resultats") or {}).items()
+        ],
         *[f"  AVERTISSEMENT : {w}" for w in h.get("avertissements") or []],
         "",
         "A — Résumé",
@@ -256,7 +264,7 @@ def render_fr(report: Mapping[str, Any]) -> str:
     ]
     for fam, v in (a.get("verdicts_familles") or {}).items():
         lines.append(f"  famille {fam} : {v}")
-    lines += ["", "  Hypothèses confirmatoires (Holm sur 8)"]
+    lines += ["", f"  Hypothèses confirmatoires (Holm sur {len(a.get('confirmatoires') or {})})"]
     for cid, c in (a.get("confirmatoires") or {}).items():
         lines.append(f"    {cid:<4} n {_fmt(c.get('n'))} R moyen {_fmt(c.get('mean_r'))} excès {_fmt(c.get('mean_excess'))} "
                      f"t {_fmt(c.get('t_week'), 2)} p Holm {_fmt(c.get('p_holm'), 4)} → {c.get('niveau')}")  # fmt: skip

@@ -9,7 +9,20 @@ from typing import Any
 
 import numpy as np
 
-from app.domain.research.panel import F64, Bool, Features, Panel, pack, prior_any, unpack_bool
+from app.domain.research.panel import (
+    F64,
+    Bool,
+    Days,
+    Features,
+    IndexSeries,
+    Panel,
+    pack,
+    packed_adjusted,
+    prior_any,
+    shift,
+    unpack,
+    unpack_bool,
+)
 
 
 def _b(x: object) -> Bool:
@@ -90,6 +103,101 @@ def t09_volume_shock(p: Panel, f: Features, mult: float = 3.0) -> Bool:
     50 previous sessions, close ≥ open."""
     with np.errstate(invalid="ignore"):
         return f.elig & (p.volume >= f.vol_prev_max49) & (p.volume >= mult * f.vol_prev_med50) & (p.close >= p.open)
+
+
+# --- information events: earnings announcements (registration n° 3, docs/34 §34.5) ------------------------
+
+EARNINGS_TRIGGERS = frozenset({"t14", "t15", "t16"})
+NEWS_WINDOW_SESSIONS = 2  # t16: no reaction session within ± 2 own sessions
+
+
+def _index_close_on(idx: IndexSeries | None, days: Days) -> F64:
+    """The index's last close on or before each day (NaN before its first close or without index)."""
+    out = np.full(days.shape[0], np.nan)
+    if idx is None or idx.close.size == 0:
+        return out
+    k = np.searchsorted(idx.days, days, side="right") - 1
+    ok = k >= 0
+    out[ok] = idx.close[k[ok]]
+    return out
+
+
+def abnormal_log_return(p: Panel, f: Features) -> F64:
+    """Log return of the adjusted close from the previous own session J−1 to J0, minus the log return of the
+    value's venue index over the same span (CAC 40 for Paris or the group's own index, STOXX 600 otherwise:
+    the regime index of the panel). NaN when the index is unknown on either day (never an estimate)."""
+    pk = f.pk
+    t_len = p.shape[0]
+    cac = _index_close_on(p.index_cac, p.days)[:, None]
+    stoxx = _index_close_on(p.index_stoxx, p.days)[:, None]
+    idx = np.where(p.is_xpar[None, :], cac, stoxx)
+    adj = packed_adjusted(p, pk)
+    ix = pack(np.asarray(idx, dtype=np.float64), pk)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return unpack(np.log(adj / shift(adj, 1)) - np.log(ix / shift(ix, 1)), pk, t_len)
+
+
+def _earnings(p: Panel) -> tuple[Bool, Bool]:
+    """Reaction sessions and known span; without announcement history nothing is known (no event trigger)."""
+    if p.earn_react is None or p.earn_known is None:
+        z = np.zeros(p.shape, dtype=np.bool_)
+        return z, z
+    return p.earn_react, p.earn_known
+
+
+def information_shock(p: Panel, f: Features, k_sigma: float, rvol_min: float, close_top: float) -> Bool:
+    """Price and volume shock of J0 (t14 / t16): abnormal log return ≥ ``k_sigma`` · σ of the 20 daily log
+    returns **before** J0, volume ≥ ``rvol_min`` × the median volume of the 50 previous sessions, close in the
+    top ``close_top`` of the J0 range. Known at the close of J0."""
+    sigma_prev = unpack(shift(pack(f.sigma20, f.pk), 1), f.pk, p.shape[0])
+    ar = abnormal_log_return(p, f)
+    with np.errstate(invalid="ignore"):
+        return _b(
+            f.elig
+            & (ar >= k_sigma * sigma_prev)
+            & (sigma_prev > 0)
+            & (p.volume >= rvol_min * f.vol_prev_med50)
+            & (f.vol_prev_med50 > 0)
+            & (_range_pos(p) >= 1.0 - close_top)
+        )
+
+
+def t14_earnings_reaction(
+    p: Panel, f: Features, k_sigma: float = 2.0, rvol_min: float = 2.0, close_top: float = 0.5,
+    require_surprise: bool = False,
+) -> Bool:  # fmt: skip
+    """T14 post-earnings-announcement drift (Brandt et al. 2008; Garfinkel & Sokobin 2006): the shock of
+    ``information_shock`` on an announcement's reaction session, inside the known span; with
+    ``require_surprise`` the reported EPS also beats the estimate (unknown → no signal)."""
+    react, known = _earnings(p)
+    m = information_shock(p, f, k_sigma, rvol_min, close_top) & react & known
+    if require_surprise:
+        sp = p.earn_surprise_pos if p.earn_surprise_pos is not None else np.full(p.shape, np.nan)
+        m &= np.nan_to_num(sp, nan=0.0) == 1.0
+    return _b(m)
+
+
+def t15_pre_earnings(p: Panel, f: Features, lead: int = 5) -> Bool:
+    """T15 earnings announcement premium (Barber et al. 2013): the own session ``lead`` sessions before a
+    reaction session. ASSUMPTION (flagged in the report): the announcement date is known ``lead`` sessions
+    ahead (most European issuers publish a financial calendar)."""
+    react, known = _earnings(p)
+    ahead = shift(pack(react.astype(np.float64), f.pk), -int(lead)) == 1.0
+    return _b(f.elig & known & unpack_bool(ahead, f.pk, p.shape[0]))
+
+
+def t16_shock_without_news(
+    p: Panel, f: Features, k_sigma: float = 2.0, rvol_min: float = 2.0, close_top: float = 0.5
+) -> Bool:  # fmt: skip
+    """T16 control of T14 (Chan 2003: shocks without news reverse): the same shock on a session inside the known
+    span with no reaction session within ± ``NEWS_WINDOW_SESSIONS`` own sessions (the dates of the next two
+    sessions' announcements assumed known, as for T15)."""
+    react, known = _earnings(p)
+    r = pack(react.astype(np.float64), f.pk) == 1.0
+    near = np.zeros_like(r)
+    for k in range(-NEWS_WINDOW_SESSIONS, NEWS_WINDOW_SESSIONS + 1):
+        near |= shift(r.astype(np.float64), k) == 1.0
+    return _b(information_shock(p, f, k_sigma, rvol_min, close_top) & known & ~unpack_bool(near, f.pk, p.shape[0]))
 
 
 def t11_low_vol(f: Features) -> Bool:

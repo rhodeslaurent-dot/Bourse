@@ -1,6 +1,7 @@
-"""docs/33 §33.3 — prospective shadow tracking of registration n° 2 on the European venues.
+"""docs/33 §33.3 — prospective shadow tracking of registration n° 2 on the European venues (and, with
+``plan=PLAN_REG3``, of registration n° 3's confirmatory cells C1 / C2, docs/34 §34.5).
 
-Each evening, the frozen cells of the plan (C1, C2 momentum; X2 52-week-high proximity — never the placebo)
+Each evening, the frozen cells of the plan (n° 2: C1, C2 momentum; X2 52-week-high proximity — never the placebo)
 are evaluated on the day with the research engine itself, on the European groups (P0 / P1 / P2), and their
 signals are stored. Nothing is shown, alerted or traded: the series serves only a pre-declared analysis (the
 suspension rule of an eventual production ADR). The lockouts are outcome-free: a monthly cell skips the
@@ -24,8 +25,21 @@ from app.db.models import ShadowSignal
 
 log = logging.getLogger("bourse.shadow")
 
-PLAN = Path(__file__).resolve().parents[2] / "research" / "prereg" / "2026-10-28_reg2.yaml"
+PREREG_DIR = Path(__file__).resolve().parents[2] / "research" / "prereg"
+PLAN = PREREG_DIR / "2026-10-28_reg2.yaml"
 SHADOW_CELLS = ("C1", "C2", "X2.t03.gatet13.h21")  # the placebo X1 is not tracked
+# registration n° 3 (docs/34 §34.5): its two confirmatory cells (t14 after an earnings announcement, h 10 / 20)
+PLAN_REG3 = PREREG_DIR / "2026-10-28_reg3.yaml"
+SHADOW_CELLS_BY_PLAN = {PLAN.name: SHADOW_CELLS, PLAN_REG3.name: ("C1", "C2")}
+
+
+def shadow_cells(plan: Path) -> tuple[str, ...]:
+    """Cells tracked for a plan: the declared list, else its confirmatory cells (never a placebo)."""
+    if plan.name in SHADOW_CELLS_BY_PLAN:
+        return SHADOW_CELLS_BY_PLAN[plan.name]
+    from app.services.research import load_prereg
+
+    return tuple(c.id for c in load_prereg(plan).confirmatory)
 
 
 def _is_month_end(config: LoadedConfig, calendars: Any, group: str, day: date) -> bool:
@@ -61,7 +75,8 @@ def record_shadow_signals(
     from app.services.research import load_panels, load_prereg, resolve_settings
 
     prereg = load_prereg(plan)
-    cells = [c for c in prereg.cells if c.id in SHADOW_CELLS]
+    tracked = shadow_cells(Path(plan))
+    cells = [c for c in prereg.cells if c.id in tracked]
     st, _ = resolve_settings(config, prereg, "all")
     start = today - timedelta(days=700)  # 252 sessions of warm-up and the 12-month momentum, with a margin
     panels, _ = load_panels(s, config, calendars, prereg, start, today, "all", None, None, default_groups=True)

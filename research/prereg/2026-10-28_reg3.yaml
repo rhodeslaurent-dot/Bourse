@@ -1,0 +1,143 @@
+# Plan de recherche pré-enregistré — enregistrement n° 3 (docs/34 §34.5). Ce fichier EST le plan : il est GELÉ
+# le 28/10/2026, AVANT tout chargement de l'historique des publications de résultats dans la base de l'utilisateur
+# et AVANT toute lecture d'un résultat lié à ces publications. Son empreinte sha256 est inscrite au registre à
+# chaque exécution ; le modifier crée un NOUVEL enregistrement.
+# Hypothèses tirées de la littérature, pas des données (synthèse : docs/34 §34.3) : dérive après publication
+# mesurée par le rendement anormal et le volume du jour de réaction (Brandt et al. 2008 ; Garfinkel & Sokobin
+# 2006) ; les chocs AVEC nouvelle se prolongent, les chocs SANS nouvelle se retournent (Chan 2003) ; prime
+# d'avant publication (Barber et al. 2013).
+# Repris à l'identique du n° 2 : seuils A1–A13, inférence, clés de paramètres, hypothèses chiffrées, plis du
+# walk-forward, placebo X1 exécuté et lu AVANT C1 / C2, Holm sur 2. Modifications déclarées, choisies avant toute
+# donnée : groupes européens P0 / P1 / P2 de params.yaml (Londres, Zurich et New York exclus : données de test
+# du n° 2) ; compte CTO pour le verdict, PEA pour les valeurs éligibles en seconde vue des coûts ; période
+# ANCIENNE scellée 2007-01-02 → 2015-09-30 (historique européen d'avant 2016 absent de la base : il ne sera
+# chargé — backfill --from 2005-01-01 et earnings-history --from 2005-01-01 — qu'APRÈS le gel de ce plan), ouverte
+# une seule fois par « research unseal » pour les cellules classées CANDIDAT ; aucune exécution « run » ne lit une
+# séance de cette période (données à partir du 2016-01-04).
+# Couverture : un groupe dont moins de min_earnings_coverage des observations éligibles (valeur × séance) de la
+# fenêtre des signaux sont « connues » (à moins de earnings_known_margin_days jours d'une publication chargée)
+# est déclaré « couverture insuffisante » : ses cellules t14 / t15 / t16 ne produisent aucun signal et il ne
+# compte pas dans le verdict ; la couverture de chaque groupe est imprimée dans l'en-tête du rapport.
+id: "2026-10-28_reg3"
+title: "Recherche de déclencheurs — enregistrement n° 3 : déclencheurs d'information (résultats)"
+registered_on: "2026-10-28"
+seed: 20261029
+
+# pas de clé venue_groups : les groupes européens P0 / P1 / P2 de params.yaml (régime CAC 40 / STOXX 600)
+
+segments:
+  warmup_sessions: 252
+  discovery: ["2017-01-02", "2026-07-31"]    # toute la période est « test » : rien n'a été choisi sur les publications
+  embargo: ["2099-01-01", "2099-01-02"]      # sans objet : la période scellée de ce plan est ANCIENNE (replication)
+  holdout_start: "2099-01-03"
+  end_margin_sessions: 65
+  purge_sessions: 65
+  wf_test:                                   # 5 plis (A5 : ≥ 4 positifs sur 5), comme au n° 2
+    - ["2018-01-01", "2019-08-31"]
+    - ["2019-09-01", "2021-04-30"]
+    - ["2021-05-01", "2022-12-31"]
+    - ["2023-01-01", "2024-08-31"]
+    - ["2024-09-01", "2026-07-31"]
+
+replication:                                 # période scellée ancienne : descellée une fois (research unseal)
+  start: "2007-01-02"
+  end: "2015-09-30"
+
+parameters_keys:                             # lus dans config/params.yaml (règle 8 : source unique)
+  min_price: "universe.min_price"
+  min_turnover_eur: "universe.min_adv_eur_pea"
+  min_turnover_cto_eur: "universe.min_adv_eur_cto"
+  small_cap_threshold_eur: "universe.small_cap_threshold_eur"
+  breadth_green: "regime.breadth_green"
+  index_isins: "regime.index_isins"
+  slippage_pct: "risk.slippage_pct"
+  max_risk_per_trade_pct: "risk.max_risk_per_trade_pct"
+  max_position_pct_of_capital: "risk.max_position_pct_of_capital"
+  fx_haircut: "risk.fx_haircut"
+  max_open_risk_pct: "risk.max_open_risk_pct"
+  capital_pilote_eur: "capital.capital_pilote_eur"
+  expiry_sessions: "entry.expiry_sessions"
+  ma20_exit_closes: "detectors.exits.thesis_mm20_close_below_days"
+  ttf_rate: "tax.ttf_rate"
+  ttf_cap_threshold_eur: "tax.ttf_cap_threshold_eur"
+  pfu_total_rate: "tax.pfu_total_rate"
+  ftt_by_country: "tax.ftt_by_country"
+  srd_daily_rate: "srd.crd_daily_rate"
+  brokers: "brokers.saxo, brokers.boursobank"
+
+assumptions:
+  fx_static_eur_per_unit:                    # repli quand fx_rates ne couvre pas la date (seuil de liquidité seulement)
+    value: {SEK: 0.088, DKK: 0.134, NOK: 0.086, PLN: 0.232, GBP: 1.16, GBX: 0.0116, CHF: 1.04, USD: 0.92}
+    assumption: true
+  ca_jump: {value: 0.2, assumption: true}                  # saut du facteur d'ajustement = opération sur titres (exclue)
+  dividend_min_drop: {value: 0.002, assumption: true}      # baisse minimale du facteur = dividende
+  dividend_yield_sanity: {value: [0.0, 0.12], assumption: true}   # rendement annuel implicite plausible (contrôle Milan)
+  bankruptcy_hazard_small: {value: 0.03, assumption: true}  # par an, petites capitalisations
+  bankruptcy_hazard_large: {value: 0.005, assumption: true} # par an, grandes capitalisations
+  takeover_jump: {value: 0.25, assumption: true}           # OPA : +25 % (même taux annuel que la faillite)
+  capacity_pct_of_turnover: {value: 0.02, assumption: true} # capacité : notionnel ≤ 2 % du volume médian 20 séances
+  momentum_entry_cap_atr: {value: 1.0, assumption: true}   # repris du n° 2 (aucune cellule momentum ici)
+  cost_stress_multiplier: {value: 1.5, assumption: false}
+  slippage_stress_multiplier: {value: 2.0, assumption: false}
+  top_n_monthly: {value: 6, assumption: false}
+  earnings_known_margin_days: {value: 100, assumption: true}      # « connue » : à ≤ 100 jours d'une publication chargée
+  earnings_reaction_max_gap_days: {value: 7, assumption: true}    # séance de réaction au plus 7 jours après la date
+  earnings_date_known_sessions_ahead: {value: 5, assumption: true} # t15 (et ± 2 séances de t16) : date connue d'avance
+
+thresholds:
+  gate_t_week: 2.0
+  a1: {event_min_n: 300, event_min_weeks: 100, fold_min_trades: 40, rank_min_months: 60, rank_min_trades_slot: 200}
+  a2: {min_mean_r: 0.10, min_eur_per_budget: 30.0, min_profit_factor: 1.15}
+  a3: {holm_alpha: 0.05, rw_alpha: 0.05, min_t: 3.0, min_dsr: 0.95, max_pbo: 0.30}
+  a4: {min_excess: 0.08, max_perm_p: 0.01}
+  a5: {min_positive_folds: 4}
+  a9: {min_hazard_multiple: 2.0}
+  a10: {max_top10_share: 0.40}
+  a12: {max_hold_sessions: 63}
+  a13: {max_dd_ratio_vs_benchmark: 1.0, slots: 6}
+  watchlist_bh_q: 0.10
+  power_min: 0.5
+  report_min_n: 20
+  candidates_max: 5
+  stage1: {max_triggers: 4, min_delta_r: 0.05, min_positive_folds: 4, max_pbo: 0.30, max_dd_worse: 0.10}
+  existing_detectors_ci_high_max: 0.0
+  min_earnings_coverage: 0.50                # part des observations éligibles « connues » ; en dessous : hors verdict
+
+inference:
+  bootstrap_draws: 2000
+  block_weeks: 4
+  permutation_draws: 500
+  permutation_top: 30
+  pbo_blocks: 16
+  power_edges: [0.10, 0.20]
+  power_decision_edge: 0.20
+  power_reps: 50
+
+confirmatory:                                # Holm sur 2, unilatéral ; verdict sur le CTO, PEA en seconde vue
+  # C1 = t14 : séance de réaction J0, rendement anormal (J−1 → J0, moins l'indice de la place) ≥ 2 σ20 d'avant J0,
+  # volume ≥ 2 × la médiane des 50 séances précédentes, clôture dans la moitié haute de J0 ; sans filtre de surprise.
+  # Entrée à l'ouverture suivante plafonnée (E_open(1), validité 1), stop initial standard du banc (X3), sortie à 10 séances
+  - {id: C1, trigger: t14, params: {k_sigma: 2.0, rvol_min: 2.0, close_top: 0.5, require_surprise: false}, gate: none, h: 10, exit: X3, cap_atr: 1.0, validity: 1, accounts: [cto, pea]}
+  # C2 = C1 à 20 séances
+  - {id: C2, trigger: t14, params: {k_sigma: 2.0, rvol_min: 2.0, close_top: 0.5, require_surprise: false}, gate: none, h: 20, exit: X3, cap_atr: 1.0, validity: 1, accounts: [cto, pea]}
+
+exploratory:                                 # jamais une conséquence de production
+  # X1 placebo, lu AVANT C1/C2 : valeurs et dates éligibles tirées au hasard (graine du plan), mêmes entrées et sorties
+  - {family: X1, trigger: t00, params: {seed: 20261029, rate: 0.001}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [10, 20]}}
+  # X2 : C1 avec surprise positive exigée (BPA publié > BPA attendu ; inconnu → pas de signal)
+  - {family: X2, trigger: t14, params: {k_sigma: 2.0, rvol_min: 2.0, close_top: 0.5, require_surprise: true}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [10]}}
+  # X3 : prime d'avant publication — signal 5 séances avant la séance de réaction, sortie à la clôture de la séance
+  # qui la précède (sortie temporelle h = lead − 1 = 4 séances, la séance d'exécution comptant pour la première)
+  - {family: X3, trigger: t15, params: {lead: 5}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [4]}}
+  # X4 : contrôle — même choc que C1 sans publication à ± 2 séances (attendu : retournement) ; X4 ≈ C1 → la
+  # publication n'est pas le moteur
+  - {family: X4, trigger: t16, params: {k_sigma: 2.0, rvol_min: 2.0, close_top: 0.5}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [10]}}
+
+stage1:
+  exits: [X1, X2, X3, X4, X5, X6, X7, X8]
+  max_cells: 0                               # pas d'étape 1 : aucune sortie choisie dans ce plan
+stage2:
+  max_cells: 3
+
+max_total_cells: 20
+expected_total_cells: 10           # 2 confirmatoires + 2 placebo + 3 exploratoires + 0 étape 1 + 0 F0 + 3 portefeuille

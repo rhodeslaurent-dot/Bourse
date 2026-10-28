@@ -369,8 +369,8 @@ def run_registration(
     slots, slot_warning = portfolio_slots(prereg, st)
     if slot_warning and progress:
         progress(slot_warning)
-    if holdout:
-        window = (seg.holdout_start, date(2999, 12, 31))
+    if holdout:  # the sealed period: the holdout, or the plan's old replication period (registration n° 3)
+        window = prereg.sealed_window
         cells = [c for c in prereg.cells if c.id in set(holdout_cells or ()) and c.tier != "f0"]
     else:
         window = seg.discovery
@@ -394,6 +394,14 @@ def run_registration(
         stats[c.id] = s
     out: dict[str, Any] = {"segment": "scelle" if holdout else "decouverte", "cellules": stats,
                            "lignes_portefeuille": slots, "avertissements": [slot_warning] if slot_warning else []}  # fmt: skip
+    if res.coverage:  # registration n° 3: earnings coverage per venue group (a group below the floor does not count)
+        out["couverture_resultats"] = res.coverage
+        low = sorted(k for k, v in res.coverage.items() if not v.get("compte_dans_le_verdict"))
+        if low:
+            out["avertissements"].append(
+                f"couverture des publications insuffisante (groupe(s) {', '.join(low)}) : leurs cellules « résultats » "
+                f"ne produisent aucun signal et ne comptent pas dans le verdict"
+            )
     if holdout:
         return out
 
