@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from app.config import ConfigError, LoadedConfig, load_params
 
@@ -1454,6 +1454,40 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_moves_study(args: argparse.Namespace) -> int:
+    """docs/34 — the rises the tool missed: episodes, replay of the production rules, why not, control sample.
+    Exploratory; European venues only (New York, London, Zurich stay unread until registration n° 2 has run).
+    Aggregated report under ``--out``; a line in the research ledger (every read of the data is counted)."""
+    from pathlib import Path
+
+    from app.db.session import db_session
+    from app.domain.calendar import load_market_calendars
+    from app.domain.moves import MoveParams
+    from app.services import moves
+    from app.services.research import append_ledger
+
+    cfg = load_params(args.params)
+    calendars = load_market_calendars(args.calendars)
+    end = date.fromisoformat(args.to) if args.to else date.today() - timedelta(days=1)
+    start = date.fromisoformat(args.from_date)
+    if start < date(2017, 1, 2):
+        print("refusé : avant 2017 les données européennes sont réservées à la confirmation (docs/34 §34.5)")
+        return 2
+    mp = MoveParams(min_rise=args.min_rise, horizon=args.horizon)
+    with db_session() as s:
+        rep = moves.run_study(s, cfg, calendars, start, end, args.max_episodes, args.control_values, args.seed, mp,
+                              lambda m: print(f"  {m}", flush=True), args.max_instruments)  # fmt: skip
+    j, t = moves.write(rep, Path(args.out))
+    append_ledger(
+        Path(args.research_out),
+        {"timestamp": datetime.now(UTC).isoformat(timespec="seconds"), "kind": "etude_hausses_exploratoire",
+         "universe": f"P0/P1/P2 {start}→{end}", "report": str(t)},
+    )  # fmt: skip
+    print(moves.render_fr(rep))
+    print(f"\nrapport : {t} (agrégats seulement) · détail : {j}")
+    return 0
+
+
 def cmd_research(args: argparse.Namespace) -> int:
     """docs/31 — trigger research harness (pre-registered plan): run, decompose, calibrate, unseal. Writes an
     aggregated report (statistics only) under ``--out``."""
@@ -2132,6 +2166,18 @@ def main(argv: list[str] | None = None) -> int:
     br = sub.add_parser("backtest-report", help="diagnostic du dernier backtest : coûts, sorties, excursions, régimes")
     br.add_argument("--run", type=int, default=None)
     br.set_defaults(fn=cmd_backtest_report)
+    mv = sub.add_parser("moves-study", help="hausses manquées (docs/34) : rejeu de l'outil, pourquoi pas, contrôle")
+    mv.add_argument("--from", dest="from_date", default="2017-01-02", help="début (pas avant 2017-01-02)")
+    mv.add_argument("--to", default=None, help="fin (défaut : hier)")
+    mv.add_argument("--max-episodes", dest="max_episodes", type=int, default=20_000, help="hausses rejouées (tirage)")
+    mv.add_argument("--control-values", dest="control_values", type=int, default=120, help="valeurs du contrôle")
+    mv.add_argument("--min-rise", dest="min_rise", type=float, default=0.05)
+    mv.add_argument("--horizon", type=int, default=10, help="séances de la barrière du contrôle")
+    mv.add_argument("--seed", type=int, default=7)
+    mv.add_argument("--max-instruments", dest="max_instruments", type=int, default=None)
+    mv.add_argument("--out", default="data/studies")
+    mv.add_argument("--research-out", dest="research_out", default="data/research", help="dossier du registre")
+    mv.set_defaults(fn=cmd_moves_study)
     rs = sub.add_parser("research", help="recherche de déclencheurs pré-enregistrée (docs/31) : rapport agrégé")
     rs.add_argument("action", choices=["run", "decompose", "calibrate", "unseal", "explain"])
     rs.add_argument("--prereg", default="research/prereg/2026-10-27_reg1.yaml")
