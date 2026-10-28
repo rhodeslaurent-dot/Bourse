@@ -40,6 +40,7 @@ from app.domain.costs import (
     CostParams,
     alt_listing_saving,
     envelope_tax_rate,
+    foreign_tax,
     net_outcome,
     round_trip_fee_fraction,
 )
@@ -318,7 +319,7 @@ def evaluate(
     ttf_due, ttf_basis = ttf_status(
         inst.isin, inst.market_cap_eur, float(tax.get("ttf_cap_threshold_eur") or 1e9), now.year
     )
-    ftt = float((tax.get("ftt_by_country") or {}).get(inst.isin[:2], 0.0))
+    ftt, ftt_basis = foreign_tax((tax.get("ftt_by_country") or {}).get(inst.isin[:2]), inst.market_cap_eur)
     target = setup.targets[0] if setup.targets else None
     options = _account_options(inst, config)
     # size (docs/28): reference R × the day's risk level (market, portfolio, recent results, edge — already
@@ -462,6 +463,18 @@ def evaluate(
             "PEA imposé aux seuls prélèvements sociaux : suppose aucun retrait avant 5 ans (choix du 25/10/2026)"
         )
     ev.details["ttf"] = {"due": ttf_due, "base": ttf_basis}
+    if (tax.get("ftt_by_country") or {}).get(inst.isin[:2]) is not None:
+        ev.details["taxe_etrangere"] = {"pays": inst.isin[:2], "taux": ftt, "base": ftt_basis}
+    excluded = {}
+    if "pea" not in options:
+        excluded["pea"] = "valeur non éligible au PEA (siège hors UE/EEE ou fonds non éligible)"
+    if "cto_srd" not in options:
+        excluded["cto_srd"] = (
+            "SRD réservé aux valeurs d'Euronext Paris"
+            if inst.mic != "XPAR"
+            else f"SRD {inst.srd_status} selon les règles"
+        )
+    ev.details["comptes_exclus"] = excluded
     # SRD (R13): only if better than cash, or cash short on the cash accounts; restricted on Brent (R12)
     if best and best[0] == "cto_srd":
         cash_row = per_account.get("cto_cash", {})

@@ -52,6 +52,119 @@ def resolve_isin(s: Session, text: str) -> str | None:
     return rows[0].isin if len(rows) == 1 else None
 
 
+NAME_STOPWORDS = {
+    "sa",
+    "sau",
+    "se",
+    "nv",
+    "ag",
+    "plc",
+    "spa",
+    "bv",
+    "ab",
+    "asa",
+    "oyj",
+    "as",
+    "ltd",
+    "inc",
+    "corp",
+    "co",
+    "cie",
+    "sca",
+    "kgaa",
+    "group",
+    "groupe",
+    "holding",
+    "holdings",
+    "the",
+    "et",
+    "de",
+    "du",
+    "des",
+    "la",
+    "le",
+    "les",
+    "and",
+    "international",
+    "company",
+    "companies",
+    "enterprises",
+    "industries",
+    "societe",
+    "compagnie",
+    "ordinary",
+    "shares",
+}
+
+
+COMMON_WORDS = {
+    "orange",
+    "rouge",
+    "vert",
+    "air",
+    "credit",
+    "banque",
+    "bank",
+    "france",
+    "europe",
+    "euro",
+    "global",
+    "capital",
+    "energie",
+    "energy",
+    "total",
+    "societe",
+    "generale",
+    "national",
+    "technologies",
+    "services",
+    "immobilier",
+}
+
+
+def _norm(text: str) -> list[str]:
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+    return re.findall(r"[a-z0-9]+", t)
+
+
+def _name_keys(name: str) -> list[str]:
+    return [w for w in _norm(name) if w not in NAME_STOPWORDS and len(w) >= 3]
+
+
+def mentioned_isin(s: Session, text: str, pool: list[str]) -> str | None:
+    """The value a free question names (« pourquoi Cirsa perd… »): among the values of the user's pages (today's
+    proposals, watchlist, positions), the one whose distinctive name word — or local ticker — appears in the
+    text. Unique match only; an ambiguous or absent name leaves the question general."""
+    if not text or not pool:
+        return None
+    words = set(_norm(text))
+    upper = set(re.findall(r"\b[A-Z0-9]{3,6}\b", text))
+    hits: set[str] = set()
+    for inst in s.scalars(select(Instrument).where(Instrument.isin.in_(set(pool)))):
+        keys = _name_keys(inst.name or "")
+        named = bool(keys) and len(keys[0]) >= 4 and keys[0] in words
+        if named and keys[0] in COMMON_WORDS:  # « régime orange » is not Orange SA: the full name is required
+            named = f" {' '.join(_norm(inst.name or ''))} " in f" {' '.join(_norm(text))} "
+        if named or (inst.ticker_local and inst.ticker_local in upper):
+            hits.add(inst.isin)
+    return hits.pop() if len(hits) == 1 else None
+
+
+def question_pool(s: Session, now: datetime | None = None) -> list[str]:
+    now = now or datetime.now(UTC)
+    since = now - timedelta(days=3)
+    pool = {w.isin for w in s.scalars(select(WatchlistRow).where(WatchlistRow.active.is_(True)))}
+    pool |= {
+        p.isin for p in s.scalars(select(Proposal).where(Proposal.deleted_at.is_(None), Proposal.created_at >= since))
+    }
+    pool |= {
+        r.isin for r in s.scalars(select(PositionRow).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0))
+    }
+    return sorted(pool)
+
+
 def search_instruments(s: Session, q: str, limit: int = 12) -> list[Instrument]:
     q = (q or "").strip()
     if len(q) < 2:
@@ -186,6 +299,7 @@ def build_context(
         {
             "date": _d(p.created_at),
             "explication": explain_proposal(p, s.get(Signal, p.signal_id), None, capital).summary,
+            **proposal_facts(p, s.get(Signal, p.signal_id)),
             "decisions": [
                 label("decision", d.decision) for d in s.scalars(select(Decision).where(Decision.proposal_id == p.id))
             ],
@@ -244,6 +358,62 @@ def build_context(
             "niveaux_notes": w.levels,
         }
     return ctx
+
+
+ACCOUNT_ROW_KEYS = {
+    "statut": "statut_admission",
+    "p_max": "prix_maximal",
+    "frais_aller_retour_pct": "frais_aller_retour_fraction",
+    "titres": "titres",
+    "montant_eur": "montant_eur",
+    "risque_eur": "risque_eur",
+    "gain_net_eur": "gain_net_a_l_objectif_eur",
+    "gain_net_pct": "gain_net_a_l_objectif_fraction",
+    "perte_nette_eur": "perte_nette_au_stop_eur",
+    "perte_nette_pct": "perte_nette_au_stop_fraction",
+    "ratio_net": "ratio_gain_perte_net",
+    "impot_eur": "impot_sur_le_gain_eur",
+    "portage_srd_eur": "portage_srd_eur",
+    "blocage_taille": "blocage_taille",
+}
+
+
+def proposal_facts(p: Proposal, sig: Signal | None) -> dict[str, Any]:
+    """What the engine computed for a proposal, as stored (rule 10): levels, the full cost per account, the
+    accounts left out and why, the taxes applied, and where the expected R comes from — the detector's history,
+    never a figure proper to the value."""
+    d = p.details or {}
+    out: dict[str, Any] = {
+        "action": label("action", p.action),
+        "detecteur": sig.detector if sig else None,
+        "compte_conseille": label("account", p.account_recommended) if p.account_recommended else None,
+        "stop": _d(p.stop),
+        "objectifs": [_d(x) for x in (p.targets or [])],
+        "regles_bloquantes": list((p.gates or {}).get("blocked") or []),
+        "couts_par_compte": {
+            label("account", acc): {ACCOUNT_ROW_KEYS[k]: _d(v) for k, v in row.items() if k in ACCOUNT_ROW_KEYS}
+            for acc, row in (d.get("comptes") or {}).items()
+        },
+        "comptes_exclus": {label("account", a): why for a, why in (d.get("comptes_exclus") or {}).items()},
+        "taxe_transactions_france": d.get("ttf"),
+        "taxe_etrangere": d.get("taxe_etrangere"),
+    }
+    er = d.get("esperance_nette_r")
+    if er is not None:
+        hist, bt = d.get("historique") or {}, d.get("esperance_backtest") or {}
+        origin = (
+            f"backtest du détecteur au coût complet ({bt.get('n')} trades)"
+            if bt
+            else f"historique comparable du détecteur ({hist.get('n')} cas)"
+            if hist
+            else "non précisée"
+        )
+        out["esperance_nette"] = {
+            "valeur_R": _d(er),
+            "origine": origin,
+            "portee": "moyenne des cas passés du même détecteur, pas un calcul propre à cette valeur",
+        }
+    return {k: v for k, v in out.items() if v not in (None, {}, [])}
 
 
 PAGES = {
@@ -306,13 +476,14 @@ def page_facts(s: Session, page: str | None, config: Any | None, now: datetime) 
             rows.append(
                 {
                     "isin": p.isin,
+                    "nom": (s.get(Instrument, p.isin).name if s.get(Instrument, p.isin) else None),
                     "action": label("action", p.action),
                     "explication": ex.summary,
                     "historique_comparable": ex.track,
                     "a_verifier": p.to_verify,
                 }
             )
-        out["propositions_du_jour"] = rows[:20]
+        out["propositions_du_jour"] = rows[:40]
     elif page == "/positions":
         out["liquidites"] = [
             {

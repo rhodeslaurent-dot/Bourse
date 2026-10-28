@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.config import LoadedConfig
 from app.db.models import BacktestRun, BacktestTrade, FxRate, Instrument, PriceEod
 from app.domain.calendar import MarketCalendars
+from app.domain.costs import ftt_rate_any
 from app.domain.research import f0 as F0
 from app.domain.research.classify import Tier, unseal_confirmed
 from app.domain.research.costs import Account, ttf_rates
@@ -384,7 +385,7 @@ def load_panels(
             np.array([bool(meta[x].small_cap) or (meta[x].market_cap_eur or 0) < float(u.get("small_cap_threshold_eur", 1e9)) for x in isins_k], dtype=bool),
             np.array([bool(meta[x].pea_eligible) or (meta[x].pea_eligible is None and x[:2] in pea_countries) for x in isins_k], dtype=bool),
             ttf_rates(isins_k, caps.tolist(), ttf_rate, ttf_cap),
-            np.array([float(ftt.get(x[:2], 0.0)) for x in isins_k]),
+            np.array([ftt_rate_any(ftt.get(x[:2])) for x in isins_k]),
             np.array([fx_fee if (meta[x].currency or "EUR") != "EUR" else 0.0 for x in isins_k]),
             np.array([bool(meta[x].in_universe) for x in isins_k], dtype=bool),
             own_idx if own_idx is not None else cac, stoxx, arrays["vintage"][:, keep].astype(np.int64),

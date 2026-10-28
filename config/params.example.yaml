@@ -519,7 +519,10 @@ tax:
     ttf_on_srd: true                    # hypothèse prudente, à confirmer sur relevé Saxo
     pea_historic_rates: null            # taux historiques si PEA ouvert avant 2018 (à renseigner)
     ttf_scope: "official_list"          # R11 : liste annuelle officielle des sociétés soumises (siège FR), pas la place de cotation
-    ftt_by_country: {IT: 0.001, ES: 0.002, GB: 0.005}   # à confirmer (taxes étrangères sur achats), par pays d'émetteur
+    ftt_by_country:                     # taxes étrangères sur achats, par pays d'émetteur (préfixe ISIN) ; à confirmer
+      IT: {rate: 0.001, min_market_cap_eur: 500000000}    # Italie : sociétés > 500 M€ (capitalisation de référence de l'État italien)
+      ES: {rate: 0.002, min_market_cap_eur: 1000000000}   # Espagne (ITF) : sociétés > 1 Md€ au 1er décembre précédent
+      GB: 0.005                                           # droit de timbre britannique, sans seuil (hors AIM, non géré)
     assume_loss_offset: false           # prudence : aucun crédit d'impôt supposé sur une perte
   - effective_from: "2018-01-01"
     social_contributions_rate: 0.172

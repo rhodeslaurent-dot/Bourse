@@ -24,7 +24,7 @@ from app.config import LoadedConfig
 from app.db.models import BacktestRun, BacktestTrade, Instrument, PriceEod
 from app.domain.admission import AdmissionInput, Status, admit
 from app.domain.backtest import simulate_trade, summarize
-from app.domain.costs import CostParams, round_trip_fee_fraction
+from app.domain.costs import CostParams, ftt_rate_any, round_trip_fee_fraction
 from app.domain.detectors import DETECTORS, DetectorContext
 from app.domain.indicators import Bar, compute_daily_features, sma
 from app.domain.zones import detect_zones
@@ -105,7 +105,7 @@ def _cost_params(config: LoadedConfig, inst: Instrument) -> CostParams:
         float(tax.get("ttf_rate") or 0.004) if inst.isin.startswith("FR") and (inst.market_cap_eur or 0) >= 1e9 else 0.0
     )
     fx = float(((p.brokers or {}).get("saxo") or {}).get("fx_fee_pct") or 0) if inst.currency != "EUR" else 0.0
-    ftt = float((tax.get("ftt_by_country") or {}).get(inst.isin[:2], 0.0))
+    ftt = ftt_rate_any((tax.get("ftt_by_country") or {}).get(inst.isin[:2]))
     return CostParams(_fees(config, "cto_cash"), ttf_rate=ttf, ftt_rate=ftt, fx_fee_pct=fx)
 
 

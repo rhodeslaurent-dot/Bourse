@@ -41,6 +41,38 @@ class NetOutcome:
     net_reward_risk: float | None
 
 
+def foreign_tax(spec: object, market_cap_eur: float | None) -> tuple[float, str]:
+    """Foreign transaction tax on a purchase (``tax.ftt_by_country[<ISIN prefix>]``): a bare rate applies to
+    every issuer of the country; ``{rate, min_market_cap_eur}`` only above the cap (Spain 1 bn€, Italy 500 M€,
+    assessed by each country on a reference date — the current cap is a presumption). An unknown cap keeps
+    the tax (prudence). Returns (rate, basis)."""
+    if spec is None:
+        return 0.0, "aucune taxe étrangère"
+    if isinstance(spec, int | float):
+        return float(spec), "taux du pays d'émission"
+    if not isinstance(spec, dict):
+        return 0.0, "paramètre illisible"
+    rate = float(spec.get("rate") or 0.0)
+    floor = spec.get("min_market_cap_eur")
+    if floor is None:
+        return rate, "taux du pays d'émission"
+    if market_cap_eur is None:
+        return rate, "capitalisation inconnue : taxe retenue par prudence"
+    if market_cap_eur >= float(floor):
+        return rate, f"capitalisation ≥ {float(floor) / 1e9:g} Md€ (présomption sur la capitalisation actuelle)"
+    return 0.0, f"capitalisation < {float(floor) / 1e9:g} Md€ : non due (présomption)"
+
+
+def ftt_rate_any(spec: object) -> float:
+    """The rate of a ``tax.ftt_by_country`` entry whatever its form, threshold ignored: historical studies (backtest,
+    research) have no point-in-time market cap, and their registered runs must replay with the same costs."""
+    if isinstance(spec, int | float):
+        return float(spec)
+    if isinstance(spec, dict):
+        return float(spec.get("rate") or 0.0)
+    return 0.0
+
+
 def buy_fees(notional_eur: float, p: CostParams) -> float:
     return p.fees.commission(notional_eur) + notional_eur * (p.ttf_rate + p.ftt_rate + p.fx_fee_pct)
 

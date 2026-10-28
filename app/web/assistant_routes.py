@@ -10,7 +10,16 @@ from sqlalchemy import select
 
 from app.db.models import AssistantMessage, Instrument, NewsItem, PositionRow, PriceEod, Proposal, Signal, WatchlistRow
 from app.db.session import db_session
-from app.services.assistant import PAGES, ask, build_context, page_key, resolve_isin, search_instruments
+from app.services.assistant import (
+    PAGES,
+    ask,
+    build_context,
+    mentioned_isin,
+    page_key,
+    question_pool,
+    resolve_isin,
+    search_instruments,
+)
 from app.services.explain import explain_proposal
 from app.services.market_data import latest_features
 from app.services.notes import get_note
@@ -76,7 +85,9 @@ def _ask_from_form(request: Request, question: str, isin: str, page: str):  # ty
     st = request.app.state
     cfg = st.config
     with db_session() as s:
-        target = resolve_isin(s, isin) or (resolve_isin(s, question) if not isin else None)
+        target = resolve_isin(s, isin) or (
+            (resolve_isin(s, question) or mentioned_isin(s, question, question_pool(s))) if not isin else None
+        )
         ask(
             s,
             getattr(st, "llm", None),
