@@ -273,7 +273,7 @@ Recherche documentaire. EODHD est lu dans sa documentation officielle publiée s
 
 ## 34.9 Décisions à prendre
 
-1. **Abonnement Saxo Euronext L1** (7 €/mois, remboursés à partir de 4 ordres/mois). Il rend actionnables les entrées repérées en séance ; sans lui, elles restent « à vérifier ».
+1. ~~Abonnement Saxo Euronext L1~~ — **décidé le 28/10/2026 : pas avant la reprise des investissements.** Il sera pris quand l'outil sera finalisé et que l'utilisateur passera au moins 4 ordres par mois. D'ici là, les entrées repérées en séance restent « à vérifier ». Un ADR (niveau de session OpenAPI) sera rédigé à ce moment-là.
 2. **Compte des allers-retours courts.** Recommandation : les faire en CTO Saxo sur les valeurs de la zone euro hors France, et pas dans le PEA Découverte (0,2 R de frais par aller-retour). Le moteur choisit déjà le compte au meilleur ratio net ; c'est une règle de conduite à confirmer.
 3. **Après le verdict n° 3 :**
    - Si C1 ou C2 passent : un détecteur « réaction aux résultats » en production, actionnable sans phase de surveillance, et un ADR.
