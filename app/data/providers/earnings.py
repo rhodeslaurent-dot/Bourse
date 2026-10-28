@@ -47,7 +47,8 @@ def eodhd_earnings(get: Callable[..., Any], symbols: Sequence[str], start: date,
         span = {"from": start.isoformat(), "to": end.isoformat()}
         data = get("/calendar/earnings", symbols=",".join(symbols), **span)
     except ProviderError as exc:
-        if "EODHD 403" in str(exc) or "EODHD 401" in str(exc):
+        # outside the plan EODHD answers 403 (or 402); a 402 may also be the daily quota: Yahoo is free either way
+        if any(f"EODHD {c}" in str(exc) for c in (401, 402, 403)):
             raise ProviderUnavailable(f"calendrier EODHD hors forfait : {exc}") from exc
         raise
     out: list[EarningsRecord] = []

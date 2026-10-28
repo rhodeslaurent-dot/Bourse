@@ -68,6 +68,14 @@ def test_eodhd_calendar_or_its_absence_from_the_plan():
     with pytest.raises(ProviderUnavailable):
         eodhd_earnings(forbidden, ["MC.PA"], date(2016, 1, 1), date(2026, 1, 1))
 
+    def payment(path, **params):
+        from app.data.base import QuotaExceeded
+
+        raise QuotaExceeded("EODHD 402: plan does not include this data")
+
+    with pytest.raises(ProviderUnavailable):  # the plan « EOD+Intraday » has no calendar (docs/34 §34.8)
+        eodhd_earnings(payment, ["MC.PA"], date(2016, 1, 1), date(2026, 1, 1))
+
 
 def test_load_falls_back_to_yahoo_stores_once_and_reports_coverage(db_engine, config, calendars):
     with db_session() as s:

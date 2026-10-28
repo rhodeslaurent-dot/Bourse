@@ -194,7 +194,26 @@ Le plan, gelé avant tout chargement de l'historique des publications, est décr
    - Charger l'historique européen ancien : `backfill --from 2005-01-01` pour l'Europe, puis `earnings-history --from 2005-01-01`.
    - Puis la réplication scellée 2007-2015, en un seul descellement.
 
-## 34.8 Décisions à prendre
+## 34.8 Sources de données vérifiées (28/10/2026)
+
+Recherche documentaire. EODHD est lu dans sa documentation officielle publiée sur GitHub ; les autres sites étaient bloqués par la session, leurs pages sont donc à confirmer.
+
+- **Résultats (BPA publié et estimé).**
+  - Ton forfait EODHD « EOD+Intraday — All World Extended » n'inclut **ni** l'API calendrier, **ni** les fondamentaux : `earnings-history` recevra un 403 et basculera sur Yahoo, comme prévu.
+  - Option payante : « Calendar Feed » à +19,99 $/mois. Elle n'est pas datée à l'époque pour l'Europe (mise à jour « la semaine suivante ») : chaque donnée doit garder son `received_at`.
+  - Yahoo (`yfinance` 1.7, lecture de pages HTML depuis l'été 2025) est fragile et peut répondre 429. La couverture européenne sera lue dans la sortie `coverage` d'`earnings-history`.
+- **Achats de dirigeants.**
+  - France : pas d'API AMF ; les déclarations BDIF sont des PDF, avec un flux RSS. Il faut un archivage quotidien par l'outil, avec la date de publication comme date de disponibilité.
+  - Pas d'export utilisable trouvé pour BaFin (12 mois glissants), l'AFM, la CNMV, l'Italie ou le Royaume-Uni.
+  - Le jeu de données data.gouv n'est plus à jour depuis 2019.
+- **Objectifs et recommandations d'analystes :** aucune source abordable avec un historique européen daté. Seul un **archivage vers l'avant** est fiable.
+- **Temps réel.**
+  - Saxo Level 1 : environ 7 €/mois pour Euronext, 7 € pour Xetra (grille Saxo France à confirmer).
+  - L'abonnement **ne suffit pas**. Il faut aussi passer la session OpenAPI du niveau `OrdersOnly` à `FullTradingAndChat`. Ce changement peut déconnecter SaxoTraderGO ou le faire passer en différé.
+  - Malgré son nom, ce niveau ne passe aucun ordre. La règle 1 reste tenue : aucun endpoint d'ordre, test `test_no_trading_endpoints`. Le changement demande quand même un **ADR** avant d'être codé.
+  - EODHD propose depuis le 26/08/2026 un flux WebSocket européen (`eu`). Sa source est Cboe Europe : ce n'est pas le marché principal, il n'a pas de fixing et son volume est partiel. Son accès avec ton forfait est à tester. Il pourrait servir de second avis affiché avec sa source, jamais mélangé au périmètre principal (`data.perimeter_consistency_required`).
+
+## 34.9 Décisions à prendre
 
 1. **Abonnement Saxo Euronext L1** (7 €/mois, remboursés à partir de 4 ordres/mois). Il rend actionnables les entrées repérées en séance ; sans lui, elles restent « à vérifier ».
 2. **Compte des allers-retours courts.** Recommandation : les faire en CTO Saxo sur les valeurs de la zone euro hors France, et pas dans le PEA Découverte (0,2 R de frais par aller-retour). Le moteur choisit déjà le compte au meilleur ratio net ; c'est une règle de conduite à confirmer.
