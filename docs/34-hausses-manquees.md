@@ -157,9 +157,64 @@ Recherche documentaire faite pour cette demande ; principales sources entre pare
   - son dossier contient le coût complet par compte, les comptes exclus et leur raison, et l'origine de l'espérance ;
   - la fiche affiche « espérance du détecteur ».
 
-## 34.5 Enregistrement n° 3 (déclencheurs d'information)
+## 34.5 Enregistrement n° 3 : déclencheurs d'information (résultats)
 
-Le plan, gelé avant tout chargement de l'historique des publications, est décrit ici dès sa fusion (voir le journal de docs/15).
+> Plan `research/prereg/2026-10-28_reg3.yaml`, empreinte sha256 `7242061336be8fcff1572d65374690fa0c951d5e0bb931cda90ee21eaa8466fd`.
+> - **Gelé le 28/10/2026**, avant tout chargement de l'historique des publications dans la base et avant toute lecture d'un résultat lié à ces publications.
+> - Hypothèses tirées de la littérature (§34.3), pas des données. Graine 20261029.
+> - Seuils A1–A13, inférence, paramètres (`config/params.yaml`) et hypothèses chiffrées repris à l'identique du n° 2.
+
+**Placement des publications.**
+- Une publication est placée sur sa **séance de réaction** J0 :
+  - le jour même, si elle tombe avant l'ouverture, en séance ou à une heure inconnue ;
+  - la séance suivante de la valeur, si elle tombe après la clôture.
+- Si deux sources se contredisent sur l'heure, les deux séances sont marquées, et comptées.
+- Une valeur n'est « connue » qu'à moins de 100 jours d'une publication chargée. Ailleurs, l'absence de publication veut dire « inconnu », jamais « pas de publication », et aucun déclencheur ne s'y déclenche.
+
+**Les trois déclencheurs.**
+- **t14 — dérive après publication** (Brandt et al. 2008 ; Garfinkel & Sokobin 2006). Il se déclenche sur une séance de réaction J0 quand trois conditions sont réunies :
+  - rendement anormal d'au moins 2 écarts-types des 20 rendements précédant J0 (clôture J−1 → clôture J0, moins l'indice de la place : CAC 40 pour Paris, STOXX 600 ailleurs) ;
+  - volume de J0 au moins égal à 2 fois la médiane des 50 séances précédentes ;
+  - clôture dans la moitié haute de la séance.
+- **t15 — prime d'avant publication** (Barber et al. 2013) : achat 5 séances avant la séance de réaction, vente à la clôture de la séance qui la précède. **Hypothèse signalée dans le rapport :** la date de publication est connue 5 séances à l'avance, grâce au calendrier financier publié par la plupart des émetteurs.
+- **t16 — contrôle** (Chan 2003) : le même choc que t14, mais sans publication à ± 2 séances. Un retournement est attendu. Si t16 ≈ t14, ce n'est pas la publication qui fait la hausse.
+
+**Cellules** (10 au total, Holm sur 2 pour les confirmatoires) :
+
+| Cellule | Rôle | Contenu | Sortie |
+|---|---|---|---|
+| C1 | confirmatoire | t14 sans filtre de surprise | 10 séances |
+| C2 | confirmatoire | t14 sans filtre de surprise | 20 séances |
+| X1 | exploratoire | placebo (valeurs et dates tirées au hasard), **lu avant C1 / C2** | 10 et 20 séances |
+| X2 | exploratoire | t14 avec surprise positive exigée (BPA publié > attendu ; inconnu → pas de signal) | 10 séances |
+| X3 | exploratoire | t15 | 4 séances |
+| X4 | exploratoire | t16 | 10 séances |
+
+- **Entrée et stop :** toutes les cellules entrent à l'ouverture suivante, avec un plafond à la clôture + 1 ATR et une validité d'une séance. Elles utilisent le stop initial standard du banc (sortie X3 : 3 σ √h, puis sortie au temps).
+- **Groupes et comptes :** groupes européens P0 / P1 / P2. Le verdict se fait sur le CTO ; le PEA est rapporté comme seconde vue des coûts.
+
+**Couverture.**
+- Un groupe dont moins de 50 % des observations éligibles (valeur × séance) sont « connues » est déclaré « couverture insuffisante ».
+- Ses cellules liées aux résultats ne produisent alors aucun signal, et il ne compte pas dans le verdict.
+- La couverture de chaque groupe et le nombre de publications placées sont imprimés en tête du rapport.
+
+**Périodes.**
+- **Découverte (2017-01-02 → 2026-07-31) :** elle sert entièrement de test, puisque rien n'a été choisi sur les publications. 5 plis de walk-forward.
+- **Période ancienne scellée (2007-01-02 → 2015-09-30) :**
+  - `research run` refuse des données commençant avant le 01/10/2015.
+  - L'historique d'avant 2016 n'est chargé qu'**après le verdict** de l'exécution, et seulement s'il y a des candidats.
+  - La période est ouverte **une seule fois**, pour les cellules classées CANDIDAT : `research unseal --prereg research/prereg/2026-10-28_reg3.yaml --candidates <fichier figé> --universe all --from 2006-01-01 --to 2016-01-31`.
+  - Verdict : A2 complet sur la période, et même signe qu'en découverte.
+
+**Suivi en ombre.** `app/services/shadow.py` sait suivre C1 / C2 (`plan=PLAN_REG3`). Ce suivi n'est pas encore branché dans la tâche quotidienne, car il demande une mise à jour régulière des publications.
+
+**Limites propres à ce plan :**
+- historique des publications chargé après coup (Yahoo ; EODHD hors forfait, §34.8) ;
+- date de publication supposée connue à l'avance pour t15 et pour la fenêtre de t16 ;
+- séance de réaction déduite de l'heure déclarée par la source ;
+- placebo commun à tous les groupes.
+
+Aucun résultat ne change un paramètre ni un détecteur sans ADR.
 
 ## 34.6 Changements appliqués, et ce qui ne change pas
 
@@ -189,7 +244,10 @@ Le plan, gelé avant tout chargement de l'historique des publications, est décr
    - `earnings-history --from 2016-01-01` : publications et couverture, sans aucun cours lu.
    - Me transmettre la couverture.
 6. **Lancer l'étude.** `moves-study --from 2017-01-02` (de préférence la nuit), puis me transmettre le rapport `.txt`.
-7. **Exécuter l'enregistrement n° 3.** Sur 2017-2026, d'abord le placebo, puis C1/C2.
+7. **Exécuter l'enregistrement n° 3.**
+   - `research calibrate --prereg research/prereg/2026-10-28_reg3.yaml --run N`.
+   - Puis `research run --prereg research/prereg/2026-10-28_reg3.yaml --universe all --run N`.
+   - Lire d'abord le placebo X1, puis C1/C2, puis le contrôle X4.
 8. **Seulement pour les cellules retenues.**
    - Charger l'historique européen ancien : `backfill --from 2005-01-01` pour l'Europe, puis `earnings-history --from 2005-01-01`.
    - Puis la réplication scellée 2007-2015, en un seul descellement.
