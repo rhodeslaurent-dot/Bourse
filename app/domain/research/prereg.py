@@ -16,12 +16,15 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Literal
 
 CellTier = Literal["confirmatory", "exploratory", "f0"]
 Mode = Literal["event", "monthly", "monthly_overlay"]
 MOMENTUM_TRIGGERS = frozenset({"t01", "t03", "c1"})
+EARNINGS_TRIGGERS = frozenset({"t14", "t15", "t16"})  # registration n° 3: need the announcement history
+KNOWN_TRIGGERS = frozenset({"t00", "t01", "t03", "c1", "t05", "t07", "t08", "t09", "d2x", "f0"}) | EARNINGS_TRIGGERS
+SEALED_FAR_FUTURE = date(2999, 12, 31)
 
 
 class PreregError(ValueError):
@@ -95,6 +98,19 @@ class Prereg:
     # registration n° 2: group → EODHD exchange codes, each group judged on its own venue index (None: the
     # P0 / P1 / P2 groups of params.yaml, regime on the CAC 40 for Paris and the STOXX 600 elsewhere)
     venue_groups: dict[str, tuple[str, ...]] | None = None
+    # registration n° 3: a sealed period BEFORE the discovery (old replication), opened once by ``unseal`` for
+    # the frozen candidates; no ``run`` may load a bar of it (``check_run_start``)
+    replication: tuple[date, date] | None = None
+
+    @property
+    def needs_earnings(self) -> bool:
+        return any(c.trigger in EARNINGS_TRIGGERS for c in self.cells)
+
+    @property
+    def sealed_window(self) -> tuple[date, date]:
+        """Signal window of the single unseal: the old replication period when the plan declares one, else
+        the holdout (from ``holdout_start`` on)."""
+        return self.replication if self.replication is not None else (self.segments.holdout_start, SEALED_FAR_FUTURE)
 
     @property
     def confirmatory(self) -> list[Cell]:
@@ -176,7 +192,7 @@ def expand_family(fam: Mapping[str, Any]) -> list[Cell]:
         raw.update(fixed)
         raw.update(dict(zip(keys, values, strict=True)))
         raw.setdefault("gate", "none")
-        if raw["trigger"] == "t08" or raw["trigger"] in ("t07", "t09", "t05"):
+        if raw["trigger"] in ("t05", "t07", "t08", "t09") or raw["trigger"] in EARNINGS_TRIGGERS:
             raw.setdefault("cap_atr", 1.0)
         label = ".".join(f"{k}{_num(v)}" for k, v in zip(keys, values, strict=True))
         cid = f"{fam['family']}.{raw['trigger']}." + label
@@ -202,6 +218,15 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
     ids = [c.id for c in cells]
     if len(set(ids)) != len(ids):
         raise PreregError("identifiants de cellules en double")
+    unknown = sorted({c.trigger for c in cells} - KNOWN_TRIGGERS)
+    if unknown:
+        raise PreregError(f"déclencheur(s) inconnu(s) du banc : {unknown}")
+    replication = None
+    if raw.get("replication"):
+        rep = raw["replication"]
+        replication = (_d(rep["start"]), _d(rep["end"]))
+        if not replication[0] < replication[1] < segments.discovery[0]:
+            raise PreregError("période de réplication : début < fin < début de la découverte exigés")
     assumptions = {
         k: (v["value"] if isinstance(v, Mapping) and "value" in v else v) for k, v in raw["assumptions"].items()
     }
@@ -233,6 +258,7 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
         venue_groups={str(k): tuple(str(x) for x in v) for k, v in raw["venue_groups"].items()}
         if raw.get("venue_groups")
         else None,
+        replication=replication,
     )
     if p.total_cells > p.max_total_cells:
         raise PreregError(f"{p.total_cells} cellules enregistrées > plafond {p.max_total_cells}")
@@ -259,6 +285,37 @@ def check_ledger(rows: Sequence[Mapping[str, str]], prereg: Prereg) -> None:
                 "ce plan (même empreinte) a déjà été exécuté avec un autre ensemble de cellules : "
                 "créer un nouvel enregistrement (nouveau fichier) au lieu de modifier celui-ci"
             )
+
+
+def check_run_start(prereg: Prereg, start: date) -> None:
+    """A registration run never loads a bar of the plan's sealed replication period (registration n° 3): its
+    data start after the replication end, so no signal, feature or warm-up reads that period before the
+    single unseal. Signals themselves are always inside ``segments.discovery``."""
+    if prereg.replication is not None and start <= prereg.replication[1]:
+        raise PreregError(
+            f"exécution refusée : les données commenceraient le {start}, dans la période de réplication scellée "
+            f"({prereg.replication[0]} → {prereg.replication[1]}) ; --from postérieur au {prereg.replication[1]} "
+            f"(défaut 2016-01-04), la réplication ne s'ouvre qu'une fois par « research unseal »"
+        )
+
+
+REPLICATION_WARMUP_DAYS = 366  # data before the replication start: the plan's 252-session warm-up
+
+
+def check_unseal_span(prereg: Prereg, start: date, end: date) -> None:
+    """The unseal of a replication period needs data from a year before its start (warm-up) to its end plus the
+    plan's end margin (``end_margin_sessions``, ≈ × 7/5 calendar days): its last signals can then be held to
+    their exit. Without a replication period nothing is checked (the holdout runs to the end of the data)."""
+    if prereg.replication is None:
+        return
+    a, b = prereg.replication
+    lo = a - timedelta(days=REPLICATION_WARMUP_DAYS)
+    hi = b + timedelta(days=math.ceil(prereg.segments.end_margin_sessions * 7 / 5) + 10)
+    if start > lo or end < hi:
+        raise PreregError(
+            f"descellement refusé : la réplication {a} → {b} demande des données du {lo} au moins (préchauffage) "
+            f"au {hi} au moins (sorties des derniers signaux) : --from {lo} --to {hi}"
+        )
 
 
 CELL_SEP = ";"  # separator of the cell ids in a ledger column

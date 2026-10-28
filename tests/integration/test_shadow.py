@@ -34,3 +34,16 @@ def test_month_end_comes_from_the_venue_calendar(config, calendars):
     assert _is_month_end(config, calendars, "P0", date(2026, 10, 30))  # Friday: the last Paris session of October
     assert not _is_month_end(config, calendars, "P0", date(2026, 10, 29))
     assert not _is_month_end(config, calendars, "P0", date(2018, 11, 30))  # calendar year unknown: never guessed
+
+
+def test_shadow_tracks_registration_3_confirmatory_cells(research_db, config, calendars):  # noqa: F811
+    """docs/34 §34.5: the same tracking for registration n° 3's C1 / C2 (plan path as a parameter)."""
+    from app.services.shadow import PLAN_REG3, shadow_cells
+
+    assert shadow_cells(PLAN_REG3) == ("C1", "C2")
+    with db_session() as s:
+        last = s.query(PriceEod.day).order_by(PriceEod.day.desc()).first()[0]
+        out = record_shadow_signals(s, config, calendars, last, plan=PLAN_REG3)
+        assert set(out) == {"C1", "C2"}
+        rows = s.query(ShadowSignal).all()
+        assert all(r.plan_id == "2026-10-28_reg3" for r in rows) and sum(out.values()) == len(rows)

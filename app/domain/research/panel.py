@@ -10,7 +10,7 @@ population of the day only. Nothing at row ``t`` depends on a bar after ``t``.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import numpy.typing as npt
@@ -53,6 +53,10 @@ class Panel:
     index_cac: IndexSeries | None = None
     index_stoxx: IndexSeries | None = None
     vintage: I64 | None = None  # (T, N) download vintage of each bar (source × reception day), None: one vintage
+    # registration n° 3 (earnings announcements, ``earnings_flags``); None: no announcement history loaded
+    earn_react: Bool | None = None  # (T, N) reaction session of an announcement
+    earn_known: Bool | None = None  # (T, N) inside the loaded span of the value's announcements
+    earn_surprise_pos: F64 | None = None  # (T, N) 1.0 EPS actual > estimate, 0.0 not, NaN unknown (reaction rows)
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -67,6 +71,9 @@ class Panel:
             self.volume[:, c], self.fx_to_eur[:, c], self.is_xpar[c], self.small_cap[c], self.pea_eligible[c],
             self.ttf_rate[c], self.ftt_rate[c], self.fx_fee_pct[c], self.in_universe[c], self.index_cac,
             self.index_stoxx, None if self.vintage is None else self.vintage[:, c],
+            None if self.earn_react is None else self.earn_react[:, c],
+            None if self.earn_known is None else self.earn_known[:, c],
+            None if self.earn_surprise_pos is None else self.earn_surprise_pos[:, c],
         )  # fmt: skip
 
 
@@ -558,6 +565,112 @@ def adj_factor_events(adj_factor: F64, close: F64, pk: Packing, ca_jump: float, 
         ca = np.isfinite(ratio) & (np.abs(ratio - 1) >= ca_jump)
         div = np.where(~ca & np.isfinite(ratio) & (ratio < 1 - div_min), shift(c, 1) * (1 - ratio), 0.0)
     return unpack_bool(ca, pk, t_len), np.nan_to_num(unpack(div, pk, t_len))
+
+
+# --- earnings announcements (registration n° 3, docs/34 §34.5) ---------------------------------------------
+
+
+EARNINGS_WHEN = ("bmo", "amc", "intraday", "unknown")
+
+
+@dataclass(frozen=True)
+class EarningsRow:
+    """One stored announcement (one source): publication day, time of day, reported and estimated EPS."""
+
+    isin: str
+    day: np.datetime64  # datetime64[D]
+    when: str  # bmo | amc | intraday | unknown
+    eps_actual: float | None = None
+    eps_estimate: float | None = None
+
+
+@dataclass
+class _Merged:
+    whens: set[str] = field(default_factory=set)
+    beat: int = 0  # sources with both EPS saying actual > estimate
+    miss: int = 0  # … saying actual ≤ estimate
+
+
+@dataclass(frozen=True)
+class EarningsFlags:
+    react: Bool  # (T, N)
+    known: Bool  # (T, N)
+    surprise_pos: F64  # (T, N)
+    placed: int  # distinct (value, day) put on a reaction session
+    unplaced: int  # distinct (value, day) without an own session within ``max_gap_days`` (before listing…)
+    conflicting_when: int  # (value, day) whose sources disagree on the time of day (both sessions flagged)
+    outside: int = 0  # not placed, dated outside the panel's calendar (read for the known span only)
+
+
+def earnings_flags(
+    days: Days, valid: Bool, isins: tuple[str, ...], rows: list[EarningsRow], margin_days: int, max_gap_days: int,
+) -> EarningsFlags:  # fmt: skip
+    """Reaction sessions of the announcements on the calendar of a panel. Each (value, day) is merged over its
+    sources: the known times of day (``unknown`` dropped when another source knows it); ``bmo``, ``intraday``
+    and ``unknown`` react on the value's first own session **on or after** the day, ``amc`` on its first own
+    session **strictly after** it (sources disagreeing on the time: both sessions flagged, counted). A session
+    more than ``max_gap_days`` calendar days after the announcement is not its reaction (history not started
+    yet, suspension): the announcement is counted unplaced (``outside`` when it is dated outside the panel's
+    calendar). ``known`` holds the sessions within
+    ``margin_days`` calendar days of one of the value's loaded announcements — the span first − margin … last +
+    margin whenever consecutive announcements are at most 2 × margin apart (half-yearly reporting), while a
+    hole in the history (missing years) stays unknown. Outside it, no flag means « unknown », never « no
+    announcement ». ``surprise_pos`` on reaction sessions: 1.0 when every source with both EPS says
+    actual > estimate, 0.0 when every one says not, NaN otherwise (never guessed). A reaction flag sits on its
+    own session only."""
+    t_len, n = valid.shape
+    react = np.zeros((t_len, n), dtype=np.bool_)
+    known = np.zeros((t_len, n), dtype=np.bool_)
+    surprise = np.full((t_len, n), np.nan)
+    col = {x: k for k, x in enumerate(isins)}
+    merged: dict[tuple[int, int], _Merged] = {}
+    for r in rows:
+        k = col.get(r.isin)
+        if k is None:
+            continue
+        m = merged.setdefault((k, int(np.datetime64(r.day, "D").astype(np.int64))), _Merged())
+        m.whens.add(r.when if r.when in EARNINGS_WHEN else "unknown")
+        if r.eps_actual is not None and r.eps_estimate is not None:
+            a, e = float(r.eps_actual), float(r.eps_estimate)
+            if math.isfinite(a) and math.isfinite(e):
+                if a > e:
+                    m.beat += 1
+                else:
+                    m.miss += 1
+    day_num = days.astype("datetime64[D]").astype(np.int64)
+    ann: dict[int, list[int]] = {}
+    placed = unplaced = outside = conflicting = 0
+    for (k, day), m in sorted(merged.items()):
+        whens = (m.whens - {"unknown"}) or {"unknown"}
+        conflicting += int(len(whens) > 1)
+        if k not in ann:
+            own_rows = np.nonzero(valid[:, k])[0]
+            own_days = day_num[own_rows]
+        ann.setdefault(k, []).append(day)
+        hit = False
+        for strictly_after in sorted({w == "amc" for w in whens}):
+            i = int(np.searchsorted(own_days, day, side="right" if strictly_after else "left"))
+            if i >= own_days.size or int(own_days[i]) - day > max_gap_days:
+                continue
+            t = int(own_rows[i])
+            react[t, k] = True
+            if m.beat and not m.miss:
+                surprise[t, k] = 1.0
+            elif m.miss and not m.beat:
+                surprise[t, k] = 0.0
+            hit = True
+        placed += int(hit)
+        if not hit and day_num.size and day_num[0] <= day <= day_num[-1]:
+            unplaced += 1
+        elif not hit:
+            outside += 1
+    for k, ds in ann.items():  # within ``margin_days`` of a loaded announcement (sorted, distinct)
+        ev = np.asarray(ds, dtype=np.int64)
+        nxt = np.searchsorted(ev, day_num)
+        before = np.where(nxt > 0, day_num - ev[np.maximum(nxt - 1, 0)], np.iinfo(np.int64).max)
+        after = np.where(nxt < ev.size, ev[np.minimum(nxt, ev.size - 1)] - day_num, np.iinfo(np.int64).max)
+        known[:, k] = np.minimum(before, after) <= margin_days
+    return EarningsFlags(react, known, surprise, placed, unplaced, conflicting, outside)
 
 
 # --- exchange rates (docs/31 §1.1) --------------------------------------------------------------------------

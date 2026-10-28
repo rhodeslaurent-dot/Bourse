@@ -16,7 +16,7 @@ import logging
 import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -27,20 +27,30 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import LoadedConfig
-from app.db.models import BacktestRun, BacktestTrade, FxRate, Instrument, PriceEod
+from app.db.models import BacktestRun, BacktestTrade, EarningsEvent, FxRate, Instrument, PriceEod
 from app.domain.calendar import MarketCalendars
 from app.domain.costs import ftt_rate_any
 from app.domain.research import f0 as F0
 from app.domain.research.classify import Tier, unseal_confirmed
 from app.domain.research.costs import Account, ttf_rates
-from app.domain.research.panel import FeatureParams, IndexSeries, Panel, fx_path
+from app.domain.research.panel import (
+    EarningsRow,
+    FeatureParams,
+    IndexSeries,
+    Panel,
+    earnings_flags,
+    fx_path,
+    valid_bars,
+)
 from app.domain.research.pipeline import VENUE_GROUPS, Settings, prepare_group
 from app.domain.research.prereg import (
     CELL_SEP,
     Prereg,
     PreregError,
     check_ledger,
+    check_run_start,
     check_unseal,
+    check_unseal_span,
     file_sha256,
     parse_prereg,
 )
@@ -65,6 +75,7 @@ class PanelMeta:
     delisted_or_inactive: int
     fx_fallback_currencies: list[str]
     fx_static_days: dict[str, dict[str, Any]]  # currency → days on the plan's static rate (before any ECB rate)
+    earnings: dict[str, dict[str, int]] | None = None  # registration n° 3: announcements placed per group
 
 
 # --- plan and settings -----------------------------------------------------------------------------
@@ -128,6 +139,11 @@ def resolve_settings(config: LoadedConfig, prereg: Prereg, universe: str) -> tup
         dividend_window_sessions=int(prereg.segments.warmup_sessions),
         min_turnover_cto_eur=float(u["min_adv_eur_cto"]) if u.get("min_adv_eur_cto") is not None else None,
         seal_start=prereg.segments.holdout_start,
+        min_earnings_coverage=(
+            float(prereg.thresholds["min_earnings_coverage"])
+            if prereg.thresholds.get("min_earnings_coverage") is not None
+            else None
+        ),
     )
     stop_p = risk.stop
     prod = {
@@ -291,6 +307,7 @@ def load_panels(
     delisted = 0
     fx_fb: set[str] = set()
     fx_static: dict[str, set[Any]] = defaultdict(set)
+    earn_counts: dict[str, dict[str, int]] = {}
     lo_all: date | None = None
     hi_all: date | None = None
     for grp in list(vgroups) if vgroups else GROUPS:
@@ -390,6 +407,8 @@ def load_panels(
             np.array([bool(meta[x].in_universe) for x in isins_k], dtype=bool),
             own_idx if own_idx is not None else cac, stoxx, arrays["vintage"][:, keep].astype(np.int64),
         )  # fmt: skip
+        if prereg.needs_earnings:
+            panel, earn_counts[grp] = attach_earnings(s, panel, prereg)
         panels.append(panel)
         counts[grp] = len(isins_k)
         if days.size:
@@ -402,7 +421,38 @@ def load_panels(
         for cur, ds in sorted(fx_static.items())
         if ds
     }
-    return panels, PanelMeta(lo_all, hi_all, counts, dropped, without, delisted, sorted(fx_fb), static_days)
+    return panels, PanelMeta(lo_all, hi_all, counts, dropped, without, delisted, sorted(fx_fb), static_days,
+                             earn_counts if prereg.needs_earnings else None)  # fmt: skip
+
+
+EARNINGS_MARGIN_DAYS = 100  # defaults when a plan does not state them (registration n° 3 states both)
+EARNINGS_MAX_GAP_DAYS = 7
+
+
+def attach_earnings(s: Session, panel: Panel, prereg: Prereg) -> tuple[Panel, dict[str, int]]:
+    """Registration n° 3: the stored announcements of the panel's values (every source) as reaction-session,
+    known-span and surprise matrices (``earnings_flags``); the margins are assumptions of the plan. Only the
+    announcements within that margin of the panel's span are read (dates and EPS, never a price)."""
+    a = prereg.assumptions
+    margin = int(a.get("earnings_known_margin_days", EARNINGS_MARGIN_DAYS))
+    if not panel.days.size:
+        return panel, {}
+    lo = date.fromisoformat(str(panel.days[0])[:10]) - timedelta(days=margin)
+    hi = date.fromisoformat(str(panel.days[-1])[:10]) + timedelta(days=margin)
+    rows = [
+        EarningsRow(r.isin, np.datetime64(r.day, "D"), str(r.when or "unknown"), r.eps_actual, r.eps_estimate)
+        for r in s.execute(
+            select(EarningsEvent.isin, EarningsEvent.day, EarningsEvent.when, EarningsEvent.eps_actual,
+                   EarningsEvent.eps_estimate)
+            .where(EarningsEvent.isin.in_(list(panel.isins)), EarningsEvent.day >= lo, EarningsEvent.day <= hi)
+        )
+    ]  # fmt: skip
+    fl = earnings_flags(panel.days, valid_bars(panel), panel.isins, rows, margin,
+                        int(a.get("earnings_reaction_max_gap_days", EARNINGS_MAX_GAP_DAYS)))  # fmt: skip
+    counts = {"publications_placees": fl.placed, "publications_non_placees": fl.unplaced,
+              "publications_hors_periode": fl.outside, "heure_contradictoire": fl.conflicting_when,
+              "lignes_sources": len(rows)}  # fmt: skip
+    return replace(panel, earn_react=fl.react, earn_known=fl.known, earn_surprise_pos=fl.surprise_pos), counts
 
 
 # --- run 2 --------------------------------------------------------------------------------------------
@@ -580,8 +630,25 @@ def _header(meta: PanelMeta, universe: str, calibration: tuple[str, str], st: Se
             for k in prereg.assumptions
         },  # fmt: skip
         "duree_s": round(time.time() - t0, 1),
-        "limites": LIMITS,
+        "limites": LIMITS + (earnings_limits(prereg) if prereg.needs_earnings else []),
+        **({"publications_resultats": meta.earnings} if meta.earnings is not None else {}),
     }
+
+
+def earnings_limits(prereg: Prereg) -> list[str]:
+    """Limits of a plan with earnings triggers (registration n° 3), with the plan's own assumptions."""
+    a = prereg.assumptions
+    margin = a.get("earnings_known_margin_days", EARNINGS_MARGIN_DAYS)
+    leads = sorted({int(c.params.get("lead", 5)) for c in prereg.cells if c.trigger == "t15"})
+    return [
+        "publications de résultats : historique chargé après coup (EODHD ou Yahoo) ; une valeur n'est « connue » qu'à "
+        f"moins de {margin} jours d'une publication chargée — hors de là, aucun signal t14 / t15 / t16",
+        f"HYPOTHÈSE t15 : la date de publication est supposée connue {', '.join(map(str, leads)) or '—'} séances à "
+        "l'avance (calendrier financier publié par la plupart des émetteurs européens), de même pour la fenêtre "
+        "± 2 séances du contrôle t16 ; une publication imprévue (avertissement) la contredit",
+        "séance de réaction : jour de publication (avant l'ouverture, en séance, heure inconnue) ou séance suivante "
+        "(après la clôture) ; sources contradictoires sur l'heure : les deux séances marquées (comptées)",
+    ]
 
 
 # --- commands --------------------------------------------------------------------------------------
@@ -595,6 +662,7 @@ def run(
 ) -> dict[str, Any]:  # fmt: skip
     t0 = time.time()
     prereg = load_prereg(prereg_path)
+    check_run_start(prereg, start)  # registration n° 3: no bar of the sealed old replication period is read
     ledger = read_ledger(out_dir)
     check_ledger(ledger, prereg)
     st, prod = resolve_settings(config, prereg, universe)
@@ -739,6 +807,7 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
         b = Path(candidates_path).read_bytes()
         raw, sha = yaml.safe_load(b), file_sha256(b)
     ids = check_unseal(raw, sha, prereg, ledger)
+    check_unseal_span(prereg, start, end)  # an old replication period needs its warm-up and its whole span
     st, prod = resolve_settings(config, prereg, universe)
     panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, None, out_dir / "cache", progress)
     res = run_registration(panels, prereg, st, (), prod, "0", ids, progress, False)
@@ -752,10 +821,17 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
                          "profit_factor": c.get("profit_factor"), "mean_pct_notionnel": c.get("mean_pct_notionnel"),
                          "decouverte_mean_r": d.get("mean_r"),
                          "verdict": "confirmé — ADR de mise en production à 50 % du risque par trade" if ok else "non confirmé"}  # fmt: skip
-    out = {"plan": prereg.id, "plan_sha256": prereg.sha256, "candidats_sha256": sha, "periode": "scellée",
+    a, b = prereg.sealed_window
+    label = f"réplication ancienne {a} → {b}" if prereg.replication is not None else "scellée"
+    out = {"plan": prereg.id, "plan_sha256": prereg.sha256, "candidats_sha256": sha, "periode": label,
            "fin_donnees": meta.end.isoformat() if meta.end else None, "verdicts": verdicts}  # fmt: skip
+    if res.get("couverture_resultats"):
+        out["couverture_resultats"] = res["couverture_resultats"]
     name = f"descellement_{_stamp()}"
-    text = "Descellement de la période scellée\n" + "".join(f"  {k} : {v}\n" for k, v in verdicts.items())
+    text = f"Descellement de la période {label}\n" + "".join(f"  {k} : {v}\n" for k, v in verdicts.items())
+    text += "".join(
+        f"  couverture des publications {g} : {v}\n" for g, v in (out.get("couverture_resultats") or {}).items()
+    )
     _write(out_dir, name, out, text)
     append_ledger(out_dir, {"timestamp": name, "kind": "unseal", "prereg_id": prereg.id, "prereg_sha256": prereg.sha256,
                             "cell_set_sha256": prereg.cell_set_hash, "candidates": len(ids), "universe": universe,

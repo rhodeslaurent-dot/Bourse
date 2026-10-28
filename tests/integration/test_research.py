@@ -186,3 +186,45 @@ def test_one_venue_groups_use_their_own_index(config, calendars):
     assert mic_groups(config, calendars)["XPAR"] == "P0"  # registration n° 1 groups unchanged
     assert [own_index_id(config, calendars, vg[g]) for g in vg] == ["IDX.GSPC", "IDX.FTSE", "IDX.SSMI"]
     assert own_index_id(config, calendars, ("PA", "AS")) is None  # a multi-venue group: CAC 40 / STOXX 600 rule
+
+
+def test_registration_3_runs_with_the_earnings_history_and_guards_its_old_replication(research_db, tmp_path):
+    """docs/34 §34.5: registration n° 3 on the European groups with the stored announcements (earnings_events):
+    coverage per group in the header, the t15 date assumption in the limits; a run whose data would start in
+    the sealed old replication period is refused, and so is an unseal without a frozen candidate file."""
+    from app.db.models import EarningsEvent
+
+    plan = "research/prereg/2026-10-28_reg3.yaml"
+    out = str(tmp_path / "research")
+    with db_session() as s:
+        now = datetime.now(UTC)
+        for k in range(20):  # values 20–23 without any history: unknown, never « no announcement »
+            cc = ("FR", "DE", "SE")[k % 3]
+            d = date(2016, 2, 3) + timedelta(days=k)
+            while d < date(2018, 11, 1):
+                s.add(EarningsEvent(isin=f"{cc}00000000{k:02d}", day=d, when=("bmo", "amc", "unknown")[d.month % 3],
+                                    eps_actual=1.1, eps_estimate=1.0, source="yahoo", received_at=now))  # fmt: skip
+                d += timedelta(days=91)
+    assert main(["--params", PARAMS, "research", "calibrate", "--run", str(research_db), "--prereg", plan,
+                 "--out", out]) == 0  # fmt: skip
+    args = ["--params", PARAMS, "research", "run", "--prereg", plan, "--universe", "all", "--to", "2018-12-31",
+            "--out", out, "--run", str(research_db)]  # fmt: skip
+    assert main([*args, "--from", "2015-09-30"]) == 2  # a bar of the sealed replication: refused before any read
+    assert not list((tmp_path / "research").glob("2*.json"))
+    assert main(args) == 0
+    rep = json.loads(sorted(p for p in (tmp_path / "research").glob("2*.json") if "candidates" not in p.name)[-1]
+                     .read_text())  # fmt: skip
+    assert_no_price_fields(rep)
+    h = rep["entete"]
+    assert h["plan"] == "2026-10-28_reg3" and h["cellules_enregistrees"]["total"] == 10
+    assert set(rep["A_resume"]["confirmatoires"]) == {"C1", "C2"}
+    cov = h["couverture_resultats"]
+    assert cov and set(cov) <= {"P0", "P1", "P2"}
+    assert all(0 <= v["part_observations_couvertes"] <= 1 for v in cov.values())
+    assert sum(v["publications_placees"] for v in h["publications_resultats"].values()) > 0
+    assert any("HYPOTHÈSE t15" in x for x in h["limites"])
+    assert h["hypotheses"]["earnings_date_known_sessions_ahead"]["hypothese"] is True
+    txt = sorted((tmp_path / "research").glob("2*.txt"))[-1].read_text()
+    assert "couverture des publications" in txt and "Holm sur 2" in txt
+    # the old replication opens only by unseal, with a frozen candidate file, its warm-up and its whole span
+    assert main(["--params", PARAMS, "research", "unseal", "--prereg", plan, "--out", out]) == 2
