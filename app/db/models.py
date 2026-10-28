@@ -1147,6 +1147,22 @@ class SocialContent(Base):
     note: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
 
+class ShadowSignal(Base):
+    """docs/33 §33.3 — prospective shadow tracking of registration n° 2's cells on the European venues: each
+    evening, the signals the frozen cells (C1, C2, X2) give on the day. Stored, never shown nor alerted;
+    measured only by a pre-declared analysis (suspension rule of an eventual production ADR)."""
+
+    __tablename__ = "shadow_signals"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(String(32))
+    cell: Mapped[str] = mapped_column(String(64), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    venue_group: Mapped[str] = mapped_column(String(8))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("plan_id", "cell", "day", "isin", name="uq_shadow_signals"),)
+
+
 class ForumHistoryProgress(Base):
     """docs/26 (user decision of 26/10/2026): the multi-night reading of a value's forum list pages back to
     ``weak_signals.history.forum_from`` — next page, oldest last activity reached, thread numbers already
