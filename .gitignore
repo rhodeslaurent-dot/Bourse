@@ -14,3 +14,4 @@ config/instruments_map.yaml
 docker-compose.override.yml
 scripts/tailwindcss
 scripts/tailwindcss.exe
+.claude/worktrees/
