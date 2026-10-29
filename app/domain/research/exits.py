@@ -27,9 +27,11 @@ a fill outside ``stop_exec < entry < target`` is no trade (status ``INVALID``, d
 Partial exit (registration n° 6, ``ExitSpec.partial_r`` > 0): ``partial_share`` of the quantity is sold once the
 price reaches ``entry + partial_r · (entry − stop_exec)`` (at the open when the session opens above that level), the
 stop is then raised to the entry. The stop comes first: no partial sale in a session where the stop is touched, nor on
-a fill session filled intraday at the limit (the high may precede the fill); in the partial session the raised stop is
-assumed hit after the sale when the low reaches it (as the stop after the fill on the fill session). The remainder
-exits by the other rules; dividends after the sale are credited on the remainder only.
+a fill session filled intraday at the limit (the high may precede the fill). In the sale's session the raised stop is
+hit after the sale when the close is at or under it (certain), and otherwise when the low reaches it under
+``stop_first`` (conservative), only when the high is nearer the open than the low under ``ohlc`` (high first, then
+the low), never under ``target_first``. The remainder exits by the other rules; dividends after the sale are credited
+on the remainder only.
 
 A trade whose instrument history ends during the hold (``Bars.ended``: no bar in the last sessions of the
 panel — delisting, takeover, suspension) is closed at the last available close with reason ``DELISTED`` and
@@ -392,7 +394,12 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
             f_ppos[sel] = p[hit]
             be = np.maximum(st, e[a])
             cur_stop[sel] = be[hit]
-            bx = hit & ~done & (lw <= be)  # the raised stop, assumed hit after the sale in the same session
+            low_hit = lw <= be  # the raised stop in the sale's session: certain when the close is at or under it
+            if rule == "ohlc":
+                low_hit &= (h - o) <= (o - lw)
+            elif rule == "target_first":
+                low_hit[:] = False
+            bx = hit & ~done & (low_hit | (c <= be))
             px[bx], rsn[bx] = be[bx] * (1 - slip), TRAIL
             done |= bx
         if spec.cond_session > 0 and s == spec.cond_session - 1:

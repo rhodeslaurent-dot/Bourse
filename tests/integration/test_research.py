@@ -270,3 +270,32 @@ def test_registration_4_runs_with_the_letters_and_guards_its_old_replication(res
     txt = sorted((tmp_path / "research").glob("2*.txt"))[-1].read_text()
     assert "P — Politiques d'entrée" in txt and "Holm sur 2" in txt
     assert main(["--params", PARAMS, "research", "unseal", "--prereg", plan, "--out", out]) == 2
+
+
+def test_registration_6_runs_through_the_command_and_guards_its_old_replication(research_db, tmp_path):
+    """docs/34 §34.13: registration n° 6 (exit rules on frozen entries, paired per trade) through the CLI on the
+    synthetic base: calibration, run, report with the exit-rule section (placebo first), aggregates only, the plan's
+    limits in the header, a ledger row; a run starting in the sealed replication and an unseal without candidates
+    are refused."""
+    plan = "research/prereg/2026-10-30_reg6.yaml"
+    out = str(tmp_path / "research")
+    assert main(["--params", PARAMS, "research", "calibrate", "--run", str(research_db), "--prereg", plan,
+                 "--out", out]) == 0  # fmt: skip
+    args = ["--params", PARAMS, "research", "run", "--prereg", plan, "--universe", "all", "--to", "2018-12-31",
+            "--out", out, "--run", str(research_db)]  # fmt: skip
+    assert main([*args, "--from", "2015-09-30"]) == 2  # a bar of the sealed replication: refused before any read
+    assert main(args) == 0
+    rep = json.loads(sorted(p for p in (tmp_path / "research").glob("2*.json") if "candidates" not in p.name)[-1]
+                     .read_text())  # fmt: skip
+    assert_no_price_fields(rep)
+    h = rep["entete"]
+    assert h["plan"] == "2026-10-30_reg6" and h["cellules_enregistrees"]["total"] == 32
+    assert any("règles de sortie (n° 6)" in x for x in h["limites"])
+    rs = rep["S_regles_de_sortie"]
+    assert rs["ordre_de_lecture"][0].startswith("X1.") and set(rep["A_resume"]["confirmatoires"]) == {"C1", "C2"}
+    txt = sorted((tmp_path / "research").glob("2*.txt"))[-1].read_text()
+    assert "S — Règles de sortie" in txt and "Holm sur 2" in txt
+    with open(tmp_path / "research" / "ledger.csv", encoding="utf-8") as fh:
+        last = list(csv.DictReader(fh))[-1]
+    assert last["prereg_id"] == "2026-10-30_reg6" and last["kind"] == "run"
+    assert main(["--params", PARAMS, "research", "unseal", "--prereg", plan, "--out", out]) == 2

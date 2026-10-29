@@ -316,8 +316,8 @@ def arm_summary(tr: Trades, prereg: Prereg) -> dict[str, Any]:
         out["r_par_ligne_mois"] = _f(mr / hold * 21) if mr is not None and hold > 0 else None
         out["duree_moyenne"] = _f(hold, 1)
         out["part_vente_partielle"] = _f(float(cl["partial"].mean()), 4)
-        out["motifs"] = {
-            REASONS[int(k)]: _f(float(np.mean(cl["reason"] == k)), 4)
+        out["motifs_de_sortie"] = {
+            f"part_{REASONS[int(k)]}": _f(float(np.mean(cl["reason"] == k)), 4)
             for k in np.unique(cl["reason"])
             if int(k) in REASONS
         }
@@ -449,6 +449,7 @@ def _cell_stats(c: Cell, arms: Mapping[str, Trades], prereg: Prereg, slots: int)
     if a is None or b is None or not a.n:
         return s
     s["signaux"] = a.n
+    s["mean_r"] = ((s["bras"].get("sortie") or {}).get("tous") or {}).get("mean_r")  # the tested arm (generic key)
     pa = prereg.thresholds["paired"]
     s["hors_cadre_reference"] = int((a["filled"].astype(bool) & b["invalid"].astype(bool)).sum())
     blk = lock_cell(c)
@@ -545,10 +546,12 @@ def run_exit_registration(
                 stats[expl[j].id]["pbo_famille"] = _f(pbo, 3)
     for c, q in zip(tested, S.bh(np.array([pval(c) for c in tested])), strict=True):
         stats[c.id]["q_bh"] = _f(float(q), 6)
-    # DSR: N = the exits already seen for d7 on this window (plan n° 1 F0(c), n° 4) + this plan's cells of the trigger
+    # DSR: N = the exits already seen for d7 on this window (plan n° 1 F0(c), n° 4) + every paired cell of the same
+    # trigger in this plan (diagnostics included: they are looked at too); computed for the tested cells
     by_trig: dict[str, list[Cell]] = defaultdict(list)
-    for c in tested:
-        by_trig[c.trigger].append(c)
+    for c in cells:
+        if c.baseline_exit is not None:
+            by_trig[c.trigger].append(c)
     out["dsr_essais"] = {}
     for trig, cs in by_trig.items():
         n_trials = len(cs) + (xp.dsr_prior_trials if trig == "d7x" else 0)
@@ -556,6 +559,8 @@ def run_exit_registration(
         var_sr = float(np.var(srs, ddof=1)) if len(srs) > 1 else 0.0
         out["dsr_essais"][trig] = n_trials
         for c in cs:
+            if c not in tested:
+                continue
             s = stats[c.id]
             s["dsr"] = _f(S.deflated_sharpe(float(s.get("_sr", math.nan)), n_trials, var_sr, int(s.get("_nobs", 0)),
                                             float(s.get("_sk", 0.0)), float(s.get("_ku", 3.0))), 4)  # fmt: skip
