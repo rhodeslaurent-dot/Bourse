@@ -1,7 +1,8 @@
 # Enchaîne les traitements longs de la recherche (docs/33, docs/34) en une seule fois, chaque étape journalisée dans
 # data/research/longue_<horodatage>.log. Une étape en échec n'arrête pas les suivantes qui n'en dépendent pas.
 # Lancement (plusieurs heures, de préférence la nuit) :
-#   powershell -ExecutionPolicy Bypass -File scripts\recherche_longue.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\recherche_longue.ps1            (refait le backtest)
+#   powershell -ExecutionPolicy Bypass -File scripts\recherche_longue.ps1 -Run 4     (réutilise le backtest n° 4)
 # Ordre :
 #  1. backtest européen de référence (New York, Londres et Zurich jamais lus : données de test du n° 2) ;
 #  2. calibration du plan n° 2 sur ce backtest, puis son exécution (refusée par le banc si la calibration est INVALIDE) ;
@@ -9,6 +10,7 @@
 #  4. étude des hausses manquées (exploratoire, places européennes, depuis 2017) ;
 #  5. calibration du plan n° 3 sur le même backtest, puis son exécution.
 # Lecture des rapports dans cet ordre : n° 2 (placebo X1 d'abord), étude des hausses, n° 3 (placebo X1 d'abord).
+param([int]$Run = 0)  # -Run 4 : backtest de référence déjà fait (n° 4) — on le réutilise au lieu d'en refaire un
 $ErrorActionPreference = "Continue"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 New-Item -ItemType Directory -Force -Path data/research | Out-Null
@@ -31,10 +33,18 @@ function Step([string]$title, [string[]]$cmd) {
 $reg2 = "research/prereg/2026-10-28_reg2.yaml"
 $reg3 = "research/prereg/2026-10-28_reg3.yaml"
 
-$bt = Step "1. backtest européen" @("backtest", "--from", "2017-01-02")
+$runArgs = @()
+if ($Run -gt 0) {
+    $bt = 0
+    $runArgs = @("--run", "$Run")
+    Write-Host "backtest de référence n° $Run réutilisé"
+} else {
+    $bt = Step "1. backtest européen" @("backtest", "--from", "2017-01-02")
+}
+# the calibration is bound to the data end: it is redone right before each run (new bars arrive every evening)
 if ($bt -eq 0) {
-    if ((Step "2a. calibration n° 2" @("research", "calibrate", "--prereg", $reg2)) -eq 0) {
-        Step "2b. exécution n° 2" @("research", "run", "--universe", "all", "--prereg", $reg2) | Out-Null
+    if ((Step "2a. calibration n° 2" (@("research", "calibrate", "--prereg", $reg2) + $runArgs)) -eq 0) {
+        Step "2b. exécution n° 2" (@("research", "run", "--universe", "all", "--prereg", $reg2) + $runArgs) | Out-Null
     }
 } else {
     Write-Host "backtest en échec : calibrations et exécutions n° 2 et n° 3 non lancées"
@@ -42,8 +52,8 @@ if ($bt -eq 0) {
 Step "3. historique des publications" @("earnings-history", "--from", "2016-01-01") | Out-Null
 Step "4. étude des hausses" @("moves-study", "--from", "2017-01-02") | Out-Null
 if ($bt -eq 0) {
-    if ((Step "5a. calibration n° 3" @("research", "calibrate", "--prereg", $reg3)) -eq 0) {
-        Step "5b. exécution n° 3" @("research", "run", "--universe", "all", "--prereg", $reg3) | Out-Null
+    if ((Step "5a. calibration n° 3" (@("research", "calibrate", "--prereg", $reg3) + $runArgs)) -eq 0) {
+        Step "5b. exécution n° 3" (@("research", "run", "--universe", "all", "--prereg", $reg3) + $runArgs) | Out-Null
     }
 }
 Write-Host "terminé : journal complet dans $log"
