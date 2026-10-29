@@ -48,11 +48,16 @@
 </section>
 {% endif %}
 
-{% set groups = {0: ("Actionnables aujourd'hui", "Les ordres du carnet ci-dessus, détaillés : achats retenus et limites préparées au prix maximal. Ce sont les seules propositions sur lesquelles agir."), 1: ("À surveiller — pas d'ordre aujourd'hui", "Une condition manque (score, prix déjà trop haut, absence d'objectif, contexte…) : la raison est écrite en clair sous chaque valeur. Leur rang est celui du classement brut, avant ces filtres."), 2: ("Écartées", "Propositions refusées par une règle.")} %}
+{% set groups = {0: ("Actionnables aujourd'hui", "Les ordres du carnet ci-dessus, détaillés : achats retenus et limites préparées au prix maximal. Ce sont les seules propositions sur lesquelles agir."), 1: ("À surveiller — pas d'ordre aujourd'hui", "Une condition manque (score, contexte, prix un peu trop haut…) : la raison est écrite en clair sous chaque valeur. Leur rang est celui du classement brut, avant ces filtres."), 2: ("Pour information — ne peuvent pas devenir un ordre", "Détecteur en surveillance seule (espérance négative après frais), pas d'objectif, objectif trop proche du stop, stop trop large, ou limite très en dessous du cours : repliées par défaut."), 3: ("Écartées", "Propositions refusées par une règle.")} %}
+{% set n_info = items|selectattr('groupe', 'equalto', 2)|list|length %}
 {% for it in items %}
 {% set p = it.p %}{% set ex = it.explain %}
+{% if not loop.first and it.groupe != loop.previtem.groupe and loop.previtem.groupe == 2 %}</div></details>{% endif %}
 {% if loop.first or it.groupe != loop.previtem.groupe %}
+{% if it.groupe == 2 %}<details class="space-y-3" data-info-group><summary class="pt-2 cursor-pointer list-none"><h2 class="inline text-base font-semibold">▸ {{ groups[2][0] }} ({{ n_info }})</h2><p class="text-xs text-slate-500 dark:text-slate-400">{{ groups[2][1] }}</p></summary><div class="space-y-3">
+{% else %}
 <section class="pt-2"><h2 class="text-base font-semibold">{{ groups[it.groupe][0] }}</h2><p class="text-xs text-slate-500 dark:text-slate-400">{{ groups[it.groupe][1] }}</p></section>
+{% endif %}
 {% endif %}
 <section class="card {% if p.action == 'BUY' and not ex.blocked and not p.to_verify %}border-l-4 border-l-emerald-500{% elif ex.blocked %}border-l-4 border-l-rose-500{% elif p.to_verify %}border-l-4 border-l-amber-500{% endif %}">
   <div class="flex flex-wrap items-start justify-between gap-2">
@@ -131,6 +136,7 @@
     <button type="button" data-close-details class="mt-3 text-xs font-medium text-sky-700 dark:text-sky-300 hover:underline">▴ refermer le détail</button>
   </details>
 </section>
+{% if loop.last and it.groupe == 2 %}</div></details>{% endif %}
 {% else %}
 <section class="card">{{ empty("Aucune proposition ce jour : absence de proposition = résultat normal. Les signaux viennent des lettres (phase 1) puis des détecteurs D1–D4 (phase 2).", 'green') }}</section>
 {% endfor %}

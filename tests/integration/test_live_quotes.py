@@ -287,3 +287,23 @@ def test_a_slow_fetch_never_blocks_the_other_readers(fake, config, calendars):
     finally:
         svc._fetch_lock.release()
     assert len(fake.saxo_calls) == 1 and res.views[A].last == 42.0  # answered from the cache, no wait
+
+
+def test_cards_that_cannot_become_an_order_are_folded(client):
+    """User decision of 29/10/2026: a watch-only detector's card goes in the folded « pour information » group."""
+    from app.services.decisions import create_proposal, record_signal
+
+    now = datetime.now(UTC)
+    with db_session() as s:
+        near = _proposal(s, A, now).id  # 41 vs a limit at 40: 2.5 % — within reach, stays « à surveiller »
+        sig = record_signal(s, B, "d7_trend_quality", "moteur", now, "eod", "eod", "t", stop_initial=40.0)
+        info = create_proposal(
+            s, sig, "WATCH", None,
+            {"blocked": ["WATCH : espérance historique négative au coût complet (backtest n° 2, docs/27)"]}, "t",
+            created_at=now,
+        ).id  # fmt: skip
+    html = client.get("/opportunites").text
+    folded = html[html.index("data-info-group") :]
+    assert "Pour information — ne peuvent pas devenir un ordre (1)" in html
+    assert f'data-live-distance="{near}"' not in folded  # the near limit is not folded
+    assert B in folded and str(info) in folded  # the watch-only card is

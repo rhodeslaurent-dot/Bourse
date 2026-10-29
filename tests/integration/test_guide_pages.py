@@ -49,6 +49,6 @@ def test_opportunities_group_the_actionable_first_with_plain_reasons(client, con
         engine.scan(s, config, DAY, now=NOW)
     page = client.get("/opportunites").text  # created today (wall clock)
     assert "Par place" in page and "comment lire cette page" in page
-    assert "Actionnables aujourd" in page or "À surveiller — pas d" in page
+    assert any(g in page for g in ("Actionnables aujourd", "À surveiller — pas d", "Pour information — ne peuvent"))
     if "WATCH :" in page:
         assert "En clair :" in page

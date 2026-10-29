@@ -152,14 +152,17 @@ def opportunities_page(
         orderable = {r["p"].id for r in book if not r["blocked"]}
         from app.services.explain import plain_reason
 
+        far = float((getattr(cfg.params, "entry", None) or {}).get("far_limit_display_pct", 0.05))
         for it in items:
             p = it["p"]
             blocked = it["explain"].blocked or []
             it["groupe"] = (
                 0
                 if p.id in orderable or (p.action == "BUY" and not blocked and not p.to_verify)
-                else 2
+                else 3
                 if p.action == "NO_TRADE"
+                else 2
+                if information_only(it, far)
                 else 1
             )
             it["pourquoi"] = [x for x in dict.fromkeys(plain_reason(b) for b in blocked) if x]
@@ -197,6 +200,28 @@ def decide(
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
     return RedirectResponse(f"/opportunites{'?day=' + day if day else ''}", status_code=303)
+
+
+INFORMATION_ONLY = (
+    "espérance historique négative au coût complet",  # a detector in watch only (ADR-013)
+    "WATCH : pas d'objectif exploitable",
+    "WATCH : objectif trop proche",
+    "WATCH : stop trop large",
+)
+
+
+def information_only(it: dict, far_pct: float) -> bool:
+    """User decision of 29/10/2026: a card that cannot become an order is folded by default — a detector in watch
+    only, no exploitable target, a target too close for the risk, a stop too wide, or a limit waiting for a
+    pullback more than ``entry.far_limit_display_pct`` under the price of the analysis."""
+    p = it["p"]
+    blocked = [str(b) for b in (p.gates or {}).get("blocked") or []]
+    if any(k in b for b in blocked for k in INFORMATION_ONLY):
+        return True
+    pmax = (p.details or {}).get("p_max")
+    price = (it.get("snapshot_price") or {}).get("last")
+    waiting = any("en attente d'un repli" in b for b in blocked)
+    return bool(waiting and pmax and price and price / pmax - 1 > far_pct)
 
 
 def order_book(items: list[dict]) -> list[dict]:
