@@ -288,3 +288,71 @@ Recherche documentaire. EODHD est lu dans sa documentation officielle publiée s
 3. **Après le verdict n° 3 :**
    - Si C1 ou C2 passent : un détecteur « réaction aux résultats » en production, actionnable sans phase de surveillance, et un ADR.
    - Sinon : archivage quotidien des consensus d'analystes, et collecte des déclarations de dirigeants (AMF BDIF), pour un enregistrement n° 4 vers l'avant.
+
+## 34.12 Enregistrement n° 5 : achats des dirigeants
+
+> Plan `research/prereg/2026-10-30_reg5.yaml`, empreinte sha256 `5d1e4a1df0e194dad8cc6176b2356737192267b6be81639fc4a87bc9ee512d3d`.
+> - **Gelé le 29/10/2026 au soir par l'assistant**, sur délégation de l'utilisateur du 29/10/2026 au soir, **avant tout chargement de l'historique des déclarations** (`insider-archive --from 2021-11-01` est lancé ensuite sur le PC) et avant toute lecture d'un résultat lié à ces déclarations.
+> - L'empreinte est inscrite au registre (`data/research/ledger.csv`) à chaque calibration et exécution ; un test (`tests/unit/test_research_insiders.py`) vérifie que le fichier a toujours cette empreinte. Le modifier crée un nouvel enregistrement.
+> - Hypothèse tirée de la littérature, pas des données : après un achat en bourse d'un dirigeant d'un émetteur français (MAR art. 19), rendement anormal positif sur 10 à 20 séances (Fidrmuc, Goergen & Renneboog 2006 ; Betzer & Theissen 2009 ; Fidrmuc, Korczak & Korczak 2013), plus faible depuis MAR 2016 (Grimberg & Herberger 2020). Graine 20261030.
+> - Seuils A1–A13, inférence et hypothèses communes repris à l'identique du n° 3.
+
+**Déclencheur t17** (`app/domain/research/insider_triggers.py`). Une déclaration de la table `insider_declarations` est retenue quand toutes ces conditions sont réunies :
+- PDF analysé (`parse_status = parsed`) ;
+- ISIN de la déclaration, sinon celui de la correspondance enregistrée par nom ;
+- nature « acquisition » (« cession » pour le contrôle des ventes ; « mixte » jamais) ;
+- fonction du déclarant dans la liste fermée des dirigeants exécutifs, sous-liste de `amf_bdif.ROLES` : PDG, directeur général, directeur général délégué, président du directoire, membre du directoire. Président du conseil, conseil de surveillance, administrateur, gérant, directeur financier, président, autre dirigeant et personne liée ne comptent que dans X5 ;
+- chaque transaction porte sur une action, sans libellé exclu (options, actions gratuites, souscriptions, exercices, plans d'épargne, prêts, donations…) et sur une plateforme de négociation (hors plateforme, lieu inconnu ou non reconnu → exclue) ;
+- prix et volume lus, en euros (devise écrite, ou absente pour une valeur cotée en euros), et prix × volume ≥ 10 000 €. **Inconnu → exclue et comptée, jamais estimée.**
+
+**Placement.**
+- Le signal tombe sur la première séance de la valeur à partir de la publication AMF (`market_timestamp`) : le jour même si elle est publiée au plus tard à 17:30 (heure de Paris), sinon la séance suivante (après la clôture, week-end, jour sans cotation de la valeur).
+- Une séance à plus de 7 jours de la publication n'est pas un placement (suspension, valeur pas encore cotée).
+- Un prix lu à plus d'un facteur 2 de la clôture de la séance est une erreur de lecture : exclu, compté.
+- Un signal par valeur toutes les 20 séances (le premier, avant l'éligibilité, sans regarder le résultat).
+- Valeurs cotées à Paris seulement (groupe PA du plan, jugé sur le CAC 40), éligibles ce jour-là.
+- Le signal est connu à la clôture de sa séance ; l'ordre ne travaille qu'à partir de l'ouverture suivante : l'entrée est toujours postérieure à la publication.
+
+**Cellules** (11 au total, Holm sur 2 pour les confirmatoires) :
+
+| Cellule | Rôle | Contenu | Sortie |
+|---|---|---|---|
+| C1 | confirmatoire | achat d'un dirigeant exécutif ≥ 10 000 € | 20 séances |
+| C2 | confirmatoire | le même | 10 séances |
+| X1 | exploratoire | placebo (valeurs et dates de Paris tirées au hasard, taux 0,002 fixé avant toute donnée), **lu avant C1 / C2** | 10 et 20 séances |
+| X2 | contrôle | **cessions** des dirigeants exécutifs, mêmes filtres (attendu ≤ 0) | 20 séances |
+| X3 | contrôle | les signaux de C1 décalés de 20 séances (attendu ≈ 0) | 20 séances |
+| X4 | exploratoire | achats groupés : au moins 2 fonctions exécutives distinctes en 10 séances (les noms n'étant jamais conservés, deux personnes de même fonction comptent pour une) | 20 séances |
+| X5 | exploratoire | achats de toute fonction, mêmes filtres | 20 séances |
+
+- **Entrée et stop :** ouverture suivante plafonnée à la clôture + 1 ATR, validité d'une séance (E_open(1)), stop initial standard du banc (X3 : 3 σ √h), sortie au temps.
+- **Comptes :** verdict sur le CTO ; le PEA est la seconde vue des coûts.
+- Les cellules exploratoires sont descriptives : sans année d'apprentissage avant le premier pli, aucune ne peut être CANDIDAT ni SURVEILLANCE.
+
+**Couverture et abstention.**
+- L'en-tête du rapport et le `.txt` impriment la couverture de l'archive : déclarations chargées par mois, taux d'analyse des PDF, achats, achats de dirigeants, déclarations retenues, l'entonnoir des exclusions, l'origine de l'ISIN, le placement et les mois sans aucune déclaration (trou de l'archive).
+- Une cellule confirmatoire sous A1 (n ≥ 300, ≥ 100 semaines, ≥ 40 trades par pli) est déclarée **« non concluant »**, jamais « pas d'avantage ». Quand C1 et C2 le sont toutes deux, le titre commence par « NON CONCLUANT ».
+
+**Période et limites.**
+- **Découverte (2021-11-01 → 2026-10-29) :** la BDIF annonce 5 ans de conservation ; tout est test, puisque rien n'a été choisi sur ces données. 5 plis d'un an.
+- **France seule.** La table des instruments est celle d'aujourd'hui : un émetteur radié ou renommé depuis est « hors panneau » (biais de survie, compté).
+- **Aucune période scellée n'existe** pour ces données. Le verdict de ce plan peut au mieux fonder un **suivi en ombre à 50 % du risque par trade**, jamais un détecteur actionnable.
+- **Confirmation vers l'avant** (clé `forward_confirmation` du plan) :
+  - signaux publiés à partir du 2026-10-30, jamais lus par `research run` ;
+  - ouverture **unique** par `research unseal`, avec le fichier de candidats figé ;
+  - refusée tant que les données n'atteignent pas le verdict (première exécution `run` du plan au registre) + 12 mois de signaux + leurs sorties (65 séances), et tant que le suivi en ombre n'a pas enregistré 100 signaux de C1 ;
+  - au-delà de 36 mois sans ces 100 signaux : « non concluant », sans ouverture ;
+  - verdict avec les mêmes seuils que les descellements des n° 1 à 3 : A2 complet (R moyen ≥ +0,10, ≥ +30 € pour 300 € de risque, facteur de profit ≥ 1,15, % du notionnel > 0) et même signe qu'en découverte ;
+  - confirmé → ADR de mise en production à 50 % de `risk.max_risk_per_trade_pct`, avec règle de suspension ; sinon rien ne change.
+- **Suivi en ombre :** `shadow_signals` enregistre C1 chaque matin depuis le gel (`app/services/shadow.py`, plan `PLAN_REG5`), sur les colonnes parisiennes de P0. Une déclaration analysée après le passage du lendemain matin manque à la série en ombre (pas au descellement, qui relit l'archive).
+
+**Sur le PC (une commande à la fois) :**
+1. `git pull`, puis `docker compose up -d --build` (aucune migration nouvelle : table de la 0029).
+2. `docker compose exec app python -m app.cli insider-archive --from 2021-11-01`
+   - environ une requête par seconde : prévoir une nuit ou plus ;
+   - relançable sans perte : une déclaration déjà analysée n'est pas relue.
+   - Me transmettre la couverture (`insider-archive --coverage-only`).
+3. `research calibrate --prereg research/prereg/2026-10-30_reg5.yaml --run N`.
+4. `research run --prereg research/prereg/2026-10-30_reg5.yaml --universe all --from 2020-06-01 --run N`. Lire d'abord le placebo X1, puis C1 / C2, puis les contrôles X2 et X3.
+
+Aucun résultat ne change un paramètre ni un détecteur sans ADR.
