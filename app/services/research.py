@@ -241,6 +241,51 @@ def _index_series(s: Session, isin: str | None, start: date, end: date) -> Index
     return IndexSeries(np.array([np.datetime64(r[0], "D") for r in rows]), np.array([float(r[1]) for r in rows]))
 
 
+def _read_price_panel(
+    s: Session, isins_wanted: list[str], start: date, end: date, chunk_rows: int = 250_000
+) -> tuple[np.ndarray, list[str], dict[str, np.ndarray]]:
+    """Daily bars of ``isins_wanted`` as (T, N) arrays, read by chunks straight into the final arrays: the whole
+    table never sits in memory as rows (New York, 7 849 values with the delisted ones, killed the process on the
+    PC on 29/10/2026). Same output as a one-block read: the sessions present in the data, the values with at least
+    one bar (sorted), the download vintage of each bar (source × UTC reception day; labels are arbitrary codes)."""
+    import pandas as pd
+
+    day_rows = s.execute(
+        select(PriceEod.day)
+        .where(PriceEod.isin.in_(isins_wanted), PriceEod.day >= start, PriceEod.day <= end)
+        .distinct()
+    ).all()
+    if not day_rows:
+        return np.array([], dtype="datetime64[D]"), [], {}
+    days = np.unique(np.array([np.datetime64(r[0], "D") for r in day_rows], dtype="datetime64[D]"))
+    cols = sorted(set(isins_wanted))
+    col = {k: n for n, k in enumerate(cols)}
+    arrays = {
+        k: np.full((days.size, len(cols)), np.nan) for k in ("open", "high", "low", "close", "adj_close", "volume")
+    }
+    vin = np.full((days.size, len(cols)), -1, dtype=np.int64)
+    seen = np.zeros(len(cols), dtype=bool)
+    vintages: dict[str, int] = {}
+    stmt = select(
+        PriceEod.isin, PriceEod.day, PriceEod.open, PriceEod.high, PriceEod.low, PriceEod.close,
+        PriceEod.adj_close, PriceEod.volume, PriceEod.source, PriceEod.received_at,
+    ).where(PriceEod.isin.in_(isins_wanted), PriceEod.day >= start, PriceEod.day <= end)  # fmt: skip
+    for chunk in pd.read_sql(stmt, s.connection(), chunksize=chunk_rows):
+        r = np.searchsorted(days, pd.to_datetime(chunk["day"]).to_numpy().astype("datetime64[D]"))
+        c = chunk["isin"].map(col).to_numpy(dtype=np.int64)
+        seen[c] = True
+        for k in arrays:
+            arrays[k][r, c] = pd.to_numeric(chunk[k], errors="coerce").to_numpy(dtype=np.float64)
+        rec = pd.to_datetime(chunk["received_at"], utc=True, errors="coerce").dt.strftime("%Y-%m-%d").fillna("?")
+        labels = (chunk["source"].astype(str) + "|" + rec).to_numpy()
+        vin[r, c] = np.array([vintages.setdefault(x, len(vintages)) for x in labels], dtype=np.int64)
+        del chunk
+    keep = np.nonzero(seen)[0]
+    out = {k: v[:, keep] for k, v in arrays.items()}
+    out["vintage"] = vin[:, keep]
+    return days, [cols[k] for k in keep.tolist()], out
+
+
 def _cache_key(parts: list[Any]) -> str:
     return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()[:16]
 
@@ -329,35 +374,9 @@ def load_panels(
         else:
             if progress:
                 progress(f"{grp} : lecture des cours de {len(insts)} valeurs")
-            stmt = (
-                select(PriceEod.isin, PriceEod.day, PriceEod.open, PriceEod.high, PriceEod.low, PriceEod.close,
-                       PriceEod.adj_close, PriceEod.volume, PriceEod.source, PriceEod.received_at)
-                .where(PriceEod.isin.in_([i.isin for i in insts]), PriceEod.day >= start, PriceEod.day <= end)
-            )  # fmt: skip
-            frames = []
-            for chunk in pd.read_sql(stmt, s.connection(), chunksize=500_000):
-                frames.append(chunk)
-            if not frames:
+            days, isins, arrays = _read_price_panel(s, [i.isin for i in insts], start, end)
+            if not isins:
                 continue
-            df = pd.concat(frames, ignore_index=True)
-            df["day"] = pd.to_datetime(df["day"]).values.astype("datetime64[D]")
-            days = np.unique(df["day"].to_numpy().astype("datetime64[D]"))
-            isins = sorted(df["isin"].unique().tolist())
-            col = {k: n for n, k in enumerate(isins)}
-            r = np.searchsorted(days, df["day"].to_numpy().astype("datetime64[D]"))
-            c = df["isin"].map(col).to_numpy()
-            arrays = {}
-            for k in ("open", "high", "low", "close", "adj_close", "volume"):
-                a = np.full((days.size, len(isins)), np.nan)
-                a[r, c] = pd.to_numeric(df[k], errors="coerce").to_numpy(dtype=np.float64)
-                arrays[k] = a
-            # download vintage of each bar (source × UTC reception day): adjusted closes of different vintages
-            # are not on the same adjustment basis (rescaled at their boundaries, docs/31 §31.3)
-            rec = pd.to_datetime(df["received_at"], utc=True, errors="coerce").dt.strftime("%Y-%m-%d").fillna("?")
-            codes, _ = pd.factorize(df["source"].astype(str) + "|" + rec)
-            vin = np.full((days.size, len(isins)), -1, dtype=np.int64)
-            vin[r, c] = codes.astype(np.int64)
-            arrays["vintage"] = vin
             # adjusted close missing → the last known adjustment factor (1 before any)
             fac = arrays["adj_close"] / arrays["close"]
             fac = pd.DataFrame(fac).ffill().fillna(1.0).to_numpy()
