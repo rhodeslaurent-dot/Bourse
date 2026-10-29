@@ -545,6 +545,45 @@ class EarningsEvent(Base):
     __table_args__ = (UniqueConstraint("isin", "day", "source", name="uq_earnings_events_isin_day_source"),)
 
 
+class InsiderDeclaration(Base):
+    """docs/34 §34.8 — managers' dealing declarations published by the AMF (BDIF, MAR art. 19), archived every day
+    from now on for a future pre-registered test. One row per declaration; the declarant's **name is never
+    stored**, only its role (closed list). ``market_timestamp`` is the AMF publication time (public availability);
+    figures stay empty until the PDF has been read (``parse_status``), never guessed. Archive only: no signal."""
+
+    __tablename__ = "insider_declarations"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(16))  # amf_bdif
+    doc_id: Mapped[str] = mapped_column(String(32))  # AMF number, e.g. 2026DD1099088
+    market_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    info_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    issuer_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    issuer_token: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    isin: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    isin_source: Mapped[str | None] = mapped_column(String(12), nullable=True)  # declaration | name
+    role: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    related_role: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    linked_person: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    nature: Mapped[str | None] = mapped_column(
+        String(16), nullable=True
+    )  # acquisition|cession|souscription|autre|mixte
+    nature_detail: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    tx_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    tx_date_last: Mapped[date | None] = mapped_column(Date, nullable=True)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    venue: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    n_transactions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    transactions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    pdf_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    parse_status: Mapped[str] = mapped_column(String(20), default="listing_only")
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("source", "doc_id", name="uq_insider_declarations_source_doc"),)
+
+
 # ---------------------------------------------------------------------------------------------
 # Phase 1 (D) — news, newsletters, signaux externes, propositions, décisions, instantanés
 # ---------------------------------------------------------------------------------------------
