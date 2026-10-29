@@ -126,3 +126,37 @@ def trace(s: Session, day: date, reader: tuple[str, Path] | None = None) -> list
         rec = "recommandation explicite" if op.explicit else "avis"
         out.append(f"  {op.name} ({op.isin or 'ISIN non reconnu'}) · {rec} {op.action} · {op.stance} → {what}")
     return out
+
+
+def reread(s: Session, day: date, gateway: object) -> list[str]:
+    """The letters of ``day`` read again with the current extraction prompt (newsletter_extract, latest version):
+    the values and levels the reader gives now, the level names after the closed list and whether each number is
+    written in the letter. Nothing is stored but the call log and the replay cache; the letter text is never
+    printed."""
+    from app.domain.letter_levels import canonical_levels
+    from app.llm.schemas import NewsletterExtraction
+    from app.services.newsletters import _number_in_text
+
+    start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS)
+    items = s.scalars(
+        select(NewsletterItem)
+        .where(NewsletterItem.received_at >= start, NewsletterItem.received_at < start + timedelta(days=1))
+        .order_by(NewsletterItem.received_at)
+    )
+    out: list[str] = []
+    for it in items:
+        body = it.body_text or ""
+        out.append(f"· {it.source} — « {it.subject[:80]} » ({len(body)} caractères, {min(len(body), 12000)} lus)")
+        ext, usage = gateway.parse(  # type: ignore[attr-defined]
+            s, "newsletter_extract", "newsletter_extract", body[:12000], NewsletterExtraction, max_tokens=2048
+        )
+        out.append(f"    {len(ext.values)} valeur(s), coût {usage.cost_usd:.4f} $")
+        for v in ext.values:
+            levels, dropped = canonical_levels(v.levels)
+            shown = ", ".join(
+                f"{k} {x:g}{'' if _number_in_text(x, body) else ' (absent du texte : rejeté)'}"
+                for k, x in levels.items()
+            )
+            extra = f" · noms inconnus ignorés : {', '.join(dropped)}" if dropped else ""
+            out.append(f"    {v.name} · {v.direction} · {shown or 'aucun niveau'}{extra}")
+    return out

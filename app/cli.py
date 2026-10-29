@@ -1481,6 +1481,23 @@ def cmd_mentions_recheck(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_letters_reread(args: argparse.Namespace) -> int:
+    """The letters of a day read again with the current extraction prompt: what the reader gives now (dry run)."""
+    from app.db.session import db_session
+    from app.llm import ClaudeGateway, settings_from
+    from app.services.letter_trace import reread
+
+    st = settings_from(load_params(args.params))
+    if st is None:
+        print("IA désactivée dans params.yaml (llm)")
+        return 2
+    day = date.fromisoformat(args.date) if args.date else date.today()
+    with db_session() as s:
+        for line in reread(s, day, ClaudeGateway(st)):
+            print(line)
+    return 0
+
+
 def cmd_letters_trace(args: argparse.Namespace) -> int:
     """What the tool made of the letters of one day: values read, levels, recalculation, proposal or why none."""
     from app.db.session import db_session
@@ -2189,6 +2206,9 @@ def main(argv: list[str] | None = None) -> int:
     nh.add_argument("--dry-run", action="store_true", help="repérage : compte expéditeurs et dates, n'enregistre rien")
     nh.add_argument("--no-llm", action="store_true", help="extraction par règles seules (gratuite)")
     nh.set_defaults(fn=cmd_newsletters_history)
+    rr = sub.add_parser("letters-reread", help="relit les lettres d'un jour avec la consigne actuelle (aperçu)")
+    rr.add_argument("--date", help="AAAA-MM-JJ (défaut : aujourd'hui)")
+    rr.set_defaults(fn=cmd_letters_reread)
     mr = sub.add_parser("mentions-recheck", help="retire les valeurs lues dans un mot courant (SUR, AUX, PAS…)")
     mr.add_argument("--since", required=True, help="AAAA-MM-JJ")
     mr.add_argument("--apply", action="store_true", help="appliquer (sinon aperçu)")

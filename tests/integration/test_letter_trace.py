@@ -60,3 +60,24 @@ def test_the_trace_shows_the_readers_stored_answer(db_engine, tmp_path):
         text = "\n".join(trace(s, date(2026, 10, 29), ("m", tmp_path)))
     assert "réponse de l'IA (consigne v1) : 2 valeur(s), 1 avec niveaux" in text
     assert "IA : BioMérieux · buy · objectif 140.0" in text and "corps privé" not in text
+
+
+def test_a_letter_is_read_again_with_the_current_prompt(db_engine):
+    from types import SimpleNamespace
+
+    from app.llm.schemas import NewsletterExtraction
+    from app.services.letter_trace import reread
+
+    class Reader:
+        def parse(self, s, purpose, prompt, text, schema, max_tokens=0):
+            assert schema is NewsletterExtraction and "100,20" in text
+            levels = {"declencheur": 100.2, "objectif": 109.1, "stop": 77.0}
+            ext = NewsletterExtraction(values=[{"name": "Viridien", "direction": "buy", "levels": levels}])
+            return ext, SimpleNamespace(cost_usd=0.002)
+
+    with db_session() as s:
+        s.add(NewsletterItem(source="momentum_capital", message_id="m3", dedup_hash="h3", received_at=T,
+                             subject="Viridien", body_text="sortie au-dessus de 100,20, objectif 109,10"))  # fmt: skip
+        s.flush()
+        text = "\n".join(reread(s, date(2026, 10, 29), Reader()))
+    assert "Viridien · buy · stop 77 (absent du texte : rejeté), declencheur 100.2, objectif 109.1" in text

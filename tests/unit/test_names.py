@@ -33,3 +33,13 @@ def test_a_name_given_by_the_reader_is_resolved_on_its_core():
     assert resolve("Renault Group", lookup) == "FR0000131906"
     assert resolve("TotalEnergies", lookup) == "FR0000120271"
     assert resolve("Inconnue SA", lookup) is None
+
+
+def test_a_group_word_is_kept_when_the_rest_is_a_common_word():
+    from app.domain.names import name_keys
+
+    lookup = {k: "DE000A1TNV91" for k in name_keys("Bitcoin Group SE")}
+    lookup |= {k: "FR0000133308" for k in name_keys("Orange SA")}
+    assert resolve("Bitcoin", lookup) is None  # the crypto-currency is not the German company
+    assert resolve("Bitcoin Group", lookup) == "DE000A1TNV91"
+    assert resolve("Orange", lookup) == "FR0000133308"  # only the legal form dropped

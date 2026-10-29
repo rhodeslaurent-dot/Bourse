@@ -18,13 +18,19 @@ from __future__ import annotations
 import re
 import unicodedata
 
-LEGAL_WORDS = frozenset(
+LEGAL_FORMS = frozenset(
     """
     sa se nv ag plc inc incorporated corp corporation ltd limited spa sau sca scs kgaa gmbh bv ab asa oyj oy as
-    publ co company companies cie group groupe grupo gruppe holding holdings the class ord ordinary shares adr ads
-    reit trust sicav sppicav et
+    publ co cie et
     """.split()
 )
+# words that make a different name when dropped (« Bitcoin Group » is not bitcoin): dropped only when what is left
+# is not a common word on its own
+GROUP_WORDS = frozenset(
+    "company companies group groupe grupo gruppe holding holdings the class ord ordinary shares adr ads reit trust "
+    "sicav sppicav".split()
+)
+LEGAL_WORDS = LEGAL_FORMS | GROUP_WORDS
 
 # common words that are also (parts of) company names: never searched alone in free text
 COMMON_WORDS = frozenset(
@@ -39,7 +45,8 @@ COMMON_WORDS = frozenset(
     focus alpha beta delta omega nova atlas apex zone point link open free star solar smart digital media music
     games food water gold silver power steel metal mining premier prime core edge peak summit vision value growth
     income fund index market markets trading invest investment group holding services service industries
-    industrie partners resources energy fed bce ecb
+    industrie partners resources energy fed bce ecb bitcoin ethereum crypto nasdaq brent petrole euro dollar
+    cac dax
     """.split()
 )
 
@@ -74,9 +81,22 @@ def mention_safe(key: str) -> bool:
     return len(w) >= 4 and not w.isdigit() and w not in COMMON_WORDS
 
 
+def legal_core(name: str) -> str:
+    """The name without its legal form only: « Orange SA » → « orange », « Bitcoin Group SE » → « bitcoin group »."""
+    words = norm(name).split()
+    while words and (words[-1] in LEGAL_FORMS or len(words[-1]) == 1):
+        words.pop()
+    return " ".join(words)
+
+
 def name_keys(name: str) -> set[str]:
-    """The normalized full name and its core: the keys under which a referential name is known."""
-    return {k for k in (norm(name), core_name(name)) if k}
+    """Keys under which a referential name is known: the full name, the name without its legal form, and the core
+    (group words dropped too) unless that core is a common word alone (« Bitcoin Group SE » is never « bitcoin »)."""
+    keys = {norm(name), legal_core(name)}
+    core = core_name(name)
+    if core and not (" " not in core and core in COMMON_WORDS):
+        keys.add(core)
+    return {k for k in keys if k}
 
 
 def find_mentions(text: str, index: dict[str, str]) -> list[tuple[str, str]]:
