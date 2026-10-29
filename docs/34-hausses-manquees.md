@@ -288,3 +288,55 @@ Recherche documentaire. EODHD est lu dans sa documentation officielle publiée s
 3. **Après le verdict n° 3 :**
    - Si C1 ou C2 passent : un détecteur « réaction aux résultats » en production, actionnable sans phase de surveillance, et un ADR.
    - Sinon : archivage quotidien des consensus d'analystes, et collecte des déclarations de dirigeants (AMF BDIF), pour un enregistrement n° 4 vers l'avant.
+
+## 34.10 Rejeu des politiques d'entrée (exploratoire, 29/10/2026)
+
+**Constat du 29/10/2026.** Toutes les opportunités avaient une limite (prix maximal, ratio net ≥ `admission.min_reward_risk` sur le **premier** objectif) sous le cours : « limite posée en attente d'un repli ». Rien n'est jamais acheté. La question : quelle **politique d'entrée** transforme les configurations des détecteurs en trades à la meilleure espérance nette, sur l'historique stocké ? Le rejeu prépare un plan pré-enregistré **n° 4** ; il ne change aucune règle.
+
+**Outil.**
+- Code : `app/domain/entry_policies.py` (pur) et `app/services/entry_replay.py`.
+- Commande : `python -m app.cli entry-replay --from 2017-01-02 [--to …] [--detectors d2_breakout,…] [--max-values N] [--mode setups|proposals]`.
+- Sortie : `data/research/entry_replay_<horodatage>.md` (rapport en français) et `.json` ; une ligne au registre de la recherche (`rejeu_entrees_exploratoire` ou `rejeu_entrees_propositions`).
+- Comme `moves-study`, la commande refuse toute date antérieure au 02/01/2017 (période 2007-2015 scellée pour la confirmation). New York, Londres et Zurich ne sont jamais lues.
+
+**Mode `setups` (défaut).**
+- Toutes les configurations que d2, d3, d4 et d7 produisent chaque séance, actifs ou non (leur politique de production est imprimée), sur les places européennes P0/P1/P2.
+- Détection identique au backtest : paramètres de production, rang de force relative de la population du jour, zones, admission (R4/R5).
+- Les configurations sans objectif exploitable, à stop trop large ou dégradées sont comptées puis écartées (la production ne pose jamais d'ordre dessus).
+- Chaque politique est simulée **indépendamment** sur chaque configuration, avec la même sortie et le coût complet du backtest (CTO comptant ; PEA quand la valeur est éligible).
+
+**Politiques.**
+- **P0 actuelle** : limite au prix maximal (ratio ≥ k sur l'objectif 1), valable `entry.expiry_sessions` ; aucune si le prix maximal est au stop ou dessous.
+- **P1 ouverture suivante** : achat à l'ouverture si elle est ≤ clôture + 1 ATR ; stop de la configuration ; objectif 1.
+- **P2 franchissement confirmé** : stop d'achat à max(déclencheur, plus haut du jour) + 1 échelon, valable 3 séances, prix maximal niveau × (1 + 0,5 ATR / cours).
+- **P2' ordre à plage de déclenchement J+1 (§6.3)** : seuil = pivot × 1,003 (d2, soit le déclencheur de docs/06) ou déclencheur × 1,003 (autres détecteurs), limite = prix maximal de production, valable la seule séance suivante.
+- **P3 objectif d'horizon** : comme P0, mais le ratio est mesuré sur l'objectif le plus lointain (dernier objectif ou plus haut 52 semaines) ; moitié vendue à l'objectif 1.
+- **P4 repli léger** : limite à clôture − 0,5 ATR (la MM20 si elle est entre les deux), 3 séances, objectif 1.
+- **P5 cadre ATR** : ouverture suivante (plafond de P1), stop entrée − 2 ATR, objectif entrée + 3 ATR (ou l'objectif 1 s'il est plus haut).
+- **P5'** : ouverture suivante, stop entrée − 2 ATR, sans objectif, sortie au temps après 10 séances.
+
+Ces paramètres sont les **hypothèses de l'étude** (imprimées dans le rapport) ; les valeurs de production viennent de `params.yaml` (glissement, ratio, validité, ordres en attente, risque).
+
+**Conventions (jamais en faveur du résultat).**
+- Ordres à partir de la séance suivante seulement ; indicateurs, zones et rangs calculés sur les cours jusqu'au jour du signal ; séances = barres stockées de la valeur (calendrier de sa place).
+- Limite exécutée dès que le plus bas l'atteint, à min(ouverture, limite) — un peu plus favorable que le backtest, qui exige de la traverser (signalé dans le rapport) ; une ouverture au stop ou dessous annule l'ordre ; une séance sans volume n'exécute rien.
+- Stop d'achat exécuté à max(ouverture, seuil) si ce prix est ≤ son prix maximal ; un écart d'ouverture au-dessus du prix maximal annule l'ordre (jamais poursuivi).
+- Stop supposé touché **après** l'exécution le jour même ; stop et objectif dans la même séance → **le stop d'abord** ; une limite exécutée en séance ne profite pas du plus haut de cette séance.
+- Stop glissé de `risk.slippage_pct` ; écart sous le stop → sortie à l'ouverture, glissée ; issue inconnue en fin d'historique → non comptée.
+- Opération sur titres entre le signal et la sortie possible → configuration exclue (cours non ajustés, comme le backtest).
+
+**Placebo.** Chaque configuration réelle est déplacée à une séance tirée au hasard de la même valeur (graine fixe) : mêmes distances en % (niveaux, ATR), mêmes ordres et mêmes sorties. Le placebo mesure l'effet **mécanique** d'une politique, indépendamment du détecteur.
+
+**Mode `proposals`.** Les propositions enregistrées depuis la première (`proposals` + `decision_snapshots` : limite publiée, stop, objectifs, heure de création, détecteur du signal), rejouées avec les mêmes politiques sur les séances qui suivent leur création. Une proposition créée pendant une séance commence à la séance suivante. Résultats par détecteur, par action, et selon que le cours était au-dessus ou au-dessous de la limite à la création ; excursions à 5, 10 et 20 séances ; « en cours » pour les trades dont la durée n'est pas écoulée (résultat latent, jamais mêlé aux trades clôturés).
+
+**Lire le rapport.**
+- Par politique × détecteur × groupe de places × année : configurations, taux d'exécution, part exécutée à l'ouverture (écart) ou en séance, délai d'exécution, trades, part de gagnants, R brut, coût en R, R net CTO et PEA, R net avec coûts × 1,5, durée médiane, part à l'objectif et au stop, profit factor, t.
+- **R par signal** (un ordre non exécuté compte 0 R) : c'est la grandeur qui compare des politiques au taux d'exécution différent.
+- **Écart apparié à P0** (même configuration, politique moins P0) : moyenne, t de Newey-West sur les agrégats hebdomadaires, intervalle à 95 % par rééchantillonnage par blocs de semaines, signe sur 5 plis chronologiques ; le même pour le placebo.
+- **Sélection adverse** : achat à la clôture du signal avec le même stop et le même objectif, pour les ordres exécutés et non exécutés (et tous) ; un écart positif dit que la politique n'achète que les moins bonnes configurations.
+- **Rythme du livre d'ordres** : ordres rejoués dans l'ordre chronologique avec au plus `entry.standing_orders_max` ordres en attente (puis autant d'emplacements que de lignes de risque, 6), « risque ouvert ÷ risque par trade » lignes et une seule par valeur ; ordres placés, exécutions, trades et R net **par mois**.
+- Toute statistique sur moins de 20 observations est masquée (« n<20 ») ; le rapport ne contient ni cours ni ISIN. Le nombre de cellules est imprimé : seuil t ≥ 3 pour une « découverte ».
+
+**Adoption.** Une politique qui ressort n'est qu'une hypothèse. Elle n'est adoptée qu'au terme d'un **plan pré-enregistré n° 4** (politique, paramètres, cellules, seuils figés avant toute lecture du résultat), exécuté sur des données qui n'ont pas servi à la choisir, puis **confirmé sur la période scellée 2007-2015**, et enfin décidé par ADR.
+
+**Sur le PC.** `docker compose exec -T app python -m app.cli entry-replay --from 2017-01-02` (de préférence la nuit ; environ une heure pour 2 000 valeurs, moins de 1,5 Go de mémoire), puis `docker compose exec -T app python -m app.cli entry-replay --mode proposals`. Me transmettre les deux rapports `.md`.

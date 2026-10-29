@@ -1601,6 +1601,43 @@ def cmd_moves_study(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_entry_replay(args: argparse.Namespace) -> int:
+    """docs/34 §34.10 — replay of the entry policies: on every detector setup (``setups``) or on the stored proposals
+    (``proposals``). Exploratory; European venues only. Aggregated report ``data/research/entry_replay_<ts>.md`` and
+    ``.json``; a line in the research ledger (every read of the data is counted)."""
+    from pathlib import Path
+
+    start = date.fromisoformat(args.from_date)
+    if start < date(2017, 1, 2):  # before the parameters are even read: the sealed history is never touched
+        print("refusé : avant 2017 les données européennes sont réservées à la confirmation (docs/34 §34.5)")
+        return 2
+    from app.db.session import db_session
+    from app.domain.calendar import load_market_calendars
+    from app.services import entry_replay
+    from app.services.research import append_ledger
+
+    cfg = load_params(args.params)
+    calendars = load_market_calendars(args.calendars)
+    end = date.fromisoformat(args.to) if args.to else date.today() - timedelta(days=1)
+    dets = args.detectors.split(",") if args.detectors else None
+    with db_session() as s:
+        if args.mode == "proposals":
+            rep = entry_replay.run_proposals(s, cfg, calendars, end, lambda m: print(f"  {m}", flush=True), start)
+        else:
+            rep = entry_replay.run_setups(s, cfg, calendars, start, end, dets, args.max_values,
+                                          lambda m: print(f"  {m}", flush=True), args.seed, args.universe)  # fmt: skip
+    j, md = entry_replay.write(rep, Path(args.out))
+    kind = "rejeu_entrees_propositions" if args.mode == "proposals" else "rejeu_entrees_exploratoire"
+    append_ledger(
+        Path(args.research_out),
+        {"timestamp": datetime.now(UTC).isoformat(timespec="seconds"), "kind": kind,
+         "universe": f"P0/P1/P2 {start}→{end}", "report": str(md)},
+    )  # fmt: skip
+    print(entry_replay.render_fr(rep))
+    print(f"\nrapport : {md} (agrégats seulement) · détail : {j}")
+    return 0
+
+
 def cmd_research(args: argparse.Namespace) -> int:
     """docs/31 — trigger research harness (pre-registered plan): run, decompose, calibrate, unseal. Writes an
     aggregated report (statistics only) under ``--out``."""
@@ -2322,6 +2359,18 @@ def main(argv: list[str] | None = None) -> int:
     mv.add_argument("--out", default="data/studies")
     mv.add_argument("--research-out", dest="research_out", default="data/research", help="dossier du registre")
     mv.set_defaults(fn=cmd_moves_study)
+    er = sub.add_parser("entry-replay", help="rejeu des politiques d'entrée (docs/34 §34.10) : exploratoire, agrégats")
+    er.add_argument("--from", dest="from_date", default="2017-01-02", help="début (pas avant 2017-01-02)")
+    er.add_argument("--to", default=None, help="fin (défaut : hier)")
+    er.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous, actifs ou non)")
+    er.add_argument("--max-values", dest="max_values", type=int, default=None, help="limiter le nombre de valeurs")
+    er.add_argument("--mode", choices=["setups", "proposals"], default="setups",
+                    help="setups : configurations des détecteurs ; proposals : propositions enregistrées")  # fmt: skip
+    er.add_argument("--universe", choices=["all", "in_universe"], default="all")
+    er.add_argument("--seed", type=int, default=7)
+    er.add_argument("--out", default="data/research")
+    er.add_argument("--research-out", dest="research_out", default="data/research", help="dossier du registre")
+    er.set_defaults(fn=cmd_entry_replay)
     rs = sub.add_parser("research", help="recherche de déclencheurs pré-enregistrée (docs/31) : rapport agrégé")
     rs.add_argument("action", choices=["run", "decompose", "calibrate", "unseal", "explain"])
     rs.add_argument("--prereg", default="research/prereg/2026-10-27_reg1.yaml")
