@@ -752,10 +752,14 @@ def evaluate(
             }
             if not ok:
                 action = "WATCH"
-                rr_txt = f"{fee_rr:.2f}" if fee_rr is not None else "inconnu"
+
+                def fr(x: float, fmt: str) -> str:  # French decimals on the card (« 1,92 »)
+                    return format(x, fmt).replace(".", ",")
+
+                rr_txt = fr(fee_rr, ".2f") if fee_rr is not None else "inconnu"
                 ev.blocked.append(
-                    f"WATCH : portail restreint — ratio net de frais {rr_txt} (≥ {min_rr:g} exigé) et {what} "
-                    f"{val:.2f} (≥ {lim:g} exigé) (R10)"
+                    f"WATCH : portail restreint — ratio net de frais {rr_txt} (≥ {fr(min_rr, 'g')} exigé) et {what} "
+                    f"{fr(val, '.2f')} (≥ {fr(lim, 'g')} exigé) (R10)"
                 )
             else:
                 ev.passed.append(

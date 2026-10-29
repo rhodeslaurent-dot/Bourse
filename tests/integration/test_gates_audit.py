@@ -46,7 +46,7 @@ def _fake(total=80.0, ratio=0.9, risk="faible", seen=None):
 
 
 def _evaluate(s, config, stop=95.0, target=121.0, gate="restreint", ref=None):
-    setup = Setup("d2_breakout", SetupKind.BREAKOUT, 100.0, 101.0, stop, "structure", 99.0, [target], "swing_2_6w")
+    setup = Setup("d4_pullback", SetupKind.PULLBACK, 100.0, 101.0, stop, "structure", 99.0, [target], "swing_2_6w")
     inst = s.get(Instrument, ISIN)
     return engine.evaluate(s, config, inst, setup, "moteur", 100.0, "eod", engine.Book([], {}, {}), gate, "green",
                            None, NOW, None, circuit=CIRCUIT, ref=ref)  # fmt: skip
@@ -78,7 +78,7 @@ def test_b2_restricted_score_basis(db_engine, config, monkeypatch, pea_only):
         assert ev.action == "BUY" and ev.details["portail_restreint"]["base"] == "admission_ratio"
         monkeypatch.setattr(engine, "score", _fake(total=95.0, ratio=0.8))
         ev = _evaluate(s, _cfg(config, restricted_score_basis="admission_ratio"))
-        assert ev.action == "WATCH" and "ratio d'admission 0.80" in " ".join(ev.blocked)
+        assert ev.action == "WATCH" and "ratio d'admission 0,80" in " ".join(ev.blocked)
 
 
 def test_high_risk_policy_watch_or_half_size(db_engine, config, monkeypatch, pea_only):
@@ -122,7 +122,7 @@ def test_b4_and_missing_data(db_engine, config, monkeypatch, pea_only):
 
 
 def test_caps_count_pending_orders_on_the_interface_capital(db_engine, config):
-    setup = Setup("d2_breakout", SetupKind.BREAKOUT, 100.0, 101.0, 95.0, "structure", 99.0, [116.0], "swing_2_6w")
+    setup = Setup("d4_pullback", SetupKind.PULLBACK, 100.0, 101.0, 95.0, "structure", 99.0, [116.0], "swing_2_6w")
     with db_session() as s:
         _seed(s, breakout_bars())
         inst = s.get(Instrument, ISIN)
@@ -155,7 +155,7 @@ def _days(s, n: int, step: int = 5):
 
 
 def _ev():
-    setup = Setup("d2_breakout", SetupKind.BREAKOUT, 100.0, 101.0, 95.0, "structure", 99.0, [116.0], "swing_2_6w")
+    setup = Setup("d4_pullback", SetupKind.PULLBACK, 100.0, 101.0, 95.0, "structure", 99.0, [116.0], "swing_2_6w")
     return engine.Evaluation(ISIN, "d2_breakout", "moteur", setup, "WATCH", 100.0, "eod")
 
 
@@ -259,7 +259,7 @@ def test_waiting_limit_caps_use_the_interface_capital(db_engine, config):
     c.params.admission["min_reward_risk"] = 0.3
     with db_session() as s:
         _seed(s, breakout_bars())
-        ev = engine.evaluate(s, c, s.get(Instrument, ISIN), Setup("d2_breakout", SetupKind.BREAKOUT, 100.0, 101.0,
+        ev = engine.evaluate(s, c, s.get(Instrument, ISIN), Setup("d4_pullback", SetupKind.PULLBACK, 100.0, 101.0,
                              95.0, "structure", 99.0, [103.0], "swing_2_6w"), "moteur", 102.0, "eod",
                              engine.Book([], {}, {}), "restreint", "green", None, NOW, None, circuit=CIRCUIT,
                              ref=ref)  # fmt: skip
