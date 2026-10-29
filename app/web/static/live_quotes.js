@@ -87,6 +87,11 @@
       var g = gaps[n.getAttribute("data-live-distance")];
       if (g) n.textContent = g.ecart_txt;
     });
+    var toSeuil = data.ecarts_seuil || {};
+    document.querySelectorAll("[data-live-distance-seuil]").forEach(function (n) {
+      var g = toSeuil[n.getAttribute("data-live-distance-seuil")];
+      if (g) n.textContent = g.ecart_txt;
+    });
     var re = data.reevaluations || {};
     document.querySelectorAll("[data-live-reeval]").forEach(function (n) {
       var r = re[n.getAttribute("data-live-reeval")];

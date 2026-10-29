@@ -48,10 +48,19 @@ def facts_for(s: Session, p: Proposal, now: datetime | None = None) -> list[dict
     }
     facts.append(f"Configuration : {det.get(_detector(s, p), _detector(s, p))}, horizon {p.horizon}")
     entree = d.get("entree") or {}
-    facts.append(
-        f"Entrée : déclencheur {_fmt(entree.get('declencheur'))}, ordre limite au prix maximal {_fmt(d.get('p_max'))} "
-        f"(ratio gain/risque d'au moins 2 net de frais)"
-    )
+    if "seuil" in entree:  # a breakout (docs/06 §6.3): its order à plage de déclenchement
+        n = entree.get("validite_seances")
+        facts.append(
+            f"Entrée : ordre à plage de déclenchement J+1, seuil {_fmt(entree.get('seuil'))}, limite (prix maximal) "
+            f"{_fmt(d.get('p_max'))}"
+            + (f", valable {n} séances" if n else "")
+            + " (ratio gain/risque d'au moins 2 net de frais)"
+        )
+    else:
+        facts.append(
+            f"Entrée : déclencheur {_fmt(entree.get('declencheur'))}, ordre limite au prix maximal "
+            f"{_fmt(d.get('p_max'))} (ratio gain/risque d'au moins 2 net de frais)"
+        )
     facts.append(f"Stop : {_fmt(p.stop)} ; objectifs : {', '.join(_fmt(t) for t in (p.targets or [])) or 'aucun'}")
     acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
     if acc:

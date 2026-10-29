@@ -146,6 +146,44 @@ def test_breakout_trigger_crossed_then_above_pmax(ctx):
     assert [r.status for r in _rows(pid)] == ["en_attente", "declencheur_franchi", "limite_depassee"]
 
 
+def _plage(s) -> Proposal:
+    """A d2 breakout as the engine stores it since 30/10/2026 (docs/06 §6.3): its order à plage de déclenchement."""
+    p = _breakout(s)
+    p.details = {**p.details, "entree": {"type": "ordre à plage de déclenchement", "seuil": 102.0, "limite": 104.0,
+                                         "validite_seances": 3, "jusqu_au": "2026-10-30"}}  # fmt: skip
+    s.flush()
+    return p
+
+
+def test_a_plage_whose_seuil_is_crossed_under_its_limit_is_actionable_on_a_fresh_realtime_quote(ctx):
+    with db_session() as s:
+        pid = _plage(s).id
+    assert _tick(ctx, 101.5, T) == 1  # under the seuil: waiting
+    assert _tick(ctx, 103.0, T + timedelta(seconds=15)) == 1  # seuil crossed, ≤ limite, realtime
+    (ev,) = ctx.sent
+    assert ev.kind == "reeval_entry" and "déclencheur franchi" in ev.title
+    text = ev.telegram_text()
+    assert "Seuil 102" in text and "limite (prix maximal) 104" in text and len(text.split("\n")) <= 12
+    assert (
+        "Ordre à plage de déclenchement J+1 : seuil 102 €, limite 104 €, valable 3 séances (jusqu'au 30/10/2026)"
+        in (text)
+    )
+    assert "l'outil ne passe aucun ordre" in text
+    rows = _rows(pid)
+    assert [(r.status, r.actionable) for r in rows] == [("en_attente", False), ("declencheur_franchi", True)]
+
+
+def test_a_plage_crossed_on_a_delayed_quote_is_to_verify(ctx):
+    with db_session() as s:
+        pid = _plage(s).id
+    assert _tick(ctx, 103.0, T, delayed=True) == 1
+    assert ctx.sent == []  # rule 2: no order card on a delayed quote
+    (row,) = _rows(pid)
+    assert row.status == "declencheur_franchi" and not row.actionable and row.data_status == "delayed"
+    with db_session() as s:
+        assert "à vérifier" in summary(latest_by_proposal(s, [pid])[pid])["texte"]
+
+
 def test_entry_alert_deduplicated_per_day_and_mode_read(ctx):
     with db_session() as s:
         _pullback(s)

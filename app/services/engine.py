@@ -337,6 +337,9 @@ def evaluate(
     if setup.detector == "external":
         ev.blocked += _letter_drift_block(config, setup, now)
     adm_price = _admission_price(setup, price)
+    # docs/06 §6.3 (applied 30/10/2026): a breakout is entered with an order à plage de déclenchement for J+1 —
+    # seuil = the detector's trigger (``entry_level``), limite = P_max (R4, capped by the technical maximum)
+    plage = setup.kind == SetupKind.BREAKOUT
     fx = fx_to_eur(s, inst.currency) or (1.0 if inst.currency == "EUR" else None)
     if fx is None:
         ev.blocked.append(f"BLOQUÉ : taux de change {inst.currency} indisponible (fx_refresh)")
@@ -493,7 +496,7 @@ def evaluate(
                     max_risk_pct=ref_pct,
                     entry_level=adm.p_max,
                     stop_initial=setup.stop,
-                    order_kind=EntryOrderKind.LIMIT,
+                    order_kind=EntryOrderKind.STOP_LIMIT if plage else EntryOrderKind.LIMIT,  # both bound the price
                     slippage_pct=float(risk.slippage_pct),
                     fees=fees,
                     max_position_pct_of_capital=float(risk.max_position_pct_of_capital),
@@ -814,6 +817,17 @@ def evaluate(
         return ev
     if _breakout_under_trigger(ev, setup, target, ev.details["p_max"], k, first_row.get("frais_aller_retour_pct", 0.0)):
         return ev
+    if any_adm.status == Status.REFUSED and best is None and plage and setup.detector != "external":
+        # a detector's breakout already above the limit of its plage: no order, never a limit waiting for a
+        # pullback under the price (docs/06 §6.3) — a letter's crossed breakout keeps its retest limit (R6)
+        lim = float(ev.details["p_max"] or 0)
+        gap = f" (+{price / lim - 1:.1%})".replace(".", ",") if lim > 0 else ""
+        ev.blocked.append(
+            f"WATCH : {ABOVE_RANGE} — cours {price:.4g} > limite {lim:.4g}{gap}, seuil {setup.entry_level:.4g} : "
+            "ne pas courir après le prix, aucun ordre (docs/06 §6.3)"
+        )
+        ev.action = "WATCH"
+        return ev
     if any_adm.status == Status.REFUSED and best is None:
         # the limit order waits at P_max: account and quantity sized at that limit (rule 7), cash before SRD
         fit = [a for a in options if per_account[a].get("titres") and per_account[a].get("ratio_net") is not None]
@@ -856,9 +870,15 @@ def evaluate(
     # --- events a stop does not cover (R14) ---
     ev.blocked += _events_blocks(s, config, inst, adm.p_max, sz.stop_exec, now, ev)
     ev.action = action
-    ev.details["entree"] = {"declencheur": setup.entry_level, "limite": adm.p_max, "type": "limite au prix maximal"}
-    if setup.detector == "external" and setup.kind == SetupKind.BREAKOUT:  # a letter's breakout (docs/20 §20.10)
-        ev.details["entree"]["type"] = "ordre à plage de déclenchement : seuil = déclencheur, limite = prix maximal"
+    if plage:  # docs/06 §6.3: seuil = trigger, limite = P_max ≥ seuil (checked above), valid N sessions of the venue
+        ev.details["entree"] = {
+            "type": PLAGE,
+            "seuil": setup.entry_level,
+            "limite": adm.p_max,
+            "validite_seances": int((getattr(p, "entry", None) or {}).get("confirm_sessions", 3)),
+        }
+    else:
+        ev.details["entree"] = {"declencheur": setup.entry_level, "limite": adm.p_max, "type": LIMIT_AT_PMAX}
     der = getattr(p, "derivatives", None) or {}
     if der.get("enabled") and inst.kind == "stock":
         from app.domain.derivatives import turbo_criteria
@@ -877,10 +897,15 @@ def evaluate(
     return ev
 
 
+PLAGE = "ordre à plage de déclenchement"  # docs/06 §6.3: the entry of every breakout (seuil, limite)
+LIMIT_AT_PMAX = "limite au prix maximal"  # every other setup
+ABOVE_RANGE = "cours au-dessus de la limite de la plage"
+
+
 def _admission_price(setup: Setup, price: float) -> float:
-    """A letter's breakout not crossed yet is tested at its entry level: a stop order fills there, never under it
-    (docs/20 §20.10); every other setup at the price of the analysis."""
-    if setup.detector == "external" and setup.kind == SetupKind.BREAKOUT and price < setup.entry_level:
+    """A breakout under its seuil is tested at the seuil: its order à plage de déclenchement fills there, never under
+    it (docs/06 §6.3, docs/20 §20.10); every other setup at the price of the analysis."""
+    if setup.kind == SetupKind.BREAKOUT and price < setup.entry_level:
         return setup.entry_level
     return price
 
@@ -1968,6 +1993,12 @@ def _persist(
                         "manque": missing,
                         "rappel": "jamais appliquée sans l'accord explicite de l'utilisateur (R21)",
                     }
+                ent = e.details.get("entree") or {}
+                plage_n = ent.get("validite_seances") if ent.get("type") == PLAGE else None
+                # a breakout's plage is valid ``entry.confirm_sessions`` sessions of the venue (docs/06 §6.3)
+                expires = _expiry(s, cals, e, day, now, int(plage_n) if plage_n else expiry_sessions)
+                if plage_n:
+                    ent["jusqu_au"] = (e.details.get("validite") or {}).get("jusqu_au")
                 sig = record_signal(
                     s,
                     e.isin,
@@ -2000,7 +2031,7 @@ def _persist(
                     {"passed": e.passed, "blocked": e.blocked},
                     p.version,
                     to_verify=e.price_status not in ("realtime", "delayed", "eod"),
-                    expires_at=_expiry(s, cals, e, day, now, expiry_sessions),
+                    expires_at=expires,
                     config=config,
                     account_recommended=e.account,
                     entry_zone=e.details.get("entree"),
