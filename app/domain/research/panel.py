@@ -32,6 +32,18 @@ class IndexSeries:
 
 
 @dataclass(frozen=True)
+class LetterLevels:
+    """A letter's configuration with an explicit trigger (registration n° 4): levels under the closed keys of
+    ``letter_levels.canonical_levels``, and the first calendar day at whose close the letter is known."""
+
+    isin: str
+    known_day: np.datetime64  # datetime64[D]
+    trigger: float  # « déclencheur »
+    stop: float  # the letter's invalidation
+    targets: tuple[float, ...]  # ascending
+
+
+@dataclass(frozen=True)
 class Panel:
     group: str  # venue group: P0 | P1 | P2
     days: Days  # (T,) datetime64[D], union of the sessions of the group's venues, ascending
@@ -57,6 +69,8 @@ class Panel:
     earn_react: Bool | None = None  # (T, N) reaction session of an announcement
     earn_known: Bool | None = None  # (T, N) inside the loaded span of the value's announcements
     earn_surprise_pos: F64 | None = None  # (T, N) 1.0 EPS actual > estimate, 0.0 not, NaN unknown (reaction rows)
+    # registration n° 4 (``letters_trigger``): letter configurations with an explicit trigger; None: not loaded
+    letters: tuple[LetterLevels, ...] | None = None
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -65,6 +79,7 @@ class Panel:
     def select(self, cols: I64) -> Panel:
         """The same panel restricted to some instruments (columns)."""
         c = np.asarray(cols, dtype=np.int64)
+        kept = {self.isins[int(k)] for k in c}
         return Panel(
             self.group, self.days, tuple(self.isins[int(k)] for k in c),
             self.open[:, c], self.high[:, c], self.low[:, c], self.close[:, c], self.adj_close[:, c],
@@ -74,6 +89,7 @@ class Panel:
             None if self.earn_react is None else self.earn_react[:, c],
             None if self.earn_known is None else self.earn_known[:, c],
             None if self.earn_surprise_pos is None else self.earn_surprise_pos[:, c],
+            None if self.letters is None else tuple(x for x in self.letters if x.isin in kept),
         )  # fmt: skip
 
 

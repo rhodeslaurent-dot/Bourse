@@ -228,3 +228,45 @@ def test_registration_3_runs_with_the_earnings_history_and_guards_its_old_replic
     assert "couverture des publications" in txt and "Holm sur 2" in txt
     # the old replication opens only by unseal, with a frozen candidate file, its warm-up and its whole span
     assert main(["--params", PARAMS, "research", "unseal", "--prereg", plan, "--out", out]) == 2
+
+
+def test_registration_4_runs_with_the_letters_and_guards_its_old_replication(research_db, tmp_path):
+    """docs/34 §34.11: registration n° 4 (entry policies paired per signal) through the CLI on the synthetic base,
+    with stored letters carrying an explicit trigger (X6): calibration, run, report with the entry-policy section,
+    the letters counted in the header, aggregates only; a run starting in the sealed replication is refused."""
+    from app.db.models import NewsletterItem, NewsletterValue
+
+    plan = "research/prereg/2026-10-30_reg4.yaml"
+    out = str(tmp_path / "research")
+    with db_session() as s:
+        for k, (isin, day) in enumerate([("FR0000000000", date(2017, 6, 1)), ("FR0000000003", date(2017, 9, 4)),
+                                         ("FR0000000006", date(2018, 2, 1))]):  # fmt: skip
+            px = s.query(PriceEod).filter(PriceEod.isin == isin, PriceEod.day >= day).order_by(PriceEod.day).first()
+            item = NewsletterItem(source="momentum_capital", message_id=f"m{k}", dedup_hash=f"h{k}",
+                                  received_at=datetime(day.year, day.month, day.day, 13, 0, tzinfo=UTC),
+                                  subject="lettre", body_text="—")  # fmt: skip
+            s.add(item)
+            s.flush()
+            c = px.close
+            levels = {"Déclencheur": c * 1.02, "Objectif 1": c * 1.15, "invalidation": c * 0.9}
+            s.add(NewsletterValue(item_id=item.id, isin=isin, direction="buy", levels=levels))
+        s.add(NewsletterValue(item_id=item.id, isin="FR0000000009", direction="buy", levels={"achat": 10.0}))
+    assert main(["--params", PARAMS, "research", "calibrate", "--run", str(research_db), "--prereg", plan,
+                 "--out", out]) == 0  # fmt: skip
+    args = ["--params", PARAMS, "research", "run", "--prereg", plan, "--universe", "all", "--to", "2018-12-31",
+            "--out", out, "--run", str(research_db)]  # fmt: skip
+    assert main([*args, "--from", "2015-09-30"]) == 2  # a bar of the sealed replication: refused before any read
+    assert main(args) == 0
+    rep = json.loads(sorted(p for p in (tmp_path / "research").glob("2*.json") if "candidates" not in p.name)[-1]
+                     .read_text())  # fmt: skip
+    assert_no_price_fields(rep)
+    h = rep["entete"]
+    assert h["plan"] == "2026-10-30_reg4" and h["cellules_enregistrees"]["total"] == 27
+    assert sum(v["avec_declencheur_stop_objectif"] for v in h["lettres"].values()) == 3
+    assert sum(v["valeurs_lues"] for v in h["lettres"].values()) == 4
+    assert any("politiques d'entrée" in x for x in h["limites"])
+    pe = rep["P_politiques_entree"]
+    assert pe["ordre_de_lecture"][0].startswith("X1.") and set(rep["A_resume"]["confirmatoires"]) == {"C1", "C2"}
+    txt = sorted((tmp_path / "research").glob("2*.txt"))[-1].read_text()
+    assert "P — Politiques d'entrée" in txt and "Holm sur 2" in txt
+    assert main(["--params", PARAMS, "research", "unseal", "--prereg", plan, "--out", out]) == 2

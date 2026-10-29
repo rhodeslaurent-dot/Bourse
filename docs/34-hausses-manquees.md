@@ -288,3 +288,64 @@ Recherche documentaire. EODHD est lu dans sa documentation officielle publiée s
 3. **Après le verdict n° 3 :**
    - Si C1 ou C2 passent : un détecteur « réaction aux résultats » en production, actionnable sans phase de surveillance, et un ADR.
    - Sinon : archivage quotidien des consensus d'analystes, et collecte des déclarations de dirigeants (AMF BDIF), pour un enregistrement n° 4 vers l'avant.
+
+## 34.11 Enregistrement n° 4 : politiques d'entrée
+
+> Plan `research/prereg/2026-10-30_reg4.yaml`, empreinte sha256 `86ac714f71fd502b1debbaf24e750264ba8bebd6928330ed01920b0dc5784f36` (ensemble de cellules `74a7169e…`), graine 20261030.
+> - **Gelé le 30/10/2026 par l'assistant**, sous la délégation de l'utilisateur du 29/10/2026 au soir, à partir du brouillon de l'agent « entrées » relu et corrigé (liste ci-dessous).
+> - Gelé **avant** toute sortie du rejeu exploratoire « entry policy replay » (2017-2026, PC) et **avant** tout chargement de l'historique européen antérieur à 2016.
+> - Seuils A1–A13, inférence, plis et paramètres (`config/params.yaml`) repris du n° 3 ; seuils propres au plan sous `thresholds.paired`.
+
+**Question.** La limite de production « posée en attente d'un repli » (prix maximal de R4 mesuré sur le premier objectif, souvent **sous** le cours) n'est exécutée que par un repli, donc surtout sur les configurations qui échouent (sélection adverse des ordres limites). Un ordre **à plage de déclenchement J+1** sur le franchissement (déjà prévu par docs/06 §6.3 pour d2/d3) devrait supprimer ce handicap. Le plan compare des politiques d'entrée **sur les mêmes signaux** : Δ = R(politique) − R(référence) par signal, un ordre absent, non exécuté ou annulé valant 0 R (ce que le carnet encaisse), une issue inconnue écartant la paire.
+
+**Politiques.** P0 production (limite = min(P_max R4 objectif 1, prix maximal technique), 3 séances) ; P1 = E_open(1) (limite clôture + 1 ATR, 1 séance) ; **P2 stop d'achat à plage** (seuil = max(niveau du détecteur, plus haut du jour) + 1 pas, limite = seuil × (1 + 0,5 · ATR/clôture), 3 séances, annulé si l'ouverture dépasse la limite) ; P3 R4 sur l'objectif le plus lointain ; P4 repli léger (clôture − 0,5 ATR ou MM20).
+
+**Cellules** (27 au total, plafond 30) :
+
+| Cellule | Rôle | Contenu | Sortie |
+|---|---|---|---|
+| X1 (2) | placebo, **lu en premier**, diagnostic | P2 contre P0 sur des valeurs et dates tirées au hasard au taux de d7x, géométrie d7 du jour tiré | X8 h 20 ; XP h 60 |
+| C1 | confirmatoire | d7x, P2 contre P0 (effet d'entrée isolé) | X8 h 20 |
+| C2 | confirmatoire | d7x, P2 contre P0 (conditions de production) | XP h 60 |
+| X2 (3) | exploratoire | d7x, P1 / P3 / P4 contre P0 | X8 h 20 |
+| X3 (2) | exploratoire | d2x (cassure du pivot, production), P2 contre P0 | X8, XP h 20 |
+| X4 (2) | exploratoire | d8x (d8 sans radar : +3 %, volume ≥ 2 × médiane, tiers haut), P2 et P1 contre P0 | X8 h 10 |
+| X5 (4) | exploratoire | d7x, P2 : validité 1 / 5 × plafond 0,25 / 1,0 ATR | X8 h 20 |
+| X6 (2) | diagnostic | lettres à déclencheur, stop et objectif explicites, P2 et P3 contre P0 | X8 h 20 |
+| X7 (2) | diagnostic, **lu après le verdict du n° 3** | t14, P2 contre P1 = E_open(1) | X3 h 10 / 20 |
+| X8 (5) | diagnostic | sélection adverse de P0…P4 sur d7x (contrefactuel « acheté à l'ouverture suivante ») | X8 h 20 |
+| étape 2 (3) | — | rejeu à 6 lignes de C1 / C2 : politique, référence, placebo ; ordres exécutés par mois | — |
+
+X8 = stop 2,5 ATR sous l'exécution, sans objectif, sortie au temps h ; XP = stop structurel R1 glissé, objectif 1, durée du détecteur. Unité `r_stop` : résultat net ÷ risque initial au stop glissé de la sortie de la cellule, taille au budget de risque (règle 7). Tests multiples : Holm sur 2 (C1, C2) ; Romano–Wolf sur les 11 exploratoires non diagnostiques (X2–X5) ; X1, X6, X7, X8 hors familles, jamais candidats.
+
+**Critères du verdict (a)** (cellule CANDIDAT, confirmatoire seulement) : A1 sur les paires (n ≥ 300, ≥ 100 semaines, ≥ 40 par pli), Δ ≥ +0,05 R par signal, t de Newey–West hebdomadaire ≥ 3, IC 95 % par blocs > 0, ≥ 4 plis positifs sur 5, taux d'exécution de P2 ≥ 50 %, p Holm ≤ 0,05. L'excès sur le placebo de la même sortie est imprimé ; il n'entre pas dans (a).
+
+**Décisions que le plan peut fonder (chacune par ADR) :**
+1. **(a) mécanique d'entrée** — si C1 ou C2 est CANDIDAT **et** confirmé sur la réplication 2007-2015 (Δ > 0, borne basse de l'IC > −0,05) : ordre à plage de déclenchement J+1 à la place de la limite en attente pour les configurations « franchissement » de d7. Cette limite n'applique pas R4 au prix maximal : l'ADR doit le dire.
+2. **(b) détecteur actionnable** — seulement si (a) et, sur **C2** (sorties de production), la politique P2 atteint A2 hors échantillon et sur la réplication, A4 (excès absolu sur le placebo ≥ +0,08 R, IC > 0), A10 (concentration) et A13 (rejeu à 6 lignes : rendement annuel > 0 et rendement / recul max ≥ celui du placebo) : d7 à 50 % du risque par trade, suivi en ombre d'abord. Sinon d7 reste en surveillance (ADR-013 / ADR-014).
+
+**Ce qui ne doit pas être lu avant :** rien du rejeu « entry policy replay » ne peut modifier ce plan (gelé avant sa sortie) ; dans le rapport, lire X1 avant C1 / C2, et X7 seulement après le verdict du n° 3 (son bras P1 rejoue les cellules C1 / C2 du n° 3). La découverte 2017-2026 n'est pas « aveugle » (le rejeu la lit) : la réplication 2007-2015 est la seule période jamais lue. Elle est **partagée** avec le n° 3 ; chaque plan ne la descelle qu'une fois, pour ses propres candidats (n° 3 : t14 ; n° 4 : C1 / C2, d7x jamais rejoué avant 2016).
+
+**Corrections du brouillon (avant gel, aucune donnée lue) :**
+- P5 retiré : sous X8 il est identique à P1 ; son objectif + 3 ATR est une question de sortie.
+- P1 défini comme E_open(1) (vrai ordre limite d'un jour) : X7 compare alors bien P2 à l'entrée du n° 3.
+- X1 scindé par sortie (X8 h 20 pour C1, XP h 60 pour C2) : une grille ne pouvait pas apparier sortie et durée.
+- X4 : le brouillon décrivait d8 sans radar mais citait t07 (amplitude ≥ 2 ATR) ; déclencheur `d8x` défini.
+- Unité : sous X8, le risque est le stop X8, pas le stop structurel.
+- X8 compté pour 5 cellules, et non 1 ; total 27, et non 24.
+- Placebo et diagnostics hors des familles de tests multiples.
+- A13 de (b) rapporté au rendement : le placebo prend plus de trades, les reculs bruts ne sont pas comparables.
+- Limite exécutée seulement si le plus bas passe **sous** elle : convention du moteur calibré et du backtest n° 2, et non « plus bas ≤ limite ».
+- Vente partielle S2 de P3 sans objet sous X8 ; seuil de réplication chiffré (`replication_min_ci_low`).
+
+**Banc** (`app/domain/research/entry_policies.py`) :
+- `exits` : ordres stop-limite (exécution à l'ouverture dans la plage, au seuil en séance avec le plus haut revendiqué, annulation au-dessus du prix maximal) ; cadre vérifié à l'exécution sous XP.
+- Configurations de production par le vrai détecteur (zones, stop R1, objectifs) ; géométrie d7 du placebo, testée égale à celle du détecteur.
+- Lettres : `canonical_levels`, connues à la clôture du jour de réception, ou de la séance suivante après 17:30 Paris.
+- Δ apparié, Newey–West, blocs, Holm / Romano–Wolf, puissance analytique ; descellement daté.
+- Tests : `tests/unit/test_research_entries.py`, et `tests/integration/test_research.py` (exécution complète du plan par la commande).
+
+**Sur le PC** (après le n° 3 ; le n° 4 lit l'historique des publications pour X7 et les lettres importées pour X6) :
+- `docker compose exec app python -m app.cli research calibrate --prereg research/prereg/2026-10-30_reg4.yaml --run N`
+- puis `docker compose exec app python -m app.cli research run --prereg research/prereg/2026-10-30_reg4.yaml --universe all --run N`
+- Descellement, seulement pour un candidat C1 / C2 et après `backfill --from 2005-01-01` : `research unseal --prereg research/prereg/2026-10-30_reg4.yaml --candidates <fichier figé> --universe all --from 2006-01-01 --to 2016-01-31`.

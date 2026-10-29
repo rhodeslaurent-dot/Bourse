@@ -33,10 +33,12 @@ from app.domain.costs import ftt_rate_any
 from app.domain.research import f0 as F0
 from app.domain.research.classify import Tier, unseal_confirmed
 from app.domain.research.costs import Account, ttf_rates
+from app.domain.research.entry_policies import entry_unseal_verdict
 from app.domain.research.panel import (
     EarningsRow,
     FeatureParams,
     IndexSeries,
+    LetterLevels,
     Panel,
     earnings_flags,
     fx_path,
@@ -76,6 +78,7 @@ class PanelMeta:
     fx_fallback_currencies: list[str]
     fx_static_days: dict[str, dict[str, Any]]  # currency → days on the plan's static rate (before any ECB rate)
     earnings: dict[str, dict[str, int]] | None = None  # registration n° 3: announcements placed per group
+    letters: dict[str, dict[str, int]] | None = None  # registration n° 4: letter values read / with a trigger
 
 
 # --- plan and settings -----------------------------------------------------------------------------
@@ -361,6 +364,7 @@ def load_panels(
     fx_fb: set[str] = set()
     fx_static: dict[str, set[Any]] = defaultdict(set)
     earn_counts: dict[str, dict[str, int]] = {}
+    letter_counts: dict[str, dict[str, int]] = {}
     lo_all: date | None = None
     hi_all: date | None = None
     for grp in list(vgroups) if vgroups else GROUPS:
@@ -437,6 +441,8 @@ def load_panels(
         )  # fmt: skip
         if prereg.needs_earnings:
             panel, earn_counts[grp] = attach_earnings(s, panel, prereg)
+        if prereg.needs_letters:
+            panel, letter_counts[grp] = attach_letters(s, panel, prereg)
         panels.append(panel)
         counts[grp] = len(isins_k)
         if days.size:
@@ -450,7 +456,8 @@ def load_panels(
         if ds
     }
     return panels, PanelMeta(lo_all, hi_all, counts, dropped, without, delisted, sorted(fx_fb), static_days,
-                             earn_counts if prereg.needs_earnings else None)  # fmt: skip
+                             earn_counts if prereg.needs_earnings else None,
+                             letter_counts if prereg.needs_letters else None)  # fmt: skip
 
 
 EARNINGS_MARGIN_DAYS = 100  # defaults when a plan does not state them (registration n° 3 states both)
@@ -481,6 +488,28 @@ def attach_earnings(s: Session, panel: Panel, prereg: Prereg) -> tuple[Panel, di
               "publications_hors_periode": fl.outside, "heure_contradictoire": fl.conflicting_when,
               "lignes_sources": len(rows)}  # fmt: skip
     return replace(panel, earn_react=fl.react, earn_known=fl.known, earn_surprise_pos=fl.surprise_pos), counts
+
+
+def attach_letters(s: Session, panel: Panel, prereg: Prereg) -> tuple[Panel, dict[str, int]]:
+    """Registration n° 4 (X6): the stored letter values « achat » / « surveiller » of the panel's values with an
+    explicit trigger, stop and target (closed list of level names), dated by the day they are known
+    (``letters_known_after_paris``). Levels and dates only, never a price of the letter's text."""
+    from app.db.models import NewsletterItem, NewsletterValue
+    from app.domain.research.entry_policies import letter_config, letter_known_day
+
+    after = str(prereg.assumptions.get("letters_known_after_paris", "17:30"))
+    rows = s.execute(
+        select(NewsletterValue.isin, NewsletterValue.levels, NewsletterItem.received_at)
+        .join(NewsletterItem, NewsletterItem.id == NewsletterValue.item_id)
+        .where(NewsletterValue.isin.in_(list(panel.isins)), NewsletterValue.direction.in_(("buy", "watch")))
+    ).all()
+    out: list[LetterLevels] = []
+    for isin, levels, received in rows:
+        cfg = letter_config(levels or {}) if isinstance(levels, dict) else None
+        if cfg is None or received is None:
+            continue
+        out.append(LetterLevels(str(isin), np.datetime64(letter_known_day(received, after), "D"), *cfg))
+    return replace(panel, letters=tuple(out)), {"valeurs_lues": len(rows), "avec_declencheur_stop_objectif": len(out)}
 
 
 # --- run 2 --------------------------------------------------------------------------------------------
@@ -601,6 +630,8 @@ def freeze_candidates(
         return None
     disc = {c: {k: cells[c].get(k) for k in ("n", "mean_r", "mean_eur_300", "mean_excess", "profit_factor",
                                             "mean_pct_notionnel")} for c in cands}  # fmt: skip
+    for c in cands:  # registration n° 4: the paired interval and the (b) criteria of the discovery
+        disc[c].update({k: cells[c][k] for k in ("ic", "decision_b") if k in cells[c]})
     body = yaml.safe_dump(
         {"prereg_id": prereg.id, "prereg_sha256": prereg.sha256, "cells": cands,
          "niveaux": {c: Tier.CANDIDATE.value for c in cands}, "decouverte": disc},
@@ -636,6 +667,17 @@ LIMITS = [
 ]
 
 
+ENTRY_LIMITS = [
+    "politiques d'entrée (n° 4) : barres quotidiennes — l'ordre des cours dans une séance est inconnu : stop d'abord, une "
+    "limite exécutée en séance ne revendique pas le plus haut ; stop d'achat annulé par une ouverture au-dessus de son prix "
+    "maximal (jamais poursuivi) ; pas de cotation approché ; aucune file d'attente ni exécution partielle",
+    "politiques d'entrée : contrôles appariés de strate sans objet (géométrie de chaque configuration) — la référence est "
+    "le placebo X1 (même chaîne sur des dates au hasard) ; la découverte 2017-2026 est aussi lue par le rejeu exploratoire",
+    "lettres (X6) : historique importé après coup (newsletters-history), niveaux lus par l'IA puis ramenés à la liste "
+    "fermée ; date de disponibilité = réception (après 17:30 Paris : séance suivante)",
+]
+
+
 def _header(meta: PanelMeta, universe: str, calibration: tuple[str, str], st: Settings, config: LoadedConfig,
             prereg: Prereg, run2_id: int | None, t0: float) -> dict[str, Any]:  # fmt: skip
     return {
@@ -658,8 +700,11 @@ def _header(meta: PanelMeta, universe: str, calibration: tuple[str, str], st: Se
             for k in prereg.assumptions
         },  # fmt: skip
         "duree_s": round(time.time() - t0, 1),
-        "limites": LIMITS + (earnings_limits(prereg) if prereg.needs_earnings else []),
+        "limites": LIMITS
+        + (earnings_limits(prereg) if prereg.needs_earnings else [])
+        + (ENTRY_LIMITS if prereg.is_entry_plan else []),
         **({"publications_resultats": meta.earnings} if meta.earnings is not None else {}),
+        **({"lettres": meta.letters} if meta.letters is not None else {}),
     }
 
 
@@ -844,6 +889,9 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
     for cid in ids:
         c = res["cellules"].get(cid, {})
         d = disc.get(cid) or {}
+        if prereg.is_entry_plan:  # registration n° 4: the paired Δ (a) and the tested arm's A2 (b)
+            verdicts[cid] = entry_unseal_verdict(c, d, prereg.thresholds)
+            continue
         ok = unseal_confirmed(c, d, prereg.thresholds)  # A2 in full (incl. % of notional) and the same sign
         verdicts[cid] = {"n": c.get("n"), "mean_r": c.get("mean_r"), "mean_eur_300": c.get("mean_eur_300"),
                          "profit_factor": c.get("profit_factor"), "mean_pct_notionnel": c.get("mean_pct_notionnel"),

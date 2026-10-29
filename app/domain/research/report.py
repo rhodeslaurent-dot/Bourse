@@ -92,6 +92,7 @@ def build_report(prereg: Prereg, results: Mapping[str, Any], header: Mapping[str
     headline = (
         HEADLINE_NONE if not cands else f"{len(cands)} DÉCLENCHEUR(S) CANDIDAT(S) — À CONFIRMER SUR LA PÉRIODE SCELLÉE"
     )
+    headline = str(results.get("titre") or headline)  # registration n° 4 states its own (entry policies)
     by_family: dict[str, list[dict[str, Any]]] = {}
     for cid, c in cells.items():
         by_family.setdefault(str(c.get("famille")), []).append({k: rows[cid].get(k) for k in CELL_KEYS_C if k in rows[cid]}
@@ -213,6 +214,14 @@ def build_report(prereg: Prereg, results: Mapping[str, Any], header: Mapping[str
         "J_portefeuille": results.get("etape2", {}),
         "K_limites": list(header.get("limites", [])),
     }
+    if results.get("politiques_entree"):  # registration n° 4: the paired cells in their declared reading order
+        pe = results["politiques_entree"]
+        report["P_politiques_entree"] = {
+            "ordre_de_lecture": list(pe.get("ordre_de_lecture", [])),
+            "libelles_politiques": dict(pe.get("libelles_politiques", {})),
+            "taux_placebo": results.get("taux_placebo", {}),
+            "cellules": {cid: rows[cid] for cid in pe.get("ordre_de_lecture", []) if cid in rows},
+        }
     report = suppress_deep(report, min_n)
     assert_no_price_fields(report)
     return report
@@ -268,6 +277,7 @@ def render_fr(report: Mapping[str, Any]) -> str:
     for cid, c in (a.get("confirmatoires") or {}).items():
         lines.append(f"    {cid:<4} n {_fmt(c.get('n'))} R moyen {_fmt(c.get('mean_r'))} excès {_fmt(c.get('mean_excess'))} "
                      f"t {_fmt(c.get('t_week'), 2)} p Holm {_fmt(c.get('p_holm'), 4)} → {c.get('niveau')}")  # fmt: skip
+    lines += render_entry_policies(report)
     b = report["B_diagnostics_run2"]
     lines += ["", "B — Diagnostics de la chaîne de production (run 2)"]
     for det, v in (b.get("detecteurs_existants_walk_forward") or {}).items():
@@ -321,10 +331,54 @@ def render_fr(report: Mapping[str, Any]) -> str:
     lines.append(f"  {rej} cellule(s) rejetée(s)")
     lines += ["", "J — Portefeuille (6 lignes) contre les contrôles"]
     for cid, v in (report.get("J_portefeuille") or {}).items():
-        lines.append(f"  {cid} : recul max {v['cellule'].get('max_drawdown_r')} R contre {v['reference_controles'].get('max_drawdown_r')} R → "
-                     f"{'ok' if v.get('ok') else 'non'}")  # fmt: skip
+        own = v.get("cellule") or v.get("politique") or {}  # registration n° 4: tested arm against its placebo
+        ref = v.get("reference_controles") or v.get("placebo") or {}
+        extra = (
+            f" ; ordres exécutés par mois {v.get('ordres_executes_par_mois')}"
+            if "ordres_executes_par_mois" in v
+            else ""
+        )
+        lines.append(f"  {cid} : recul max {own.get('max_drawdown_r')} R contre {ref.get('max_drawdown_r')} R → "
+                     f"{'ok' if v.get('ok') else 'non'}{extra}")  # fmt: skip
     lines += ["", "K — Limites"] + [f"  - {x}" for x in report.get("K_limites", [])]
     return "\n".join(lines) + "\n"
+
+
+def render_entry_policies(report: Mapping[str, Any]) -> list[str]:
+    """Registration n° 4: one line per cell in the declared reading order (placebo first, t14 last)."""
+    pe = report.get("P_politiques_entree")
+    if not pe:
+        return []
+    lines = [
+        "",
+        "P — Politiques d'entrée : Δ apparié par signal (politique − référence ; non exécuté = 0 R ; unité r_stop)",
+    ]
+    for code, label in (pe.get("libelles_politiques") or {}).items():
+        lines.append(f"  {code} : {label}")
+    for cid in pe.get("ordre_de_lecture") or []:
+        c = (pe.get("cellules") or {}).get(cid) or {}
+        if "supprime" in c:
+            lines.append(f"  {cid} : {c['supprime']} (n {c.get('n')})")
+            continue
+        bras = c.get("bras") or {}
+        ex = {k: (v or {}).get("taux_execution") for k, v in bras.items()}
+        head = (f"  {cid} [{c.get('role')}] {c.get('politique')} contre {c.get('politique_reference') or '—'}, "
+                f"sortie {c.get('sortie')} h {c.get('h')} : n {c.get('n')}")  # fmt: skip
+        if c.get("delta_moyen") is not None:
+            p = c.get("p_holm") if c.get("p_holm") is not None else c.get("p_romano_wolf")
+            pl = c.get("exces_sur_placebo") or {}
+            head += (f" Δ {_fmt(c.get('delta_moyen'))} IC {c.get('ic')} t {_fmt(c.get('t_newey_west'), 2)} "
+                     f"p {_fmt(p, 4)} plis {c.get('plis_positifs')}/5 exécution {ex} "
+                     f"excès sur placebo {_fmt(pl.get('exces_moyen'))} → {c.get('niveau')}")  # fmt: skip
+        elif c.get("selection_adverse"):
+            sa = c["selection_adverse"]
+            head += (f" exécution {ex} ; contrefactuel exécutés {_fmt((sa.get('executes') or {}).get('r_contrefactuel'))} "
+                     f"non exécutés {_fmt((sa.get('non_executes') or {}).get('r_contrefactuel'))} "
+                     f"tous {_fmt((sa.get('tous_signaux') or {}).get('r_contrefactuel'))}")  # fmt: skip
+        lines.append(head)
+        if c.get("decision_b"):
+            lines.append(f"      décision (b) : {c['decision_b']}")
+    return lines
 
 
 EXPLAIN_SECTIONS = (
