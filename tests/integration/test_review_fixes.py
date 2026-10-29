@@ -283,7 +283,9 @@ def test_m13_reserved_risk_uses_proposal_stop_or_full_budget(db_engine, config):
         prop = create_proposal(s, sig, "BUY", None, None, "v", stop=39.50)
         declare_order(s, acc.id, "FR0000120271", "buy", 100, "plage", 42.90, 42.40, "day", "web", proposal_id=prop.id)
         view = build_risk_view(s, config, T)
-        assert view["risk"].open_risk_reserved_eur == pytest.approx(100 * (42.90 - 39.50 * 0.998) + 3.432, abs=0.5)
+        # one definition with the engine (rule 8, m6): both commission legs (0.08 % each here)
+        legs = 0.0008 * 100 * (42.90 + 39.50 * 0.998)
+        assert view["risk"].open_risk_reserved_eur == pytest.approx(100 * (42.90 - 39.50 * 0.998) + legs, abs=0.5)
         declare_order(s, acc.id, "NL0010273215", "buy", 3, "limite", 650.0, None, "day", "web")
         view = build_risk_view(s, config, T)
         assert view["reserved_unknown"] == ["NL0010273215"] and view["risk"].open_risk_reserved_eur >= 300

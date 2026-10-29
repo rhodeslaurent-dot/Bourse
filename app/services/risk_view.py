@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import LoadedConfig
-from app.db.models import Account, Order, PortfolioState, PositionRow
+from app.db.models import Account, PortfolioState, PositionRow
 from app.domain.monitor import is_state_fresh
 from app.domain.portfolio import PositionValue, account_equity, srd_coverage
 from app.domain.risk import FeeSchedule, OpenPosition, PendingEntry, PortfolioRisk, RiskParams, portfolio_risk
@@ -117,33 +117,13 @@ def build_risk_view(s: Session, config: LoadedConfig, now: datetime | None = Non
     pending: list[PendingEntry] = []
     reserved_unknown: list[str] = []  # M13: no known stop → reserved at the full per-trade budget, flagged
     budget = config.params.capital.capital_pilote_eur * config.params.risk.max_risk_per_trade_pct
-    for o in s.scalars(select(Order).where(Order.side == "buy", Order.state.in_(("entered", "partially_filled")))):
-        from app.db.models import Proposal
-
-        price_max = o.limit_price or o.trigger_price or 0.0
-        acc = accounts[o.account_id]
-        qty = o.qty - o.qty_filled
-        fees_eur = fee_schedule_for(config, acc.broker).commission(qty * price_max)
-        sector = str(imap.get(o.isin, {}).get("sector", "inconnu"))
-        prop = s.get(Proposal, o.proposal_id) if o.proposal_id else None
-        stop = prop.stop if prop and prop.stop else None
-        if stop is None or price_max <= 0:
-            reserved_unknown.append(o.isin)
-            pending.append(PendingEntry(o.isin, acc.type, 1, budget, 0.0, fees_eur, sector=sector))
-            continue
-        pending.append(
-            PendingEntry(
-                o.isin, acc.type, qty, price_max, stop * (1 - config.params.risk.slippage_pct), fees_eur, sector=sector
-            )
-        )
-    # « Ordre saisi » creates no order row: the proposal reserves its risk at its limit until it expires, as in the
-    # engine's caps (engine._reserved_risk, review of 30/10/2026, M2)
+    # one definition (rule 8, review of 30/10/2026, m6): the engine's reserved risk of each pending entry order and of
+    # each proposal marked « Ordre saisi » — limit (or seuil × (1 + slippage)) − slipped stop, × fx, both fee legs,
+    # SRD weight; 1 R when the stop, the price or the change is unknown (flagged)
     from app.services.engine import _reserved_risk
 
     _, engine_rows = _reserved_risk(s, config, budget, now)
-    for row in engine_rows:  # the engine's amount in EUR (limit, slipped stop, fx, fees), one entry each
-        if row.get("proposition") is None:
-            continue
+    for row in engine_rows:
         sector = str(imap.get(row["isin"], {}).get("sector", "inconnu"))
         if "1 R" in str(row.get("base")):
             reserved_unknown.append(row["isin"])
