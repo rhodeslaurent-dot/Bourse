@@ -60,11 +60,16 @@ def test_the_recheck_withdraws_what_a_word_created(db_engine):
             s.add(WatchlistRow(isin=isin, reason="external", source="momentum_capital", active=True))
             pids[isin] = create_proposal(s, sig, "WATCH", None, {"blocked": []}, "t", created_at=t).id
         s.flush()
+        s.add(Instrument(isin="FR0000124141", name="Veolia Environnement SA", mic="XPAR"))
+        s.add(NewsletterValue(item_id=it.id, isin=None, name="Veolia Environnement", direction="buy"))
+        s.flush()
         dry = recheck(s, date(2026, 10, 26), False, t)
+        assert dry.resolved == ["Veolia Environnement → FR0000124141"]
         assert dry.proposals == [pids["DE0005176903"]] and dry.watchlist == ["DE0005176903"]
         assert s.get(Proposal, pids["DE0005176903"]).deleted_at is None  # a dry run changes nothing
         recheck(s, date(2026, 10, 26), True, t)
         assert s.get(Proposal, pids["DE0005176903"]).deleted_at is not None
         assert s.get(Proposal, pids["FR001400PVN6"]).deleted_at is None
+        assert s.query(NewsletterValue).filter(NewsletterValue.name == "Veolia Environnement").one().isin
         active = {w.isin for w in s.query(WatchlistRow).filter(WatchlistRow.active.is_(True))}
         assert active == {"FR001400PVN6"}

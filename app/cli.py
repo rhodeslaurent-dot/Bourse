@@ -1487,8 +1487,14 @@ def cmd_letters_trace(args: argparse.Namespace) -> int:
     from app.services.letter_trace import trace
 
     day = date.fromisoformat(args.date) if args.date else date.today()
+    reader = None
+    if args.ia:
+        from app.llm import settings_from
+
+        st = settings_from(load_params(args.params))
+        reader = (st.classify_model, st.prompts_dir) if st else None
     with db_session() as s:
-        for line in trace(s, day):
+        for line in trace(s, day, reader):
             print(line)
     return 0
 
@@ -2191,6 +2197,7 @@ def main(argv: list[str] | None = None) -> int:
         "letters-trace", help="ce que l'outil a fait des lettres d'un jour (valeurs, niveaux, propositions)"
     )
     lt.add_argument("--date", help="AAAA-MM-JJ (défaut : aujourd'hui)")
+    lt.add_argument("--ia", action="store_true", help="montrer aussi la réponse de l'IA (valeurs et niveaux)")
     lt.set_defaults(fn=cmd_letters_trace)
     am = sub.add_parser("archive-mentions", help="aperçu / archivage des propositions issues de simples mentions")
     am.add_argument("--apply", action="store_true", help="archiver réellement (sinon aperçu)")

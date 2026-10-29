@@ -39,3 +39,24 @@ def test_the_trace_says_what_became_of_each_value(db_engine):
     assert "simple mention" in text
     assert "(privé)" not in text  # the letter's text is never printed
     assert recalculable({"objectif": 1, "stop": 0.5, "support": 0.8}) and not recalculable({"objectif": 1, "stop": 0.5})
+
+
+def test_the_trace_shows_the_readers_stored_answer(db_engine, tmp_path):
+    import hashlib
+
+    from app.db.models import LlmCache
+
+    (tmp_path / "newsletter_extract_v1.md").write_text("consigne", encoding="utf-8")
+    with db_session() as s:
+        it = NewsletterItem(source="momentum_capital", message_id="m2", dedup_hash="h2", received_at=T,
+                            subject="BioMérieux : poursuite", body_text="corps privé")  # fmt: skip
+        s.add(it)
+        h = hashlib.sha256(b"m|newsletter_extract|1|consigne|corps priv\xc3\xa9").hexdigest()
+        s.add(LlmCache(prompt_hash=h, response={"values": [
+            {"name": "BioMérieux", "direction": "buy", "levels": {"objectif": 140.0}},
+            {"name": "Veolia", "direction": "buy", "levels": {}},
+        ]}))  # fmt: skip
+        s.flush()
+        text = "\n".join(trace(s, date(2026, 10, 29), ("m", tmp_path)))
+    assert "réponse de l'IA (consigne v1) : 2 valeur(s), 1 avec niveaux" in text
+    assert "IA : BioMérieux · buy · objectif 140.0" in text and "corps privé" not in text

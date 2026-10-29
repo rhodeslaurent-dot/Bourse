@@ -8,6 +8,7 @@ the letters review and the proposal each one has. Reads only; the letter's text 
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,7 +33,23 @@ def _proposal_line(p: Proposal) -> str:
     return f"proposition n° {p.id} : {p.action}{flags}{tail}"
 
 
-def trace(s: Session, day: date) -> list[str]:
+def llm_answer(s: Session, item: NewsletterItem, model: str, prompts_dir: Path) -> tuple[str, list[dict]] | None:
+    """The reader's stored answer for this letter (replay cache, same key as the gateway), whatever the prompt
+    version it was read with: (version, values). None when no answer is stored."""
+    import hashlib
+
+    from app.db.models import LlmCache
+
+    for f in sorted(prompts_dir.glob("newsletter_extract_v*.md"), reverse=True):
+        version, system = f.stem.split("_v")[-1], f.read_text(encoding="utf-8")
+        key = f"{model}|newsletter_extract|{version}|{system}|{item.body_text[:12000]}"
+        row = s.get(LlmCache, hashlib.sha256(key.encode()).hexdigest())
+        if row is not None:
+            return version, list((row.response or {}).get("values") or [])
+    return None
+
+
+def trace(s: Session, day: date, reader: tuple[str, Path] | None = None) -> list[str]:
     start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS)
     end = start + timedelta(days=1)
     items = list(
@@ -53,6 +70,19 @@ def trace(s: Session, day: date) -> list[str]:
         out.append(f"· {it.source} {it.received_at.astimezone(PARIS):%H:%M} Paris — « {it.subject[:90]} »")
         how = {"llm": "lecture par l'IA puis contrôle", "rules": "lecture par règles seules (IA indisponible)"}
         out.append(f"    {how.get(it.parsed_by or '', it.parsed_by or 'lecture inconnue')}")
+        if reader is not None:
+            ans = llm_answer(s, it, *reader)
+            if ans is None:
+                out.append("    réponse de l'IA introuvable dans le cache")
+            else:
+                with_levels = [v for v in ans[1] if v.get("levels")]
+                out.append(
+                    f"    réponse de l'IA (consigne v{ans[0]}) : {len(ans[1])} valeur(s), "
+                    f"{len(with_levels)} avec niveaux"
+                )
+                for v in ans[1][:30]:
+                    lv = ", ".join(f"{k} {x}" for k, x in (v.get("levels") or {}).items()) or "aucun niveau"
+                    out.append(f"      IA : {v.get('name')} · {v.get('direction')} · {lv}")
         rejected = (it.parsed or {}).get("rejected_llm_levels") or []
         if rejected:
             out.append(f"    niveaux proposés par l'IA mais absents du texte, rejetés : {', '.join(rejected[:12])}")

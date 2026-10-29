@@ -23,6 +23,7 @@ class RecheckReport:
     proposals: list[int] = field(default_factory=list)
     watchlist: list[str] = field(default_factory=list)
     news_changed: int = 0
+    resolved: list[str] = field(default_factory=list)  # « name → ISIN » now recognised
 
     def lines(self) -> list[str]:
         out = [f"{len(self.spurious)} valeur(s) lue(s) dans un mot et non dans un nom de société :"]
@@ -30,6 +31,7 @@ class RecheckReport:
         out.append(f"propositions retirées : {', '.join(f'n° {i}' for i in self.proposals) or 'aucune'}")
         out.append(f"lignes de watchlist désactivées : {', '.join(self.watchlist) or 'aucune'}")
         out.append(f"nouvelles dont les valeurs attachées changent : {self.news_changed}")
+        out.append(f"valeurs désormais reconnues ({len(self.resolved)}) : {', '.join(self.resolved[:40]) or 'aucune'}")
         return out
 
 
@@ -90,6 +92,29 @@ def recheck(s: Session, since: date, apply: bool, now: datetime) -> RecheckRepor
                 rep.watchlist.append(w.isin)
             if apply:
                 w.active = False
+    # names given by the reader that the former lookup missed (« Veolia », « Atos Group »…): ISIN set now
+    from app.db.models import LetterOpinion
+    from app.domain.names import resolve
+    from app.services.news import name_index
+
+    names = name_index(s)
+    unresolved = list(
+        s.scalars(
+            select(NewsletterValue).where(
+                NewsletterValue.item_id.in_(list(items) or [-1]), NewsletterValue.isin.is_(None)
+            )
+        )
+    )
+    unresolved += list(s.scalars(select(LetterOpinion).where(LetterOpinion.day >= since, LetterOpinion.isin.is_(None))))
+    for row in unresolved:
+        isin = resolve(row.name or "", names)
+        if isin is None:
+            continue
+        label = f"{row.name} → {isin}"
+        if label not in rep.resolved:
+            rep.resolved.append(label)
+        if apply:
+            row.isin = isin
     aliases = alias_index(s)
     for n in s.scalars(select(NewsItem).where(NewsItem.fetched_at >= start)):
         new = attach_instruments(f"{n.title} {n.body}", aliases)
