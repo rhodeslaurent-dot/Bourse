@@ -252,6 +252,15 @@ Aucun résultat ne change un paramètre ni un détecteur sans ADR.
    - Charger l'historique européen ancien : `backfill --from 2005-01-01` pour l'Europe, puis `earnings-history --from 2005-01-01`.
    - Puis la réplication scellée 2007-2015, en un seul descellement.
 
+**En une fois :** `powershell -ExecutionPolicy Bypass -File scripts\recherche_longue.ps1` enchaîne les opérations dans l'ordre :
+1. backtest européen de référence ;
+2. calibration puis exécution n° 2 ;
+3. `earnings-history` ;
+4. `moves-study` ;
+5. calibration puis exécution n° 3.
+
+Il dure plusieurs heures. Tout est journalisé dans `data/research/longue_<horodatage>.log`, et une exécution n'est lancée que si sa calibration est VALIDE.
+
 ## 34.8 Sources de données vérifiées (28/10/2026)
 
 Recherche documentaire. EODHD est lu dans sa documentation officielle publiée sur GitHub ; les autres sites étaient bloqués par la session, leurs pages sont donc à confirmer.
