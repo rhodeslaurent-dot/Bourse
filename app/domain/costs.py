@@ -38,7 +38,9 @@ class NetOutcome:
     gain_net_pct: float
     loss_net_eur: float
     loss_net_pct: float
-    net_reward_risk: float | None
+    net_reward_risk: float | None  # after tax: shown and ranks (docs/08 §8.7)
+    # net of fees only (before tax): the ratio of R4 that the gates compare (docs/07 §7.9.1, §7.9.4)
+    fee_net_reward_risk: float | None = None
 
 
 def foreign_tax(spec: object, market_cap_eur: float | None) -> tuple[float, str]:
@@ -107,6 +109,7 @@ def net_outcome(
     tax = max(0.0, pre_tax) * p.tax_rate
     gain = pre_tax - tax
     loss = buy - sell_s + f_buy + f_s + carry
+    fee_rr = pre_tax / loss if loss > 0 else None
     if p.assume_loss_offset and loss > 0:
         loss *= 1 - p.tax_rate
     rr = gain / loss if loss > 0 else None
@@ -123,6 +126,7 @@ def net_outcome(
         loss,
         loss / buy if buy else 0.0,
         rr,
+        fee_rr,
     )
 
 

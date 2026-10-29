@@ -44,9 +44,12 @@ def quantile(values: list[float], q: float) -> float:
 def event_exposure(gaps: list[float], p_max: float, stop_exec: float, p: EventParams) -> EventExposure:
     used = gaps[-p.history_count :]
     if len(used) < p.min_history or p_max <= stop_exec:
-        return EventExposure(
-            False, False, len(used), None, None, None, f"exposition à l'annonce inconnue ({len(used)} événement(s))"
+        why = (
+            f"historique en cours de constitution ({len(used)}/{p.min_history})"
+            if len(used) < p.min_history
+            else "prix maximal au niveau du stop"
         )
+        return EventExposure(False, False, len(used), None, None, None, f"exposition à l'annonce inconnue — {why}")
     med = quantile(used, 0.5)
     gq = quantile(used, p.gap_quantile)
     loss_r = gq * p_max / (p_max - stop_exec)

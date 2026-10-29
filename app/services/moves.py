@@ -359,8 +359,9 @@ def responses(
             # R10 on Euronext Paris: without the letters' published conditions the gate is « restreint »
             stop_exec = st.stop * (1 - rp.slip)
             shares = max(1, int(rp.risk_budget / max(1e-9, adm.p_max - stop_exec)))
+            # B1 (29/10/2026): as the engine, the ratio net of fees (R4), not the after-tax one
             no = net_outcome(shares, adm.p_max, target, stop_exec, replace(cto, tax_rate=rp.pfu_rate))
-            r.restricted_ok = (no.net_reward_risk or 0) >= rp.restricted_rr and total >= rp.restricted_score
+            r.restricted_ok = (no.fee_net_reward_risk or 0) >= rp.restricted_rr and total >= rp.restricted_score
             if gate == "restreint_plus":
                 r.stage = "portail"
                 out.append(r)

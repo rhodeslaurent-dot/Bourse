@@ -132,8 +132,10 @@ market_gate:                            # docs/07 §7.9.4 (R10) — option C, sa
   index_isin: "FR0003500008"            # CAC 40
   letters_markets: ["XPAR"]             # docs/32 : places auxquelles s'appliquent les conditions publiées par les lettres (marché français)
   max_age_sessions: 5                   # publication plus ancienne → condition « inconnue »
-  restricted_min_net_rr: 2.5
+  restricted_min_net_rr: 2.5             # comparé au ratio NET DE FRAIS à la limite (R4), pas au ratio après impôt (correctif B1 du 29/10/2026)
   restricted_min_score: 75
+  restricted_score_basis: "total"       # 29/10/2026, décision de l'utilisateur en attente (B2) : "total" = score /100 ≥ restricted_min_score (comportement actuel) ; "admission_ratio" = ratio d'admission du détecteur ≥ restricted_min_ratio
+  restricted_min_ratio: 0.85            # 29/10/2026 : seuil du ratio d'admission si restricted_score_basis = "admission_ratio"
   restricted_size_multiplier: 0.5
 
 conjuncture:                            # niveau de risque conjoncturel (faible / modéré / élevé), seuils datés, sources gratuites (docs/22 §22.7)
@@ -155,6 +157,13 @@ events:                                 # docs/07 §7.9.5 (R14)
   gap_quantile: 0.75
   max_gap_loss_r: 1.5                   # exception « faiblement exposé » : perte au 75e centile ≤ 1,5 R
   macro_keywords: ["Rate", "CPI", "Non-Farm", "Monetary Policy", "Refinancing", "Federal Funds", "FOMC"]   # annonces macro « High » qui gèlent une entrée
+  macro_families:                       # 29/10/2026 : titres ForexFactory d'une même annonce ; l'historique (macro-history-load) est cherché par famille, le premier titre est celui des lignes chargées
+    fed_decision: {currency: USD, titles: ["Federal Funds Rate", "FOMC Statement", "FOMC Press Conference", "FOMC Economic Projections"]}
+    fomc_minutes: {currency: USD, titles: ["FOMC Meeting Minutes"]}
+    ecb_decision: {currency: EUR, titles: ["Main Refinancing Rate", "Monetary Policy Statement", "ECB Press Conference", "Deposit Facility Rate", "Minimum Bid Rate"]}
+    us_cpi: {currency: USD, titles: ["CPI m/m", "CPI y/y", "Core CPI m/m", "Core CPI y/y"]}
+    us_jobs: {currency: USD, titles: ["Non-Farm Employment Change", "Unemployment Rate", "Average Hourly Earnings m/m"]}
+    ea_cpi: {currency: EUR, titles: ["CPI Flash Estimate y/y", "Core CPI Flash Estimate y/y"]}
 
 entry:                                  # docs/06 §6.7 (R6, R7)
   fixing_card_time: "17:15"             # heure de Paris : fiche « repli sur support » pour le fixing de clôture
@@ -451,6 +460,9 @@ scoring:
   insider_window_days: 30              # docs/23 §23.3 : achat d'un dirigeant (MAR art. 19) pris en compte pendant 30 jours
   insider_buy_points: 5                # points du bloc C (dans la limite de c_bonus_cap hors D1)
   buy_min_confidence: 3
+  high_risk_policy: "watch"           # 29/10/2026, décision de l'utilisateur en attente : "watch" = risque élevé → WATCH (docs/06 §6.5, comportement actuel) ; "half_size" = taille × high_risk_size_multiplier avec un stop ≤ high_risk_max_stop_adr ADR (docs/07 §7.2) ; divergence signalée en docs/15
+  high_risk_size_multiplier: 0.5      # 29/10/2026 : utilisé seulement avec high_risk_policy = "half_size"
+  high_risk_max_stop_adr: 1.5         # 29/10/2026 : idem ; au-delà (ou ADR inconnu) → WATCH
   watch_ratio_range: [0.60, 0.74]   # [fixé dans le code]
   exceptional_min_ratio: 0.85   # [fixé dans le code]
   surprise_points_with_consensus: 5   # [fixé dans le code]

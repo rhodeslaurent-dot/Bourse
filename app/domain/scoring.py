@@ -7,7 +7,7 @@ its denominator the blocks that apply to its strategy; C is a capped bonus for D
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 BLOCK_MAX = {"C": 30, "T": 25, "F": 20, "R": 15, "M": 10}
 
@@ -227,3 +227,40 @@ def score(
     risk_pts += 1 if inp.gap_pct is not None and abs(inp.gap_pct) >= 0.15 else 0
     risk = "faible" if risk_pts == 0 else "moyen" if risk_pts == 1 else "eleve"
     return Score(blocks, total, attainable, ratio, confidence, risk, ex)
+
+
+def missing_data(
+    inp: ScoreInput,
+    admission_blocks: list[str],
+    c_bonus_cap: float,
+    f_min_available: int = 2,
+    shorts_covered: bool = True,
+) -> list[dict[str, object]]:
+    """Data the score could not use (docs/06 §6.5: « date inconnue : +0 et mention »), each with what it costs:
+    the points of its block left at 0 and the admission ratio lost, measured by scoring again with the favourable
+    value. Never an estimate of the missing value itself: only what its absence costs."""
+    base = score(inp, admission_blocks, c_bonus_cap, f_min_available=f_min_available)
+    out: list[dict[str, object]] = []
+
+    def cost(label: str, block: str, alt: ScoreInput, note: str) -> None:
+        sc = score(alt, admission_blocks, c_bonus_cap, f_min_available=f_min_available)
+        pts = (sc.blocks.get(block) or 0) - (base.blocks.get(block) or 0)
+        out.append({"donnee": label, "bloc": block, "points": round(pts, 1),
+                    "ratio_admission": round(sc.admission_ratio - base.admission_ratio, 3), "note": note})  # fmt: skip
+
+    if inp.earnings_within_10_days is None:
+        cost("date des prochains résultats", "R", replace(inp, earnings_within_10_days=False), "inconnue → +0")
+    if inp.sector_rs_pct is None:
+        cost("force du secteur", "M", replace(inp, sector_rs_pct=100.0), "secteur ou classement inconnu → +0")
+    _, _, n, _ = fundamentals_block(inp.fundamentals, f_min_available)
+    if n < 5:
+        note = f"{n}/5 critères"
+        if n < f_min_available:
+            note += f" (< {f_min_available} : bloc F non attribué, hors dénominateur)"
+        if n < 3:
+            note += " ; confiance −1 sous 3/5"
+        out.append({"donnee": "fondamentaux", "bloc": "F", "points": None, "ratio_admission": None, "note": note})
+    if inp.short_interest_pct is None and not shorts_covered:
+        note = f"aucune source chargée pour cet émetteur : pénalité de −{inp.short_penalty:g} non évaluée"
+        out.append({"donnee": "positions courtes", "bloc": "R", "points": 0.0, "ratio_admission": 0.0, "note": note})
+    return out

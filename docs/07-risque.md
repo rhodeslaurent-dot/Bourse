@@ -30,6 +30,7 @@ Convention de glissement (`risk.slippage_pct`, 0,2 %) : elle s'applique **toujou
 - Le **prix maximal d'entrée** est affiché sur toute fiche d'ordre ; au-delà, l'ordre ne doit pas être passé (la fiche le dit).
 - Après exécution (partielle ou différente du scénario), le risque réel est **recalculé** sur le prix exécuté et la quantité détenue ; si le risque réel dépasse `risque_eur × 1,1`, l'outil propose un allègement ou un stop ajusté (jamais abaissé sous le stop structurel).
 - Multiplicateurs : régime orange × 0,5 ; risque élevé (capitalisation < `universe.small_cap_threshold_eur`, gap ≥ 15 %, ADV < 1 M€) × 0,5 avec stop ≤ 1,5 ADR obligatoire.
+  **29/10/2026** : le code appliquait docs/06 §6.5 (risque élevé → WATCH). Les deux lectures sont codées, au choix de l'utilisateur (décision en attente, divergence signalée en docs/15) : `scoring.high_risk_policy` = `watch` (défaut, inchangé) ou `half_size` (taille × `scoring.high_risk_size_multiplier`, frais réitérés selon la règle 7, et WATCH si la distance du stop dépasse `scoring.high_risk_max_stop_adr` ADR ou si l'ADR est inconnu).
 - **Statut de donnée** : une proposition d'entrée intraday exige une cotation dont l'horodatage de marché a moins de `data.buy_intraday_max_market_age_minutes` (3 min) — en pratique du temps réel. Une donnée différée sert à détecter des candidats et préparer des scénarios (« à vérifier »), jamais à émettre une fiche d'ordre. Un ordre préparé pour J+1 (D2/D3/D4, à plage de déclenchement) est calculé sur la clôture EOD officielle (ou provisoire, marquée comme telle).
 - Les exemples chiffrés de docs/09 §9.1 sont des **tests de référence** (`tests/unit/test_sizing_examples.py`).
 
@@ -53,6 +54,7 @@ Définitions (toutes en EUR, testées) :
 - **Risque initial** d'une position = `qty_exécutée × (prix_exécuté − stop_exec_initial) + frais d'entrée + frais de sortie estimés`. Référence figée à l'ouverture ; sert au calcul des R réalisés, jamais aux plafonds courants.
 - **Risque courant** d'une position = `max(0, qty_détenue × (prix_courant − stop_exec_courant)) + frais de sortie estimés` ; `prix_courant` = dernière cotation valide (ou clôture si hors séance) ; **borné à zéro par position** : une position dont le stop est au-dessus du prix courant… n'existe pas (le seuil est franchi), et une position gagnante avec stop remonté au-dessus du prix d'entrée contribue au plus ses frais de sortie, jamais un montant négatif qui compenserait une autre position. Quantité non couverte par un stop → risque courant = `qty_non_couverte × prix_courant` (perte totale possible, affichée en rouge).
 - **Risque réservé** d'un ordre d'entrée en attente = `qty_non_exécutée × (prix_max − stop_exec_prévu) + frais`.
+- **Correctif du 29/10/2026 (B3, resserrement)** : les plafonds du moteur (§7.9.3) comptaient un risque réservé nul. Ils comptent désormais chaque ordre d'achat `entered` ou `partially_filled` : quantité non exécutée × (prix limite, ou seuil × (1 + `risk.slippage_pct`), − stop glissé de sa proposition) × change + courtage des deux jambes, pondéré `risk.srd_risk_weight` au SRD ; un ordre sans stop, prix ou change connu réserve 1 R (comme la page Risque). Montant et nombre d'ordres affichés dans `details.plafonds`.
 - **Risque cumulé** = Σ risques courants + Σ risques réservés. Le plafond de 4 % s'applique à ce total ; le scénario de gap (`gap_scenario_pct`) recalcule la perte si toutes les positions ouvrent à −10 % sous leur stop.
 - **Drawdown** : (a) drawdown d'équité = équité / plus haut d'équité − 1, sur une équité TWR (versements et retraits neutralisés) ; (b) pour le coupe-circuit, pertes en R de la période (semaine / mois civils) = Σ R réalisés + Σ variation de R latent depuis le début de la période. Les deux sont affichés, le coupe-circuit n'utilise que (b).
 - **Frais** : entrée déjà payée (incluse dans le PMP), sortie estimée (courtage + éventuelle CRD courue) comptée dans le risque courant.
@@ -152,6 +154,8 @@ P_max            = min(P_max_technique du détecteur, P_max_rr)
 | Convention A (indicateur) | `risk.heat_a_soft_cap_pct` (0,075) | Σ qty × (cours − stop) : gains exposés, plafond souple affiché |
 | Plafond notionnel par ligne | `risk.max_position_pct_of_capital` (0,20, décision du 22/10) | Inchangé |
 
+**Capital des plafonds (29/10/2026)** : le plafond de risque ouvert et le plafond par ligne se calculent sur le capital réglé dans l'interface (`risk_settings`, docs/28 §28.1) quand il existe, comme le budget par trade ; `capital.capital_pilote_eur` sinon. Avant, ils restaient sur `params.yaml`.
+
 **Dérogation (R21)**, uniquement sur l'accord explicite de l'utilisateur :
 - **Plafonds concernés** : risque ouvert, ligne, notionnel. Le risque **par trade** n'est jamais concerné.
 - **Conditions** (toutes requises) :
@@ -187,6 +191,8 @@ Décision du 22/10/2026 : **option C, sans blocage absolu sur un seuil de march�
 | non remplies ou inconnues | élevé | **restreint +** | Seules les opportunités éligibles à la dérogation (R21) sont présentées, avec l'accord de l'utilisateur |
 
   Dans l'état restreint : ratio net ≥ `market_gate.restricted_min_net_rr` (2,5), score ≥ `market_gate.restricted_min_score` (75), plafond de risque ouvert « restreint ».
+  **Correctif du 29/10/2026 (B1)** : le « ratio net » comparé est le ratio gain/risque **net de frais** à la limite (celui de R4 : gain avant impôt ÷ perte au stop glissé, frais compris), et non le ratio après impôt. Celui-ci reste affiché et sert au classement ; il ne bloque jamais (au prix maximal, pour 2,0 net de frais, le ratio après impôt valait ≈ 1,6 au PEA et ≈ 1,4 au CTO : le seuil 2,5 demandait un objectif bien plus lointain que celui de R4). La carte affiche les deux valeurs (`details.portail_restreint`). Même correction dans l'étude des hausses manquées (docs/34).
+  **Base du critère de score (B2, décision de l'utilisateur en attente)** : `market_gate.restricted_score_basis` = `total` (défaut, inchangé : score /100 ≥ `restricted_min_score`) ou `admission_ratio` (ratio d'admission du détecteur ≥ `market_gate.restricted_min_ratio`, 0,85). Le score /100 compte le bloc C (30 points) qui n'est qu'un bonus plafonné pour D2/D3/D4 : avec T, F, R et M au maximum, il faut encore C ≥ 7.
 - **Régime rouge** : pas d'entrée automatique ; une opportunité éligible à R21 peut être présentée avec l'accord de l'utilisateur. Ce n'est plus un gel absolu. `risk.exposure.red` reste le plafond d'exposition.
 - **Brent (R12)** : au-dessus de `conjuncture.brent.srd_restrict_above` (100 $), le SRD passe en mode restreint (gain net supérieur au comptant d'au moins `srd.restricted_min_net_advantage_pct`, taille × 0,5). Retour à la normale sous `srd_normal_below` (95 $) pendant `stable_sessions` (3). Le Brent compte aussi dans le risque conjoncturel.
 
@@ -197,6 +203,11 @@ Décision du 22/10/2026 : **option C, sans blocage absolu sur un seuil de march�
 - **Événements concernés** : résultats de la société, BCE, Fed, inflation, emploi (calendrier docs/22 §22.7).
 - **Règle par défaut** : pas d'entrée avant l'événement. Pour une position, la règle de sortie s'applique **avant** l'événement si le stop est à moins de `events.stop_distance_pct` ou si le gain ne couvre pas le gap.
 - **Exception** (décision du 22/10) : l'opportunité est intéressante (score ≥ seuil BUY, ratio net ≥ 2) **et** faiblement exposée. L'exposition est mesurée sur les 8 derniers événements du même type : écart d'ouverture absolu de la valeur. La perte au 75e centile depuis P_max doit être ≤ `events.max_gap_loss_r` (1,5 R). La fiche affiche « exposition à l'annonce : faible (écart médian x %, 75e centile y %) ». Avec moins de 4 événements historiques, l'exposition est inconnue et l'exception ne s'applique pas.
+- **Mise à jour du 29/10/2026** :
+  - **résultats** : l'exception est désormais mesurée (elle ne l'était pas : toute publication dans la fenêtre bloquait). Les écarts d'ouverture de la valeur sont lus à ses 8 dernières publications stockées (`earnings_events`, `earnings-history`) : publication avant l'ouverture → ouverture du jour contre clôture de la veille ; après la clôture → ouverture suivante contre clôture du jour ; heure inconnue → le plus grand des deux. Moins de `events.min_history` publications : « BLOQUÉ … historique en cours de constitution (n/4) » ;
+  - **annonces macro** : l'historique est cherché par famille d'annonce (`events.macro_families` : par exemple « Federal Funds Rate », « FOMC Statement » et « FOMC Press Conference » sont la même décision de la Fed), sinon par titre identique comme avant ; la commande `macro-history-load` charge les dates passées (docs/22 §22.7). La règle est inchangée ;
+  - un vendredi ou une veille de jour férié, l'écart mesuré est celui de la séance suivante (avant : l'écart d'entrée dans le jour même) ;
+  - bloc M : « pas d'événement macro majeur le jour » se lit sur les annonces stockées du jour à Paris (mots-clés `events.macro_keywords`, impact « High ») — il valait toujours +2 (B4).
 
 ### 7.9.6 Cours au moment de l'analyse (R19)
 
