@@ -431,7 +431,17 @@ def legs(
         unit_frac=unit_fraction(g.f.sigma20[ts, cols], model.h_ref),
         stop_exit=np.isin(sim.reason, (STOP, GAP_STOP, TRAIL)),
         exit_slip=np.where(np.isin(sim.reason, SLIPPED_EXITS), slippage, 0.0),
+        **_partial_legs(g, cols, sim),
     )  # fmt: skip
+
+
+def _partial_legs(g: GroupData, cols: I64, sim: SimResult) -> dict[str, F64]:
+    """Registration n° 6: the partial sale's price, quantity, change rate and half-spread (none: no field)."""
+    if sim.partial_qty is None or sim.partial_px is None or sim.partial_pos is None or not (sim.partial_qty > 0).any():
+        return {}
+    pt = np.maximum(calendar_of(g.f.pk, cols, sim.partial_pos), 0)
+    return {"partial_px": sim.partial_px, "partial_qty": sim.partial_qty, "fx_part": g.p.fx_to_eur[pt, cols],
+            "hs_part": g.hs[pt, cols]}  # fmt: skip
 
 
 def unit_value(e: Economics, unit: str, gross: bool = False) -> F64:
@@ -552,6 +562,7 @@ def trade_rows(
             "r_div_net": cl(unit_value(net_div, unit)),
             "r_div_excl": cl(unit_value(no_div, unit)),
             "r_stress": cl(unit_value(stress, unit)),
+            "eur_stress": cl(stress.net_eur * scale),
             "r_pea": np.where(pea_ok, cl(unit_value(pea, unit)), np.nan),
             "eur_pea": np.where(pea_ok, cl(pea.net_eur * scale), np.nan),
             "r_srd": cl(unit_value(srd, unit)),

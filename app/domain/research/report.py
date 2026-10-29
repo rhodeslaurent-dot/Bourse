@@ -222,6 +222,17 @@ def build_report(prereg: Prereg, results: Mapping[str, Any], header: Mapping[str
             "taux_placebo": results.get("taux_placebo", {}),
             "cellules": {cid: rows[cid] for cid in pe.get("ordre_de_lecture", []) if cid in rows},
         }
+    if results.get("regles_de_sortie"):  # registration n° 6: the paired exit cells in their declared reading order
+        rs = results["regles_de_sortie"]
+        report["S_regles_de_sortie"] = {
+            "ordre_de_lecture": list(rs.get("ordre_de_lecture", [])),
+            "libelles_sorties": dict(rs.get("libelles_sorties", {})),
+            "libelles_stops": dict(rs.get("libelles_stops", {})),
+            "taux_placebo": results.get("taux_placebo", {}),
+            "dsr_essais": results.get("dsr_essais", {}),
+            "pbo_familles": results.get("pbo_familles", {}),
+            "cellules": {cid: rows[cid] for cid in rs.get("ordre_de_lecture", []) if cid in rows},
+        }
     report = suppress_deep(report, min_n)
     assert_no_price_fields(report)
     return report
@@ -278,6 +289,7 @@ def render_fr(report: Mapping[str, Any]) -> str:
         lines.append(f"    {cid:<4} n {_fmt(c.get('n'))} R moyen {_fmt(c.get('mean_r'))} excès {_fmt(c.get('mean_excess'))} "
                      f"t {_fmt(c.get('t_week'), 2)} p Holm {_fmt(c.get('p_holm'), 4)} → {c.get('niveau')}")  # fmt: skip
     lines += render_entry_policies(report)
+    lines += render_exit_rules(report)
     b = report["B_diagnostics_run2"]
     lines += ["", "B — Diagnostics de la chaîne de production (run 2)"]
     for det, v in (b.get("detecteurs_existants_walk_forward") or {}).items():
@@ -331,7 +343,7 @@ def render_fr(report: Mapping[str, Any]) -> str:
     lines.append(f"  {rej} cellule(s) rejetée(s)")
     lines += ["", "J — Portefeuille (6 lignes) contre les contrôles"]
     for cid, v in (report.get("J_portefeuille") or {}).items():
-        own = v.get("cellule") or v.get("politique") or {}  # registration n° 4: tested arm against its placebo
+        own = v.get("cellule") or v.get("politique") or (v if "max_drawdown_r" in v else {})  # n° 4 / n° 6 arms
         ref = v.get("reference_controles") or v.get("placebo") or {}
         extra = (
             f" ; ordres exécutés par mois {v.get('ordres_executes_par_mois')}"
@@ -378,6 +390,47 @@ def render_entry_policies(report: Mapping[str, Any]) -> list[str]:
         lines.append(head)
         if c.get("decision_b"):
             lines.append(f"      décision (b) : {c['decision_b']}")
+    return lines
+
+
+def render_exit_rules(report: Mapping[str, Any]) -> list[str]:
+    """Registration n° 6: one line per cell in the declared reading order (placebo first, t14 last)."""
+    rs = report.get("S_regles_de_sortie")
+    if not rs:
+        return []
+    lines = [
+        "",
+        "S — Règles de sortie : Δ apparié par trade (sortie testée − référence, mêmes exécutions ; unité de la cellule)",
+    ]
+    for code, label in (rs.get("libelles_sorties") or {}).items():
+        lines.append(f"  {code} : {label}")
+    lines.append(
+        f"  essais du DSR par déclencheur : {rs.get('dsr_essais')} ; PBO par famille : {rs.get('pbo_familles')}"
+    )
+    for cid in rs.get("ordre_de_lecture") or []:
+        c = (rs.get("cellules") or {}).get(cid) or {}
+        if "supprime" in c:
+            lines.append(f"  {cid} : {c['supprime']} (n {c.get('n')})")
+            continue
+        head = (f"  {cid} [{c.get('role')}] {c.get('sortie')} (h {c.get('h')}, stop {c.get('stop_initial')}) contre "
+                f"{c.get('sortie_reference') or '—'} (h {c.get('h_reference')}), entrée {c.get('politique')}, {c.get('unite')} : "
+                f"n {c.get('n')}")  # fmt: skip
+        if c.get("delta_moyen") is not None:
+            p = c.get("p_holm") if c.get("p_holm") is not None else c.get("p_romano_wolf")
+            pl = c.get("exces_sur_placebo") or {}
+            head += (f" Δ {_fmt(c.get('delta_moyen'))} IC {c.get('ic')} t {_fmt(c.get('t_newey_west'), 2)} p {_fmt(p, 4)} "
+                     f"plis {c.get('plis_positifs')}/5 règles {c.get('delta_par_regle')} coûts stressés "
+                     f"{_fmt((c.get('delta_couts_stresses') or {}).get('delta_moyen'))} recul ok "
+                     f"{(c.get('recul_max') or {}).get('ok')} DSR {_fmt(c.get('dsr'))} hors cadre XP {c.get('hors_cadre_reference')} "
+                     f"excès sur placebo {_fmt(pl.get('exces_moyen'))} → {c.get('niveau')}")  # fmt: skip
+        lines.append(head)
+        if c.get("decision_a"):
+            lines.append(f"      {c['decision_a']}")
+        for k, v in c.items():
+            if str(k).startswith("excursions_") and isinstance(v, Mapping):
+                lines.append(f"      {k} : n {v.get('n')} passés par +1 R puis perte {v.get('part_passee_par_1r_puis_perte')} "
+                             f"objectif 1 atteint {v.get('part_objectif_1_atteint')} distance objectif 1 (R) "
+                             f"{v.get('distance_objectif_1_r')} MFE 20 séances {v.get('mfe_r_20_seances')}")  # fmt: skip
     return lines
 
 

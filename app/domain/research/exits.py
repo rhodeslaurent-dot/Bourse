@@ -24,6 +24,13 @@ it (the high then comes after the fill: it counts, and a target may be hit on th
 open above the limit cancels the order (triggered out of its range, never chased). ``ExitSpec.bracket_at_fill``:
 a fill outside ``stop_exec < entry < target`` is no trade (status ``INVALID``, decided on the fill price only).
 
+Partial exit (registration n° 6, ``ExitSpec.partial_r`` > 0): ``partial_share`` of the quantity is sold once the
+price reaches ``entry + partial_r · (entry − stop_exec)`` (at the open when the session opens above that level), the
+stop is then raised to the entry. The stop comes first: no partial sale in a session where the stop is touched, nor on
+a fill session filled intraday at the limit (the high may precede the fill); in the partial session the raised stop is
+assumed hit after the sale when the low reaches it (as the stop after the fill on the fill session). The remainder
+exits by the other rules; dividends after the sale are credited on the remainder only.
+
 A trade whose instrument history ends during the hold (``Bars.ended``: no bar in the last sessions of the
 panel — delisting, takeover, suspension) is closed at the last available close with reason ``DELISTED`` and
 counted (survivorship: dropping it would keep only the survivors); the pipeline reports a stressed variant
@@ -140,6 +147,9 @@ class ExitSpec:
     target_on_fill_bar: Literal["always", "if_open_fill"] = "if_open_fill"
     require_bracket: bool = False  # production: no order unless stop_exec < limit < target
     bracket_at_fill: bool = False  # registration n° 4: a fill outside stop_exec < entry < target is no trade
+    partial_r: float = 0.0  # registration n° 6: sell ``partial_share`` at entry + k · initial risk, stop → entry
+    partial_share: float = 0.0
+    cond_r_stop: float = 0.0  # > 0: conditional threshold in R of the trade's own initial risk (not Orders.cond_mfe)
 
 
 @dataclass(frozen=True)
@@ -159,6 +169,9 @@ class SimResult:
     ambiguous: Bool
     at_open: Bool
     rising: Bool | None = None  # filled by a buy stop-limit during the session (its high follows the fill)
+    partial_pos: I64 | None = None  # registration n° 6: own-bar position of the partial sale (−1: none)
+    partial_px: F64 | None = None  # its price (NaN: none)
+    partial_qty: F64 | None = None  # share of the initial quantity sold there (0: none)
 
     @property
     def closed(self) -> Bool:
@@ -168,7 +181,11 @@ class SimResult:
     def gross_return(self) -> F64:
         """(exit + dividends) / entry − 1 (dividends excluded when the simulation ignored them)."""
         with np.errstate(invalid="ignore", divide="ignore"):
-            return (self.exit_px + self.div_cash) / self.entry - 1
+            if self.partial_qty is None or self.partial_px is None:
+                return (self.exit_px + self.div_cash) / self.entry - 1
+            q = self.partial_qty
+            pp = np.where(q > 0, self.partial_px, 0.0)
+            return (q * pp + (1 - q) * self.exit_px + self.div_cash) / self.entry - 1
 
     @property
     def risk_fraction(self) -> F64:
@@ -271,6 +288,14 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
     else:
         tgt = od.tgt_mult[fidx] * e + od.tgt_off[fidx]
     stop_init[fidx], stop_exec_init[fidx], target_init[fidx] = stop, stop_exec0, tgt
+    part_on = spec.partial_r > 0 and spec.partial_share > 0
+    with np.errstate(invalid="ignore"):
+        lvl = e + spec.partial_r * (e - stop_exec0) if part_on else np.full(fidx.size, np.inf)
+    cur_lvl = np.where(np.isfinite(lvl), lvl, np.inf)
+    f_part = np.zeros(fidx.size, dtype=bool)
+    f_ppx = np.full(fidx.size, np.nan)
+    f_ppos = np.full(fidx.size, -1, dtype=np.int64)
+    keep = 1.0 - spec.partial_share
     has_stop = np.isfinite(stop) & spec.stop_active
     cur_stop = np.where(has_stop, stop, -np.inf)
     cur_tgt = np.where(np.isfinite(tgt), tgt, np.inf)
@@ -279,7 +304,11 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
     f_pend = np.zeros(fidx.size, dtype=bool)
     f_ca = ca_hit[fidx].copy()
     f_inst, f_fill, f_open, f_rise = od.inst[fidx], fill_pos[fidx], at_open[fidx], rising[fidx]
-    f_cond = od.cond_mfe[fidx]
+    if spec.cond_r_stop > 0:  # threshold in R of the trade's own initial risk, set at the fill
+        with np.errstate(invalid="ignore", divide="ignore"):
+            f_cond = spec.cond_r_stop * (e - stop_exec0) / e
+    else:
+        f_cond = od.cond_mfe[fidx]
     active = np.ones(fidx.size, dtype=bool)
     out_pos = np.full(fidx.size, -1, dtype=np.int64)
     out_px = np.full(fidx.size, np.nan)
@@ -311,7 +340,8 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
                 dv = div_all[g]
                 cur_stop[a] = cur_stop[a] - dv
                 cur_tgt[a] = cur_tgt[a] - dv
-                f_cash[a] += dv
+                cur_lvl[a] = cur_lvl[a] - dv
+                f_cash[a] += np.where(f_part[a], dv * keep, dv)
         st, tg = cur_stop[a], cur_tgt[a]
         # fill session filled intraday at the limit: the high may precede the fill (MFE, X6, trail, breakeven
         # start from the entry); every price below the limit — the low — follows it
@@ -352,6 +382,19 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
         rsn[tw] = TARGET
         done |= stop_wins | tw
         out_amb[a] |= amb
+        if part_on:  # stop first: never in a session where the stop is touched, nor before an intraday limit fill
+            lv_a = cur_lvl[a]
+            at_o = (o >= lv_a) if s > 0 else np.zeros(a.size, dtype=bool)
+            hit = rest & ~sh & ~f_part[a] & ~pre & (at_o | (h >= lv_a))
+            sel = a[hit]
+            f_part[sel] = True
+            f_ppx[sel] = np.where(at_o, o, lv_a)[hit]
+            f_ppos[sel] = p[hit]
+            be = np.maximum(st, e[a])
+            cur_stop[sel] = be[hit]
+            bx = hit & ~done & (lw <= be)  # the raised stop, assumed hit after the sale in the same session
+            px[bx], rsn[bx] = be[bx] * (1 - slip), TRAIL
+            done |= bx
         if spec.cond_session > 0 and s == spec.cond_session - 1:
             with np.errstate(invalid="ignore"):
                 cm = ~done & ((hh / e[a] - 1) < f_cond[a])
@@ -365,7 +408,7 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
         if spec.trail_atr > 0:
             new = hh - spec.trail_atr * atr_all[g]
             upd = surv & np.isfinite(new) & np.isfinite(st)
-            cur_stop[a[upd]] = np.maximum(st[upd], new[upd])
+            cur_stop[a[upd]] = np.maximum(cur_stop[a[upd]], new[upd])
         if spec.breakeven_r > 0:
             be = surv & (hh >= e[a] + spec.breakeven_r * (e[a] - stop_exec0[a])) & np.isfinite(st)
             cur_stop[a[be]] = np.maximum(cur_stop[a[be]], e[a][be])
@@ -382,7 +425,12 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
     status[fidx] = out_status
     exit_pos[fidx], exit_px[fidx], reason[fidx], ambiguous[fidx] = out_pos, out_px, out_rsn, out_amb
     hi[fidx], lo_[fidx], cash[fidx] = f_hi, f_lo, f_cash
+    p_pos = np.full(n, -1, dtype=np.int64)
+    p_px = np.full(n, np.nan)
+    p_qty = np.zeros(n)
+    p_pos[fidx], p_px[fidx] = f_ppos, f_ppx
+    p_qty[fidx] = np.where(f_part, spec.partial_share, 0.0)
     return SimResult(
         status, fill_pos, exit_pos, entry, exit_px, stop_init, stop_exec_init, target_init, hi, lo_, cash, reason,
-        ambiguous, at_open, rising,
+        ambiguous, at_open, rising, p_pos, p_px, p_qty,
     )  # fmt: skip

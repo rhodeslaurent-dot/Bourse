@@ -31,6 +31,13 @@ SETUP_TRIGGERS = frozenset({"d7x", "d2x", "d8x"})
 ENTRY_TRIGGERS = SETUP_TRIGGERS | {"t00", "t14", "letters_trigger"}
 ENTRY_POLICIES = ("P0", "P1", "P2", "P3", "P4")
 ENTRY_EXITS = ("X8", "XP", "X3")
+# registration n° 6 (exit rules on frozen entries, docs/34 §34.13): XP production, XS production stop without target,
+# XQ partial at +1 R then chandelier; X1 / X3 / X4 / X5 / X6 / X8 as defined by the earlier plans (the initial stop of
+# X4 / X5 / X6 is the cell's ``stop``: the production stop on a setup trigger)
+EXIT_RULE_CODES = ("XP", "XS", "XQ", "X1", "X3", "X4", "X5", "X6", "X8")
+EXIT_BASELINES = ("XP", "X3")
+EXIT_STOPS = ("prod", "atr2.5", "sigma3", "bench")
+EXIT_ENTRIES = ("P1", "P2")
 KNOWN_TRIGGERS = (
     frozenset({"t00", "t01", "t03", "c1", "t05", "t07", "t08", "t09", "d2x", "f0", "d7x", "d8x", "letters_trigger"})
     | EARNINGS_TRIGGERS
@@ -56,7 +63,7 @@ class Cell:
     cap: str | None = None  # D2x cap "kind:value"
     validity: int = 1
     mode: Mode = "event"
-    unit: Literal["r_ref", "r_stop"] = "r_ref"
+    unit: Literal["r_ref", "r_stop", "eur_300"] = "r_ref"
     accounts: tuple[str, ...] = ("cto",)
     overlay: str | None = None
     max_hold: int | None = None
@@ -65,10 +72,19 @@ class Cell:
     baseline_entry: str | None = None
     confirm_cap_atr: float | None = None  # P2: maximum price = level × (1 + x · ATR14 / close)
     diagnostic: bool = False  # reported, never a candidate, outside every multiple-testing family
+    # registration n° 6: the exit tested against a baseline exit on the same filled entries (paired per trade)
+    baseline_exit: str | None = None
+    baseline_h: int | None = None  # time exit of the baseline (default ``h``)
+    stop: str | None = None  # initial stop of the tested exit: prod | atr2.5 | sigma3 | bench (default by code)
 
     @property
     def is_entry_cell(self) -> bool:
         return self.entry is not None or self.baseline_entry is not None
+
+    @property
+    def ref_h(self) -> int:
+        """Horizon of the baseline exit, of the σ stops and of the R_ref unit of both arms."""
+        return int(self.baseline_h if self.baseline_h is not None else self.h)
 
     @property
     def entry_cap_atr(self) -> float:
@@ -123,9 +139,14 @@ class Prereg:
     replication: tuple[date, date] | None = None
 
     @property
+    def is_exit_plan(self) -> bool:
+        """Registration n° 6: the cells compare exits on the same filled entries (paired per trade)."""
+        return any(c.baseline_exit is not None for c in self.cells)
+
+    @property
     def is_entry_plan(self) -> bool:
         """Registration n° 4: every cell compares entry policies on the same signals (paired per signal)."""
-        return any(c.is_entry_cell for c in self.cells)
+        return any(c.is_entry_cell for c in self.cells) and not self.is_exit_plan
 
     @property
     def needs_letters(self) -> bool:
@@ -189,7 +210,7 @@ def _num(v: Any) -> str:
 def _cell(raw: Mapping[str, Any], tier: CellTier, family: str, cid: str) -> Cell:
     known = {"id", "family", "trigger", "mode", "gate", "h", "exit", "cap_atr", "cap", "validity", "unit",
              "accounts", "overlay", "max_hold", "params", "grid", "fixed", "entry", "baseline_entry",
-             "confirm_cap_atr", "diagnostic"}  # fmt: skip
+             "confirm_cap_atr", "diagnostic", "baseline_exit", "baseline_h", "stop"}  # fmt: skip
     params = dict(raw.get("params") or {})
     params.update({k: v for k, v in raw.items() if k not in known})
     return Cell(
@@ -213,6 +234,9 @@ def _cell(raw: Mapping[str, Any], tier: CellTier, family: str, cid: str) -> Cell
         baseline_entry=str(raw["baseline_entry"]) if raw.get("baseline_entry") is not None else None,
         confirm_cap_atr=float(raw["confirm_cap_atr"]) if raw.get("confirm_cap_atr") is not None else None,
         diagnostic=bool(raw.get("diagnostic", False)),
+        baseline_exit=str(raw["baseline_exit"]) if raw.get("baseline_exit") is not None else None,
+        baseline_h=int(raw["baseline_h"]) if raw.get("baseline_h") is not None else None,
+        stop=str(raw["stop"]) if raw.get("stop") is not None else None,
     )
 
 
@@ -297,7 +321,9 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
         else None,
         replication=replication,
     )
-    if p.is_entry_plan:
+    if p.is_exit_plan:
+        check_exit_plan(p)
+    elif p.is_entry_plan:
         check_entry_plan(p)
     if p.total_cells > p.max_total_cells:
         raise PreregError(f"{p.total_cells} cellules enregistrées > plafond {p.max_total_cells}")
@@ -332,6 +358,60 @@ def check_entry_plan(p: Prereg) -> None:
             raise PreregError(f"cellule {c.id} : t14 n'a ni stop structurel ni objectif (P1 / P2 et X3 seulement)")
         if c.unit != "r_stop":
             raise PreregError(f"cellule {c.id} : l'unité d'une cellule d'entrée est r_stop")
+
+
+EXIT_PAIRED_KEYS = ("unit", "min_delta_r_per_trade", "min_delta_eur_300_per_trade", "min_t_newey_west_weekly",
+                    "min_ci_low", "min_positive_folds", "replication_min_ci_low", "max_dd_worse_ratio")  # fmt: skip
+SETUP_LEVEL_TRIGGERS = SETUP_TRIGGERS | {"t00", "letters_trigger"}  # triggers with a structural stop and a target
+
+
+def default_stop(code: str, trigger: str) -> str:
+    """The initial stop of an exit code: XP / XS / XQ always the production stop; X4 / X5 / X6 the production stop
+    on a setup trigger, else their own bench stop; X1 / X3 / X8 their own bench stop."""
+    if code in ("XP", "XS", "XQ") or (code in ("X4", "X5", "X6") and trigger in SETUP_LEVEL_TRIGGERS):
+        return "prod"
+    return "bench"
+
+
+def check_exit_plan(p: Prereg) -> None:
+    """An exit-rule plan (registration n° 6): every cell names a common entry (P1 / P2), a known exit, a known
+    baseline (or is the diagnostic excursion table), the paired thresholds are stated; a production level needs a
+    setup trigger; the unit r_stop needs both arms on the same initial stop (else eur_300 or r_ref)."""
+    missing = [k for k in EXIT_PAIRED_KEYS if k not in (p.thresholds.get("paired") or {})]
+    if missing:
+        raise PreregError(f"plan de règles de sortie : seuils appariés absents {missing}")
+    max_hold = int(p.thresholds["a12"]["max_hold_sessions"])
+    for c in p.cells:
+        if c.tier == "f0" or c.entry not in EXIT_ENTRIES or c.baseline_entry is not None:
+            raise PreregError(
+                f"cellule {c.id} : une cellule de sortie a une entrée commune P1 ou P2, sans référence d'entrée"
+            )
+        if c.exit not in EXIT_RULE_CODES or (c.baseline_exit is not None and c.baseline_exit not in EXIT_BASELINES):
+            raise PreregError(f"cellule {c.id} : sortie ou sortie de référence inconnue ({c.exit}, {c.baseline_exit})")
+        if c.baseline_exit is None and not c.diagnostic:
+            raise PreregError(f"cellule {c.id} : une sortie de référence est exigée hors diagnostic")
+        if c.baseline_exit == c.exit:
+            raise PreregError(f"cellule {c.id} : la sortie testée et la référence sont identiques")
+        if c.stop is not None and c.stop not in EXIT_STOPS:
+            raise PreregError(f"cellule {c.id} : stop initial inconnu {c.stop}")
+        if c.trigger not in ENTRY_TRIGGERS:
+            raise PreregError(f"cellule {c.id} : déclencheur hors du banc des règles de sortie")
+        st = c.stop or default_stop(c.exit, c.trigger)
+        st_ref = default_stop(c.baseline_exit, c.trigger) if c.baseline_exit else st
+        if c.trigger not in SETUP_LEVEL_TRIGGERS and ("prod" in (st, st_ref) or c.baseline_exit == "XP"):
+            raise PreregError(
+                f"cellule {c.id} : {c.trigger} n'a ni stop structurel ni objectif (sorties de banc seulement)"
+            )
+        if (
+            c.unit == "r_stop"
+            and c.baseline_exit is not None
+            and (st != st_ref or (st == "bench" and c.exit != c.baseline_exit))
+        ):
+            raise PreregError(
+                f"cellule {c.id} : l'unité r_stop exige le même stop initial des deux côtés (eur_300 ou r_ref sinon)"
+            )
+        if max(c.h, c.ref_h) > max_hold:
+            raise PreregError(f"cellule {c.id} : durée au-delà de A12 ({max_hold} séances)")
 
 
 def file_sha256(content: bytes) -> str:
