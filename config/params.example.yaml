@@ -815,7 +815,8 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   backtest_weekly: {cron: "30 10 * * 0", misfire_grace_min: 1440, market_days_only: false}   # docs/27 : rejeu des détecteurs au coût complet (≈ 20 min)
   short_positions_refresh: {cron: "40 19 * * 1-5", misfire_grace_min: 720, market_days_only: false}   # docs/23 S2 : positions courtes nettes publiées par les autorités
   social_watch: {cron: "*/20 7-22 * * *", misfire_grace_min: 10, market_days_only: false}   # docs/26 S3 : veille des forums et réseaux toutes les 20 min, tous les jours (l'information circule aussi le soir et le week-end)
-  shadow_signals: {cron: "15 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/33 : suivi en ombre de l'enregistrement n° 2 (C1, C2, X2) sur les places européennes — stocké, jamais affiché
+  shadow_signals: {cron: "15 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/33, docs/34 : suivi en ombre des enregistrements n° 2 (C1, C2, X2) et n° 3 (C1, C2) sur les places européennes — stocké, jamais affiché
+  earnings_refresh: {cron: "40 5 * * 6", misfire_grace_min: 1440, market_days_only: false}   # docs/34 §34.4 : publications de résultats (4 mois passés, 5 mois à venir), Yahoo si le calendrier EODHD est hors forfait ; prochaine date pour R14
   forum_history: {cron: "*/30 0-5 * * *", misfire_grace_min: 20, market_days_only: false}   # docs/26 : historique du forum lu lentement la nuit, jusqu'à forum_from (décision du 26/10/2026)
   committee_review: {cron: "10 8 * * 1-5", misfire_grace_min: 90, market_days_only: true}   # docs/24 v2 : comité d'investissement en observation (verdicts mesurés, jamais appliqués)
   weak_signals: {cron: "40 6 * * 1-5", misfire_grace_min: 60, market_days_only: true}   # docs/26 : radar des signaux faibles publics (Wikipédia, volume, presse)

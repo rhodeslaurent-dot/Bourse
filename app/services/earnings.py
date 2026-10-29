@@ -189,3 +189,19 @@ def coverage_text(cov: dict[str, Any]) -> str:
                 f"    {y} : {c['valeurs']:>5} valeurs · {c['publications']:>6} publications · {c['avec_surprise']:>6} avec surprise"
             )
     return "\n".join(lines)
+
+
+def fill_next_dates(s: Session, today: date) -> int:
+    """``instruments.earnings_next_date`` from the next stored announcement when the screener gave none (or a past
+    one); a date the screener gave and still to come is kept. Returns the number of instruments filled."""
+    nxt: dict[str, tuple[date, str]] = {}
+    for e in s.scalars(select(EarningsEvent).where(EarningsEvent.day >= today).order_by(EarningsEvent.day)):
+        nxt.setdefault(e.isin, (e.day, e.source))
+    n = 0
+    for inst in s.scalars(select(Instrument).where(Instrument.isin.in_(list(nxt)))) if nxt else []:
+        if inst.earnings_next_date is not None and inst.earnings_next_date >= today:
+            continue
+        inst.earnings_next_date, inst.earnings_source = nxt[inst.isin][0], nxt[inst.isin][1]
+        n += 1
+    s.flush()
+    return n

@@ -45,6 +45,7 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "social_watch": "app.scheduler.jobs.social_watch:run",
     "forum_history": "app.scheduler.jobs.forum_history:run",
     "shadow_signals": "app.scheduler.jobs.shadow_signals:run",
+    "earnings_refresh": "app.scheduler.jobs.earnings_refresh:run",
     "committee_review": "app.scheduler.jobs.committee_review:run",
     "backtest_weekly": "app.scheduler.jobs.backtest_weekly:run",
     "brief_premarket": "app.scheduler.jobs.daily_report:run",

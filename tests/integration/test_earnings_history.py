@@ -133,3 +133,31 @@ def test_the_study_says_which_rises_started_on_results(db_engine, example_raw, c
     assert rep["meta"]["valeurs_avec_publications"] == 6
     assert "debut_sur_publication_de_resultats" in rep["profil"]["debut_de_hausse"]
     assert "resultats_imminents" in rep["entonnoir_tous_detecteurs"]
+
+
+def test_the_next_announcement_fills_a_missing_or_past_date_only(db_engine):
+    today = date(2026, 10, 29)
+    t = datetime(2026, 10, 29, tzinfo=UTC)
+    with db_session() as s:
+        s.add(Instrument(isin="FR0000000001", name="A", mic="XPAR"))  # no date from the screener
+        s.add(Instrument(isin="FR0000000002", name="B", mic="XPAR", earnings_next_date=date(2026, 11, 5),
+                         earnings_source="tradingview"))  # fmt: skip
+        s.add(Instrument(isin="FR0000000003", name="C", mic="XPAR", earnings_next_date=date(2026, 7, 1)))  # past
+        for isin, d in (("FR0000000001", date(2026, 11, 12)), ("FR0000000002", date(2026, 11, 20)),
+                        ("FR0000000003", date(2027, 1, 28)), ("FR0000000003", date(2026, 7, 1))):  # fmt: skip
+            s.add(EarningsEvent(isin=isin, day=d, when="bmo", source="yahoo", received_at=t))
+        s.flush()
+        assert earnings.fill_next_dates(s, today) == 2
+        a, b, c = (s.get(Instrument, f"FR000000000{k}") for k in (1, 2, 3))
+        assert a.earnings_next_date == date(2026, 11, 12) and a.earnings_source == "yahoo"
+        assert b.earnings_next_date == date(2026, 11, 5) and b.earnings_source == "tradingview"  # kept
+        assert c.earnings_next_date == date(2027, 1, 28)
+
+
+def test_the_weekly_job_is_registered():
+    from app.scheduler.registry import IMPLEMENTED_JOBS
+
+    assert IMPLEMENTED_JOBS["earnings_refresh"] == "app.scheduler.jobs.earnings_refresh:run"
+    import importlib
+
+    assert callable(importlib.import_module("app.scheduler.jobs.earnings_refresh").run)
