@@ -162,3 +162,37 @@ def test_pullbacks_keep_their_limit_at_the_maximum_price(db_engine, config):
             assert rows
             for r in rows:
                 assert r["seuil"] is None and r["distance"] == pytest.approx(100.8 / r["p_max"] - 1)
+
+
+def _live(last: float):
+    from app.data.dto import DataStatus, MarketPerimeter, PriceType, Quote
+
+    return Quote(source="test", market_perimeter=list(MarketPerimeter)[0], received_at=NOW, processed_at=NOW,
+                 data_status=DataStatus("realtime"), symbol="TTE", isin=ISIN, market_timestamp=NOW,
+                 price_type=PriceType("last"), last=last)  # fmt: skip
+
+
+@pytest.mark.parametrize("last", [99.3, 98.5])  # under the obstacle low 99.485; under the stop 98.99
+def test_a_breakout_given_back_on_a_live_quote_gets_no_plage(db_engine, config, last):
+    """Review of 30/10/2026 (M1): tested at its seuil, a d2 confirmed on the close and quoted under its obstacle —
+    or under its stop — still got a plage order. R5 is tested on the real price: no entry."""
+    with db_session() as s:
+        _seed(s, plage_bars(99.7))
+        engine.scan(s, config, DAY, now=NOW, quotes={ISIN: _live(last)})
+        p = _d2(s)
+        blocked = p.gates["blocked"]
+    assert p.action == "NO_TRADE" and p.details.get("entree") is None and p.entry_zone is None
+    assert any(b.startswith("configuration dégradée : ") for b in blocked)
+
+
+def test_a_scan_in_session_without_a_quote_is_to_verify(db_engine, config):
+    """Review of 30/10/2026 (M3): the API reception and the manual review analysed on the stored close while Paris
+    traded — « entrée possible » on a close a session old. In session without a quote: stale, « à vérifier »."""
+    in_session = NOW.replace(hour=8, minute=30)  # 10:30 Paris, Thursday 22/10/2026
+    assert engine._in_session("XPAR", in_session) and not engine._in_session("XPAR", NOW)
+    with db_session() as s:
+        _seed(s, plage_bars(99.7))
+        engine.scan(s, config, DAY, now=in_session)
+        p = _d2(s)
+    assert p.to_verify
+    assert "séance en cours" in p.details["source_cours"]

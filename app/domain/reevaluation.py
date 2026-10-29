@@ -12,6 +12,8 @@ creation (first target, stop, setup, support / obstacle low, round-trip fees of 
 
 Rule 2: (a) and (b) are *actionable* only with a realtime quote whose market timestamp is at most
 ``data.buy_intraday_max_market_age_minutes`` old; otherwise they are « à vérifier » and give no order card.
+A letter's breakout not crossed at analysis (``wait_for_close``) is never actionable intraday: its crossing is an
+alert, the order à plage de déclenchement comes after a close above (R5, R6 — review of 30/10/2026, M4).
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ class ReevalStatus(StrEnum):
 
 
 ENTRY_STATUSES = (ReevalStatus.ENTRY_REACHED, ReevalStatus.TRIGGER_CROSSED)
+CLOSE_FIRST = "alerte au franchissement : ordre à plage de déclenchement seulement après une clôture au-dessus (R5, R6)"
 
 LABELS: dict[str, str] = {
     ReevalStatus.WAITING.value: "déclencheur pas encore franchi",
@@ -62,6 +65,7 @@ class ReevalInput:
     delay_minutes: int | None = None  # declared delay of the source (for the « différé n min » wording)
     blocked: tuple[str, ...] = ()  # « BLOQUÉ : <règle> » gates of the proposal
     to_verify: bool = False
+    wait_for_close: bool = False  # a letter's breakout not crossed at analysis: an alert, never an intraday entry
 
 
 @dataclass
@@ -133,6 +137,9 @@ def classify(inp: ReevalInput) -> Reevaluation:
     if inp.to_verify:
         actionable = False
         reasons.append("proposition à vérifier : pas de fiche d'ordre")
+    if inp.wait_for_close and status == ReevalStatus.TRIGGER_CROSSED:
+        actionable = False
+        reasons.insert(0, CLOSE_FIRST)
     return Reevaluation(status, actionable, reasons)
 
 
@@ -144,11 +151,15 @@ def should_store(previous: tuple[str, bool] | None, new: Reevaluation) -> bool:
 def notify_kind(previous: tuple[str, bool] | None, baseline: str | None, new: Reevaluation) -> str | None:
     """``reeval_entry`` when an entry becomes actionable (realtime quote) after a different state — a BUY
     already at its entry at creation is not announced again; ``reeval_degraded`` on entering (c), whatever the
-    quote. ``previous`` is the last stored re-evaluation, ``baseline`` the status at creation."""
+    quote; ``reeval_trigger_alert`` when a letter's obstacle is crossed intraday (no order before the close).
+    ``previous`` is the last stored re-evaluation, ``baseline`` the status at creation."""
     if new.status in ENTRY_STATUSES and new.actionable:
         if previous is not None:  # a stored « à vérifier » entry confirmed by a realtime quote is announced too
             return None if previous[0] in ENTRY_STATUSES and previous[1] else "reeval_entry"
         return None if baseline in ENTRY_STATUSES else "reeval_entry"
+    if new.status == ReevalStatus.TRIGGER_CROSSED and new.reasons[:1] == [CLOSE_FIRST]:
+        prev_status = previous[0] if previous is not None else baseline
+        return None if prev_status == ReevalStatus.TRIGGER_CROSSED.value else "reeval_trigger_alert"
     if new.status == ReevalStatus.DEGRADED:
         prev_status = previous[0] if previous is not None else baseline
         return None if prev_status == ReevalStatus.DEGRADED.value else "reeval_degraded"

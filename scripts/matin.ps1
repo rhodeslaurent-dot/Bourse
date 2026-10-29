@@ -3,8 +3,8 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\matin.ps1                 (mesures rapides puis longues)
 #   powershell -ExecutionPolicy Bypass -File scripts\matin.ps1 -Dirigeants     (et l'historique AMF depuis 11/2021 : long)
 #   powershell -ExecutionPolicy Bypass -File scripts\matin.ps1 -SansReconstruction
-# Ordre : rapides d'abord (verrous, lettres, propositions), puis longues (rejeu 2017-2026, plan n° 4). Les plans n° 4 et
-# n° 5 sont gelés (docs/34 §34.11, §34.12) avant toute lecture de ces sorties.
+# Ordre : rapides d'abord (verrous, lettres, propositions), puis longues (rejeu 2017-2026, plan n° 4). Les plans n° 4, 5
+# et 6 sont gelés (docs/34 §34.11 à §34.13) avant toute lecture de ces sorties.
 param([switch]$Dirigeants, [switch]$SansReconstruction, [int]$Run = 4)
 $ErrorActionPreference = "Continue"
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
@@ -48,7 +48,7 @@ App "2. historique des annonces macro (BCE, Fed, emploi et prix US)" @("macro-hi
 App "3. couverture des verrous en octobre" @("gates-coverage", "--from", "2026-10-01", "--to", "2026-10-29")
 App "4. étude historique des recommandations des lettres" @("letters-study", "--from", "2017-01-02")
 App "5. rejeu des propositions réellement faites" @("entry-replay", "--mode", "proposals")
-App "6. rejeu des politiques d'entrée 2017-2026 (environ 1 h)" @("entry-replay", "--from", "2017-01-02")
+App "6. rejeu des politiques d'entrée 2017-2026 (plusieurs heures)" @("entry-replay", "--from", "2017-01-02")
 App "7a. calibration du plan n° 4" @("research", "calibrate", "--prereg", $reg4, "--run", "$Run")
 App "7b. exécution du plan n° 4" @("research", "run", "--prereg", $reg4, "--universe", "all", "--run", "$Run")
 App "7c. calibration du plan n° 6 (sorties)" @("research", "calibrate", "--prereg", $reg6, "--run", "$Run")

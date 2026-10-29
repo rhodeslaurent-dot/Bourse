@@ -203,6 +203,7 @@ class Book:
     # reserved risk of the pending entry orders (docs/07 §7.3, rule 7), measured once per scan by the caps
     reserved_eur: float | None = None
     reserved_orders: list[dict[str, Any]] = field(default_factory=list)
+    as_of: datetime | None = None  # the scan's time: proposals marked « Ordre saisi » still valid reserve risk
 
 
 def _book(s: Session) -> Book:
@@ -336,6 +337,15 @@ def evaluate(
         )
     if setup.detector == "external":
         ev.blocked += _letter_drift_block(config, setup, now)
+    letter_wait = setup.kind == SetupKind.BREAKOUT and setup.detector == "external" and price < setup.entry_level
+    if price <= setup.stop and not letter_wait:  # R5: the invalidation is reached — no entry (a letter's breakout
+        # not crossed yet keeps its alert: its stop sits under the future seuil, not under today's price)
+        ev.blocked.append(
+            f"configuration dégradée : cours {price:.4g} au niveau du stop {setup.stop:.4g} ou dessous — "
+            "invalidation atteinte, aucune entrée (R5)"
+        )
+        ev.action = "NO_TRADE"
+        return ev
     adm_price = _admission_price(setup, price)
     # docs/06 §6.3 (applied 30/10/2026): a breakout is entered with an order à plage de déclenchement for J+1 —
     # seuil = the detector's trigger (``entry_level``), limite = P_max (R4, capped by the technical maximum)
@@ -904,10 +914,17 @@ ABOVE_RANGE = "cours au-dessus de la limite de la plage"
 
 def _admission_price(setup: Setup, price: float) -> float:
     """A breakout under its seuil is tested at the seuil: its order à plage de déclenchement fills there, never under
-    it (docs/06 §6.3, docs/20 §20.10); every other setup at the price of the analysis."""
-    if setup.kind == SetupKind.BREAKOUT and price < setup.entry_level:
-        return setup.entry_level
-    return price
+    it (docs/06 §6.3, docs/20 §20.10); every other setup at the price of the analysis. A detector's breakout whose
+    price is back under the obstacle low keeps that price, so that R5 says « franchissement rendu » (review of
+    30/10/2026: tested at the seuil, a live quote under the obstacle — or under the stop — still gave a plage); a
+    letter's breakout under its obstacle is not crossed yet (``_letter_trigger_wait``)."""
+    if setup.kind != SetupKind.BREAKOUT or price >= setup.entry_level:
+        return price
+    if setup.detector != "external" and (
+        price <= setup.stop or (setup.level_low is not None and price < setup.level_low)
+    ):
+        return price
+    return setup.entry_level
 
 
 def _breakout_under_trigger(
@@ -1056,7 +1073,10 @@ def _portfolio_caps(
     counts in the open risk (docs/07 §7.3, rule 7 — it counted 0 before 29/10/2026)."""
     risk = config.params.risk
     if book.reserved_eur is None:
-        book.reserved_eur, book.reserved_orders = _reserved_risk(s, config, r_unit)
+        book.reserved_eur, book.reserved_orders = _reserved_risk(s, config, r_unit, book.as_of)
+    # the value's own pending entry is replaced by this proposal, never counted twice (review of 30/10/2026, m5)
+    own = sum(float(r["risque_eur"]) for r in book.reserved_orders if r.get("isin") == inst.isin)
+    reserved = max(0.0, book.reserved_eur - own)
     heat = HeatParams(
         float(capital_eur) if capital_eur else float(config.params.capital.capital_pilote_eur),
         dict(getattr(risk, "max_open_risk_pct_by_gate", None) or {"ouvert": 0.05, "restreint": 0.035}),
@@ -1067,13 +1087,14 @@ def _portfolio_caps(
         float(getattr(risk, "heat_a_soft_cap_pct", 0.075)),
     )
     gate_key = "ouvert" if gate == "ouvert" else "restreint"
-    st = heat_state(book.lines, book.reserved_eur, gate_key, heat)
+    st = heat_state(book.lines, reserved, gate_key, heat)
     caps = check_new_line(st, risk_eur, heat, srd=(acc == "cto_srd"))
     ev.details["plafonds"] = {
         "plafond_eur": round(st.cap_eur, 2),
         "risque_ouvert_eur": round(st.heat_b_eur, 2),
         "risque_reserve_eur": round(st.reserved_eur, 2),
         "ordres_en_attente": len(book.reserved_orders),
+        **({"ordre_en_attente_remplace_eur": round(own, 2)} if own else {}),
         "capital_eur": round(heat.capital_eur, 2),
     }
     if gate == "restreint_plus":
@@ -1279,10 +1300,14 @@ def _shorts_covered(s: Session, isin: str) -> bool:
     return bool(s.info[key])
 
 
-def _reserved_risk(s: Session, config: LoadedConfig, r_unit: float) -> tuple[float, list[dict[str, Any]]]:
+def _reserved_risk(
+    s: Session, config: LoadedConfig, r_unit: float, now: datetime | None = None
+) -> tuple[float, list[dict[str, Any]]]:
     """Reserved risk of the pending entry orders (docs/07 §7.3): qty not filled × (max price − slipped stop) × fx +
     estimated fees (both legs), the SRD ones weighted as the open lines; an order without a known stop or price
-    reserves one full R (as the risk page, M13). Never 0 by default (B3, 29/10/2026)."""
+    reserves one full R (as the risk page, M13). Never 0 by default (B3, 29/10/2026). A proposal marked « Ordre
+    saisi » (Telegram, web, API) with no order declared yet reserves its own risk at the limit until it expires —
+    the button creates no order row (review of 30/10/2026, M2)."""
     risk = config.params.risk
     slip = float(risk.slippage_pct)
     srd_w = float(getattr(risk, "srd_risk_weight", 1.25))
@@ -1315,6 +1340,31 @@ def _reserved_risk(s: Session, config: LoadedConfig, r_unit: float) -> tuple[flo
         r *= srd_w if acc_type == "cto_srd" else 1.0
         total += r
         rows.append({"isin": o.isin, "ordre": o.id, "compte": acc_type, "risque_eur": round(r, 2), "base": basis})
+    now = now or datetime.now(UTC)
+    linked = set(s.scalars(select(Order.proposal_id).where(Order.proposal_id.is_not(None))))
+    held = {
+        (p.isin, p.opened_at.replace(tzinfo=UTC) if p.opened_at and p.opened_at.tzinfo is None else p.opened_at)
+        for p in s.scalars(select(PositionRow).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0))
+    }
+    for prop in s.scalars(select(Proposal).where(Proposal.status == "taken", Proposal.deleted_at.is_(None))):
+        exp = prop.expires_at
+        exp = exp.replace(tzinfo=UTC) if exp is not None and exp.tzinfo is None else exp
+        created = prop.created_at.replace(tzinfo=UTC) if prop.created_at.tzinfo is None else prop.created_at
+        if prop.id in linked or (exp is not None and exp <= now) or (exp is None and created < now - timedelta(days=5)):
+            continue
+        if any(i == prop.isin and o is not None and o >= created for i, o in held):
+            continue  # filled: the position's current risk counts
+        acc_type = prop.account_recommended or "cto_cash"
+        row_risk = (((prop.details or {}).get("comptes") or {}).get(acc_type) or {}).get("risque_eur")
+        known = prop.risk_eur if prop.risk_eur and prop.risk_eur > 0 else row_risk  # a waiting limit: its row
+        if isinstance(known, int | float) and known > 0:
+            r, basis = float(known), "« Ordre saisi » : risque de la proposition à sa limite"
+        else:
+            r, basis = r_unit, "« Ordre saisi » : 1 R (risque de la proposition inconnu)"
+        r *= srd_w if acc_type == "cto_srd" else 1.0
+        total += r
+        rows.append({"isin": prop.isin, "proposition": prop.id, "compte": acc_type, "risque_eur": round(r, 2),
+                     "base": basis})  # fmt: skip
     return total, rows
 
 
@@ -1670,6 +1720,7 @@ def scan(
         return ctx_by_market[key]
 
     book = _book(s)
+    book.as_of = now
     from app.services.circuit import circuit_state
 
     try:
@@ -1814,12 +1865,17 @@ def scan(
             live = q is not None and getattr(q, "last", None) is not None
             price = float(q.last) if live else bars[-1].close
             status = q.data_status.value if live else "eod"
+            in_session = not live and _in_session(inst.mic, now)
+            if in_session:  # R19, rule 2: the stored close is a session old while the venue trades — « à vérifier »
+                status = "stale"  # (review of 30/10/2026, M3: API reception and manual review passed no quote)
             last_day = s.scalar(
                 select(PriceEod.day)
                 .where(PriceEod.isin == inst.isin, PriceEod.day <= day)
                 .order_by(PriceEod.day.desc())
             )
             price_source = q.source if live else "clôture officielle stockée"
+            if in_session:
+                price_source += " (séance en cours : cours du moment non relevé)"
             price_ts = q.market_timestamp if live else last_day
             cm = ctx_for(inst.mic)
             for setup, source in st_["found"]:
@@ -1910,6 +1966,17 @@ def rescan_today(s: Session, config: LoadedConfig, day: date, now: datetime | No
             p_.deleted_at = now
     s.flush()
     return scan(s, config, day, now=now).created
+
+
+def _in_session(mic: str | None, now: datetime) -> bool:
+    """The value's venue trades at ``now`` (its own calendar); unknown venue or year → False, as live quotes."""
+    cals = _calendars()
+    if mic is None or cals is None or mic not in getattr(cals, "venues", {}):
+        return False
+    try:
+        return bool(cals.get(mic).is_open_at(now))
+    except (KeyError, ValueError):
+        return False
 
 
 @lru_cache(maxsize=1)

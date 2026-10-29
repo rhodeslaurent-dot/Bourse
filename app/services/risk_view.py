@@ -136,6 +136,27 @@ def build_risk_view(s: Session, config: LoadedConfig, now: datetime | None = Non
                 o.isin, acc.type, qty, price_max, stop * (1 - config.params.risk.slippage_pct), fees_eur, sector=sector
             )
         )
+    # « Ordre saisi » creates no order row: the proposal reserves its risk at its limit until it expires, as in the
+    # engine's caps (engine._reserved_risk, review of 30/10/2026, M2)
+    from app.services.engine import _reserved_risk
+
+    _, engine_rows = _reserved_risk(s, config, budget, now)
+    for row in engine_rows:
+        if row.get("proposition") is None:
+            continue
+        from app.db.models import Proposal
+
+        prop = s.get(Proposal, row["proposition"])
+        p_max = (prop.details or {}).get("p_max") if prop is not None else None
+        sector = str(imap.get(row["isin"], {}).get("sector", "inconnu"))
+        if prop is None or not prop.shares or not isinstance(p_max, int | float) or not prop.stop:
+            reserved_unknown.append(row["isin"])
+            pending.append(PendingEntry(row["isin"], row["compte"], 1, budget, 0.0, 0.0, sector=sector))
+            continue
+        broker = "saxo" if row["compte"].startswith("cto") else "boursobank"
+        fees_eur = fee_schedule_for(config, broker).commission(prop.shares * p_max)
+        stop_exec = prop.stop * (1 - config.params.risk.slippage_pct)
+        pending.append(PendingEntry(row["isin"], row["compte"], prop.shares, p_max, stop_exec, fees_eur, sector=sector))
     cto_cash = sum((a.cash or 0.0) for a in accounts.values() if a.broker == "saxo") / max(
         1, sum(1 for a in accounts.values() if a.broker == "saxo")
     )

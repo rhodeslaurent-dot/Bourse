@@ -85,15 +85,21 @@ def ingest_newsletter(body: NewsletterIn, request: Request) -> dict[str, object]
         )
     with db_session() as s:
         rep = ingest_mail(s, mail, cfg, request.app.state.llm, calendars=request.app.state.calendars)
-        if rep.new:  # docs/20 §20.10: every recommended value analysed by the engine (stored close), with its verdict
-            from sqlalchemy import select
+        if rep.new:  # docs/20 §20.10: every recommended value analysed by the engine with its verdict, on the quote
+            from sqlalchemy import select  # at analysis time as at the mail reception (R19)
 
             from app.db.models import NewsletterItem
-            from app.services.letter_analysis import analyse_items
+            from app.services.letter_analysis import analyse_items, recommended_isins
+            from app.services.quotes import plausible_quotes
 
             item = s.scalar(select(NewsletterItem).where(NewsletterItem.dedup_hash == mail.dedup_hash))
             if item is not None:
-                analyse_items(s, cfg, [item])
+                isins = recommended_isins(s, [item])
+                try:
+                    quotes = plausible_quotes(s, isins, cfg) if isins else {}
+                except Exception:  # noqa: BLE001 — no quote is better than a guessed one: « à vérifier » in session
+                    quotes = {}
+                analyse_items(s, cfg, [item], quotes)
     return rep.__dict__
 
 

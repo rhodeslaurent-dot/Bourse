@@ -134,10 +134,11 @@ def test_caps_count_pending_orders_on_the_interface_capital(db_engine, config):
         acc = Account(broker="saxo", type="cto_cash", label="CTO")
         s.add(acc)
         s.flush()
-        prop = Proposal(signal_id=1, isin=ISIN, action="BUY", stop=95.0)
+        other = "FR0000131104"  # another value: the candidate's own pending order is replaced, not added (m5)
+        prop = Proposal(signal_id=1, isin=other, action="BUY", stop=95.0)
         s.add(prop)
         s.flush()
-        s.add(Order(account_id=acc.id, isin=ISIN, side="buy", qty=180, order_type="limite", limit_price=100.0,
+        s.add(Order(account_id=acc.id, isin=other, side="buy", qty=180, order_type="limite", limit_price=100.0,
                     state="entered", proposal_id=prop.id, source="web", entered_at=NOW))  # fmt: skip
         s.add(Order(account_id=acc.id, isin=ISIN, side="buy", qty=50, order_type="limite", limit_price=100.0,
                     state="filled", qty_filled=50, source="web", entered_at=NOW))  # fmt: skip
@@ -268,3 +269,40 @@ def test_waiting_limit_caps_use_the_interface_capital(db_engine, config):
     assert ev.details["plafonds"]["capital_eur"] == 20_000.0
     assert ev.details["plafonds"]["plafond_eur"] == pytest.approx(20_000 * pct)
     assert datetime.now(UTC) > NOW
+
+
+def test_a_proposal_marked_order_entered_reserves_its_risk(db_engine, config):
+    """Review of 30/10/2026 (M2): « Ordre saisi » creates no order row; the proposal reserves its risk at its limit
+    until it expires, unless an order is declared for it or the value is held since. The candidate's own pending
+    entry is never counted twice (m5)."""
+    from app.services.decisions import record_decision
+
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        inst = s.get(Instrument, ISIN)
+        other = "FR0000131104"
+        taken = Proposal(signal_id=1, isin=other, action="BUY", stop=95.0, risk_eur=400.0, account_recommended="pea",
+                         expires_at=NOW + timedelta(days=2))  # fmt: skip
+        old = Proposal(signal_id=2, isin=other, action="BUY", stop=95.0, risk_eur=300.0, account_recommended="pea",
+                       expires_at=NOW - timedelta(hours=1))  # fmt: skip
+        same = Proposal(signal_id=3, isin=ISIN, action="BUY", stop=95.0, risk_eur=250.0, account_recommended="pea",
+                        expires_at=NOW + timedelta(days=2))  # fmt: skip
+        s.add_all([taken, old, same])
+        s.flush()
+        for p in (taken, old, same):
+            record_decision(s, p.id, "order_entered", "web")
+        ev = _ev()
+        book = engine.Book([], {}, {}, as_of=NOW)
+        engine._portfolio_caps(s, config, inst, book, 150.0, "pea", "restreint", 300.0, ev, 20_000.0)
+        pl = ev.details["plafonds"]
+        assert pl["risque_reserve_eur"] == pytest.approx(400.0)  # the expired one and the value's own excluded
+        assert pl["ordre_en_attente_remplace_eur"] == pytest.approx(250.0)
+        assert {r.get("proposition") for r in book.reserved_orders} == {taken.id, same.id}
+        acc = Account(broker="boursobank", type="pea", label="PEA")
+        s.add(acc)
+        s.flush()
+        s.add(Order(account_id=acc.id, isin=other, side="buy", qty=10, order_type="limite", limit_price=100.0,
+                    state="filled", qty_filled=10, proposal_id=taken.id, source="web", entered_at=NOW))  # fmt: skip
+        s.flush()
+        total, rows = engine._reserved_risk(s, config, 300.0, NOW)
+    assert all(r.get("proposition") != taken.id for r in rows)  # its order is declared: the order counts, once

@@ -106,3 +106,17 @@ def test_an_intraday_break_of_the_support_is_worded_as_a_session_warning():
     r = classify(_inp(94.0))
     assert r.status == ReevalStatus.DEGRADED
     assert "en séance (à confirmer en clôture)" in r.reasons[0] and "perdu en clôture" not in r.reasons[0]
+
+
+def test_a_letter_trigger_crossed_intraday_is_an_alert_never_an_entry():
+    """Review of 30/10/2026 (M4): a letter's breakout not crossed at analysis waits for a close above; its crossing
+    intraday is an alert (P3, no order line), never ``reeval_entry``."""
+    from app.domain.reevaluation import CLOSE_FIRST
+
+    inp = _inp(101.0, Setup.BREAKOUT, p_max=103.0, target=140.0, wait_for_close=True)
+    r = classify(inp)
+    assert r.status == ReevalStatus.TRIGGER_CROSSED and not r.actionable and r.reasons[0] == CLOSE_FIRST
+    assert notify_kind(("en_attente", False), None, r) == "reeval_trigger_alert"
+    assert notify_kind(("declencheur_franchi", False), None, r) is None  # once per crossing
+    plain = classify(_inp(101.0, Setup.BREAKOUT, p_max=103.0, target=140.0))
+    assert plain.actionable and notify_kind(("en_attente", False), None, plain) == "reeval_entry"

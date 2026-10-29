@@ -110,6 +110,7 @@ def reeval_input(p: Proposal, sig: Signal | None, price: float, q: Quote | None,
         delay_minutes=q.declared_delay_minutes if q is not None else None,
         blocked=tuple(b for b in (p.gates or {}).get("blocked", []) if b.startswith("BLOQUÉ")),
         to_verify=bool(p.to_verify),
+        wait_for_close=any(TRIGGER_WAIT in b for b in (p.gates or {}).get("blocked", [])),
     )
 
 
@@ -146,6 +147,20 @@ def _event(kind: str, p: Proposal, r: Reevaluation, q: Quote, name: str) -> Even
     status = {"realtime": "temps réel", "delayed": "différé", "stale": "périmé"}.get(q.data_status.value, "")
     when = f", marché {format_dual(q.market_timestamp)}" if q.market_timestamp else ""
     quote_line = f"Cours {_fmt(q.last)} ({status}{when}, {q.source})"
+    if kind == "reeval_trigger_alert":  # a letter's obstacle crossed intraday: an alert, no order (R5, R6)
+        return Event(
+            "P3",
+            kind,
+            f"{name} : déclencheur de la lettre franchi en séance",
+            [
+                quote_line,
+                f"Seuil {_fmt((d.get('entree') or {}).get('seuil') or d.get('configuration', {}).get('declencheur'))}"
+                f" · stop {_fmt(p.stop)} · objectif {_fmt(p.targets[0] if p.targets else None)}",
+                "Pas d'ordre avant une clôture au-dessus : le scan du soir ou du matin le confirme (R5, R6)",
+            ],
+            [Button("Vu", f"p{p.id}:vu"), Button("Ignorer", f"p{p.id}:ignorer")],
+            isin=p.isin,
+        )
     if kind == "reeval_degraded":
         return Event(
             "P2",
@@ -154,8 +169,8 @@ def _event(kind: str, p: Proposal, r: Reevaluation, q: Quote, name: str) -> Even
             [
                 r.reasons[0] if r.reasons else LABELS[r.status.value],
                 quote_line,
-                "Ordre limite en attente chez le courtier : à revoir, l'annuler si la clôture confirme "
-                "(l'outil n'annule rien)",
+                f"{'Ordre à plage de déclenchement' if (d.get('entree') or {}).get('seuil') else 'Ordre limite'} "
+                "en attente chez le courtier : à revoir, l'annuler si la clôture confirme (l'outil n'annule rien)",
             ],
             [Button("Vu", f"p{p.id}:vu"), Button("Ignorer", f"p{p.id}:ignorer")],
             isin=p.isin,

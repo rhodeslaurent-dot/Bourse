@@ -89,14 +89,23 @@ def sentence(p: Any) -> str | None:
         stop += f" (structure ; invalidation de la lettre {_n(c['stop_lettre'])})"
     tgt = f", objectif {_n(c['objectif'])}" if c.get("objectif") is not None else ""
     pmax = _n(c["p_max"]) if c.get("p_max") is not None else "—"
+    # a crossed breakout is entered with its plage, as the card says (docs/06 §6.3; review of 30/10/2026, m7)
+    plage = (d.get("entree") or {}).get("type") == "ordre à plage de déclenchement" and c.get("seuil") is not None
+    order = (
+        f"ordre à plage de déclenchement (seuil {_n(c['seuil'])}, limite {pmax})" if plage else f"ordre limite à {pmax}"
+    )
     if v == "entrer_maintenant":
         size = f" ({c['titres']} titres, compte {c.get('compte')})" if c.get("titres") else ""
         on = f" sur la clôture du {c['jour_cours']}" if c.get("jour_cours") else ""
-        return f"Entrée possible : ordre limite à {pmax}{size}{on} ; {stop}{tgt}."
+        return f"Entrée possible : {order}{size}{on} ; {stop}{tgt}."
     if v == "fiche_fixing":
+        failed = {x.get("cle") for x in failed_checks(p)}
+        if "cours" in failed or not failed:
+            why_not = f"cours {c.get('statut_cours')}, pas d'ordre en séance (règle 2)"
+        else:  # the structure level is not recorded: the support cannot be checked (m8)
+            why_not = "niveau de structure non enregistré, tenue du support à vérifier"
         return (
-            f"Entrée possible au fixing de clôture si le cours reste ≤ {pmax} : cours {c.get('statut_cours')}, "
-            f"pas d'ordre en séance (règle 2), fiche à 17:15 ; {stop}{tgt}."
+            f"Entrée possible au fixing de clôture si le cours reste ≤ {pmax} : {why_not}, fiche à 17:15 ; {stop}{tgt}."
         )
     if v == "alerte_declencheur":
         if "au déclencheur" in why:
