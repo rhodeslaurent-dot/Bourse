@@ -420,6 +420,7 @@ NEW_TOP_BLOCKS = [
     "workflow",
     "learning",
     "letters_review",
+    "letters",  # docs/20 §20.10 — analyse de chaque valeur recommandée (29/10/2026)
     "admission",  # docs/07 §7.9 — référentiel de gestion du 22/10/2026
     "market_gate",
     "conjuncture",

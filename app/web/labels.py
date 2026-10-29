@@ -122,7 +122,7 @@ HELP: dict[str, str] = {
     "rsi14": "Indice de force (RSI 14) : > 70 suracheté, < 30 survendu",
     "high_52w": "Plus haut des 52 dernières semaines",
     "R": "R = risque initial : distance au stop × quantité ; un gain de 2 R vaut deux fois le risque pris",
-    "to_verify": "Donnée différée ou état de compte périmé : aucune fiche d'ordre tant que ce n'est pas vérifié",
+    "to_verify": "Donnée différée, état de compte périmé ou, pour une lettre, contrôle en échec (cours non frais, structure non enregistrée) : aucune fiche d'ordre tant que ce n'est pas vérifié",  # noqa: E501
     "declarative": "État saisi à la main, non encore confirmé par le courtier",
     "expectancy": "Espérance par trade, en R : (taux de réussite × gain moyen) − (taux d'échec × perte moyenne)",
     "profit_factor": "Profit factor : somme des gains / somme des pertes",

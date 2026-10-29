@@ -46,11 +46,19 @@ def pitch(detector: str | None, evidence: dict[str, Any] | None, source: str | N
             f"Tendance de fond haussière (MM50 au-dessus de la MM200{slope}) et retour sur la MM50, qui tient{_rs(ev)}."
         )
     if detector == "external":
-        if source == "moteur_lettre":  # the engine recalculated the letter's levels (R15)
-            return (
-                "Recommandation d'achat d'une lettre avec objectif et niveau d'invalidation publiés, "
-                "recalculée au coût complet."
-            )
+        if source == "moteur_lettre":  # docs/20 §20.10: every recommended value analysed by the tool
+            who = f" de {ev['lettre']}" if ev.get("lettre") else " d'une lettre"
+            if ev.get("non_analysable"):
+                return f"Recommandation{who} que l'outil ne peut pas analyser (raison sous la carte)."
+            modes = {
+                "achat": "au prix d'achat publié",
+                "support": "sur le support publié",
+                "declencheur": "à la cassure du déclencheur publié",
+                "marche": "au cours, la lettre ne donnant pas de prix d'entrée",
+                "outil": "avec les niveaux de l'outil, la lettre n'en donnant aucun",
+            }
+            how = modes.get(str(ev.get("mode")), "avec les niveaux publiés")
+            return f"Recommandation{who} analysée par l'outil {how}, stop et objectifs vérifiés, au coût complet."
         who = f" de {source}" if source and source != "moteur" else " d'une lettre"
         return (
             f"Recommandation{who} sans niveaux recalculables par l'outil (il faut un stop, un objectif et un prix "

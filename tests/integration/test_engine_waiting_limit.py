@@ -12,12 +12,11 @@ from tests.integration.test_engine import DAY, ISIN, NOW, _seed, breakout_bars
 
 
 def test_a_waiting_limit_carries_the_earnings_block_and_its_score(db_engine, config):
-    import copy
+    # 29/10/2026: a pullback's limit (a letter's support); the former d2 breakout limit under its trigger was a defect
+    from tests.integration.test_engine import seed_pullback_letter
 
-    config = copy.deepcopy(config)
-    config.params.admission["min_reward_risk"] = 0.3  # the synthetic target is close: a limit above the stop
     with db_session() as s:
-        _seed(s, breakout_bars())
+        seed_pullback_letter(s)
         s.get(Instrument, ISIN).earnings_next_date = NOW.date() + timedelta(days=1)  # tomorrow
         s.flush()
         engine.scan(s, config, DAY, now=NOW)

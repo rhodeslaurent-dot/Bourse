@@ -15,6 +15,9 @@ from app.domain.learning import VERDICT_ORDER
 from app.services.decisions import record_decision
 from app.services.explain import explain_proposal
 from app.services.instruments import name_of
+from app.services.letters_verdict import failed_checks, sentence
+from app.services.letters_verdict import label as verdict_label
+from app.services.letters_verdict import tone as verdict_tone
 from app.services.notes import notes_for
 from app.services.pitch import pitch
 from app.web.routes import templates
@@ -118,6 +121,18 @@ def opportunities_page(
                     "secteur": " · ".join(x for x in (inst.sector, inst.industry) if x) if inst else None,
                     "devise": inst.currency if inst else None,
                     "reeval": summary(reevals[p.id]) if p.id in reevals else None,  # intraday_reeval (live quote)
+                    # docs/20 §20.10: a letter's proposal — what the letter says, what the tool sees, the verdict
+                    "verdict": (
+                        {
+                            "label": verdict_label(p),
+                            "tone": verdict_tone(p),
+                            "phrase": sentence(p),
+                            "echecs": failed_checks(p),
+                            "recue": _received(p),
+                        }  # fmt: skip
+                        if (p.details or {}).get("verdict")
+                        else None
+                    ),
                 }
             )
         # docs/22 §22.4: the engine's ranking first (or net ratio / net gain on request); then the
@@ -202,22 +217,41 @@ def decide(
     return RedirectResponse(f"/opportunites{'?day=' + day if day else ''}", status_code=303)
 
 
+def _received(p: Proposal) -> str | None:
+    """Reception time of the letter behind a letter proposal, Réunion then Paris (docs/09 §9.5)."""
+    from app.domain.timeutil import format_dual, from_store
+
+    raw = ((p.details or {}).get("lettre") or {}).get("recue_a")
+    try:
+        return format_dual(from_store(datetime.fromisoformat(str(raw)))) if raw else None
+    except ValueError:
+        return None
+
+
 INFORMATION_ONLY = (
     "espérance historique négative au coût complet",  # a detector in watch only (ADR-013)
     "WATCH : pas d'objectif exploitable",
     "WATCH : objectif trop proche",
     "WATCH : stop trop large",
+    "aucune limite en attente (R4)",  # a breakout whose maximum price falls under its trigger (29/10/2026)
 )
 
 
 def information_only(it: dict, far_pct: float) -> bool:
     """User decision of 29/10/2026: a card that cannot become an order is folded by default — a detector in watch
-    only, no exploitable target, a target too close for the risk, a stop too wide, or a limit waiting for a
-    pullback more than ``entry.far_limit_display_pct`` under the price of the analysis."""
+    only, no exploitable target, a target too close for the risk, a stop too wide, a breakout whose maximum price
+    falls under its trigger, or a limit waiting for a pullback more than ``entry.far_limit_display_pct`` under the
+    price of the analysis. A letter's proposal follows its verdict (docs/20 §20.10): « rejet » and « non analysable »
+    are folded, an alert at the trigger is not."""
     p = it["p"]
     blocked = [str(b) for b in (p.gates or {}).get("blocked") or []]
-    if any(k in b for b in blocked for k in INFORMATION_ONLY):
+    verdict = (p.details or {}).get("verdict")
+    if verdict in ("rejet", "non_analysable"):
         return True
+    if verdict is None and any(k in b for b in blocked for k in INFORMATION_ONLY):
+        return True
+    if verdict is not None and verdict != "attendre_repli":
+        return False
     pmax = (p.details or {}).get("p_max")
     price = (it.get("snapshot_price") or {}).get("last")
     waiting = any("en attente d'un repli" in b for b in blocked)

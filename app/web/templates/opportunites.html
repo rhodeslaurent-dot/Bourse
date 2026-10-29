@@ -59,7 +59,7 @@
 <section class="pt-2"><h2 class="text-base font-semibold">{{ groups[it.groupe][0] }}</h2><p class="text-xs text-slate-500 dark:text-slate-400">{{ groups[it.groupe][1] }}</p></section>
 {% endif %}
 {% endif %}
-<section class="card {% if p.action == 'BUY' and not ex.blocked and not p.to_verify %}border-l-4 border-l-emerald-500{% elif ex.blocked %}border-l-4 border-l-rose-500{% elif p.to_verify %}border-l-4 border-l-amber-500{% endif %}">
+<section id="p{{ p.id }}" class="card {% if p.action == 'BUY' and not ex.blocked and not p.to_verify %}border-l-4 border-l-emerald-500{% elif ex.blocked %}border-l-4 border-l-rose-500{% elif p.to_verify %}border-l-4 border-l-amber-500{% endif %}">
   <div class="flex flex-wrap items-start justify-between gap-2">
     <div class="min-w-0">
       <div class="flex flex-wrap items-center gap-2">
@@ -78,6 +78,7 @@
       {% if it.pitch %}<p class="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">{{ it.pitch }}</p>{% endif %}
       <p class="mt-1 text-sm">{{ ex.headline }}</p>
       {% set dd = p.details or {} %}{% set acc = (dd.comptes or {}).get(p.account_recommended or '', {}) %}
+      {% if it.verdict %}{% include "_lettre.html" %}{% endif %}
       {% if dd and dd.p_max %}
       {% if day == today %}<p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-slate-700 dark:text-slate-300"><span class="text-slate-500 dark:text-slate-400">Cours</span> {{ live.quote(p.isin) }} <span class="text-xs text-slate-500 dark:text-slate-400">écart à la limite <b class="tabular" data-live-distance="{{ p.id }}">—</b></span></p>{% endif %}
       <p class="mt-1 text-sm tabular text-slate-700 dark:text-slate-300">Limite <b>{{ '%.4g'|format(dd.p_max) }}</b> · stop {{ '%.4g'|format(p.stop) if p.stop else '—' }} · objectif{{ 's' if (p.targets or [])|length > 1 }} {% for t in p.targets or [] %}{{ '%.4g'|format(t) }}{% if not loop.last %} / {% endif %}{% else %}—{% endfor %}{% if acc.gain_net_pct is not none and acc.gain_net_pct is defined %} · gain net <b class="text-emerald-700 dark:text-emerald-300">{{ '%+.1f %%'|format(acc.gain_net_pct * 100) }}</b> · perte nette <b class="text-rose-700 dark:text-rose-300">{{ '%.1f %%'|format(acc.perte_nette_pct * 100) }}</b> · ratio net {{ acc.ratio_net }}{% endif %}{% if dd.esperance_nette_r is not none and dd.esperance_nette_r is defined %} · <span class="underline decoration-dotted" title="Moyenne des cas passés du même détecteur ({{ 'backtest, ' ~ dd.esperance_backtest.n ~ ' trades' if dd.esperance_backtest else 'historique comparable' }}), au coût complet : ce n'est pas un calcul propre à cette valeur.">espérance du détecteur {{ '%+.2f'|format(dd.esperance_nette_r) }} R</span>{% endif %}</p>
@@ -95,7 +96,7 @@
       {% if dd and dd.p_max and day == today %}{{ live.reeval(p.id, it.reeval) }}{% endif %}
       {% if p.thesis and p.thesis.arguments %}<p class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{ p.thesis.arguments[0].texte }}</p>{% endif %}
       {% for b in ex.blocked %}<p class="mt-1 text-sm font-semibold text-rose-700 dark:text-rose-300 [overflow-wrap:anywhere]">{{ b }}</p>{% endfor %}
-      {% for w in it.pourquoi %}<p class="mt-1 text-xs text-slate-600 dark:text-slate-300">En clair : {{ w }}</p>{% endfor %}
+      {% if not it.verdict %}{% for w in it.pourquoi %}<p class="mt-1 text-xs text-slate-600 dark:text-slate-300">En clair : {{ w }}</p>{% endfor %}{% endif %}
     </div>
     <div class="shrink-0 sm:text-right text-xs text-slate-500 dark:text-slate-400"><span class="font-mono">{{ p.isin }}</span><br>{{ p.created_at|dual }}{% if p.expires_at %}<br>expire le {{ p.expires_at|dual_dated }}{% endif %}</div>
   </div>
@@ -115,7 +116,8 @@
           <dt class="text-slate-500">Horizon</dt><dd>{{ p.horizon or '—' }}</dd>
         </dl>
         {% if ex.bullets %}<ul class="mt-2 list-disc ml-4 space-y-0.5 text-slate-700 dark:text-slate-300">{% for b in ex.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
-        {% if p.to_verify %}<p class="mt-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-200">À vérifier : donnée différée ou état de compte périmé. Pas de fiche d'ordre tant que ce n'est pas confirmé.</p>{% endif %}
+        {% if p.to_verify and it.verdict %}<p class="mt-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-200">À vérifier — pas de fiche d'ordre tant que ce n'est pas confirmé : {% for c in it.verdict.echecs %}{{ c.item }} ({{ c.detail }}){% if not loop.last %} ; {% endif %}{% else %}contrôle incomplet{% endfor %}.</p>
+        {% elif p.to_verify %}<p class="mt-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-200">À vérifier : donnée différée ou état de compte périmé. Pas de fiche d'ordre tant que ce n'est pas confirmé.</p>{% endif %}
       </div>
       <div>
         <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Données utilisées (instantané de décision)</h3>

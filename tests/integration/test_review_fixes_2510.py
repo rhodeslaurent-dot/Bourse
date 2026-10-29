@@ -93,13 +93,14 @@ def test_a_correlated_open_line_caps_the_cluster_risk(db_engine, config, monkeyp
     import copy
 
     from app.db.models import PositionRow
+    from tests.integration.test_engine import seed_pullback_letter
 
-    config = copy.deepcopy(config)  # at k = 2 the synthetic limit falls under its stop: no limit (29/10/2026)
-    config.params.admission["min_reward_risk"] = 0.3
+    config = copy.deepcopy(config)
 
     monkeypatch.setattr(circuit_mod, "circuit_state", lambda *a, **k: CircuitView(r_unit_eur=300))
     with db_session() as s:
-        _seed(s, breakout_bars())
+        # 29/10/2026: a pullback's waiting limit (a letter's support); the former d2 limit under its trigger is gone
+        seed_pullback_letter(s)
         twin = "FR0000000007"  # the same price path as the candidate: ρ = 1
         for r in s.query(PriceEod).filter(PriceEod.isin == ISIN).all():
             s.add(PriceEod(isin=twin, day=r.day, open=r.open, high=r.high, low=r.low, close=r.close, volume=r.volume,

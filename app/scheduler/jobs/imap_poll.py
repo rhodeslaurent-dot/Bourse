@@ -98,36 +98,26 @@ def run(ctx: JobContext) -> int:
 
 
 def engine_at_reception(s, ctx: JobContext, dedup_hashes: list[str]) -> None:  # type: ignore[no-untyped-def]
-    """docs/22 §22.4 D: the testable setups of the letters just received are recalculated by the
-    engine right away (P_max, full cost, caps, ranking) with the quote at analysis time (R19)."""
+    """docs/22 §22.4 D, docs/20 §20.10: every value the letters just received recommend (« achat » or « à
+    surveiller », ISIN resolved) is analysed by the engine right away with the quote at analysis time (R19) — one
+    proposal of the day with its verdict, « non analysable » with the reason otherwise; the funnel of each letter is
+    stored and summed up on the job's line."""
     from sqlalchemy import select
 
-    from app.db.models import NewsletterItem, NewsletterValue
-    from app.services.engine import enabled, scan
+    from app.db.models import NewsletterItem
+    from app.services.letter_analysis import analyse_items, funnel_text, recommended_isins
 
-    if not enabled(ctx.config):
-        return
     items = list(s.scalars(select(NewsletterItem).where(NewsletterItem.dedup_hash.in_(dedup_hashes))))
-    isins = sorted(
-        {
-            v.isin
-            for v in s.scalars(select(NewsletterValue).where(NewsletterValue.item_id.in_([i.id for i in items])))
-            if v.isin and (v.levels or {}).get("stop") is not None and (v.levels or {}).get("objectif") is not None
-        }
-    )
-    if not isins:
+    if not items:
         return
+    isins = recommended_isins(s, items)
     try:
-        from datetime import datetime
-
-        from app.domain.timeutil import PARIS
-
-        rep = scan(
-            s, ctx.config, datetime.now(PARIS).date(), isins=isins, quotes=plausible_quotes(s, isins, ctx.config)
-        )
-        ctx.note = " · ".join(x for x in (ctx.note, f"moteur à réception : {rep.note()}") if x)
-    except Exception as exc:  # noqa: BLE001 — the morning scan recalculates what is left
-        log.warning("moteur à réception en échec (%s)", exc.__class__.__name__)
+        quotes = plausible_quotes(s, isins, ctx.config) if isins else {}
+    except Exception:  # noqa: BLE001 — no quote is better than a guessed one: the stored close is used, said so
+        quotes = {}
+    rep, funnels = analyse_items(s, ctx.config, items, quotes)
+    parts = [f"moteur à réception : {rep.note()}" if rep is not None else "", funnel_text(funnels) or ""]
+    ctx.note = " · ".join(x for x in (ctx.note, *parts) if x)
 
 
 def read_press_review(s, ctx: JobContext, mail, rule) -> None:  # type: ignore[no-untyped-def]

@@ -47,6 +47,9 @@ from app.web.labels import EXITS_HELP, EXITS_NOTE, FEATURE_LABELS, help_of, labe
 templates.env.globals.update(
     label=label, help_of=help_of, feature_labels=FEATURE_LABELS, exits_note=EXITS_NOTE, exits_help=EXITS_HELP
 )
+from app.services.letters_verdict import LEVEL_LABELS, MODES  # noqa: E402
+
+templates.env.globals.update(level_labels=LEVEL_LABELS, letter_modes=MODES)  # docs/20 §20.10 (letter cards)
 
 
 def _regimes_by_market(s, cfg, day):  # type: ignore[no-untyped-def]
