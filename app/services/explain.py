@@ -29,9 +29,11 @@ def _fmt(x: Any, digits: int = 2, unit: str = "") -> str:
 
 
 def explain_proposal(
-    proposal: Any, signal: Any | None, snapshot: Any | None, capital: float | None = None
+    proposal: Any, signal: Any | None, snapshot: Any | None, capital: float | None = None, currency: str | None = None
 ) -> Explanation:
-    """``proposal``/``signal``/``snapshot`` are ORM rows or any objects with the same attributes."""
+    """``proposal``/``signal``/``snapshot`` are ORM rows or any objects with the same attributes. Price levels are
+    in the listing's ``currency`` (« € » when it is the euro or unknown); the risk is always in euros."""
+    unit = "€" if currency in (None, "", "EUR") else currency
     ev = (getattr(signal, "evidence", None) or {}) if signal else {}
     gates = getattr(proposal, "gates", None) or {}
     blocked = [str(b) for b in (gates.get("blocked") or [])]
@@ -62,16 +64,16 @@ def explain_proposal(
             {"buy": "avis achat", "sell": "avis vente", "watch": "à surveiller"}.get(ev["direction"], ev["direction"])
         )
     if entry_px:
-        parts.append(f"{'limite' if entry.get('limite') else 'entrée'} {_fmt(entry_px)} €")
+        parts.append(f"{'limite' if entry.get('limite') else 'entrée'} {_fmt(entry_px)} {unit}")
     if stop and entry_px:
         try:
-            parts.append(f"stop {_fmt(stop)} € ({(1 - float(stop) / float(entry_px)):.1%} sous l'entrée)")
+            parts.append(f"stop {_fmt(stop)} {unit} ({(1 - float(stop) / float(entry_px)):.1%} sous l'entrée)")
         except ZeroDivisionError:
-            parts.append(f"stop {_fmt(stop)} €")
+            parts.append(f"stop {_fmt(stop)} {unit}")
     elif stop:
-        parts.append(f"stop {_fmt(stop)} €")
+        parts.append(f"stop {_fmt(stop)} {unit}")
     if targets:
-        parts.append("objectif " + " / ".join(_fmt(t) for t in targets[:2]) + " €")
+        parts.append("objectif " + " / ".join(_fmt(t) for t in targets[:2]) + f" {unit}")
     if shares:
         parts.append(f"{int(shares)} titres")
     if risk_eur is not None:
@@ -181,6 +183,11 @@ _PLAIN: list[tuple[str, str]] = [
         "Le cours est déjà au-dessus du prix maximal d'entrée : acheter plus haut "
         "rendrait le gain attendu trop faible face au risque. Un ordre limite est préparé au prix maximal (carnet "
         "d'ordres) ; il ne sera exécuté que si le cours redescend.",
+    ),
+    (
+        "objectif trop proche",
+        "Le premier objectif est trop près pour le risque pris : même acheté juste au-dessus du stop, le gain "
+        "ne vaudrait pas deux fois la perte possible. Aucun ordre limite n'est préparé.",
     ),
     (
         "pas d'objectif exploitable",

@@ -102,9 +102,9 @@
       <div>
         <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Fiche de proposition</h3>
         <dl class="mt-1 grid grid-cols-2 gap-y-1">
-          <dt class="text-slate-500">Zone d'entrée</dt><dd class="tabular">{% if p.entry_zone %}{% for k, v in p.entry_zone.items() if v is number %}{{ {'declencheur': 'déclencheur', 'limite': 'limite'}.get(k, k) }} {{ '%.4g'|format(v) }} €{% if not loop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</dd>
-          <dt class="text-slate-500">Stop initial</dt><dd class="tabular">{{ '%.4g'|format(p.stop) if p.stop is not none else '—' }}{% if p.stop is not none %} €{% endif %}</dd>
-          <dt class="text-slate-500">Objectifs</dt><dd class="tabular">{% if p.targets %}{% for t in p.targets %}{{ '%.4g'|format(t) }}{% if not loop.last %} / {% endif %}{% endfor %} € <span class="text-xs text-amber-700 dark:text-amber-300 underline decoration-dotted" title="{{ exits_help }}">({{ exits_note }})</span>{% else %}—{% endif %}</dd>
+          <dt class="text-slate-500">Zone d'entrée</dt><dd class="tabular">{% if p.entry_zone %}{% for k, v in p.entry_zone.items() if v is number %}{{ {'declencheur': 'déclencheur', 'limite': 'limite'}.get(k, k) }} {{ '%.4g'|format(v) }} {{ it.devise or '€' }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</dd>
+          <dt class="text-slate-500">Stop initial</dt><dd class="tabular">{{ '%.4g'|format(p.stop) if p.stop is not none else '—' }}{% if p.stop is not none %} {{ it.devise or '€' }}{% endif %}</dd>
+          <dt class="text-slate-500">Objectifs</dt><dd class="tabular">{% if p.targets %}{% for t in p.targets %}{{ '%.4g'|format(t) }}{% if not loop.last %} / {% endif %}{% endfor %} {{ it.devise or '€' }} <span class="text-xs text-amber-700 dark:text-amber-300 underline decoration-dotted" title="{{ exits_help }}">({{ exits_note }})</span>{% else %}—{% endif %}</dd>
           <dt class="text-slate-500">Quantité · taille</dt><dd class="tabular">{% if p.shares %}{{ p.shares }} titres{% else %}—{% endif %}{% if p.size_eur %} · {{ p.size_eur|eur }}{% endif %}</dd>
           <dt class="text-slate-500" title="{{ help_of('R') }}">Risque (R)</dt><dd class="tabular">{{ p.risk_eur|eur if p.risk_eur is not none else '—' }}</dd>
           <dt class="text-slate-500">Horizon</dt><dd>{{ p.horizon or '—' }}</dd>

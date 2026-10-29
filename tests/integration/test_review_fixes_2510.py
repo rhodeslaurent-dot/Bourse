@@ -90,7 +90,12 @@ def test_a_missing_last_volume_is_not_a_zero():
 
 
 def test_a_correlated_open_line_caps_the_cluster_risk(db_engine, config, monkeypatch):
+    import copy
+
     from app.db.models import PositionRow
+
+    config = copy.deepcopy(config)  # at k = 2 the synthetic limit falls under its stop: no limit (29/10/2026)
+    config.params.admission["min_reward_risk"] = 0.3
 
     monkeypatch.setattr(circuit_mod, "circuit_state", lambda *a, **k: CircuitView(r_unit_eur=300))
     with db_session() as s:

@@ -1463,6 +1463,18 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_letters_trace(args: argparse.Namespace) -> int:
+    """What the tool made of the letters of one day: values read, levels, recalculation, proposal or why none."""
+    from app.db.session import db_session
+    from app.services.letter_trace import trace
+
+    day = date.fromisoformat(args.date) if args.date else date.today()
+    with db_session() as s:
+        for line in trace(s, day):
+            print(line)
+    return 0
+
+
 def cmd_earnings_history(args: argparse.Namespace) -> int:
     """docs/34 §34.4 — past earnings announcements (EODHD calendar if the plan includes it, else Yahoo) and their
     coverage per year and venue group. Dates and EPS only: no price is read."""
@@ -2153,6 +2165,11 @@ def main(argv: list[str] | None = None) -> int:
     nh.add_argument("--dry-run", action="store_true", help="repérage : compte expéditeurs et dates, n'enregistre rien")
     nh.add_argument("--no-llm", action="store_true", help="extraction par règles seules (gratuite)")
     nh.set_defaults(fn=cmd_newsletters_history)
+    lt = sub.add_parser(
+        "letters-trace", help="ce que l'outil a fait des lettres d'un jour (valeurs, niveaux, propositions)"
+    )
+    lt.add_argument("--date", help="AAAA-MM-JJ (défaut : aujourd'hui)")
+    lt.set_defaults(fn=cmd_letters_trace)
     am = sub.add_parser("archive-mentions", help="aperçu / archivage des propositions issues de simples mentions")
     am.add_argument("--apply", action="store_true", help="archiver réellement (sinon aperçu)")
     am.set_defaults(fn=cmd_archive_mentions)

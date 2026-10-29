@@ -367,7 +367,10 @@ def evaluate(
     if others or level != 1.0:
         ev.details["reductions_taille"] = {**others, "niveau du jour": round(level, 3), "total": round(common, 4)}
     budget = capital * ref_pct * common
-    est_shares = int(budget / max(setup.p_max_technical - stop_exec_for(setup.stop, risk.slippage_pct), 1e-9))
+    # the risk per share is in the listing's currency: converted to EUR like the budget (29/10/2026: without fx, a
+    # value in pence or crowns was sized at 2 shares, the minimum commission weighed 40 % and P_max fell to the stop)
+    risk_per_share_eur = (setup.p_max_technical - stop_exec_for(setup.stop, risk.slippage_pct)) * fx
+    est_shares = int(budget / max(risk_per_share_eur, 1e-9))
     est_notional = max(est_shares, 1) * setup.p_max_technical * fx
     pea_open = (p.pea or {}).get("opening_date")
     pea_age = (now.date() - date.fromisoformat(str(pea_open))).days / 365.25 if pea_open else None
@@ -658,6 +661,13 @@ def evaluate(
     if any_adm.status == Status.DEGRADED:
         ev.blocked += any_adm.reasons
         ev.action = "NO_TRADE"
+        return ev
+    if any_adm.status == Status.REFUSED and best is None and any_adm.p_max is not None and any_adm.p_max <= setup.stop:
+        # a limit at or under its own stop is no order: the target is too close for the risk (R4)
+        ev.blocked.append(
+            f"WATCH : objectif trop proche — le prix maximal ({any_adm.p_max:.4g}) tombe au niveau du stop "
+            f"({setup.stop:.4g}) ou dessous : aucune limite possible (R4)"
+        )
         return ev
     if any_adm.status == Status.REFUSED and best is None:
         # the limit order waits at P_max: account and quantity sized at that limit (rule 7), cash before SRD

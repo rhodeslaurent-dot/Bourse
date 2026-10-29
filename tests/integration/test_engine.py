@@ -261,6 +261,10 @@ def test_a_row_the_database_rejects_is_rolled_back_alone(config, monkeypatch, tm
 
 
 def test_a_limit_waiting_for_a_pullback_has_an_account_and_a_quantity(db_engine, config):
+    import copy
+
+    config = copy.deepcopy(config)  # at k = 2 the synthetic limit falls under its stop: no limit (29/10/2026)
+    config.params.admission["min_reward_risk"] = 0.3
     with db_session() as s:
         _seed(s, breakout_bars())
         engine.scan(s, config, DAY, now=NOW)

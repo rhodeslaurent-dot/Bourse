@@ -46,8 +46,14 @@ def pitch(detector: str | None, evidence: dict[str, Any] | None, source: str | N
             f"Tendance de fond haussière (MM50 au-dessus de la MM200{slope}) et retour sur la MM50, qui tient{_rs(ev)}."
         )
     if detector == "external":
-        who = f" de {source}" if source and source not in ("moteur", "moteur_lettre") else " d'une lettre"
+        if source == "moteur_lettre":  # the engine recalculated the letter's levels (R15)
+            return (
+                "Recommandation d'achat d'une lettre avec objectif et niveau d'invalidation publiés, "
+                "recalculée au coût complet."
+            )
+        who = f" de {source}" if source and source != "moteur" else " d'une lettre"
         return (
-            f"Recommandation d'achat{who} avec objectif et niveau d'invalidation publiés, recalculée au coût complet."
+            f"Recommandation{who} sans niveaux recalculables par l'outil (il faut un stop, un objectif et un prix "
+            "d'achat ou un support) : surveillance avec les niveaux de la lettre, aucun ordre préparé."
         )
     return None

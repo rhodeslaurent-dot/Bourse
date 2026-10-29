@@ -106,7 +106,7 @@ def opportunities_page(
                     "sig": sig,
                     "comite": committee.get(p.id),
                     "name": name_of(p.isin),
-                    "explain": explain_proposal(p, sig, snaps.get(p.id), capital),
+                    "explain": explain_proposal(p, sig, snaps.get(p.id), capital, inst.currency if inst else None),
                     "decisions": decisions.get(p.id, []),
                     "note": notes.get(str(p.id)),
                     "letters": letters.get(p.id, {}),
