@@ -18,6 +18,12 @@ spec, and the highest high starts from the entry (every price before the fill wa
 the low of that session is known to come after it). Dividends (ex-date after the fill): stop and target lowered
 by the amount, cash credited per share.
 
+Buy stop-limit orders (registration n° 4, ``Orders.stop_level`` finite): an open between the trigger level and the
+limit (maximum price) fills at the open; an open under the level fills at the level when the session's high reaches
+it (the high then comes after the fill: it counts, and a target may be hit on the fill session, the stop first); an
+open above the limit cancels the order (triggered out of its range, never chased). ``ExitSpec.bracket_at_fill``:
+a fill outside ``stop_exec < entry < target`` is no trade (status ``INVALID``, decided on the fill price only).
+
 A trade whose instrument history ends during the hold (``Bars.ended``: no bar in the last sessions of the
 panel — delisting, takeover, suspension) is closed at the last available close with reason ``DELISTED`` and
 counted (survivorship: dropping it would keep only the survivors); the pipeline reports a stressed variant
@@ -107,6 +113,7 @@ class Orders:
     tgt_off: F64
     cond_mfe: F64  # conditional time stop: exit when (highest high / entry − 1) < this at the session (NaN: no)
     validity: int
+    stop_level: F64 | None = None  # buy stop-limit trigger level (NaN or None: a plain limit order)
 
     @property
     def size(self) -> int:
@@ -116,6 +123,7 @@ class Orders:
         return Orders(
             self.inst[idx], self.sig_pos[idx], self.limit[idx], self.cancel_below[idx], self.stop_mult[idx],
             self.stop_off[idx], self.tgt_mult[idx], self.tgt_off[idx], self.cond_mfe[idx], self.validity,
+            None if self.stop_level is None else self.stop_level[idx],
         )  # fmt: skip
 
 
@@ -131,6 +139,7 @@ class ExitSpec:
     breakeven_r: float = 0.0  # stop moved to the entry once the high reached entry + k · initial risk
     target_on_fill_bar: Literal["always", "if_open_fill"] = "if_open_fill"
     require_bracket: bool = False  # production: no order unless stop_exec < limit < target
+    bracket_at_fill: bool = False  # registration n° 4: a fill outside stop_exec < entry < target is no trade
 
 
 @dataclass(frozen=True)
@@ -149,6 +158,7 @@ class SimResult:
     reason: I8
     ambiguous: Bool
     at_open: Bool
+    rising: Bool | None = None  # filled by a buy stop-limit during the session (its high follows the fill)
 
     @property
     def closed(self) -> Bool:
@@ -194,6 +204,7 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
     exit_pos = np.full(n, -1, dtype=np.int64)
     entry = np.full(n, np.nan)
     at_open = np.zeros(n, dtype=bool)
+    rising = np.zeros(n, dtype=bool)
     ca_hit = np.zeros(n, dtype=bool)
     pending = np.ones(n, dtype=bool)
     if spec.require_bracket:
@@ -216,17 +227,31 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
         ca_hit[idx] |= ca_all[g]
         with np.errstate(invalid="ignore"):
             cancel = o <= od.cancel_below[idx]
+            lim = od.limit[idx]
+            lv = od.stop_level[idx] if od.stop_level is not None else np.full(idx.size, np.nan)
+            stp = np.isfinite(lv)
+            cancel |= stp & (o > lim)  # stop-limit: an open above its maximum price cancels it
+            fo = ~cancel & np.where(stp, o >= lv, o <= lim)
+            fl = ~cancel & ~fo & np.where(stp, h_all[g] >= lv, lo < lim)
         status[idx[cancel]] = CANCELLED
         pending[idx[cancel]] = False
-        lim = od.limit[idx]
-        fo = ~cancel & (o <= lim)
-        fl = ~cancel & ~fo & (lo < lim)
         got = fo | fl
         sel = idx[got]
         fill_pos[sel] = p[got]
-        entry[sel] = np.where(fo, o, lim)[got]
+        entry[sel] = np.where(fo, o, np.where(stp, lv, lim))[got]
         at_open[sel] = fo[got]
+        rising[sel] = (fl & stp)[got]
         pending[sel] = False
+    if spec.bracket_at_fill:  # a fill outside its stop / target frame is no trade (fill price only)
+        fi = np.nonzero(fill_pos >= 0)[0]
+        e0 = entry[fi]
+        s0 = od.stop_mult[fi] * e0 - od.stop_off[fi]
+        t0 = od.tgt_mult[fi] * e0 + od.tgt_off[fi]
+        with np.errstate(invalid="ignore"):
+            bad = ~(s0 * (1 - slip) < e0) | (np.isfinite(t0) & ~(e0 < t0))
+        status[fi[bad]] = INVALID
+        fill_pos[fi[bad]] = -1
+        entry[fi[bad]] = np.nan
 
     exit_px = np.full(n, np.nan)
     reason = np.full(n, -1, dtype=np.int8)
@@ -253,7 +278,7 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
     f_cnt = np.zeros(fidx.size, dtype=np.int64)
     f_pend = np.zeros(fidx.size, dtype=bool)
     f_ca = ca_hit[fidx].copy()
-    f_inst, f_fill, f_open = od.inst[fidx], fill_pos[fidx], at_open[fidx]
+    f_inst, f_fill, f_open, f_rise = od.inst[fidx], fill_pos[fidx], at_open[fidx], rising[fidx]
     f_cond = od.cond_mfe[fidx]
     active = np.ones(fidx.size, dtype=bool)
     out_pos = np.full(fidx.size, -1, dtype=np.int64)
@@ -290,7 +315,8 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
         st, tg = cur_stop[a], cur_tgt[a]
         # fill session filled intraday at the limit: the high may precede the fill (MFE, X6, trail, breakeven
         # start from the entry); every price below the limit — the low — follows it
-        pre = (~f_open[a]) if s == 0 else np.zeros(a.size, dtype=bool)
+        intraday = (~f_open[a]) if s == 0 else np.zeros(a.size, dtype=bool)
+        pre = intraday & ~f_rise[a]  # a stop-limit filled on the way up: its high follows the fill
         hh = np.where(pre, f_hi[a], np.maximum(f_hi[a], h))
         ll = np.minimum(f_lo[a], lw)
         f_hi[a], f_lo[a] = hh, ll
@@ -308,7 +334,7 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
         rest = ~done
         sh = rest & (lw <= st)
         to = rest & (s > 0) & (o >= tg)
-        fill_ok = np.ones(a.size, dtype=bool) if (s > 0 or always) else f_open[a]
+        fill_ok = np.ones(a.size, dtype=bool) if (s > 0 or always) else (f_open[a] | f_rise[a])
         th = rest & fill_ok & (h >= tg)
         amb = sh & (to | th)
         if rule == "stop_first":
@@ -317,7 +343,7 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
             stop_wins = sh & ~(to | th)
         else:
             stop_wins = sh & ~to & ~(th & ((o - st) >= (tg - o)))
-        stop_wins |= sh & pre  # intraday fill: the pre-fill open says nothing of the order after the fill
+        stop_wins |= sh & intraday  # intraday fill: the pre-fill open says nothing of the order after the fill
         raised = st > stop_init[fidx[a]]
         px[stop_wins] = st[stop_wins] * (1 - slip)
         rsn[stop_wins] = np.where(raised[stop_wins], TRAIL, STOP)
@@ -358,5 +384,5 @@ def _simulate(bars: Bars, od: Orders, spec: ExitSpec, slip: float, rule: PathRul
     hi[fidx], lo_[fidx], cash[fidx] = f_hi, f_lo, f_cash
     return SimResult(
         status, fill_pos, exit_pos, entry, exit_px, stop_init, stop_exec_init, target_init, hi, lo_, cash, reason,
-        ambiguous, at_open,
+        ambiguous, at_open, rising,
     )  # fmt: skip

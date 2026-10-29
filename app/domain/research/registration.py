@@ -362,6 +362,10 @@ def run_registration(
     f0: bool = True,
     max_f0_candidates: int = 20_000,
 ) -> dict[str, Any]:
+    if prereg.is_entry_plan:  # registration n° 4: entry policies paired per signal (docs/34 §34.11)
+        from app.domain.research.entry_policies import run_entry_registration
+
+        return run_entry_registration(panels, prereg, st, prod or {}, stages, holdout_cells, progress)
     seg = prereg.segments
     th, inf = prereg.thresholds, prereg.inference
     st = dataclasses.replace(st, seal_start=seg.holdout_start)  # data-quality exclusions never cross the seal

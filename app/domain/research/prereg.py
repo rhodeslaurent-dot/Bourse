@@ -23,7 +23,16 @@ CellTier = Literal["confirmatory", "exploratory", "f0"]
 Mode = Literal["event", "monthly", "monthly_overlay"]
 MOMENTUM_TRIGGERS = frozenset({"t01", "t03", "c1"})
 EARNINGS_TRIGGERS = frozenset({"t14", "t15", "t16"})  # registration n° 3: need the announcement history
-KNOWN_TRIGGERS = frozenset({"t00", "t01", "t03", "c1", "t05", "t07", "t08", "t09", "d2x", "f0"}) | EARNINGS_TRIGGERS
+# registration n° 4 (entry policies, docs/34 §34.11): production setups (detector + zones + R1 stop + exploitable
+# targets), letters with an explicit trigger, and t00 / t14 replayed under the entry policies
+SETUP_TRIGGERS = frozenset({"d7x", "d2x", "d8x"})
+ENTRY_TRIGGERS = SETUP_TRIGGERS | {"t00", "t14", "letters_trigger"}
+ENTRY_POLICIES = ("P0", "P1", "P2", "P3", "P4")
+ENTRY_EXITS = ("X8", "XP", "X3")
+KNOWN_TRIGGERS = (
+    frozenset({"t00", "t01", "t03", "c1", "t05", "t07", "t08", "t09", "d2x", "f0", "d7x", "d8x", "letters_trigger"})
+    | EARNINGS_TRIGGERS
+)
 SEALED_FAR_FUTURE = date(2999, 12, 31)
 
 
@@ -49,6 +58,15 @@ class Cell:
     accounts: tuple[str, ...] = ("cto",)
     overlay: str | None = None
     max_hold: int | None = None
+    # registration n° 4: the entry policy tested against a baseline policy on the same signals (paired per signal)
+    entry: str | None = None
+    baseline_entry: str | None = None
+    confirm_cap_atr: float | None = None  # P2: maximum price = level × (1 + x · ATR14 / close)
+    diagnostic: bool = False  # reported, never a candidate, outside every multiple-testing family
+
+    @property
+    def is_entry_cell(self) -> bool:
+        return self.entry is not None or self.baseline_entry is not None
 
     @property
     def entry_cap_atr(self) -> float:
@@ -101,6 +119,15 @@ class Prereg:
     # registration n° 3: a sealed period BEFORE the discovery (old replication), opened once by ``unseal`` for
     # the frozen candidates; no ``run`` may load a bar of it (``check_run_start``)
     replication: tuple[date, date] | None = None
+
+    @property
+    def is_entry_plan(self) -> bool:
+        """Registration n° 4: every cell compares entry policies on the same signals (paired per signal)."""
+        return any(c.is_entry_cell for c in self.cells)
+
+    @property
+    def needs_letters(self) -> bool:
+        return any(c.trigger == "letters_trigger" for c in self.cells)
 
     @property
     def needs_earnings(self) -> bool:
@@ -159,7 +186,8 @@ def _num(v: Any) -> str:
 
 def _cell(raw: Mapping[str, Any], tier: CellTier, family: str, cid: str) -> Cell:
     known = {"id", "family", "trigger", "mode", "gate", "h", "exit", "cap_atr", "cap", "validity", "unit",
-             "accounts", "overlay", "max_hold", "params", "grid", "fixed"}  # fmt: skip
+             "accounts", "overlay", "max_hold", "params", "grid", "fixed", "entry", "baseline_entry",
+             "confirm_cap_atr", "diagnostic"}  # fmt: skip
     params = dict(raw.get("params") or {})
     params.update({k: v for k, v in raw.items() if k not in known})
     return Cell(
@@ -179,6 +207,10 @@ def _cell(raw: Mapping[str, Any], tier: CellTier, family: str, cid: str) -> Cell
         accounts=tuple(raw.get("accounts") or ("cto",)),
         overlay=raw.get("overlay"),
         max_hold=int(raw["max_hold"]) if raw.get("max_hold") is not None else None,
+        entry=str(raw["entry"]) if raw.get("entry") is not None else None,
+        baseline_entry=str(raw["baseline_entry"]) if raw.get("baseline_entry") is not None else None,
+        confirm_cap_atr=float(raw["confirm_cap_atr"]) if raw.get("confirm_cap_atr") is not None else None,
+        diagnostic=bool(raw.get("diagnostic", False)),
     )
 
 
@@ -260,12 +292,41 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
         else None,
         replication=replication,
     )
+    if p.is_entry_plan:
+        check_entry_plan(p)
     if p.total_cells > p.max_total_cells:
         raise PreregError(f"{p.total_cells} cellules enregistrées > plafond {p.max_total_cells}")
     expected = raw.get("expected_total_cells")
     if expected is not None and int(expected) != p.total_cells:
         raise PreregError(f"{p.total_cells} cellules développées ≠ {expected} annoncées dans le plan")
     return p
+
+
+PAIRED_KEYS = ("unit", "min_delta_r_per_signal", "min_t_newey_west_weekly", "min_ci_low", "min_positive_folds",
+               "min_fill_rate", "replication_min_ci_low", "book_min_orders_per_month")  # fmt: skip
+NEEDS_SETUP = ("P0", "P3", "P4")  # policies that read the setup's structural stop and targets
+
+
+def check_entry_plan(p: Prereg) -> None:
+    """An entry-policy plan (registration n° 4): every cell is an entry cell with known policies, triggers and
+    exits; a non-diagnostic cell has a baseline different from its policy; the paired thresholds are stated."""
+    missing = [k for k in PAIRED_KEYS if k not in (p.thresholds.get("paired") or {})]
+    if missing:
+        raise PreregError(f"plan de politiques d'entrée : seuils appariés absents {missing}")
+    for c in p.cells:
+        if c.tier == "f0" or not c.is_entry_cell:
+            raise PreregError(f"cellule {c.id} : un plan de politiques d'entrée ne contient que des cellules d'entrée")
+        pols = [x for x in (c.entry, c.baseline_entry) if x is not None]
+        if any(x not in ENTRY_POLICIES for x in pols):
+            raise PreregError(f"cellule {c.id} : politique inconnue {pols}")
+        if c.trigger not in ENTRY_TRIGGERS or c.exit not in ENTRY_EXITS:
+            raise PreregError(f"cellule {c.id} : déclencheur ou sortie hors du banc des politiques d'entrée")
+        if not c.diagnostic and (c.entry is None or c.baseline_entry is None or c.entry == c.baseline_entry):
+            raise PreregError(f"cellule {c.id} : une politique et une référence différentes sont exigées")
+        if c.trigger == "t14" and (any(x in NEEDS_SETUP for x in pols) or c.exit == "XP"):
+            raise PreregError(f"cellule {c.id} : t14 n'a ni stop structurel ni objectif (P1 / P2 et X3 seulement)")
+        if c.unit != "r_stop":
+            raise PreregError(f"cellule {c.id} : l'unité d'une cellule d'entrée est r_stop")
 
 
 def file_sha256(content: bytes) -> str:

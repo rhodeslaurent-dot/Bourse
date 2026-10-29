@@ -1,0 +1,230 @@
+# Plan de recherche pré-enregistré — enregistrement n° 4 (docs/34 §34.11) : POLITIQUES D'ENTRÉE. Ce fichier EST le
+# plan : il est GELÉ par l'assistant (délégation de l'utilisateur du 29/10/2026 au soir) AVANT (1) toute lecture du
+# rejeu exploratoire « entry policy replay » (2017-2026) que le PC exécutera et (2) tout chargement de l'historique
+# européen antérieur à 2016 (backfill --from 2005-01-01). Son empreinte sha256 est inscrite au registre à chaque
+# exécution (docs/31 §31.1) ; le modifier crée un NOUVEL enregistrement.
+# Brouillon de l'agent « entrées » du 29/10 relu ; corrections déclarées en docs/34 §34.11 (cellules P5 retirées,
+# P1 = E_open, X1 scindé par sortie, X4 défini par son propre déclencheur d8x, unité r_stop précisée, X8 compté,
+# placebo et diagnostics hors des familles de tests multiples, A13 de (b) rapporté au rendement, limite exécutée
+# seulement si le cours passe SOUS elle — convention du moteur calibré).
+#
+# HYPOTHÈSE (tirée du mécanisme, pas des données) : une limite posée SOUS le cours (P_max de R4 mesuré sur le premier
+# objectif) n'est exécutée que par un repli, donc surtout sur les signaux qui échouent (sélection adverse des ordres
+# limites : Handa & Schwartz 1996 ; Linnainmaa 2010). Une entrée conditionnée au FRANCHISSEMENT (ordre à plage de
+# déclenchement J+1, prix maximal borné) filtre dans l'autre sens.
+# Une simulation synthétique du 29/10 (sous l'hypothèse nulle) montre que l'écart P2 − P0 existe AUSSI sur des dates
+# tirées au hasard : il est en partie MÉCANIQUE. Le placebo X1 (même chaîne sur des dates au hasard) est donc LU EN
+# PREMIER ; le verdict (a) porte sur l'écart total (ce que le carnet encaisse), l'excès sur le placebo (part propre au
+# signal) est imprimé et entre dans le verdict (b).
+#
+# DÉCISIONS QUE CE PLAN PEUT FONDER (deux, séparées ; aucune sans ADR) :
+#  (a) ADR « mécanique d'entrée » : pour les configurations « franchissement » de d7, ordre à plage de déclenchement
+#      J+1 (seuil = confirm_level, limite = seuil × (1 + confirm_cap_atr · ATR14 / clôture), validité 3 séances) à la
+#      place de la limite en attente d'un repli — si C1 ou C2 est CANDIDAT (critères appariés ci-dessous, Holm sur 2)
+#      ET confirmé sur la réplication 2007-2015 (Δ moyen > 0, borne basse de l'IC > replication_min_ci_low). Cette
+#      limite n'applique PAS R4 au prix maximal (c'est l'objet du test) : l'ADR devra l'écrire ;
+#  (b) ADR « détecteur actionnable » (d7 à 50 % de risk.max_risk_per_trade_pct, suivi en ombre d'abord) — seulement
+#      si (a) ET, sur la cellule C2 (sorties de PRODUCTION ; C1 sort par X8, qui n'est pas une sortie de production),
+#      le R net absolu de la politique P2 atteint A2 hors échantillon (plis du walk-forward) ET sur la réplication,
+#      plus A4 (excès sur le placebo X1 de la même sortie ≥ a4.min_excess, IC > 0 ; pas de permutation), A10
+#      (concentration) et A13 (rejeu à 6 lignes : rendement annuel > 0 et rendement annuel / recul max ≥ celui du
+#      placebo de la même sortie — le placebo prend plus de trades, les reculs bruts ne sont pas comparables). Sinon
+#      d7 reste en surveillance (ADR-013 / ADR-014).
+#
+# LECTURE (ordre déclaré) : X1 (placebo) → C1 / C2 → X2 à X5 → diagnostics X6 (lettres), X8 (sélection adverse) ;
+# X7 (t14) seulement APRÈS le verdict du n° 3 (son bras P1 rejoue les cellules C1 / C2 du n° 3, en unité r_stop).
+#
+# PÉRIODES. Découverte 2017-01-02 → 2026-07-31 : le rejeu exploratoire du PC la lira ; le plan étant gelé AVANT,
+# aucune cellule n'en dépend, mais la découverte n'est pas « aveugle » — la réplication ancienne est la seule période
+# jamais lue. Période scellée 2007-01-02 → 2015-09-30, PARTAGÉE avec le n° 3 : chacun ne la descelle qu'une fois,
+# pour ses propres candidats (n° 3 : cellules t14 ; ici : C1 / C2, déclencheur d7x jamais rejoué avant 2016). Aucune
+# cellule t14 n'est descellée ici (X7 est un diagnostic). Un descellement du n° 3 avant celui-ci ne l'invalide pas
+# (déclencheurs disjoints, plan gelé avant) ; « research run » refuse toute donnée de la période scellée.
+id: "2026-10-30_reg4"
+title: "Recherche de déclencheurs — enregistrement n° 4 : politiques d'entrée (franchissement confirmé contre limite en attente)"
+registered_on: "2026-10-30"
+seed: 20261030
+
+# pas de clé venue_groups : groupes européens P0 / P1 / P2 de params.yaml (Londres, Zurich et New York exclus :
+# données de test du n° 2)
+
+segments:
+  warmup_sessions: 252
+  discovery: ["2017-01-02", "2026-07-31"]
+  embargo: ["2099-01-01", "2099-01-02"]      # sans objet : la période scellée est ANCIENNE (replication)
+  holdout_start: "2099-01-03"
+  end_margin_sessions: 65
+  purge_sessions: 65
+  wf_test:                                   # 5 plis (≥ 4 positifs sur 5)
+    - ["2018-01-01", "2019-08-31"]
+    - ["2019-09-01", "2021-04-30"]
+    - ["2021-05-01", "2022-12-31"]
+    - ["2023-01-01", "2024-08-31"]
+    - ["2024-09-01", "2026-07-31"]
+
+replication:                                 # période scellée ancienne, descellée UNE fois (research unseal)
+  start: "2007-01-02"
+  end: "2015-09-30"
+
+parameters_keys:                             # lus dans config/params.yaml (règle 8 : source unique)
+  min_price: "universe.min_price"
+  min_turnover_eur: "universe.min_adv_eur_pea"
+  min_turnover_cto_eur: "universe.min_adv_eur_cto"
+  small_cap_threshold_eur: "universe.small_cap_threshold_eur"
+  breadth_green: "regime.breadth_green"
+  index_isins: "regime.index_isins"
+  slippage_pct: "risk.slippage_pct"
+  max_risk_per_trade_pct: "risk.max_risk_per_trade_pct"
+  max_position_pct_of_capital: "risk.max_position_pct_of_capital"
+  fx_haircut: "risk.fx_haircut"
+  max_open_risk_pct: "risk.max_open_risk_pct"
+  capital_pilote_eur: "capital.capital_pilote_eur"
+  expiry_sessions: "entry.expiry_sessions"             # validité de P0 et P3 (3 séances)
+  min_reward_risk: "admission.min_reward_risk"         # k = 2 (R4) pour P0 / P3
+  d7: "detectors.d7_trend_quality"                     # géométrie de production (entrée, prix maximal, stop R1, objectifs, durée)
+  d2: "detectors.d2_breakout"
+  d8: "detectors.d8_buzz_precoce"
+  stop_buffer_atr_mult: "risk.stop.buffer_atr_mult"
+  wick_buffer_pct: "risk.stop.wick_buffer_pct"
+  zones: "zones"                                       # supports / résistances (stop R1, objectifs exploitables)
+  ttf_rate: "tax.ttf_rate"
+  ttf_cap_threshold_eur: "tax.ttf_cap_threshold_eur"
+  pfu_total_rate: "tax.pfu_total_rate"
+  ftt_by_country: "tax.ftt_by_country"
+  srd_daily_rate: "srd.crd_daily_rate"
+  brokers: "brokers.saxo, brokers.boursobank"
+
+assumptions:
+  fx_static_eur_per_unit:
+    value: {SEK: 0.088, DKK: 0.134, NOK: 0.086, PLN: 0.232, GBP: 1.16, GBX: 0.0116, CHF: 1.04, USD: 0.92}
+    assumption: true
+  ca_jump: {value: 0.2, assumption: true}
+  dividend_min_drop: {value: 0.002, assumption: true}
+  dividend_yield_sanity: {value: [0.0, 0.12], assumption: true}
+  bankruptcy_hazard_small: {value: 0.03, assumption: true}
+  bankruptcy_hazard_large: {value: 0.005, assumption: true}
+  takeover_jump: {value: 0.25, assumption: true}
+  capacity_pct_of_turnover: {value: 0.02, assumption: true}
+  cost_stress_multiplier: {value: 1.5, assumption: false}
+  slippage_stress_multiplier: {value: 2.0, assumption: false}
+  top_n_monthly: {value: 6, assumption: false}
+  earnings_known_margin_days: {value: 100, assumption: true}      # X7 (t14) : définitions du n° 3
+  earnings_reaction_max_gap_days: {value: 7, assumption: true}
+  # --- propres à ce plan (politiques d'entrée ; choisies avant toute donnée) ---
+  tick_rule: {value: "pas = 10 ** floor(log10(prix × 0,0005)) (0,01 € de 20 à 200 €)", assumption: true}   # table MiFID II inconnue dans l'historique
+  confirm_level: {value: "max(niveau d'entrée du détecteur, plus haut de la séance du signal) + 1 pas ; sans niveau (t14) : plus haut + 1 pas", assumption: true}
+  confirm_cap_atr: {value: 0.5, assumption: true}      # P2 : prix maximal = seuil × (1 + 0,5 × ATR14 / clôture) ; X5 fait varier 0,25 / 1,0
+  next_open_cap_atr: {value: 1.0, assumption: true}    # P1 = E_open(1) des n° 2 et 3 : limite clôture + 1 ATR, validité 1
+  pullback_atr: {value: 0.5, assumption: true}         # P4 : limite clôture − 0,5 ATR (la MM20 si elle est entre les deux)
+  letters_entry_max_pct_above_trigger: {value: 0.01, assumption: true}   # X6 : prix maximal technique d'une lettre = déclencheur × 1,01
+  letters_known_after_paris: {value: "17:30", assumption: true}          # X6 : lettre reçue après 17:30 (Paris) connue à la clôture suivante
+  gap_fill_rule: {value: "limite : exécutée à l'ouverture si elle est ≤ limite, sinon à la limite si le plus bas passe SOUS la limite (traversée, convention du moteur calibré) ; stop d'achat : à l'ouverture si seuil ≤ ouverture ≤ prix maximal, au seuil si l'ouverture est sous le seuil et le plus haut l'atteint, ANNULÉ si l'ouverture dépasse le prix maximal (jamais poursuivi) ; une ouverture ≤ stop structurel avant exécution annule l'ordre (t14, sans stop structurel : le stop X3 appliqué au prix maximal de l'ordre)", assumption: false}
+  fill_session_rule: {value: "stop d'abord ; une limite exécutée en séance ne revendique pas le plus haut de sa séance ; un stop d'achat exécuté en séance le revendique (le plus haut vient après) ; sous XP, une exécution hors de stop_glissé < prix < objectif 1 n'est pas un trade (compte 0)", assumption: false}
+  unfilled_value: {value: 0.0, assumption: false}      # mesure « par signal » : ordre absent, non exécuté ou annulé = 0 R ; issue inconnue = paire écartée
+
+thresholds:
+  gate_t_week: 2.0
+  a1: {event_min_n: 300, event_min_weeks: 100, fold_min_trades: 40, rank_min_months: 60, rank_min_trades_slot: 200}
+  a2: {min_mean_r: 0.10, min_eur_per_budget: 30.0, min_profit_factor: 1.15}
+  a3: {holm_alpha: 0.05, rw_alpha: 0.05, min_t: 3.0, min_dsr: 0.95, max_pbo: 0.30}
+  a4: {min_excess: 0.08, max_perm_p: 0.01}
+  a5: {min_positive_folds: 4}
+  a9: {min_hazard_multiple: 2.0}
+  a10: {max_top10_share: 0.40}
+  a12: {max_hold_sessions: 63}
+  a13: {max_dd_ratio_vs_benchmark: 1.0, slots: 6}
+  watchlist_bh_q: 0.10
+  power_min: 0.5
+  report_min_n: 20
+  candidates_max: 5
+  stage1: {max_triggers: 0, min_delta_r: 0.05, min_positive_folds: 4, max_pbo: 0.30, max_dd_worse: 0.10}
+  existing_detectors_ci_high_max: 0.0
+  min_earnings_coverage: 0.50                # X7 (t14) : seuil de couverture du n° 3
+  # --- verdict (a) : différence APPARIÉE par signal (même signal, même sortie, deux ordres) ---
+  # CANDIDAT (confirmatoire) = A1 sur les paires (n ≥ 300, ≥ 100 semaines, ≥ 40 par pli) ET tous les critères
+  # ci-dessous ET p Holm ≤ a3.holm_alpha ; exploratoire : les mêmes avec p Romano–Wolf ≤ a3.rw_alpha → SURVEILLANCE
+  # au mieux (jamais une conséquence de production)
+  paired:
+    unit: "r_stop"                           # résultat net ÷ risque initial au stop glissé de la SORTIE de la cellule (X8 : 2,5 ATR sous l'exécution ; XP : stop structurel R1 ; X3 : 3 σ20 √h), taille au budget de risque (règle 7)
+    min_delta_r_per_signal: 0.05             # Δ = R(politique) − R(référence), un ordre absent ou non exécuté comptant 0
+    min_t_newey_west_weekly: 3.0             # série hebdomadaire des Δ (retard = max(2, ⌈durée médiane / 5⌉))
+    min_ci_low: 0.0                          # IC 95 % par blocs (≥ 4 semaines et ≥ durée max) entièrement > 0
+    min_positive_folds: 4                    # sur 5
+    min_fill_rate: 0.50                      # part des signaux exécutés par la politique testée (sinon « inexploitable »)
+    replication_min_ci_low: -0.05            # réplication 2007-2015 : Δ moyen > 0 et borne basse de l'IC > −0,05
+    book_min_orders_per_month: 4.0           # rejeu à 6 lignes : ordres exécutés par mois ≥ 4, sinon « volume insuffisant » (information)
+
+inference:
+  bootstrap_draws: 2000
+  block_weeks: 4
+  permutation_draws: 500
+  permutation_top: 30
+  pbo_blocks: 16
+  power_edges: [0.10, 0.20]                  # puissance analytique : Δ planté par signal, t critique du test qui décide
+  power_decision_edge: 0.20
+  power_reps: 50
+
+# Déclencheurs (calculés à la clôture de t avec des données ≤ t ; ordre jamais avant l'ouverture de t+1) :
+#   d7x : conditions vectorisées de d7_trend_quality (triggers.d7_base) PUIS le vrai détecteur (zones, stop R1,
+#         objectifs exploitables) ; retenu s'il a ≥ 1 objectif et aucun avertissement (ce que la production peut ordonner) ;
+#   d2x : idem avec d2_breakout (cassure du pivot 60 séances) — sens « configuration de production » dans un plan
+#         d'entrée (le d2x à plafond du n° 1 n'existe que dans les plans à clé `cap`) ;
+#   d8x : d8_buzz_precoce SANS radar (séance ≥ +3 % sur volume ≥ 2 × médiane 50, clôture dans le tiers haut), sa
+#         géométrie de production (limite clôture × 1,003, prix max × 1,015, stop sous le plus bas 10 séances, objectif
+#         plus haut 60 séances) ;
+#   t00 (X1) : valeurs × séances éligibles tirées au hasard au taux de d7x du groupe (graine du plan), géométrie de
+#         d7 du jour tiré (entrée plus haut × 1,002, prix max plus haut × 1,008, stop R1, objectifs) sans ses conditions ;
+#   letters_trigger (X6) : valeurs « achat » / « surveiller » des lettres historiques (newsletters-history, docs/19)
+#         avec déclencheur, stop et objectif explicites (letter_levels.canonical_levels), à la séance où la lettre est
+#         connue, après min_history_sessions séances ;
+#   t14 (X7) : réaction aux résultats, définition du n° 3.
+# Politiques (clé `entry` testée contre `baseline_entry`, sur les MÊMES signaux) :
+#   P0 : limite = min(P_max R4 sur l'objectif 1, prix maximal technique), validité entry.expiry_sessions ← production
+#   P1 : E_open(1) — limite clôture + 1 ATR14, validité 1
+#   P2 : stop d'achat à plage : seuil = confirm_level, limite = seuil × (1 + confirm_cap_atr · ATR14 / clôture),
+#        validité `validity` ; aucun ordre si le seuil atteint l'objectif 1
+#   P3 : comme P0, ratio R4 mesuré sur l'objectif le plus lointain (ou le plus haut 52 semaines) ; sous X8 (seule sortie
+#        où P3 est rejoué) il n'y a pas d'objectif : la vente partielle S2 ne s'applique pas
+#   P4 : limite clôture − pullback_atr · ATR14 (la MM20 si elle est entre les deux), validité `validity`
+#   (P5 du brouillon retiré : sous X8 il est identique à P1 ; son objectif + 3 ATR est une question de sortie)
+# Sorties : X8 = stop 2,5 ATR14 sous l'exécution, sans objectif, sortie à la clôture de la h-ième séance (isole l'effet
+# d'entrée) ; XP = production (stop structurel R1 glissé, objectif 1, durée du détecteur h) ; X3 = 3 σ20 √h, durée h.
+confirmatory:                                # Holm sur 2, unilatéral (Δ > 0) ; verdict sur le CTO, PEA en seconde vue
+  # C1 : effet d'entrée isolé — d7x, P2 contre P0, même sortie X8 (h 20)
+  - {id: C1, trigger: d7x, params: {}, gate: none, h: 20, exit: X8, entry: P2, baseline_entry: P0, validity: 3, unit: r_stop, accounts: [cto, pea]}
+  # C2 : en conditions de production — d7x, P2 contre P0, sorties de production XP (objectif 1, stop R1, 60 séances)
+  - {id: C2, trigger: d7x, params: {}, gate: none, h: 60, exit: XP, entry: P2, baseline_entry: P0, validity: 3, unit: r_stop, accounts: [cto, pea]}
+
+exploratory:                                 # jamais une conséquence de production
+  # X1 placebo, lu AVANT C1/C2 (diagnostic : hors des familles de tests) — même chaîne sur des dates au hasard ;
+  # une cellule par sortie de confirmatoire (X8 h 20 ↔ C1, XP h 60 ↔ C2)
+  - {family: X1, trigger: t00, params: {seed: 20261030, rate: "d7x", geometry: d7}, gate: none, h: 20, entry: P2, baseline_entry: P0, validity: 3, unit: r_stop, accounts: [cto], diagnostic: true, grid: {exit: [X8]}}
+  - {family: X1, trigger: t00, params: {seed: 20261030, rate: "d7x", geometry: d7}, gate: none, h: 60, entry: P2, baseline_entry: P0, validity: 3, unit: r_stop, accounts: [cto], diagnostic: true, grid: {exit: [XP]}}
+  # X2 : les autres politiques contre P0, sur d7x, sortie X8 h 20 (P1 E_open, P3 objectif lointain, P4 repli léger)
+  - {family: X2, trigger: d7x, params: {}, gate: none, h: 20, exit: X8, baseline_entry: P0, validity: 3, unit: r_stop, accounts: [cto, pea], grid: {entry: [P1, P3, P4]}}
+  # X3 : d2x (cassure du pivot, production) P2 contre P0 ; durée de production de d2 : 20 séances ; peu de signaux attendus
+  - {family: X3, trigger: d2x, params: {}, gate: none, h: 20, entry: P2, baseline_entry: P0, validity: 3, unit: r_stop, accounts: [cto], grid: {exit: [X8, XP]}}
+  # X4 : d8x (d8 sans radar) P2 et P1 contre P0, sortie X8 à 10 séances (durée de production de d8)
+  - {family: X4, trigger: d8x, params: {ret_min: 0.03, rvol_min: 2.0, close_top: 0.3333}, gate: none, h: 10, exit: X8, baseline_entry: P0, validity: 3, unit: r_stop, accounts: [cto, pea], grid: {entry: [P2, P1]}}
+  # X5 : P2 — grille de confirmation (validité × plafond) autour de C1 (3 séances × 0,5 ATR), Romano–Wolf avec X2–X4
+  - {family: X5, trigger: d7x, params: {}, gate: none, h: 20, exit: X8, entry: P2, baseline_entry: P0, unit: r_stop, accounts: [cto], grid: {validity: [1, 5], confirm_cap_atr: [0.25, 1.0]}}
+  # X6 : configurations des LETTRES à déclencheur explicite, P2 et P3 contre P0 — diagnostic (peu de signaux attendus)
+  - {family: X6, trigger: letters_trigger, params: {min_history_sessions: 60}, gate: none, h: 20, exit: X8, baseline_entry: P0, validity: 3, unit: r_stop, accounts: [cto, pea], diagnostic: true, grid: {entry: [P2, P3]}}
+  # X7 : t14 (réaction aux résultats, définition du n° 3) P2 contre P1 = E_open(1), sortie X3 — diagnostic, SANS
+  # réplication (période partagée avec le n° 3), lu APRÈS le verdict du n° 3
+  - {family: X7, trigger: t14, params: {k_sigma: 2.0, rvol_min: 2.0, close_top: 0.5, require_surprise: false}, gate: none, exit: X3, entry: P2, baseline_entry: P1, validity: 3, unit: r_stop, accounts: [cto, pea], diagnostic: true, grid: {h: [10, 20]}}
+  # X8 : table de sélection adverse par politique (diagnostic) sur d7x, sortie X8 h 20 : issue contrefactuelle
+  # « acheté à l'ouverture suivante, même sortie » des signaux exécutés contre non exécutés, part exécutée à
+  # l'ouverture, délai d'exécution, effectif de chaque groupe et moyenne sur TOUS les signaux (docs/33 §33.1.5)
+  - {family: X8, trigger: d7x, params: {}, gate: none, h: 20, exit: X8, validity: 3, unit: r_stop, accounts: [cto], diagnostic: true, grid: {entry: [P0, P1, P2, P3, P4]}}
+
+stage1:
+  exits: []
+  max_cells: 0                               # aucune sortie choisie dans ce plan (l'entrée seule est testée)
+stage2:
+  max_cells: 3                               # rejeu à 6 lignes de C1 / C2 : politique, référence et placebo ; ordres par mois
+
+max_total_cells: 30
+expected_total_cells: 27          # 2 confirmatoires + 2 placebo + 3 X2 + 2 X3 + 2 X4 + 4 X5 + 2 X6 + 2 X7 + 5 X8 + 3 portefeuille
+# Familles de tests multiples : Holm sur 2 (C1, C2) ; Romano–Wolf sur les 11 exploratoires non diagnostiques
+# (X2, X3, X4, X5) ; q de BH sur les 13 ; X1, X6, X7, X8 sont des diagnostics (jamais candidats, hors familles).
