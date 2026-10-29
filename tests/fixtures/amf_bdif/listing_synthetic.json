@@ -1,0 +1,33 @@
+{
+  "_comment": "Synthetic sample written for the tests (shape of the BDIF listing): no real declaration, no real person.",
+  "result": [
+    {
+      "numero": "2026DD9000001",
+      "datePublication": "2026-10-27T18:08:10.927+01:00",
+      "dateInformation": "2026-10-27T00:00:00",
+      "typesInformation": ["DD"],
+      "societes": [{"jeton": "RS00009991", "raisonSociale": "SOCIETE EXEMPLE"}],
+      "documents": [
+        {"path": "2026/2026DD9000001/AAAA0001-en.pdf", "langue": "en"},
+        {"path": "2026/2026DD9000001/AAAA0001.pdf", "langue": "fr"}
+      ]
+    },
+    {
+      "numero": "2026DD9000002",
+      "datePublication": "2026-10-28T09:30:00+01:00",
+      "dateInformation": "2026-10-28T00:00:00",
+      "societes": [{"jeton": "RS00009992", "raisonSociale": "Fictive Industries S.A."}],
+      "documents": [{"path": "2026/2026DD9000002/BBBB0002.pdf"}]
+    },
+    {
+      "numero": "2026DD9000003",
+      "datePublication": "2026-10-28T17:45:00+01:00",
+      "societes": [{"jeton": "RS00009993", "raisonSociale": "INCONNUE HOLDING"}],
+      "documents": [{"path": "2026/2026DD9000003/CCCC0003.pdf"}]
+    },
+    {
+      "datePublication": "2026-10-28T17:46:00+01:00",
+      "societes": [{"raisonSociale": "SANS NUMERO"}]
+    }
+  ]
+}

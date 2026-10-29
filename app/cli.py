@@ -1489,6 +1489,31 @@ def cmd_earnings_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_insider_archive(args: argparse.Namespace) -> int:
+    """docs/34 §34.8 — archive of the managers' dealing declarations published by the AMF (BDIF) over a period
+    (backfill of whatever the source still exposes: about 5 years), then the coverage per month. Archive only."""
+    from app.data.base import ProviderUnavailable
+    from app.db.session import db_session
+    from app.services import insiders
+
+    cfg = load_params(args.params)
+    end = date.fromisoformat(args.to) if args.to else date.today()
+    start = date.fromisoformat(args.from_date) if args.from_date else end - timedelta(days=365 * 5)
+    with db_session() as s:
+        if not args.coverage_only:
+            try:
+                rep = insiders.archive(
+                    s, cfg, start, end, pdf_text=None if args.no_pdf else "auto",
+                    progress=lambda m: print(f"  {m}", flush=True),
+                )  # fmt: skip
+            except ProviderUnavailable as exc:
+                print(f"AMF BDIF indisponible : {exc}")
+                return 1
+            print(rep.line())
+        print(insiders.coverage(s))
+    return 0
+
+
 def cmd_moves_study(args: argparse.Namespace) -> int:
     """docs/34 — the rises the tool missed: episodes, replay of the production rules, why not, control sample.
     Exploratory; European venues only (New York, London, Zurich stay unread until registration n° 2 has run).
@@ -2213,6 +2238,12 @@ def main(argv: list[str] | None = None) -> int:
     eh.add_argument("--max-values", dest="max_values", type=int, default=None)
     eh.add_argument("--coverage-only", dest="coverage_only", action="store_true", help="couverture seulement")
     eh.set_defaults(fn=cmd_earnings_history)
+    ia = sub.add_parser("insider-archive", help="déclarations des dirigeants AMF (BDIF) : archivage et couverture")
+    ia.add_argument("--from", dest="from_date", default=None, help="début (défaut : il y a 5 ans)")
+    ia.add_argument("--to", default=None, help="fin (défaut : aujourd'hui)")
+    ia.add_argument("--no-pdf", dest="no_pdf", action="store_true", help="liste seulement, sans lire les PDF")
+    ia.add_argument("--coverage-only", dest="coverage_only", action="store_true", help="couverture seulement")
+    ia.set_defaults(fn=cmd_insider_archive)
     mv = sub.add_parser("moves-study", help="hausses manquées (docs/34) : rejeu de l'outil, pourquoi pas, contrôle")
     mv.add_argument("--from", dest="from_date", default="2017-01-02", help="début (pas avant 2017-01-02)")
     mv.add_argument("--to", default=None, help="fin (défaut : hier)")

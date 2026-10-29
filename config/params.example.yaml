@@ -599,6 +599,12 @@ data:
       - {authority: "ftnet_dk", url: "à renseigner", homepage: "https://www.finanstilsynet.dk/"}
       - {authority: "ftnet_no", url: "à renseigner", homepage: "https://www.finanstilsynet.no/"}
       - {authority: "finfsa", url: "à renseigner", homepage: "https://www.finanssivalvonta.fi/"}
+  insiders:                                # docs/34 §34.8 : déclarations des dirigeants (AMF BDIF, MAR art. 19) — archivage vers l'avant seulement, aucun signal ni score ; fonction du déclarant seulement, jamais son nom
+    page_size: 100                         # éléments par page de la liste BDIF
+    min_interval_s: 1.0                    # au moins 1 s entre deux requêtes (plancher imposé par le code)
+    read_pdf: true                         # lire les chiffres dans le PDF si pypdf est installé ; sinon adresse du PDF seule, chiffres vides
+    lookback_days: 7                       # la tâche relit les 7 derniers jours (publication tardive, PDF illisible la veille)
+    window_days: 31                        # découpage d'une longue période (la liste ne pagine pas au-delà de 10 000 éléments)
   fundamentals: {max_items: 800, min_interval_s: 1.0}   # Yahoo (gratuit, non officiel) : débit limité, source et date affichées
   quote_at_each_analysis: true             # [comportement codé] R19 : cours relevé au moment de chaque analyse, horodatage de marché et statut enregistrés
   plausibility_max_gap_pct: 0.05           # écart entre sources ou vs dernière clôture sans nouvelle → « à vérifier »
@@ -817,6 +823,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   social_watch: {cron: "*/20 7-22 * * *", misfire_grace_min: 10, market_days_only: false}   # docs/26 S3 : veille des forums et réseaux toutes les 20 min, tous les jours (l'information circule aussi le soir et le week-end)
   shadow_signals: {cron: "15 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/33, docs/34 : suivi en ombre des enregistrements n° 2 (C1, C2, X2) et n° 3 (C1, C2) sur les places européennes — stocké, jamais affiché
   earnings_refresh: {cron: "40 5 * * 6", misfire_grace_min: 1440, market_days_only: false}   # docs/34 §34.4 : publications de résultats (4 mois passés, 5 mois à venir), Yahoo si le calendrier EODHD est hors forfait ; prochaine date pour R14
+  insider_archive: {cron: "35 21 * * *", misfire_grace_min: 1440, market_days_only: false}   # docs/34 §34.8 : déclarations des dirigeants AMF (BDIF) des 7 derniers jours, archivage seul (aucun signal) ; tous les jours car l'AMF publie les jours ouvrés français, pas les séances d'Euronext
   forum_history: {cron: "*/30 0-5 * * *", misfire_grace_min: 20, market_days_only: false}   # docs/26 : historique du forum lu lentement la nuit, jusqu'à forum_from (décision du 26/10/2026)
   committee_review: {cron: "10 8 * * 1-5", misfire_grace_min: 90, market_days_only: true}   # docs/24 v2 : comité d'investissement en observation (verdicts mesurés, jamais appliqués)
   weak_signals: {cron: "40 6 * * 1-5", misfire_grace_min: 60, market_days_only: true}   # docs/26 : radar des signaux faibles publics (Wikipédia, volume, presse)
