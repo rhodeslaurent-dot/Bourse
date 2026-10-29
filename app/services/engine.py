@@ -110,6 +110,9 @@ def _letter_levels(s: Session, isin: str, day: date, window_days: int = 5) -> li
     the closed list of names; the quote is the review's literal citation, checked in the letter's text."""
     from app.db.models import LetterOpinion
 
+    pre = s.info.get(_LETTER_ISINS)  # a full scan: the values no letter cited since its first day
+    if pre is not None and day - timedelta(days=window_days) >= pre[0] and isin not in pre[1]:
+        return []
     since = datetime.combine(day - timedelta(days=window_days), datetime.min.time(), tzinfo=UTC)
     ops = [
         o
@@ -605,19 +608,27 @@ def evaluate(
         (fees iterated again, rule 7) — quantity, amounts and net figures of the card follow."""
         if account not in sized or target is None:
             return False
-        h_sz, h_cp, h_pmax = sized[account]
-        h2 = scale_size(h_sz, mult, h_cp.fees, h_cp.ttf_rate, fx)
-        if h2.shares <= 0:
-            return False
-        sized[account] = (h2, h_cp, h_pmax)
+        halved: dict[str, Any] = {}
+        for a in list(sized):  # every account's row, so that the card never mixes quantities (review, m13)
+            h_sz, h_cp, h_pmax = sized[a]
+            a2 = scale_size(h_sz, mult, h_cp.fees, h_cp.ttf_rate, fx)
+            if a2.shares <= 0:
+                if a == account:
+                    return False
+                continue
+            halved[a] = (a2, h_cp, h_pmax)
+        for a, (a2, h_cp, h_pmax) in halved.items():
+            sized[a] = (a2, h_cp, h_pmax)
+            na = net_outcome(a2.shares, h_pmax, target, a2.stop_exec, h_cp, fx)
+            per_account[a].update({
+                "titres": a2.shares, "montant_eur": round(a2.notional_max_eur, 2),
+                "risque_eur": round(a2.risk_if_filled_at_max_eur, 2), "gain_net_eur": round(na.gain_net_eur, 2),
+                "gain_net_pct": round(na.gain_net_pct, 4), "perte_nette_eur": round(na.loss_net_eur, 2),
+                "perte_nette_pct": round(na.loss_net_pct, 4), "impot_eur": round(na.tax_eur, 2),
+                "ratio_net": round(na.net_reward_risk, 3) if na.net_reward_risk is not None else None,
+            })  # fmt: skip
+        h2, h_cp, h_pmax = sized[account]
         no2 = net_outcome(h2.shares, h_pmax, target, h2.stop_exec, h_cp, fx)
-        per_account[account].update({
-            "titres": h2.shares, "montant_eur": round(h2.notional_max_eur, 2),
-            "risque_eur": round(h2.risk_if_filled_at_max_eur, 2), "gain_net_eur": round(no2.gain_net_eur, 2),
-            "gain_net_pct": round(no2.gain_net_pct, 4), "perte_nette_eur": round(no2.loss_net_eur, 2),
-            "perte_nette_pct": round(no2.loss_net_pct, 4), "impot_eur": round(no2.tax_eur, 2),
-            "ratio_net": round(no2.net_reward_risk, 3) if no2.net_reward_risk is not None else None,
-        })  # fmt: skip
         if ev.shares:  # an admitted entry: the proposal's own size
             ev.shares, ev.size_eur, ev.risk_eur = h2.shares, h2.notional_max_eur, h2.risk_if_filled_at_max_eur
             ev.net_rr, ev.net_gain_pct = no2.net_reward_risk, no2.gain_net_pct
@@ -1690,7 +1701,43 @@ def _persist_not_analysable(
     s.flush()
 
 
+_LETTER_ISINS = "engine.letter_isins"  # s.info key: (first day, ISINs any letter cited since) during a full scan
+
+
+def _letter_isins(s: Session, since: date) -> set[str]:
+    from app.db.models import LetterOpinion
+
+    start = datetime.combine(since, datetime.min.time(), tzinfo=UTC)
+    vals = s.scalars(
+        select(NewsletterValue.isin)
+        .join(NewsletterItem, NewsletterItem.id == NewsletterValue.item_id)
+        .where(NewsletterValue.isin.is_not(None), NewsletterItem.received_at >= start)
+    )
+    ops = s.scalars(select(LetterOpinion.isin).where(LetterOpinion.isin.is_not(None), LetterOpinion.day >= since))
+    return {i for i in vals if i} | {i for i in ops if i}
+
+
 def scan(
+    s: Session,
+    config: LoadedConfig,
+    day: date,
+    isins: list[str] | None = None,
+    now: datetime | None = None,
+    quotes: dict[str, Any] | None = None,
+    buzz_isins: set[str] | None = None,
+) -> ScanReport:
+    """The day's scan (see :func:`_scan`). A full scan loads once the values the letters cited, so that each of the
+    ~1 300 values does not query the letters twice (review of 30/10/2026, m11)."""
+    if isins is None:
+        first = min(day, (now or datetime.now(UTC)).date()) - timedelta(days=7)
+        s.info[_LETTER_ISINS] = (first, _letter_isins(s, first))
+    try:
+        return _scan(s, config, day, isins, now, quotes, buzz_isins)
+    finally:
+        s.info.pop(_LETTER_ISINS, None)
+
+
+def _scan(
     s: Session,
     config: LoadedConfig,
     day: date,
