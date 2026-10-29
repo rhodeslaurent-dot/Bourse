@@ -290,8 +290,8 @@ def test_m13_reserved_risk_uses_proposal_stop_or_full_budget(db_engine, config):
 
 
 def test_order_entered_button_reserves_the_proposal_risk_on_the_risk_page(db_engine, config):
-    """Review of 30/10/2026 (M2): « Ordre saisi » creates no order row; the proposal reserves shares × (limit − slipped
-    stop) + fees until it expires, as in the engine's caps."""
+    """Review of 30/10/2026 (M2): « Ordre saisi » creates no order row; the proposal reserves its own risk at its
+    limit (in EUR, fees included) until it expires — the same amount as in the engine's caps."""
     from app.services.decisions import create_proposal, record_decision, record_signal
 
     with db_session() as s:
@@ -303,7 +303,7 @@ def test_order_entered_button_reserves_the_proposal_risk_on_the_risk_page(db_eng
         assert build_risk_view(s, config, T)["risk"].open_risk_reserved_eur == 0
         record_decision(s, prop.id, "order_entered", "web")
         view = build_risk_view(s, config, T)
-    assert view["risk"].open_risk_reserved_eur == pytest.approx(100 * (42.90 - 39.50 * 0.998), abs=12)
+    assert view["risk"].open_risk_reserved_eur == pytest.approx(380.0) and not view["reserved_unknown"]
 
 
 # --- C5 / M6 --------------------------------------------------------------------------------------

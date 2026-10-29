@@ -167,3 +167,13 @@ def test_twr_drawdown_neutralises_deposits():
     assert [round(v, 3) for v in idx] == [1.0, 0.9, 0.9, 0.805]
     assert round(max_dd, 3) == -0.195 and round(dd, 3) == -0.195
     assert twr_drawdown([]) == ([], 0.0, 0.0)
+
+
+def test_two_pending_entries_on_one_isin_add_up(config):
+    """Counter-review of 30/10/2026: pending entries were keyed by ISIN, the second one silently dropped."""
+    params = _params(config)
+    one = PendingEntry("FR0000121329", "cto_cash", 50, 100.0, 95.0, 4.0, sector="defense_sector")
+    two = PendingEntry("FR0000121329", "pea", 1, 300.0, 0.0, 0.0, sector="defense_sector")
+    pr = portfolio_risk([], [one, two], params)
+    assert pr.open_risk_reserved_eur == pytest.approx(reserved_risk_eur(one) + reserved_risk_eur(two))
+    assert pr.by_sector_risk_eur["defense_sector"] == pytest.approx(pr.open_risk_reserved_eur)

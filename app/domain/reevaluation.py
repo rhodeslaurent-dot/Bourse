@@ -87,7 +87,9 @@ def fresh_realtime(data_status: str, market_timestamp: datetime | None, now: dat
 
 
 def classify(inp: ReevalInput) -> Reevaluation:
-    if inp.stop is not None and inp.price <= inp.stop:  # never an entry at or under its own stop
+    letter_wait = inp.wait_for_close and inp.trigger is not None and inp.price < inp.trigger
+    if inp.stop is not None and inp.price <= inp.stop and not letter_wait:  # never an entry at or under its stop
+        # (a letter's breakout not crossed keeps waiting: its stop sits under the future seuil, no order exists)
         return Reevaluation(
             ReevalStatus.DEGRADED,
             False,

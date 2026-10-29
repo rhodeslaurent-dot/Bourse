@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Proposal, Signal
+from app.domain.letter_setup import TRIGGER_WAIT
 from app.services.instruments import name_of
 
 
@@ -26,6 +27,10 @@ def candidates(s: Session) -> list[tuple[Proposal, Signal]]:
         sig = s.get(Signal, p.signal_id)
         if sig is None or sig.detector not in ("d4_pullback", "external"):
             continue
+        if any(TRIGGER_WAIT in b for b in (p.gates or {}).get("blocked", [])):
+            continue  # a letter's breakout not crossed: an alert, never a fixing card (R5, R6 — review of 30/10/2026)
+        if (d.get("entree") or {}).get("type") == "ordre à plage de déclenchement":
+            continue  # a breakout's plage is a stop-limit order at its seuil, not a fixing entry (docs/06 §6.3)
         out.append((p, sig))
     return out
 

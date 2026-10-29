@@ -335,19 +335,25 @@ def portfolio_risk(
     cto_equity_eur: float | None = None,
     srd_coverage_ratio: float | None = None,
 ) -> PortfolioRisk:
-    cur = {p.isin: current_risk_eur(p) for p in positions}
-    res = {o.isin: reserved_risk_eur(o) for o in pending}
+    cur_items = [(p, current_risk_eur(p)) for p in positions]
+    res_items = [(o, reserved_risk_eur(o)) for o in pending]
+    cur: dict[str, float] = {}
+    res: dict[str, float] = {}  # two lines (or pending entries) on one ISIN add up, never collapse (30/10/2026)
+    for p, r in cur_items:
+        cur[p.isin] = cur.get(p.isin, 0.0) + r
+    for o, r in res_items:
+        res[o.isin] = res.get(o.isin, 0.0) + r
     total_cur = sum(cur.values())
     total_res = sum(res.values())
     exposure = sum(p.market_value_eur for p in positions)
     fx_exp = sum(p.market_value_eur for p in positions if p.currency != "EUR")
     by_sector: dict[str, float] = {}
     by_sector_n: dict[str, int] = {}
-    for p in positions:
-        by_sector[p.sector] = by_sector.get(p.sector, 0.0) + cur[p.isin]
+    for p, r in cur_items:
+        by_sector[p.sector] = by_sector.get(p.sector, 0.0) + r
         by_sector_n[p.sector] = by_sector_n.get(p.sector, 0) + 1
-    for o in pending:
-        by_sector[o.sector] = by_sector.get(o.sector, 0.0) + res[o.isin]
+    for o, r in res_items:
+        by_sector[o.sector] = by_sector.get(o.sector, 0.0) + r
     by_factor: dict[str, float] = {}
     for name, isins in params.factor_groups.items():
         by_factor[name] = sum(cur.get(i, 0.0) + res.get(i, 0.0) for i in isins)

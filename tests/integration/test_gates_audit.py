@@ -306,3 +306,30 @@ def test_a_proposal_marked_order_entered_reserves_its_risk(db_engine, config):
         s.flush()
         total, rows = engine._reserved_risk(s, config, 300.0, NOW)
     assert all(r.get("proposition") != taken.id for r in rows)  # its order is declared: the order counts, once
+
+
+def test_a_taken_proposal_is_not_counted_twice_with_its_unlinked_order_or_fill(db_engine, config):
+    """Counter-review of 30/10/2026: « Ordre saisi » then « /ordre » on Telegram (no proposal link) reserved ~2 R; a
+    fill imported with a date only (midnight) did not end the reservation."""
+    from app.db.models import PositionRow
+    from app.services.decisions import record_decision
+
+    with db_session() as s:
+        other = "FR0000131104"
+        acc = Account(broker="boursobank", type="pea", label="PEA")
+        s.add(acc)
+        a = Proposal(signal_id=1, isin=other, action="BUY", stop=95.0, risk_eur=400.0, account_recommended="pea",
+                     expires_at=NOW + timedelta(days=2), created_at=NOW - timedelta(hours=2))  # fmt: skip
+        b = Proposal(signal_id=2, isin=ISIN, action="BUY", stop=95.0, risk_eur=300.0, account_recommended="pea",
+                     expires_at=NOW + timedelta(days=2), created_at=NOW - timedelta(hours=2))  # fmt: skip
+        s.add_all([a, b])
+        s.flush()
+        record_decision(s, a.id, "order_entered", "web")
+        record_decision(s, b.id, "order_entered", "web")
+        s.add(Order(account_id=acc.id, isin=other, side="buy", qty=4, order_type="limite", limit_price=100.0,
+                    state="entered", source="telegram", entered_at=NOW - timedelta(hours=1)))  # fmt: skip
+        midnight = NOW.replace(hour=0, minute=0)  # a broker CSV: the day only
+        s.add(PositionRow(account_id=acc.id, isin=ISIN, qty_held=3, avg_price=100.0, opened_at=midnight))
+        s.flush()
+        total, rows = engine._reserved_risk(s, config, 300.0, NOW)
+    assert [r.get("proposition") for r in rows] == [None]  # the declared order only, the fill ends b

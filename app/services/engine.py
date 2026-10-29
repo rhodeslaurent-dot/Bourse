@@ -612,11 +612,14 @@ def evaluate(
         for a in list(sized):  # every account's row, so that the card never mixes quantities (review, m13)
             h_sz, h_cp, h_pmax = sized[a]
             a2 = scale_size(h_sz, mult, h_cp.fees, h_cp.ttf_rate, fx)
-            if a2.shares <= 0:
-                if a == account:
-                    return False
-                continue
+            if a2.shares <= 0 and a == account:
+                return False
             halved[a] = (a2, h_cp, h_pmax)
+        for a in [a for a, (a2, _, _) in halved.items() if a2.shares <= 0]:
+            del halved[a], sized[a]
+            per_account[a] = {k: v for k, v in per_account[a].items() if k in ("frais_aller_retour_pct",
+                              "frais_courtage_connus", "p_max", "statut", "sans_change")}  # fmt: skip
+            per_account[a]["blocage_taille"] = "taille nulle après la réduction de moitié (risque élevé)"
         for a, (a2, h_cp, h_pmax) in halved.items():
             sized[a] = (a2, h_cp, h_pmax)
             na = net_outcome(a2.shares, h_pmax, target, a2.stop_exec, h_cp, fx)
@@ -1353,6 +1356,10 @@ def _reserved_risk(
         rows.append({"isin": o.isin, "ordre": o.id, "compte": acc_type, "risque_eur": round(r, 2), "base": basis})
     now = now or datetime.now(UTC)
     linked = set(s.scalars(select(Order.proposal_id).where(Order.proposal_id.is_not(None))))
+    buys = [
+        (o.isin, o.entered_at.replace(tzinfo=UTC) if o.entered_at and o.entered_at.tzinfo is None else o.entered_at)
+        for o in s.scalars(select(Order).where(Order.side == "buy"))
+    ]
     held = {
         (p.isin, p.opened_at.replace(tzinfo=UTC) if p.opened_at and p.opened_at.tzinfo is None else p.opened_at)
         for p in s.scalars(select(PositionRow).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0))
@@ -1363,8 +1370,10 @@ def _reserved_risk(
         created = prop.created_at.replace(tzinfo=UTC) if prop.created_at.tzinfo is None else prop.created_at
         if prop.id in linked or (exp is not None and exp <= now) or (exp is None and created < now - timedelta(days=5)):
             continue
-        if any(i == prop.isin and o is not None and o >= created for i, o in held):
-            continue  # filled: the position's current risk counts
+        if any(i == prop.isin and o is not None and o.date() >= created.date() for i, o in held):
+            continue  # filled (a broker CSV dates the fill by day only): the position's current risk counts
+        if any(i == prop.isin and e is not None and e >= created for i, e in buys):
+            continue  # an order declared since without its proposal (Telegram /ordre): that order counts, once
         acc_type = prop.account_recommended or "cto_cash"
         row_risk = (((prop.details or {}).get("comptes") or {}).get(acc_type) or {}).get("risque_eur")
         known = prop.risk_eur if prop.risk_eur and prop.risk_eur > 0 else row_risk  # a waiting limit: its row
@@ -1751,6 +1760,8 @@ def _scan(
     from app.services.outcomes import comparable_history
 
     now = now or datetime.now(UTC)
+    # an analysis triggered in session for today (letter, radar, buzz) — not a full scan nor a replay of a past day
+    targeted = isins is not None and day == now.astimezone(PARIS).date()
     rep = ScanReport()
     if not enabled(config):
         return rep
@@ -1912,9 +1923,9 @@ def _scan(
             live = q is not None and getattr(q, "last", None) is not None
             price = float(q.last) if live else bars[-1].close
             status = q.data_status.value if live else "eod"
-            in_session = not live and _in_session(inst.mic, now)
-            if in_session:  # R19, rule 2: the stored close is a session old while the venue trades — « à vérifier »
-                status = "stale"  # (review of 30/10/2026, M3: API reception and manual review passed no quote)
+            in_session = not live and targeted and _in_session(inst.mic, now)
+            if in_session:  # R19, rule 2: an analysis triggered in session (letter, radar) on the stored close, a
+                status = "stale"  # session old — « à vérifier » (review of 30/10/2026, M3)
             last_day = s.scalar(
                 select(PriceEod.day)
                 .where(PriceEod.isin == inst.isin, PriceEod.day <= day)
@@ -2225,8 +2236,8 @@ def notify_top(s: Session, config: LoadedConfig, alerts: Any, mode: str, day: da
         if sent >= top_n:
             break
         blocked = [b for b in (p.gates or {}).get("blocked", []) if b.startswith("BLOQUÉ")]
-        if p.action != "BUY" or p.rank is None or blocked or p.sent_at is not None:
-            continue
+        if p.action != "BUY" or p.rank is None or blocked or p.sent_at is not None or p.to_verify:
+            continue  # « à vérifier » (stale quote, portfolio state): never an order card (rule 2)
         d = p.details or {}
         acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
         th = (p.thesis or {}).get("arguments") or []

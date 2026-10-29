@@ -41,7 +41,7 @@ def summary(r: ProposalReevaluation) -> dict[str, Any]:
             m = next((re.search(r"différé (\d+) min", x) for x in reasons if "différé" in x), None)
             tail = f"cours différé{' ' + m.group(1) + ' min' if m else ''}, à vérifier"
         else:
-            why = [x for x in reasons if x.startswith(("à vérifier", "BLOQUÉ", "proposition"))]
+            why = [x for x in reasons if x.startswith(("alerte", "à vérifier", "BLOQUÉ", "proposition"))]
             tail = " · ".join(why) or "à vérifier"
         tone = "green" if r.actionable else "amber"
     elif r.status == ReevalStatus.DEGRADED.value:

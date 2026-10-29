@@ -27,8 +27,8 @@ def plage_bars(close: float) -> list[Bar]:
 
 
 def _d2(s) -> Proposal:
-    props = [p for p in s.query(Proposal).filter(Proposal.isin == ISIN) if s.get(Signal, p.signal_id).detector
-             == "d2_breakout"]  # fmt: skip
+    live = s.query(Proposal).filter(Proposal.isin == ISIN, Proposal.deleted_at.is_(None))
+    props = [p for p in live if s.get(Signal, p.signal_id).detector == "d2_breakout"]
     assert len(props) == 1
     return props[0]
 
@@ -185,14 +185,21 @@ def test_a_breakout_given_back_on_a_live_quote_gets_no_plage(db_engine, config, 
     assert any(b.startswith("configuration dégradée : ") for b in blocked)
 
 
-def test_a_scan_in_session_without_a_quote_is_to_verify(db_engine, config):
+def test_a_targeted_analysis_in_session_without_a_quote_is_to_verify(db_engine, config):
     """Review of 30/10/2026 (M3): the API reception and the manual review analysed on the stored close while Paris
-    traded — « entrée possible » on a close a session old. In session without a quote: stale, « à vérifier »."""
+    traded — « entrée possible » on a close a session old. A targeted analysis of the day in session without a
+    quote: stale, « à vérifier ». A full scan (late catch-up, rescan after a risk level change) keeps computing the
+    day's J+1 orders on the close (counter-review: the whole day would never recover)."""
     in_session = NOW.replace(hour=8, minute=30)  # 10:30 Paris, Thursday 22/10/2026
     assert engine._in_session("XPAR", in_session) and not engine._in_session("XPAR", NOW)
     with db_session() as s:
         _seed(s, plage_bars(99.7))
-        engine.scan(s, config, DAY, now=in_session)
+        engine.scan(s, config, DAY, now=in_session)  # full scan of the previous session's close
+        full = _d2(s)
+        assert not full.to_verify and "séance en cours" not in full.details["source_cours"]
+        full.deleted_at = in_session
+        s.flush()
+        engine.scan(s, config, in_session.date(), isins=[ISIN], now=in_session)
         p = _d2(s)
     assert p.to_verify
     assert "séance en cours" in p.details["source_cours"]

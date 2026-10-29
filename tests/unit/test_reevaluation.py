@@ -120,3 +120,11 @@ def test_a_letter_trigger_crossed_intraday_is_an_alert_never_an_entry():
     assert notify_kind(("declencheur_franchi", False), None, r) is None  # once per crossing
     plain = classify(_inp(101.0, Setup.BREAKOUT, p_max=103.0, target=140.0))
     assert plain.actionable and notify_kind(("en_attente", False), None, plain) == "reeval_entry"
+
+
+def test_a_letter_alert_under_its_stop_keeps_waiting_intraday():
+    """Counter-review of 30/10/2026: no order exists for a letter's breakout not crossed — under its stop it is still
+    waiting, never « configuration dégradée : revoir l'ordre en attente »."""
+    r = classify(_inp(89.0, Setup.BREAKOUT, p_max=103.0, target=140.0, level_low=None, wait_for_close=True))
+    assert r.status == ReevalStatus.WAITING and not r.actionable
+    assert classify(_inp(89.0, Setup.BREAKOUT, p_max=103.0, target=140.0)).status == ReevalStatus.DEGRADED
