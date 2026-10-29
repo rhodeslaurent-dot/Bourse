@@ -1,4 +1,4 @@
-# Enchaîne les traitements longs de la recherche (docs/33, docs/34) en une seule fois, chaque étape journalisée dans
+﻿# Enchaîne les traitements longs de la recherche (docs/33, docs/34) en une seule fois, chaque étape journalisée dans
 # data/research/longue_<horodatage>.log. Une étape en échec n'arrête pas les suivantes qui n'en dépendent pas.
 # Lancement (plusieurs heures, de préférence la nuit) :
 #   powershell -ExecutionPolicy Bypass -File scripts\recherche_longue.ps1            (refait le backtest)

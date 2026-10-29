@@ -1,4 +1,4 @@
-# Test de restauration mensuel (docs/14 §14.2) : restaure le dernier dump dans une base `bourse_restore_test`.
+﻿# Test de restauration mensuel (docs/14 §14.2) : restaure le dernier dump dans une base `bourse_restore_test`.
 $ErrorActionPreference = "Stop"
 param([string]$Container = "postgres", [string]$User = "bourse")
 $latest = Get-ChildItem backups\bourse-*.dump | Sort-Object LastWriteTime -Descending | Select-Object -First 1

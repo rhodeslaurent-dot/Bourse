@@ -1,4 +1,4 @@
-# Recompile app/web/static/app.css après modification des gabarits (Windows).
+﻿# Recompile app/web/static/app.css après modification des gabarits (Windows).
 # Binaire autonome : https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-windows-x64.exe
 # à placer dans scripts\tailwindcss.exe (ignoré par git), sinon npx est utilisé.
 Set-Location (Join-Path $PSScriptRoot "..")

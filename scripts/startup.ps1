@@ -1,4 +1,4 @@
-# Tâche planifiée Windows « au démarrage » (différée de 3 min) : relance la pile et signale le redémarrage.
+﻿# Tâche planifiée Windows « au démarrage » (différée de 3 min) : relance la pile et signale le redémarrage.
 Start-Sleep -Seconds 180
 Set-Location (Split-Path $PSScriptRoot -Parent)
 docker compose up -d

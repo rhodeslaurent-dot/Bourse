@@ -1,4 +1,4 @@
-# Traitements de nuit du 29/10/2026, journalisés dans data/research/nuit_<horodatage>.log ; une étape en échec
+﻿# Traitements de nuit du 29/10/2026, journalisés dans data/research/nuit_<horodatage>.log ; une étape en échec
 # n'arrête pas les suivantes. À lancer seulement si recherche_longue.ps1 est terminé (la reconstruction l'interromprait).
 #   powershell -ExecutionPolicy Bypass -File scripts\nuit.ps1              (mise à jour, nettoyage, diagnostics)
 #   powershell -ExecutionPolicy Bypass -File scripts\nuit.ps1 -Recherche   (et relance de recherche_longue -Run 4,

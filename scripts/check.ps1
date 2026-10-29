@@ -1,4 +1,4 @@
-# CI locale (docs/14 §14.4) : ruff, mypy, pytest, docker compose config. Branché en hook Stop de Claude Code.
+﻿# CI locale (docs/14 §14.4) : ruff, mypy, pytest, docker compose config. Branché en hook Stop de Claude Code.
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 uv run ruff check .
