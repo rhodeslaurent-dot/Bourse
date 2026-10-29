@@ -218,7 +218,8 @@ _PLAIN: list[tuple[str, str]] = [
     ),
     (
         "portail restreint —",
-        "Contexte de marché restreint : seuls les dossiers très solides (ratio net ≥ 2,5 et score ≥ 75) passent.",
+        "Contexte de marché restreint : seuls les dossiers très solides (ratio net de frais ≥ 2,5 et score ≥ 75) "
+        "passent.",
     ),
     (
         "portail restreint +",

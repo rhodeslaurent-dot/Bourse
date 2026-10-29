@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.config import LoadedConfig
 from app.db.models import (
     Account,
+    EarningsEvent,
     FeatureDaily,
     Instrument,
     InstrumentAlias,
@@ -28,6 +29,7 @@ from app.db.models import (
     NewsItem,
     NewsletterItem,
     NewsletterValue,
+    Order,
     PositionRow,
     PriceEod,
     Proposal,
@@ -45,7 +47,7 @@ from app.domain.costs import (
     round_trip_fee_fraction,
 )
 from app.domain.detectors import DetectorContext, Setup, run_detectors
-from app.domain.events import EventParams, abs_gaps, event_exposure
+from app.domain.events import EventParams, event_exposure
 from app.domain.heat import (
     HeatLine,
     HeatParams,
@@ -64,10 +66,11 @@ from app.domain.risk import (
     SizingInput,
     combine_size_factors,
     gap_risk_multiplier,
+    scale_size,
     size_position,
     stop_exec_for,
 )
-from app.domain.scoring import ScoreInput, score
+from app.domain.scoring import ScoreInput, missing_data, score
 from app.domain.timeutil import PARIS
 from app.domain.zones import detect_zones
 from app.services.decisions import create_proposal, expire_proposals, record_signal
@@ -77,6 +80,19 @@ log = logging.getLogger("bourse.engine")
 
 HOLDING_DAYS = {"days": 5, "swing_2_6w": 20, "semaines": 40}
 MACRO_KEYWORDS_DEFAULT = ["Rate", "CPI", "Non-Farm", "Monetary Policy", "Refinancing", "Federal Funds", "FOMC"]
+# events.macro_families: ForexFactory titles of one announcement (the history is looked up per family)
+MACRO_FAMILIES_DEFAULT: dict[str, dict[str, Any]] = {
+    "fed_decision": {"currency": "USD", "titles": ["Federal Funds Rate", "FOMC Statement", "FOMC Press Conference",
+                                                   "FOMC Economic Projections"]},
+    "fomc_minutes": {"currency": "USD", "titles": ["FOMC Meeting Minutes"]},
+    "ecb_decision": {"currency": "EUR", "titles": ["Main Refinancing Rate", "Monetary Policy Statement",
+                                                   "ECB Press Conference", "Deposit Facility Rate",
+                                                   "Minimum Bid Rate"]},
+    "us_cpi": {"currency": "USD", "titles": ["CPI m/m", "CPI y/y", "Core CPI m/m", "Core CPI y/y"]},
+    "us_jobs": {"currency": "USD", "titles": ["Non-Farm Employment Change", "Unemployment Rate",
+                                              "Average Hourly Earnings m/m"]},
+    "ea_cpi": {"currency": "EUR", "titles": ["CPI Flash Estimate y/y", "Core CPI Flash Estimate y/y"]},
+}  # fmt: skip
 
 
 def enabled(config: LoadedConfig) -> bool:
@@ -184,6 +200,9 @@ class Book:
     lines: list[HeatLine]
     cash: dict[str, float | None]
     sectors: dict[str, int]
+    # reserved risk of the pending entry orders (docs/07 §7.3, rule 7), measured once per scan by the caps
+    reserved_eur: float | None = None
+    reserved_orders: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _book(s: Session) -> Book:
@@ -568,6 +587,31 @@ def evaluate(
             )
         return out
 
+    def _halve_size(account: str | None, mult: float) -> bool:
+        """High risk under ``scoring.high_risk_policy: half_size``: the account's sizing at the budget × ``mult``
+        (fees iterated again, rule 7) — quantity, amounts and net figures of the card follow."""
+        if account not in sized or target is None:
+            return False
+        h_sz, h_cp, h_pmax = sized[account]
+        h2 = scale_size(h_sz, mult, h_cp.fees, h_cp.ttf_rate, fx)
+        if h2.shares <= 0:
+            return False
+        sized[account] = (h2, h_cp, h_pmax)
+        no2 = net_outcome(h2.shares, h_pmax, target, h2.stop_exec, h_cp, fx)
+        per_account[account].update({
+            "titres": h2.shares, "montant_eur": round(h2.notional_max_eur, 2),
+            "risque_eur": round(h2.risk_if_filled_at_max_eur, 2), "gain_net_eur": round(no2.gain_net_eur, 2),
+            "gain_net_pct": round(no2.gain_net_pct, 4), "perte_nette_eur": round(no2.loss_net_eur, 2),
+            "perte_nette_pct": round(no2.loss_net_pct, 4), "impot_eur": round(no2.tax_eur, 2),
+            "ratio_net": round(no2.net_reward_risk, 3) if no2.net_reward_risk is not None else None,
+        })  # fmt: skip
+        if ev.shares:  # an admitted entry: the proposal's own size
+            ev.shares, ev.size_eur, ev.risk_eur = h2.shares, h2.notional_max_eur, h2.risk_if_filled_at_max_eur
+            ev.net_rr, ev.net_gain_pct = no2.net_reward_risk, no2.gain_net_pct
+            ev.details["objectifs"] = objectives(account)
+        ev.details.setdefault("reductions_taille", {})["risque élevé"] = mult
+        return True
+
     def assess(p_max_v: float, net_rr: float | None) -> str:
         """Score thresholds (scoring) and the market gate (R10) at the limit ``p_max_v``: BUY or WATCH, the
         reasons appended to the evaluation. Also run for a limit waiting for a pullback, which the intraday
@@ -606,8 +650,7 @@ def evaluate(
         bars = load_bars(s, inst.isin, limit=260)
         f = compute_daily_features(bars) if bars else None
         last = bars[-1] if bars else None
-        sc = score(
-            ScoreInput(
+        si = ScoreInput(
                 rs_rank=feats.rs_rank if feats else None,
                 above_mm50_mm200=bool(
                     f and last and f.mm50 and f.mm200 and last.close > f.mm50 and last.close > f.mm200
@@ -627,6 +670,7 @@ def evaluate(
                 gap_pct=(bars[-1].open / bars[-2].close - 1) if len(bars) >= 2 and bars[-2].close else None,
                 non_eur=inst.currency != "EUR",
                 regime=regime,
+                major_macro_event_today=_major_macro_today(s, config, now),  # B4 (docs/06 §6.5, bloc M)
                 same_sector_positions=book.sectors.get(inst.sector or "", 0),
                 catalyst_strength=_catalyst(s, inst.isin, now)[0],
                 catalyst_positive=_catalyst(s, inst.isin, now)[1],
@@ -642,14 +686,15 @@ def evaluate(
                 small_cap=bool(inst.small_cap),
                 fundamentals=fundamentals,
                 sector_rs_pct=sector_rs_pct,
-            ),
-            list((p.scoring or {}).get("admission_blocks", {}).get(setup.detector, ["T", "R", "M"])),
-            float((p.scoring or {}).get("c_bonus_cap", 5)),
-            data_complete=price_status in ("realtime", "delayed", "eod"),
-            f_min_available=int((p.scoring or {}).get("f_min_available_subcriteria", 2)),
-        )
-        ev.details["score"] = sc.as_dict()
+        )  # fmt: skip
         sp = p.scoring or {}
+        adm_blocks = list(sp.get("admission_blocks", {}).get(setup.detector, ["T", "R", "M"]))
+        c_cap, f_min = float(sp.get("c_bonus_cap", 5)), int(sp.get("f_min_available_subcriteria", 2))
+        sc = score(si, adm_blocks, c_cap, data_complete=price_status in ("realtime", "delayed", "eod"),
+                   f_min_available=f_min)  # fmt: skip
+        ev.details["score"] = sc.as_dict()
+        # what the score could not use, and what each absence costs (shown on the card)
+        ev.details["donnees_manquantes"] = missing_data(si, adm_blocks, c_cap, f_min, _shorts_covered(s, inst.isin))
         min_ratio = float(sp.get("buy_min_ratio_orange" if regime == "orange" else "buy_min_ratio", 0.75))
         action = "BUY"
         if sc.admission_ratio < min_ratio:
@@ -658,7 +703,21 @@ def evaluate(
         if sc.confidence < int(sp.get("buy_min_confidence", 3)):
             action = "WATCH"
             ev.blocked.append(f"WATCH : confiance {sc.confidence}/5 < {sp.get('buy_min_confidence', 3)}")
-        if sc.risk == "eleve":
+        if sc.risk == "eleve" and str(sp.get("high_risk_policy", "watch")) == "half_size":
+            # docs/07 §7.2: size × 0.5 with a stop ≤ 1.5 ADR (user decision pending; docs/06 §6.5 says WATCH)
+            mult = float(sp.get("high_risk_size_multiplier", 0.5))
+            max_adr = float(sp.get("high_risk_max_stop_adr", 1.5))
+            if si.stop_distance_adr is None or si.stop_distance_adr > max_adr:
+                action = "WATCH"
+                dist = "inconnue" if si.stop_distance_adr is None else f"{si.stop_distance_adr:.2f} ADR"
+                ev.blocked.append(f"WATCH : risque élevé — distance du stop {dist} > {max_adr:g} ADR exigé pour une "
+                                  f"taille × {mult:g} (docs/07 §7.2, scoring.high_risk_policy)")  # fmt: skip
+            elif not _halve_size(ev.account, mult):
+                action = "WATCH"
+                ev.blocked.append(f"WATCH : risque élevé — aucune quantité possible à la taille × {mult:g}")
+            else:
+                ev.passed.append(f"risque élevé : taille × {mult:g}, stop ≤ {max_adr:g} ADR (docs/07 §7.2)")
+        elif sc.risk == "eleve":
             action = "WATCH"
             ev.blocked.append("WATCH : risque élevé (distance du stop, liquidité, petite capitalisation, devise)")
         if any(b.startswith("WATCH") for b in ev.blocked):
@@ -667,11 +726,37 @@ def evaluate(
         mg = getattr(p, "market_gate", None) or {}
         ev.details["portail"] = gate
         if gate == "restreint" and action == "BUY":
-            if (net_rr or 0) < float(mg.get("restricted_min_net_rr", 2.5)) or sc.total < float(
-                mg.get("restricted_min_score", 75)
-            ):
+            # B1 (29/10/2026): the ratio of R10 is the ratio net of FEES at the limit (R4, docs/07 §7.9.4), not the
+            # after-tax ratio ``net_rr`` (shown, ranks, never gates): at P_max the PEA after tax gave ≈ 1.6 for 2.0
+            a_ = sized.get(ev.account or "")
+            fee_rr = (
+                net_outcome(a_[0].shares, p_max_v, target, a_[0].stop_exec, a_[1], fx).fee_net_reward_risk
+                if a_ is not None and target is not None
+                else None
+            )
+            min_rr = float(mg.get("restricted_min_net_rr", 2.5))
+            basis = str(mg.get("restricted_score_basis", "total"))  # B2: user decision pending
+            if basis == "admission_ratio":
+                val, lim, what = sc.admission_ratio, float(mg.get("restricted_min_ratio", 0.85)), "ratio d'admission"
+            else:
+                val, lim, what = sc.total, float(mg.get("restricted_min_score", 75)), "score"
+            ok = fee_rr is not None and fee_rr >= min_rr and val >= lim
+            ev.details["portail_restreint"] = {
+                "ratio_net_frais": round(fee_rr, 3) if fee_rr is not None else None,
+                "ratio_apres_impot": round(net_rr, 3) if net_rr is not None else None,
+                "seuil_ratio": min_rr,
+                "base": basis,
+                "valeur": round(val, 3),
+                "seuil": lim,
+                "ok": ok,
+            }
+            if not ok:
                 action = "WATCH"
-                ev.blocked.append("WATCH : portail restreint — ratio net ≥ 2,5 et score ≥ 75 exigés (R10)")
+                rr_txt = f"{fee_rr:.2f}" if fee_rr is not None else "inconnu"
+                ev.blocked.append(
+                    f"WATCH : portail restreint — ratio net de frais {rr_txt} (≥ {min_rr:g} exigé) et {what} "
+                    f"{val:.2f} (≥ {lim:g} exigé) (R10)"
+                )
             else:
                 ev.passed.append(
                     "portail restreint : sélection exigeante satisfaite (R10) ; taille selon le niveau du jour"
@@ -744,7 +829,7 @@ def evaluate(
         risk_wait = (per_account.get(ev.account or "", {}) or {}).get("risque_eur")
         if risk_wait:  # the waiting limit is an entry order too: the portfolio caps apply before it is placed
             ev.blocked += _portfolio_caps(
-                s, config, inst, book, float(risk_wait), ev.account or "", gate, capital * ref_pct, ev
+                s, config, inst, book, float(risk_wait), ev.account or "", gate, capital * ref_pct, ev, capital
             )
         return ev
     if best is None:
@@ -761,7 +846,7 @@ def evaluate(
     # the admission ratio is net of *fees* (framework §5.2); the after-tax ratio is shown and ranks, never blocks
     action = assess(adm.p_max, no.net_reward_risk)
     # --- caps (R8, R9) and override (R21) ---
-    caps = _portfolio_caps(s, config, inst, book, sz.risk_if_filled_at_max_eur, acc, gate, capital * ref_pct, ev)
+    caps = _portfolio_caps(s, config, inst, book, float(ev.risk_eur or 0), acc, gate, capital * ref_pct, ev, capital)
     ev.blocked += caps
     ev.details["blocages_plafonds"] = list(caps)
     # --- events a stop does not cover (R14) ---
@@ -935,11 +1020,16 @@ def _portfolio_caps(
     gate: str | None,
     r_unit: float,
     ev: Any,
+    capital_eur: float | None = None,
 ) -> list[str]:
-    """Open-risk caps by gate and per line (R8, R9), restricted+ gate, correlated cluster."""
+    """Open-risk caps by gate and per line (R8, R9), restricted+ gate, correlated cluster. The cap is a share of the
+    capital set in the interface when there is one (docs/28 §28.1), and the reserved risk of the pending entry orders
+    counts in the open risk (docs/07 §7.3, rule 7 — it counted 0 before 29/10/2026)."""
     risk = config.params.risk
+    if book.reserved_eur is None:
+        book.reserved_eur, book.reserved_orders = _reserved_risk(s, config, r_unit)
     heat = HeatParams(
-        float(config.params.capital.capital_pilote_eur),
+        float(capital_eur) if capital_eur else float(config.params.capital.capital_pilote_eur),
         dict(getattr(risk, "max_open_risk_pct_by_gate", None) or {"ouvert": 0.05, "restreint": 0.035}),
         float(getattr(risk, "max_line_risk_pct_of_cap", 0.30)),
         float(getattr(risk, "reserved_signal_budget_pct", 0.0075)),
@@ -948,9 +1038,15 @@ def _portfolio_caps(
         float(getattr(risk, "heat_a_soft_cap_pct", 0.075)),
     )
     gate_key = "ouvert" if gate == "ouvert" else "restreint"
-    st = heat_state(book.lines, 0.0, gate_key, heat)
+    st = heat_state(book.lines, book.reserved_eur, gate_key, heat)
     caps = check_new_line(st, risk_eur, heat, srd=(acc == "cto_srd"))
-    ev.details["plafonds"] = {"plafond_eur": round(st.cap_eur, 2), "risque_ouvert_eur": round(st.heat_b_eur, 2)}
+    ev.details["plafonds"] = {
+        "plafond_eur": round(st.cap_eur, 2),
+        "risque_ouvert_eur": round(st.heat_b_eur, 2),
+        "risque_reserve_eur": round(st.reserved_eur, 2),
+        "ordres_en_attente": len(book.reserved_orders),
+        "capital_eur": round(heat.capital_eur, 2),
+    }
     if gate == "restreint_plus":
         caps.append(
             "BLOQUÉ : portail restreint + (risque conjoncturel élevé ou régime rouge) — dérogation seulement (R10, R21)"
@@ -1022,11 +1118,22 @@ def _events_blocks(
     if inst.earnings_next_date is not None:
         delta = datetime.combine(inst.earnings_next_date, datetime.min.time(), tzinfo=UTC) - now
         if timedelta(0) <= delta <= timedelta(hours=hours + 24):
-            out.append(
-                f"BLOQUÉ : publication de résultats le {inst.earnings_next_date:%d/%m} — un stop ne protège pas "
-                "d'un gap ; exposition historique inconnue (R14)"
-            )
+            # R14 exception measured (29/10/2026): the value's own opening gaps at its last stored announcements
+            past = _past_earnings(s, inst.isin, min(inst.earnings_next_date, now.astimezone(PARIS).date()), ep)
+            exp = event_exposure(_event_gaps(s, inst.isin, past), p_max, stop_exec, ep)
+            ev.details["resultats"] = {"date": inst.earnings_next_date.isoformat(), "exposition": exp.text,
+                                       "historique": len(past)}  # fmt: skip
+            if exp.low:
+                ev.passed.append(
+                    f"publication de résultats le {inst.earnings_next_date:%d/%m} : {exp.text} — exception R14"
+                )
+            else:
+                out.append(
+                    f"BLOQUÉ : publication de résultats le {inst.earnings_next_date:%d/%m} — un stop ne protège pas "
+                    f"d'un gap ; {exp.text} (R14)"
+                )
     keywords = list(e.get("macro_keywords") or MACRO_KEYWORDS_DEFAULT)
+    families = _macro_families(config)
     soon = s.scalars(
         select(MacroEvent).where(
             MacroEvent.ts >= now, MacroEvent.ts <= now + timedelta(hours=30), MacroEvent.impact == "High"
@@ -1035,32 +1142,151 @@ def _events_blocks(
     for m in soon:
         if not any(kw.lower() in m.title.lower() for kw in keywords):
             continue
-        past_days = sorted(
-            {
-                (x.ts.replace(tzinfo=UTC) if x.ts.tzinfo is None else x.ts).astimezone(PARIS).date()
-                for x in s.scalars(select(MacroEvent).where(MacroEvent.title == m.title, MacroEvent.ts < now))
-            }
+        # past dates of the same announcement: its family of titles (events.macro_families) — the history loaded
+        # from the official calendars carries one title per family — else the same title, as before
+        fam = _family_of(families, m.currency, m.title)
+        q = select(MacroEvent).where(MacroEvent.ts < now)
+        q = (
+            q.where(MacroEvent.currency == fam[0], MacroEvent.title.in_(fam[1]))
+            if fam is not None
+            else q.where(MacroEvent.title == m.title)
         )
-        prevs, opens = [], []
-        for d in past_days[-ep.history_count :]:
-            rows = list(
-                s.scalars(
-                    select(PriceEod)
-                    .where(PriceEod.isin == inst.isin, PriceEod.day <= d + timedelta(days=1))
-                    .order_by(PriceEod.day.desc())
-                    .limit(2)
-                )
-            )
-            if len(rows) == 2:
-                prevs.append(rows[1].close)
-                opens.append(rows[0].open)
-        exp = event_exposure(abs_gaps(prevs, opens), p_max, stop_exec, ep)
+        past_days = sorted(
+            {(x.ts.replace(tzinfo=UTC) if x.ts.tzinfo is None else x.ts).astimezone(PARIS).date() for x in s.scalars(q)}
+        )
+        used = [(d, "after") for d in past_days[-ep.history_count :]]
+        exp = event_exposure(_event_gaps(s, inst.isin, used), p_max, stop_exec, ep)
         ev.details.setdefault("annonces", []).append(
             {"titre": m.title, "devise": m.currency, "ts": m.ts, "exposition": exp.text}
         )
         if not exp.low:
             out.append(f"BLOQUÉ : {m.currency} {m.title} dans les 30 h — {exp.text} ; gel de l'entrée (R14)")
     return out
+
+
+def _past_earnings(s: Session, isin: str, before: date, ep: EventParams) -> list[tuple[date, str]]:
+    """The value's last ``history_count`` announcements before ``before`` (one per day, every source; a known
+    time of day — before the open / after the close — wins over « unknown »)."""
+    days: dict[date, str] = {}
+    for x in s.scalars(select(EarningsEvent).where(EarningsEvent.isin == isin, EarningsEvent.day < before)):
+        if days.get(x.day, "unknown") == "unknown":
+            days[x.day] = x.when or "unknown"
+    return sorted(days.items())[-ep.history_count :]
+
+
+def _event_gaps(s: Session, isin: str, events: list[tuple[date, str]]) -> list[float]:
+    """Absolute opening gap of the value at each event: ``after`` (macro, results after the close) = first open after
+    the event day against the close of that day; ``bmo`` = open of the day against the previous close; unknown time
+    of day = the larger of the two (prudence). A weekend or a holiday after the event is skipped (fixes the Friday
+    case, which measured the gap into the event day). No price → the event is not counted."""
+    if not events:
+        return []
+    lo, hi = events[0][0] - timedelta(days=15), events[-1][0] + timedelta(days=15)
+    bars = list(
+        s.execute(
+            select(PriceEod.day, PriceEod.open, PriceEod.close)
+            .where(PriceEod.isin == isin, PriceEod.day >= lo, PriceEod.day <= hi)
+            .order_by(PriceEod.day)
+        )
+    )
+
+    def gap(prev_last: date, open_from: date) -> float | None:
+        prev = next((b for b in reversed(bars) if b.day <= prev_last), None)
+        nxt = next((b for b in bars if b.day >= open_from), None)
+        if prev is None or nxt is None or not prev.close or nxt.day <= prev.day:
+            return None
+        return abs(float(nxt.open) / float(prev.close) - 1)
+
+    out = []
+    for d, when in events:
+        g_after = gap(d, d + timedelta(days=1)) if when in ("after", "amc", "unknown", "intraday") else None
+        g_before = gap(d - timedelta(days=1), d) if when in ("bmo", "unknown", "intraday") else None
+        vals = [g for g in (g_after, g_before) if g is not None]
+        if vals:
+            out.append(max(vals))
+    return out
+
+
+def _macro_families(config: LoadedConfig) -> dict[str, tuple[str, list[str]]]:
+    e = getattr(config.params, "events", None) or {}
+    raw = e.get("macro_families") or MACRO_FAMILIES_DEFAULT
+    return {k: (str(v["currency"]).upper(), [str(x) for x in v["titles"]]) for k, v in raw.items()}
+
+
+def _family_of(families: dict[str, tuple[str, list[str]]], currency: str, title: str) -> tuple[str, list[str]] | None:
+    t = title.strip().lower()
+    for ccy, titles in families.values():
+        if ccy == (currency or "").upper() and t in {x.lower() for x in titles}:
+            return ccy, titles
+    return None
+
+
+def _major_macro_today(s: Session, config: LoadedConfig, now: datetime) -> bool:
+    """B4 (docs/06 §6.5, bloc M): a major announcement (``events.macro_keywords``, impact High) on the Paris day of
+    the analysis. Only stored events: the calendar not loaded counts as « no event » — as before, said in docs/15."""
+    day = now.astimezone(PARIS).date()
+    key = f"macro_today:{day}"
+    if key not in s.info:
+        kws = [k.lower() for k in ((getattr(config.params, "events", None) or {}).get("macro_keywords")
+                                   or MACRO_KEYWORDS_DEFAULT)]  # fmt: skip
+        start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
+        rows = s.scalars(
+            select(MacroEvent).where(
+                MacroEvent.ts >= start, MacroEvent.ts < start + timedelta(days=1), MacroEvent.impact == "High"
+            )
+        )
+        s.info[key] = any(any(k in r.title.lower() for k in kws) for r in rows)
+    return bool(s.info[key])
+
+
+def _shorts_covered(s: Session, isin: str) -> bool:
+    """Whether a short-position source was loaded for the issuers of the ISIN's country (else « unknown »)."""
+    from app.db.models import ShortPosition
+
+    key = f"shorts_covered:{isin[:2]}"
+    if key not in s.info:
+        row = s.scalar(select(ShortPosition.id).where(ShortPosition.isin.like(f"{isin[:2]}%")).limit(1))
+        s.info[key] = row is not None
+    return bool(s.info[key])
+
+
+def _reserved_risk(s: Session, config: LoadedConfig, r_unit: float) -> tuple[float, list[dict[str, Any]]]:
+    """Reserved risk of the pending entry orders (docs/07 §7.3): qty not filled × (max price − slipped stop) × fx +
+    estimated fees (both legs), the SRD ones weighted as the open lines; an order without a known stop or price
+    reserves one full R (as the risk page, M13). Never 0 by default (B3, 29/10/2026)."""
+    risk = config.params.risk
+    slip = float(risk.slippage_pct)
+    srd_w = float(getattr(risk, "srd_risk_weight", 1.25))
+    accounts = {a.id: a for a in s.scalars(select(Account))}
+    total, rows = 0.0, []
+    for o in s.scalars(select(Order).where(Order.side == "buy", Order.state.in_(("entered", "partially_filled")))):
+        qty = max(0, int(o.qty) - int(o.qty_filled or 0))
+        if qty <= 0:
+            continue
+        acc = accounts.get(o.account_id)
+        acc_type = acc.type if acc is not None else "cto_cash"
+        inst = s.get(Instrument, o.isin)
+        fx = fx_to_eur(s, inst.currency) if inst is not None and inst.currency else 1.0
+        prop = s.get(Proposal, o.proposal_id) if o.proposal_id else None
+        stop = prop.stop if prop is not None and prop.stop else None
+        if o.limit_price:
+            p_max = float(o.limit_price)
+        elif o.trigger_price:
+            p_max = float(o.trigger_price) * (1 + slip)
+        else:
+            p_max = 0.0
+        if stop is None or p_max <= 0 or fx is None or p_max <= stop * (1 - slip):
+            r, basis = r_unit, "1 R (stop, prix ou change inconnu)"
+        else:
+            fees = _fees(config, acc_type)
+            stop_exec = stop * (1 - slip)
+            legs = fees.commission(qty * p_max * fx) + fees.commission(qty * stop_exec * fx)
+            r = qty * (p_max - stop_exec) * fx + legs
+            basis = "quantité × (prix maximal − stop glissé) + frais"
+        r *= srd_w if acc_type == "cto_srd" else 1.0
+        total += r
+        rows.append({"isin": o.isin, "ordre": o.id, "compte": acc_type, "risque_eur": round(r, 2), "base": basis})
+    return total, rows
 
 
 # --- scan ---------------------------------------------------------------------------------------

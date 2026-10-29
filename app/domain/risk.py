@@ -156,6 +156,31 @@ def size_position(inp: SizingInput, max_iterations: int = 3) -> SizingResult:
     return res
 
 
+def scale_size(res: SizingResult, factor: float, fees: FeeSchedule, ttf_rate: float, fx_rate: float) -> SizingResult:
+    """The same sizing with the risk budget × ``factor`` (e.g. high risk × 0.5, docs/07 §7.2): the fees are iterated
+    again (rule 7: shares = floor((budget − fees) / R)); never more shares than ``res`` (its caps stay met)."""
+    budget = res.risk_budget_eur * factor
+    r_eur = res.r_per_share_eur
+    out = SizingResult(0, res.price_max, res.stop_exec, r_eur, budget, 0.0, 0.0, 0.0, list(res.blocked),
+                       list(res.warnings))  # fmt: skip
+    if r_eur <= 0 or res.shares <= 0:
+        return out
+    shares = min(res.shares, math.floor(budget / r_eur))
+    for _ in range(4):
+        fees_eur = estimate_round_trip_fees(shares * res.price_max * fx_rate, fees, ttf_rate)
+        new = min(res.shares, math.floor((budget - fees_eur) / r_eur) if budget > fees_eur else 0)
+        if new == shares:
+            break
+        shares = new
+    if shares <= 0 and not out.blocked:
+        out.blocked.append("BLOQUÉ : budget de risque insuffisant pour une action après frais")
+    out.shares = max(shares, 0)
+    out.notional_max_eur = out.shares * res.price_max * fx_rate
+    out.fees_estimated_eur = estimate_round_trip_fees(out.notional_max_eur, fees, ttf_rate)
+    out.risk_if_filled_at_max_eur = out.shares * r_eur
+    return out
+
+
 def risk_if_filled(
     shares: int, exec_price: float, stop_exec: float, fx_rate: float = 1.0, fx_haircut: float = 0.0
 ) -> float:

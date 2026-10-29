@@ -1543,6 +1543,42 @@ def cmd_earnings_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_macro_history_load(args: argparse.Namespace) -> int:
+    """R14 (docs/07 §7.9.5, docs/22 §22.7): past macro announcements (EODHD economic events if the plan includes
+    them, then the official ECB, Fed and BLS pages) so that the exposure to an announcement can be measured."""
+    from app.db.session import db_session
+    from app.services import macro_history
+
+    cfg = load_params(args.params)
+    start, end = date.fromisoformat(args.from_date), date.fromisoformat(args.to) if args.to else date.today()
+    with db_session() as s:
+        if not args.coverage_only:
+            rep = macro_history.load(s, cfg, start, end, args.source, progress=lambda m: print(f"  {m}", flush=True))
+            print(f"ajoutées par source {rep.added} · déjà connues {rep.already_known}")
+            for u in rep.unavailable:
+                print(f"  indisponible : {u}")
+        min_h = int((getattr(cfg.params, "events", None) or {}).get("min_history", 4))
+        print(macro_history.coverage_text(macro_history.coverage(s, cfg), min_h))
+    return 0
+
+
+def cmd_gates_coverage(args: argparse.Namespace) -> int:
+    """Audit of the decision funnel (29/10/2026): coverage of the data each gate needs, regimes, admission ratios and
+    blocking reasons over a period. Read only."""
+    import json as _json
+
+    from app.db.session import db_session
+    from app.services import gates_coverage
+
+    cfg = load_params(args.params)
+    end = date.fromisoformat(args.to) if args.to else date.today()
+    start = date.fromisoformat(args.from_date) if args.from_date else end - timedelta(days=30)
+    with db_session() as s:
+        rep = gates_coverage.coverage(s, cfg, start, end)
+    print(_json.dumps(rep, ensure_ascii=False, indent=1) if args.json else gates_coverage.text(rep))
+    return 0
+
+
 def cmd_insider_archive(args: argparse.Namespace) -> int:
     """docs/34 §34.8 — archive of the managers' dealing declarations published by the AMF (BDIF) over a period
     (backfill of whatever the source still exposes: about 5 years), then the coverage per month. Archive only."""
@@ -2379,6 +2415,17 @@ def main(argv: list[str] | None = None) -> int:
     eh.add_argument("--max-values", dest="max_values", type=int, default=None)
     eh.add_argument("--coverage-only", dest="coverage_only", action="store_true", help="couverture seulement")
     eh.set_defaults(fn=cmd_earnings_history)
+    mh = sub.add_parser("macro-history-load", help="historique des annonces macro (BCE, Fed, BLS ; R14) et couverture")
+    mh.add_argument("--from", dest="from_date", default="2017-01-01")
+    mh.add_argument("--to", default=None)
+    mh.add_argument("--source", default="auto", choices=["auto", "eodhd", "officiel"])
+    mh.add_argument("--coverage-only", dest="coverage_only", action="store_true", help="couverture seulement")
+    mh.set_defaults(fn=cmd_macro_history_load)
+    gc = sub.add_parser("gates-coverage", help="couverture des portes de décision sur une période (lecture seule)")
+    gc.add_argument("--from", dest="from_date", default=None, help="début (défaut : 30 jours avant la fin)")
+    gc.add_argument("--to", default=None, help="fin (défaut : aujourd'hui)")
+    gc.add_argument("--json", action="store_true")
+    gc.set_defaults(fn=cmd_gates_coverage)
     ia = sub.add_parser("insider-archive", help="déclarations des dirigeants AMF (BDIF) : archivage et couverture")
     ia.add_argument("--from", dest="from_date", default=None, help="début (défaut : il y a 5 ans)")
     ia.add_argument("--to", default=None, help="fin (défaut : aujourd'hui)")

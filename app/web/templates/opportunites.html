@@ -96,6 +96,7 @@
       {% if dd and dd.p_max and day == today %}{{ live.reeval(p.id, it.reeval) }}{% endif %}
       {% if p.thesis and p.thesis.arguments %}<p class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{ p.thesis.arguments[0].texte }}</p>{% endif %}
       {% for b in ex.blocked %}<p class="mt-1 text-sm font-semibold text-rose-700 dark:text-rose-300 [overflow-wrap:anywhere]">{{ b }}</p>{% endfor %}
+      {% set dm = (p.details or {}).donnees_manquantes or [] %}{% if dm %}<p class="mt-1 text-xs text-slate-500 dark:text-slate-400" title="Ce que le score n'a pas pu utiliser et ce que chaque absence coûte (points du bloc laissés à 0) ; jamais estimé">Données manquantes : {% for m in dm %}<span title="{{ m.note }}">{{ m.donnee }}{% if m.points %} −{{ '%g'|format(m.points) }} pt {{ m.bloc }}{% elif m.donnee == 'fondamentaux' %} {{ (m.note or '').split(' ')[0] }}{% endif %}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
       {% if not it.verdict %}{% for w in it.pourquoi %}<p class="mt-1 text-xs text-slate-600 dark:text-slate-300">En clair : {{ w }}</p>{% endfor %}{% endif %}
     </div>
     <div class="shrink-0 sm:text-right text-xs text-slate-500 dark:text-slate-400"><span class="font-mono">{{ p.isin }}</span><br>{{ p.created_at|dual }}{% if p.expires_at %}<br>expire le {{ p.expires_at|dual_dated }}{% endif %}</div>
