@@ -179,6 +179,8 @@ class Replay:
 
 
 def _replay_context(config: LoadedConfig) -> Replay:
+    from app.services.engine import _tax
+
     p = config.params
     dets = {k: dict(v) for k, v in (p.detectors or {}).items() if k in DETECTORS and isinstance(v, dict)}
     sp = p.scoring or {}
@@ -199,30 +201,22 @@ def _replay_context(config: LoadedConfig) -> Replay:
         blackout_hours=float(getattr(p.risk, "earnings_blackout_hours", 48) or 48),
         restricted_rr=float((getattr(p, "market_gate", None) or {}).get("restricted_min_net_rr", 2.5)),
         restricted_score=float((getattr(p, "market_gate", None) or {}).get("restricted_min_score", 75)),
-        pfu_rate=float(
-            (p.tax[0].model_dump() if p.tax and hasattr(p.tax[0], "model_dump") else {}).get("pfu_total_rate") or 0.0
-        ),
+        pfu_rate=float(_tax(config).get("pfu_total_rate") or 0.0),
     )
 
 
 def _costs(config: LoadedConfig, inst: Any) -> tuple[CostParams, CostParams | None]:
     """CTO cash (Saxo) as the backtest; the PEA (BoursoBank grid of the current formula) when the ISIN prefix is
     PEA-eligible. Taxes on transactions: the bare rates (no point-in-time market cap)."""
-    from app.services.backtest import _cost_params
-    from app.services.engine import _fees
+    from app.services.backtest import _cost_params, ttf_rate_of
+    from app.services.engine import _fees, _tax
 
     cto = _cost_params(config, inst)
     pea_c = set((config.params.pea or {}).get("eligible_countries") or [])
     if inst.isin[:2] not in pea_c or (inst.currency or "EUR") != "EUR":
         return cto, None
-    tax = (
-        (config.params.tax[0].model_dump() if config.params.tax and hasattr(config.params.tax[0], "model_dump") else {})
-        if config.params.tax
-        else {}
-    )
-    ttf = (
-        float(tax.get("ttf_rate") or 0.004) if inst.isin.startswith("FR") and (inst.market_cap_eur or 0) >= 1e9 else 0.0
-    )
+    tax = _tax(config)  # the block in force today (dated parameters, rule 5)
+    ttf = ttf_rate_of(tax, inst.isin, inst.market_cap_eur)
     ftt = ftt_rate_any((tax.get("ftt_by_country") or {}).get(inst.isin[:2]))
     return cto, CostParams(_fees(config, "pea"), ttf_rate=ttf, ftt_rate=ftt)
 
@@ -469,10 +463,12 @@ def _features(window: list[Bar], f: DailyFeatures, rs: float | None) -> dict[str
 
 class EarningsIndex:
     """Announcements of one value placed on its sessions: the reaction session (the announcement day, or the next
-    session after an announcement after the close) and the days to the next announcement. Outside the span the
-    loaded history covers (first announcement − 100 days, last + 100 days), everything is unknown (None)."""
+    session after an announcement after the close) and the days to the next announcement. A session is *known*
+    only within ``margin_days`` calendar days of a loaded announcement — the whole span when consecutive ones are
+    at most 2 × margin apart (half-yearly reporting) — so a hole in the history (missing years) stays unknown, as
+    in the research panel (``earnings_flags``). Unknown → None, never « no announcement »."""
 
-    def __init__(self, days: list[date], events: list[tuple[date, str]]) -> None:
+    def __init__(self, days: list[date], events: list[tuple[date, str]], margin_days: int = 100) -> None:
         import bisect
 
         self.days = days
@@ -480,13 +476,20 @@ class EarningsIndex:
         self.react: set[int] = set()
         for d, when in events:
             i = bisect.bisect_right(days, d) if when == "amc" else bisect.bisect_left(days, d)
-            if i < len(days):
+            if i < len(days) and (days[i] - d).days <= 5:  # history not started yet → not its reaction
                 self.react.add(i)
-        self.lo = (self.dates[0] - timedelta(days=100)) if self.dates else None
-        self.hi = (self.dates[-1] + timedelta(days=100)) if self.dates else None
+        self.margin = timedelta(days=margin_days)
 
     def covered(self, k: int) -> bool:
-        return self.lo is not None and self.hi is not None and self.lo <= self.days[k] <= self.hi
+        import bisect
+
+        if not self.dates:
+            return False
+        d = self.days[k]
+        i = bisect.bisect_left(self.dates, d)
+        near_next = i < len(self.dates) and self.dates[i] - d <= self.margin
+        near_prev = i > 0 and d - self.dates[i - 1] <= self.margin
+        return near_next or near_prev
 
     def is_reaction(self, k: int) -> bool | None:
         return (k in self.react) if self.covered(k) else None
@@ -497,7 +500,11 @@ class EarningsIndex:
         if not self.covered(k):
             return None
         i = bisect.bisect_right(self.dates, self.days[k])
-        return (self.dates[i] - self.days[k]).days if i < len(self.dates) else 999
+        if i >= len(self.dates):
+            return None  # after the last loaded announcement the next one is not known
+        gap = (self.dates[i] - self.days[k]).days
+        regular = i > 0 and self.dates[i] - self.dates[i - 1] <= 2 * self.margin  # e.g. half-yearly reporting
+        return gap if gap <= self.margin.days or regular else None  # a hole before the next one: unknown
 
 
 def _earnings(s: Session, isins: list[str], hist: dict[str, Any]) -> dict[str, EarningsIndex]:
@@ -883,7 +890,7 @@ def render_fr(rep: dict[str, Any]) -> str:
         f"Hausse exploitable (contrôle) : depuis l'ouverture suivante, +max({p['min_rise']:.0%} ; {p['sigma_k']:g} σ·√{p['horizon']}) avant −{p['stop_atr']:g} ATR en {p['horizon']} séances."
     )
     w(
-        "Non rejoué : lettres, nouvelles, fondamentaux, dates de résultats (supposées loin), plafonds de portefeuille, coupe-circuit, niveau de risque ; "
+        "Non rejoué : lettres, nouvelles, fondamentaux, plafonds de portefeuille, coupe-circuit, niveau de risque ; "
         "portail : lettres supposées favorables ; capitalisation et éligibilité PEA d'aujourd'hui ; valeurs radiées européennes absentes (biais de survie)."
     )
     pr = rep["profil"]

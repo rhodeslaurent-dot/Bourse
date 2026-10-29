@@ -12,6 +12,9 @@
 # Lecture des rapports dans cet ordre : n° 2 (placebo X1 d'abord), étude des hausses, n° 3 (placebo X1 d'abord).
 param([int]$Run = 0)  # -Run 4 : backtest de référence déjà fait (n° 4) — on le réutilise au lieu d'en refaire un
 $ErrorActionPreference = "Continue"
+# docker writes UTF-8: decoded with the console code page the log showed « Ã© » instead of « é »
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+$failed = @()
 Set-Location (Split-Path $PSScriptRoot -Parent)
 New-Item -ItemType Directory -Force -Path data/research | Out-Null
 $log = "data/research/longue_$(Get-Date -Format yyyyMMdd_HHmmss).log"
@@ -27,6 +30,7 @@ function Step([string]$title, [string[]]$cmd) {
     }
     $code = $LASTEXITCODE
     Add-Content -Path $log -Value "=== fin $title (code $code)" -Encoding utf8
+    if ($code -ne 0) { $script:failed += $title }
     return $code
 }
 
@@ -55,5 +59,11 @@ if ($bt -eq 0) {
     if ((Step "5a. calibration n° 3" (@("research", "calibrate", "--prereg", $reg3) + $runArgs)) -eq 0) {
         Step "5b. exécution n° 3" (@("research", "run", "--universe", "all", "--prereg", $reg3) + $runArgs) | Out-Null
     }
+}
+if ($failed.Count -gt 0) {
+    $msg = "terminé avec $($failed.Count) étape(s) en échec : $($failed -join ' ; ') — journal complet dans $log"
+    Write-Host $msg
+    Add-Content -Path $log -Value $msg -Encoding utf8
+    exit 1
 }
 Write-Host "terminé : journal complet dans $log"

@@ -88,3 +88,21 @@ def test_notifications():
     degraded = classify(_inp(94.0, status="delayed", age_min=15))
     assert notify_kind(("entree_atteinte", False), None, degraded) == "reeval_degraded"  # always
     assert notify_kind(("configuration_degradee", False), None, degraded) is None
+
+
+def test_a_price_at_or_under_the_stop_is_never_an_entry():
+    # review of 29/10/2026: with no structure level stored, admission alone called it « structure intacte »
+    r = classify(_inp(89.0, level_low=None))
+    assert r.status == ReevalStatus.DEGRADED and not r.actionable and "stop" in r.reasons[0]
+
+
+def test_without_a_structure_level_an_entry_is_to_verify():
+    r = classify(_inp(98.5, level_low=None))
+    assert r.status == ReevalStatus.ENTRY_REACHED and not r.actionable
+    assert any(x.startswith("à vérifier : niveau de structure") for x in r.reasons)
+
+
+def test_an_intraday_break_of_the_support_is_worded_as_a_session_warning():
+    r = classify(_inp(94.0))
+    assert r.status == ReevalStatus.DEGRADED
+    assert "en séance (à confirmer en clôture)" in r.reasons[0] and "perdu en clôture" not in r.reasons[0]

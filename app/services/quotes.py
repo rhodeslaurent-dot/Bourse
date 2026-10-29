@@ -71,6 +71,20 @@ def saxo_quotes(s: Session, isins: list[str]) -> dict[str, Quote]:
         return {}
 
 
+def _news_isins(s: Session, now: datetime) -> set[str]:
+    """ISINs cited by a news item fetched in the last 24 h — read once per session and minute (the live pages
+    and the 15-s job check many quotes); the JSON column is filtered in Python, portable across SQLite and
+    Postgres."""
+    key = ("news_isins_24h", now.replace(second=0, microsecond=0))
+    got = s.info.get(key)
+    if got is None:
+        got = set()
+        for isins in s.scalars(select(NewsItem.isins).where(NewsItem.fetched_at >= now - timedelta(hours=24))):
+            got.update(isins or [])
+        s.info[key] = got
+    return got
+
+
 def check(s: Session, isin: str, q: Quote | None, max_gap: float, now: datetime) -> CheckedQuote:
     bars = load_bars(s, isin, limit=1)
     close = bars[-1].close if bars else None
@@ -81,12 +95,7 @@ def check(s: Session, isin: str, q: Quote | None, max_gap: float, now: datetime)
     gap = q.last / close - 1
     if abs(gap) <= max_gap:
         return CheckedQuote(isin, q, close, gap, True, "")
-    news = None
-    for n in s.scalars(select(NewsItem).where(NewsItem.fetched_at >= now - timedelta(hours=24))):
-        if isin in (n.isins or []):  # JSON column: filtered in Python, portable across SQLite / Postgres
-            news = n.id
-            break
-    if news is not None:
+    if isin in _news_isins(s, now):
         return CheckedQuote(isin, q, close, gap, True, f"écart {gap:+.1%} expliqué par une nouvelle du jour")
     return CheckedQuote(
         isin, q, close, gap, False, f"à vérifier : écart {gap:+.1%} avec la dernière clôture, sans nouvelle"

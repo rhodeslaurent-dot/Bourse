@@ -43,11 +43,17 @@ class Fake:
         self.uics = uics or {}
         self.now = T
         self.saxo_status = saxo_status
+        self.saxo_price = 42.0
+        self.saxo_fails = False
 
     def saxo(self, by_type: dict[str, list[str]]) -> list[Quote]:
         self.saxo_calls.append(by_type)
+        if self.saxo_fails:
+            raise RuntimeError("Saxo 503")
         delay = 15 if self.saxo_status == DataStatus.DELAYED else 0
-        return [_q(u, 42.0, self.now, "saxo", self.saxo_status, delay) for us in by_type.values() for u in us]
+        return [
+            _q(u, self.saxo_price, self.now, "saxo", self.saxo_status, delay) for us in by_type.values() for u in us
+        ]
 
     def resolve(self, isin: str, mic: str) -> str | None:
         self.lookups.append(isin)
@@ -248,3 +254,35 @@ def test_opportunities_card_and_order_book_update_live(client):
     html = client.get("/opportunites").text
     assert f'data-live-distance="{pid}"' in html and f'data-live-isin="{A}"' in html
     assert "prix d&#39;entrée atteint — cours différé 15 min, à vérifier" in html
+
+
+def test_an_implausible_quote_never_reaches_the_reevaluation(fake, config, calendars):
+    fake.saxo_price = 30.0  # −25 % against the last close (40), no news
+    svc = _svc(fake)
+    with db_session() as s:
+        assert svc.refresh(s, config, calendars, [A], now=T).views[A].plausible is False
+        assert svc.quotes(s, config, calendars, [A], now=T + timedelta(seconds=15)) == {}
+
+
+def test_a_cached_quote_is_given_with_its_status_at_read_time(fake, config, calendars):
+    fake.saxo_price = 41.0  # within the plausibility gap of the last close (40)
+    svc = LiveQuoteService(Fetchers(fake.saxo, fake.resolve, None))  # no EODHD to take over
+    with db_session() as s:
+        assert svc.quotes(s, config, calendars, [A], now=T)[A].data_status == DataStatus.REALTIME
+        fake.saxo_fails = True
+        later = T + timedelta(minutes=40)
+        fake.now = later
+        q = svc.quotes(s, config, calendars, [A], now=later)[A]
+    assert q.data_status == DataStatus.STALE and q.market_timestamp == T  # downloaded at T, never « temps réel »
+
+
+def test_a_slow_fetch_never_blocks_the_other_readers(fake, config, calendars):
+    svc = _svc(fake)
+    _refresh(svc, config, calendars, [A], T)
+    assert svc._fetch_lock.acquire()  # another round is fetching (a source hanging on its timeout)
+    try:
+        fake.now = T + timedelta(seconds=20)
+        res = _refresh(svc, config, calendars, [A], fake.now)
+    finally:
+        svc._fetch_lock.release()
+    assert len(fake.saxo_calls) == 1 and res.views[A].last == 42.0  # answered from the cache, no wait

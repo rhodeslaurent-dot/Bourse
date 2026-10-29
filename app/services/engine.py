@@ -520,6 +520,116 @@ def evaluate(
             )
         return out
 
+    def assess(p_max_v: float, net_rr: float | None) -> str:
+        """Score thresholds (scoring) and the market gate (R10) at the limit ``p_max_v``: BUY or WATCH, the
+        reasons appended to the evaluation. Also run for a limit waiting for a pullback, which the intraday
+        re-evaluation may turn into an entry (user request of 28/10/2026)."""
+        # --- score ---
+        from app.services.short_positions import short_interest
+
+        short_cfg = (getattr(p.data, "short_positions", None) or {}) if p.data else {}
+        shorts = short_interest(s, inst.isin, now.date())
+        if shorts.holders:
+            ev.details["positions_courtes"] = shorts.as_dict()  # docs/23 S2: a floor (public from 0.5 % only)
+        # --- media opinions (docs/23 §23.7): caution after a media-driven jump; confirmation only when measured
+        from app.services.media import favourable_sources, media_params, pressure, recent
+
+        mp = media_params(config)
+        cited = recent(s, inst.isin, now, mp.reversal_window_days)
+        if cited:
+            ev.details["medias"] = [
+                {"source": m.source, "date": f"{m.published_at:%d/%m/%Y}", "sens": m.stance, "intervenant": m.speaker,
+                 "extrait": m.snippet}
+                for m in cited[:6]
+            ]  # fmt: skip
+        jumped = pressure(cited, price, mp.jump_flag_pct)
+        if jumped is not None and jumped.price_ref:
+            ev.blocked.append(
+                f"WATCH : hausse médiatique {price / jumped.price_ref - 1:+.1%} depuis la citation par "
+                f"{jumped.source} le {jumped.published_at:%d/%m} — risque de retour sous "
+                f"{mp.reversal_window_days} jours (docs/23 §23.7)"
+            )
+        if "media_favourable" not in s.info:
+            usable = (
+                {str(f.get("name")) for f in p.data.rss_feeds if f.get("usage") == "confirmation"} if p.data else set()
+            )
+            s.info["media_favourable"] = favourable_sources(s, mp) & usable  # measured AND declared for confirmation
+        media_confirm = any(m.stance == "achat" and m.source in s.info["media_favourable"] for m in cited)
+        bars = load_bars(s, inst.isin, limit=260)
+        f = compute_daily_features(bars) if bars else None
+        last = bars[-1] if bars else None
+        sc = score(
+            ScoreInput(
+                rs_rank=feats.rs_rank if feats else None,
+                above_mm50_mm200=bool(
+                    f and last and f.mm50 and f.mm200 and last.close > f.mm50 and last.close > f.mm200
+                ),
+                mm50_above_mm200=bool(f and f.mm50 and f.mm200 and f.mm50 > f.mm200),
+                above_rising_mm20=bool(f and last and f.mm20 and last.close > f.mm20),
+                rvol=f.rvol if f else None,
+                clean_trigger=setup.detector != "external",
+                over_extended=bool(f and last and f.mm20 and f.atr14 and last.close > f.mm20 + 1.5 * f.atr14),
+                resistance_within_3pct=bool(target and target < price * 1.03),
+                stop_distance_adr=((p_max_v - setup.stop) / (f.adr20 * p_max_v)) if f and f.adr20 else None,
+                earnings_within_10_days=(
+                    None if inst.earnings_next_date is None else 0 <= (inst.earnings_next_date - now.date()).days <= 10
+                ),
+                adv_eur=inst.adv_eur_20,
+                market_cap_eur=inst.market_cap_eur,
+                gap_pct=(bars[-1].open / bars[-2].close - 1) if len(bars) >= 2 and bars[-2].close else None,
+                non_eur=inst.currency != "EUR",
+                regime=regime,
+                same_sector_positions=book.sectors.get(inst.sector or "", 0),
+                catalyst_strength=_catalyst(s, inst.isin, now)[0],
+                catalyst_positive=_catalyst(s, inst.isin, now)[1],
+                insider_buy_days=_insider_buy_days(
+                    s, inst.isin, now, int((p.scoring or {}).get("insider_window_days", 30))
+                ),
+                insider_buy_points=float((p.scoring or {}).get("insider_buy_points", 5)),
+                short_interest_pct=shorts.total_pct if shorts.holders else None,
+                short_alert_pct=float(short_cfg.get("alert_pct", 0.02)),
+                short_penalty=float(short_cfg.get("score_penalty", 3)),
+                catalyst_age_days=_catalyst(s, inst.isin, now)[2],
+                external_confirmation=bool(_letter_levels(s, inst.isin, now.date())) or media_confirm,
+                small_cap=bool(inst.small_cap),
+                fundamentals=fundamentals,
+                sector_rs_pct=sector_rs_pct,
+            ),
+            list((p.scoring or {}).get("admission_blocks", {}).get(setup.detector, ["T", "R", "M"])),
+            float((p.scoring or {}).get("c_bonus_cap", 5)),
+            data_complete=price_status in ("realtime", "delayed", "eod"),
+            f_min_available=int((p.scoring or {}).get("f_min_available_subcriteria", 2)),
+        )
+        ev.details["score"] = sc.as_dict()
+        sp = p.scoring or {}
+        min_ratio = float(sp.get("buy_min_ratio_orange" if regime == "orange" else "buy_min_ratio", 0.75))
+        action = "BUY"
+        if sc.admission_ratio < min_ratio:
+            action = "WATCH"
+            ev.blocked.append(f"WATCH : ratio d'admission {sc.admission_ratio:.2f} < {min_ratio:.2f} (scoring)")
+        if sc.confidence < int(sp.get("buy_min_confidence", 3)):
+            action = "WATCH"
+            ev.blocked.append(f"WATCH : confiance {sc.confidence}/5 < {sp.get('buy_min_confidence', 3)}")
+        if sc.risk == "eleve":
+            action = "WATCH"
+            ev.blocked.append("WATCH : risque élevé (distance du stop, liquidité, petite capitalisation, devise)")
+        if any(b.startswith("WATCH") for b in ev.blocked):
+            action = "WATCH"
+        # --- market gate (R10) ---
+        mg = getattr(p, "market_gate", None) or {}
+        ev.details["portail"] = gate
+        if gate == "restreint" and action == "BUY":
+            if (net_rr or 0) < float(mg.get("restricted_min_net_rr", 2.5)) or sc.total < float(
+                mg.get("restricted_min_score", 75)
+            ):
+                action = "WATCH"
+                ev.blocked.append("WATCH : portail restreint — ratio net ≥ 2,5 et score ≥ 75 exigés (R10)")
+            else:
+                ev.passed.append(
+                    "portail restreint : sélection exigeante satisfaite (R10) ; taille selon le niveau du jour"
+                )
+        return action
+
     primary = best[1] if best else None
     first_row = per_account.get(best[0] if best else (ev.account or options[0]), {})
     # --- admission outcome ---
@@ -550,13 +660,20 @@ def evaluate(
         ev.action = "NO_TRADE"
         return ev
     if any_adm.status == Status.REFUSED and best is None:
-        ev.blocked += [f"WATCH : {r} — limite posée en attente d'un repli" for r in any_adm.reasons]
-        ev.action = "WATCH"
         # the limit order waits at P_max: account and quantity sized at that limit (rule 7), cash before SRD
         fit = [a for a in options if per_account[a].get("titres") and per_account[a].get("ratio_net") is not None]
         cash = [a for a in fit if a != "cto_srd"] or fit
         if cash:
             ev.account = max(cash, key=lambda a: (per_account[a]["ratio_net"], -options.index(a)))
+        if ev.account in sized:
+            # the waiting limit may become an entry intraday: the score, the gate (R10) and the events a stop
+            # does not cover (R14) are tested at that limit now, as for a BUY — the waiting reasons come after,
+            # so that they do not short-circuit the gate
+            w_sz, _, w_pmax = sized[ev.account]
+            assess(w_pmax, per_account[ev.account].get("ratio_net"))
+            ev.blocked += _events_blocks(s, config, inst, w_pmax, w_sz.stop_exec, now, ev)
+        ev.blocked += [f"WATCH : {r} — limite posée en attente d'un repli" for r in any_adm.reasons]
+        ev.action = "WATCH"
         ev.details["objectifs"] = objectives(ev.account)
         risk_wait = (per_account.get(ev.account or "", {}) or {}).get("risque_eur")
         if risk_wait:  # the waiting limit is an entry order too: the portfolio caps apply before it is placed
@@ -575,105 +692,7 @@ def evaluate(
     ev.net_rr, ev.net_gain_pct = no.net_reward_risk, no.gain_net_pct
     ev.passed.append(f"prix maximal {adm.p_max:.4g} (ratio gain/risque ≥ {k:g} net de frais, R4)")
     # the admission ratio is net of *fees* (framework §5.2); the after-tax ratio is shown and ranks, never blocks
-    # --- score ---
-    from app.services.short_positions import short_interest
-
-    short_cfg = (getattr(p.data, "short_positions", None) or {}) if p.data else {}
-    shorts = short_interest(s, inst.isin, now.date())
-    if shorts.holders:
-        ev.details["positions_courtes"] = shorts.as_dict()  # docs/23 S2: a floor (public from 0.5 % only)
-    # --- media opinions (docs/23 §23.7): caution after a media-driven jump; confirmation only when measured
-    from app.services.media import favourable_sources, media_params, pressure, recent
-
-    mp = media_params(config)
-    cited = recent(s, inst.isin, now, mp.reversal_window_days)
-    if cited:
-        ev.details["medias"] = [
-            {"source": m.source, "date": f"{m.published_at:%d/%m/%Y}", "sens": m.stance, "intervenant": m.speaker,
-             "extrait": m.snippet}
-            for m in cited[:6]
-        ]  # fmt: skip
-    jumped = pressure(cited, price, mp.jump_flag_pct)
-    if jumped is not None and jumped.price_ref:
-        ev.blocked.append(
-            f"WATCH : hausse médiatique {price / jumped.price_ref - 1:+.1%} depuis la citation par {jumped.source} "
-            f"le {jumped.published_at:%d/%m} — risque de retour sous {mp.reversal_window_days} jours (docs/23 §23.7)"
-        )
-    if "media_favourable" not in s.info:
-        usable = {str(f.get("name")) for f in p.data.rss_feeds if f.get("usage") == "confirmation"} if p.data else set()
-        s.info["media_favourable"] = favourable_sources(s, mp) & usable  # measured AND declared for confirmation
-    media_confirm = any(m.stance == "achat" and m.source in s.info["media_favourable"] for m in cited)
-    bars = load_bars(s, inst.isin, limit=260)
-    f = compute_daily_features(bars) if bars else None
-    last = bars[-1] if bars else None
-    sc = score(
-        ScoreInput(
-            rs_rank=feats.rs_rank if feats else None,
-            above_mm50_mm200=bool(f and last and f.mm50 and f.mm200 and last.close > f.mm50 and last.close > f.mm200),
-            mm50_above_mm200=bool(f and f.mm50 and f.mm200 and f.mm50 > f.mm200),
-            above_rising_mm20=bool(f and last and f.mm20 and last.close > f.mm20),
-            rvol=f.rvol if f else None,
-            clean_trigger=setup.detector != "external",
-            over_extended=bool(f and last and f.mm20 and f.atr14 and last.close > f.mm20 + 1.5 * f.atr14),
-            resistance_within_3pct=bool(target and target < price * 1.03),
-            stop_distance_adr=((adm.p_max - setup.stop) / (f.adr20 * adm.p_max)) if f and f.adr20 else None,
-            earnings_within_10_days=(
-                None if inst.earnings_next_date is None else 0 <= (inst.earnings_next_date - now.date()).days <= 10
-            ),
-            adv_eur=inst.adv_eur_20,
-            market_cap_eur=inst.market_cap_eur,
-            gap_pct=(bars[-1].open / bars[-2].close - 1) if len(bars) >= 2 and bars[-2].close else None,
-            non_eur=inst.currency != "EUR",
-            regime=regime,
-            same_sector_positions=book.sectors.get(inst.sector or "", 0),
-            catalyst_strength=_catalyst(s, inst.isin, now)[0],
-            catalyst_positive=_catalyst(s, inst.isin, now)[1],
-            insider_buy_days=_insider_buy_days(
-                s, inst.isin, now, int((p.scoring or {}).get("insider_window_days", 30))
-            ),
-            insider_buy_points=float((p.scoring or {}).get("insider_buy_points", 5)),
-            short_interest_pct=shorts.total_pct if shorts.holders else None,
-            short_alert_pct=float(short_cfg.get("alert_pct", 0.02)),
-            short_penalty=float(short_cfg.get("score_penalty", 3)),
-            catalyst_age_days=_catalyst(s, inst.isin, now)[2],
-            external_confirmation=bool(_letter_levels(s, inst.isin, now.date())) or media_confirm,
-            small_cap=bool(inst.small_cap),
-            fundamentals=fundamentals,
-            sector_rs_pct=sector_rs_pct,
-        ),
-        list((p.scoring or {}).get("admission_blocks", {}).get(setup.detector, ["T", "R", "M"])),
-        float((p.scoring or {}).get("c_bonus_cap", 5)),
-        data_complete=price_status in ("realtime", "delayed", "eod"),
-        f_min_available=int((p.scoring or {}).get("f_min_available_subcriteria", 2)),
-    )
-    ev.details["score"] = sc.as_dict()
-    sp = p.scoring or {}
-    min_ratio = float(sp.get("buy_min_ratio_orange" if regime == "orange" else "buy_min_ratio", 0.75))
-    action = "BUY"
-    if sc.admission_ratio < min_ratio:
-        action = "WATCH"
-        ev.blocked.append(f"WATCH : ratio d'admission {sc.admission_ratio:.2f} < {min_ratio:.2f} (scoring)")
-    if sc.confidence < int(sp.get("buy_min_confidence", 3)):
-        action = "WATCH"
-        ev.blocked.append(f"WATCH : confiance {sc.confidence}/5 < {sp.get('buy_min_confidence', 3)}")
-    if sc.risk == "eleve":
-        action = "WATCH"
-        ev.blocked.append("WATCH : risque élevé (distance du stop, liquidité, petite capitalisation, devise)")
-    if any(b.startswith("WATCH") for b in ev.blocked):
-        action = "WATCH"
-    # --- market gate (R10) ---
-    mg = getattr(p, "market_gate", None) or {}
-    ev.details["portail"] = gate
-    if gate == "restreint" and action == "BUY":
-        if (no.net_reward_risk or 0) < float(mg.get("restricted_min_net_rr", 2.5)) or sc.total < float(
-            mg.get("restricted_min_score", 75)
-        ):
-            action = "WATCH"
-            ev.blocked.append("WATCH : portail restreint — ratio net ≥ 2,5 et score ≥ 75 exigés (R10)")
-        else:
-            ev.passed.append(
-                "portail restreint : sélection exigeante satisfaite (R10) ; taille selon le niveau du jour"
-            )
+    action = assess(adm.p_max, no.net_reward_risk)
     # --- caps (R8, R9) and override (R21) ---
     caps = _portfolio_caps(s, config, inst, book, sz.risk_if_filled_at_max_eur, acc, gate, capital * ref_pct, ev)
     ev.blocked += caps

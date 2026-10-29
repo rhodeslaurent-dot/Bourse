@@ -247,7 +247,9 @@ def _read_price_panel(
     """Daily bars of ``isins_wanted`` as (T, N) arrays, read by chunks straight into the final arrays: the whole
     table never sits in memory as rows (New York, 7 849 values with the delisted ones, killed the process on the
     PC on 29/10/2026). Same output as a one-block read: the sessions present in the data, the values with at least
-    one bar (sorted), the download vintage of each bar (source × UTC reception day; labels are arbitrary codes)."""
+    one bar (sorted), the download vintage of each bar (source × UTC reception day; labels are arbitrary codes).
+    The rows come through a server-side cursor (``stream_results``): with psycopg 3 a client cursor makes libpq
+    buffer the whole result before the first chunk. The arrays are sized on the values that have bars."""
     import pandas as pd
 
     day_rows = s.execute(
@@ -258,32 +260,38 @@ def _read_price_panel(
     if not day_rows:
         return np.array([], dtype="datetime64[D]"), [], {}
     days = np.unique(np.array([np.datetime64(r[0], "D") for r in day_rows], dtype="datetime64[D]"))
-    cols = sorted(set(isins_wanted))
+    cols = sorted(
+        str(r[0])
+        for r in s.execute(
+            select(PriceEod.isin)
+            .where(PriceEod.isin.in_(isins_wanted), PriceEod.day >= start, PriceEod.day <= end)
+            .distinct()
+        ).all()
+    )
     col = {k: n for n, k in enumerate(cols)}
     arrays = {
         k: np.full((days.size, len(cols)), np.nan) for k in ("open", "high", "low", "close", "adj_close", "volume")
     }
     vin = np.full((days.size, len(cols)), -1, dtype=np.int64)
-    seen = np.zeros(len(cols), dtype=bool)
     vintages: dict[str, int] = {}
     stmt = select(
         PriceEod.isin, PriceEod.day, PriceEod.open, PriceEod.high, PriceEod.low, PriceEod.close,
         PriceEod.adj_close, PriceEod.volume, PriceEod.source, PriceEod.received_at,
     ).where(PriceEod.isin.in_(isins_wanted), PriceEod.day >= start, PriceEod.day <= end)  # fmt: skip
-    for chunk in pd.read_sql(stmt, s.connection(), chunksize=chunk_rows):
+    names = ["isin", "day", "open", "high", "low", "close", "adj_close", "volume", "source", "received_at"]
+    res = s.execute(stmt, execution_options={"stream_results": True, "max_row_buffer": chunk_rows})
+    for part in res.partitions(chunk_rows):
+        chunk = pd.DataFrame.from_records(part, columns=names)
         r = np.searchsorted(days, pd.to_datetime(chunk["day"]).to_numpy().astype("datetime64[D]"))
         c = chunk["isin"].map(col).to_numpy(dtype=np.int64)
-        seen[c] = True
         for k in arrays:
             arrays[k][r, c] = pd.to_numeric(chunk[k], errors="coerce").to_numpy(dtype=np.float64)
         rec = pd.to_datetime(chunk["received_at"], utc=True, errors="coerce").dt.strftime("%Y-%m-%d").fillna("?")
         labels = (chunk["source"].astype(str) + "|" + rec).to_numpy()
         vin[r, c] = np.array([vintages.setdefault(x, len(vintages)) for x in labels], dtype=np.int64)
-        del chunk
-    keep = np.nonzero(seen)[0]
-    out = {k: v[:, keep] for k, v in arrays.items()}
-    out["vintage"] = vin[:, keep]
-    return days, [cols[k] for k in keep.tolist()], out
+        del chunk, part
+    arrays["vintage"] = vin
+    return days, cols, arrays
 
 
 def _cache_key(parts: list[Any]) -> str:
@@ -386,8 +394,9 @@ def load_panels(
                 np.savez_compressed(path, days=days, isins=np.array(isins), **arrays)
         meta = {i.isin: i for i in insts}
         known = [k for k, x in enumerate(isins) if x in meta]
-        isins = [isins[k] for k in known]
-        arrays = {k: v[:, known] for k, v in arrays.items()}
+        if len(known) < len(isins):  # no copy of the (T, N) arrays in the usual case
+            isins = [isins[k] for k in known]
+            arrays = {k: v[:, known] for k, v in arrays.items()}
         cur = {meta[x].currency or "EUR" for x in isins}
         fxs, fb, sd = _fx_series(s, cur, days, static)
         fx_fb |= set(fb)

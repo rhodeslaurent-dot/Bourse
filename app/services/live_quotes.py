@@ -194,7 +194,8 @@ class LiveQuoteService:
         self.eodhd_day: date | None = None
         self.eodhd_calls = 0
         self.last_manual: datetime | None = None
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # budget, manual throttle, cache bookkeeping (never held while waiting)
+        self._fetch_lock = threading.Lock()  # one fetch round at a time; the others answer from the cache
 
     # --- budget ---------------------------------------------------------------------------------------
     def _budget(self, now: datetime) -> None:
@@ -215,14 +216,14 @@ class LiveQuoteService:
         now = now or datetime.now(UTC)
         lq = live_params(config)
         isins = list(dict.fromkeys(isins))
+        rows = s.scalars(select(Instrument).where(Instrument.isin.in_(isins))) if isins else []
+        insts = {i.isin: i for i in rows}
+        mics = {i: _mic(insts.get(i), i) for i in isins}
+        open_ = {i: _session_open(calendars, mics[i], now) for i in isins}
         with self._lock:
             self._budget(now)
             if self.fetchers is None:
                 self.fetchers = default_fetchers(config)
-            rows = s.scalars(select(Instrument).where(Instrument.isin.in_(isins))) if isins else []
-            insts = {i.isin: i for i in rows}
-            mics = {i: _mic(insts.get(i), i) for i in isins}
-            open_ = {i: _session_open(calendars, mics[i], now) for i in isins}
             res = RefreshResult(
                 {}, any(open_.values()), False, self.eodhd_calls, int(lq["eodhd_daily_calls_max"]), params=lq
             )
@@ -235,22 +236,27 @@ class LiveQuoteService:
                 else:
                     res.manual_accepted = True
                     self.last_manual = now
-            live = [i for i in isins if open_[i]] if lq["enabled"] else []
-            served = self._saxo(s, insts, live, now, lq, config) if live else set()
-            res.saxo_served = bool(served)
-            rest = [i for i in live if i not in served]
-            self._eodhd(rest, now, lq, res)
-            res.eodhd_used = self.eodhd_calls
-            max_gap = float(getattr(config.params.data, "plausibility_max_gap_pct", None) or 0.05)
-            stale_after = dict(config.params.data.stale_after_minutes)
-            for i in isins:
-                tz = calendars.venues[mics[i]].tz if mics[i] in getattr(calendars, "venues", {}) else PARIS
-                res.views[i] = self._view(s, i, insts.get(i), open_[i], now, max_gap, stale_after, tz)
-            if res.manual_accepted and not res.message:
-                res.message = (
-                    f"cours rafraîchis — budget EODHD d'affichage restant : {res.eodhd_left} / {res.eodhd_max}"
-                )
-            return res
+        live = [i for i in isins if open_[i]] if lq["enabled"] else []
+        # a slow source (30-s timeouts) never blocks the pages nor the 15-s job: while one round fetches, the
+        # others answer from the cache (a requested manual refresh is then said not done)
+        if live and self._fetch_lock.acquire(blocking=False):
+            try:
+                served = self._saxo(s, insts, live, now, lq, config)
+                self._eodhd([i for i in live if i not in served], now, lq, res)
+            finally:
+                self._fetch_lock.release()
+        elif live and res.manual_accepted:
+            res.message = "rafraîchissement en cours par ailleurs : cours du cache affichés"
+        res.saxo_served = any(self._fresh_saxo(i, now, lq) for i in live)
+        res.eodhd_used = self.eodhd_calls
+        max_gap = float(getattr(config.params.data, "plausibility_max_gap_pct", None) or 0.05)
+        stale_after = dict(config.params.data.stale_after_minutes)
+        for i in isins:
+            tz = calendars.venues[mics[i]].tz if mics[i] in getattr(calendars, "venues", {}) else PARIS
+            res.views[i] = self._view(s, i, insts.get(i), open_[i], now, max_gap, stale_after, tz)
+        if res.manual_accepted and not res.message:
+            res.message = f"cours rafraîchis — budget EODHD d'affichage restant : {res.eodhd_left} / {res.eodhd_max}"
+        return res
 
     # --- Saxo -----------------------------------------------------------------------------------------
     def _saxo(
@@ -331,17 +337,19 @@ class LiveQuoteService:
         ]
         if not due:
             return
-        left = max(int(lq["eodhd_daily_calls_max"]) - self.eodhd_calls, 0)
-        if left < len(due):
-            res.budget_exhausted = True
-            res.message = (
-                f"budget EODHD d'affichage épuisé pour aujourd'hui ({lq['eodhd_daily_calls_max']} appels) : "
-                "derniers cours conservés"
-            )
-            due = due[:left]
-        if not due:
-            return
-        self.eodhd_calls += len(due)  # one API call per symbol (EODHD counts each symbol of a request)
+        with self._lock:
+            left = max(int(lq["eodhd_daily_calls_max"]) - self.eodhd_calls, 0)
+            if left < len(due):
+                res.budget_exhausted = True
+                part = f" ({left} servis sur {len(due)})" if left else ""
+                res.message = (
+                    f"budget EODHD d'affichage épuisé pour aujourd'hui ({lq['eodhd_daily_calls_max']} appels)"
+                    f"{part} : derniers cours conservés"
+                )
+                due = due[:left]
+            if not due:
+                return
+            self.eodhd_calls += len(due)  # one API call per symbol (EODHD counts each symbol of a request)
         try:
             got = fx.eodhd_fetch(due)
         except Exception as exc:  # noqa: BLE001 — no quote is better than a guessed one
@@ -412,8 +420,23 @@ class LiveQuoteService:
     ) -> dict[str, Quote]:
         """Fresh quotes of the instruments whose venue is in session (``intraday_reeval``), same cache and cadence
         as the pages: Saxo every ``saxo_seconds``, EODHD at its ``eodhd_minutes`` cadence only."""
+        """Fresh quotes of the instruments whose venue is in session (``intraday_reeval``), same cache and cadence
+        as the pages: Saxo every ``saxo_seconds``, EODHD at its ``eodhd_minutes`` cadence only.
+
+        A quote the plausibility check flags (gap to the last close without news, docs/02) is left out: it never
+        funds a verdict. The status returned is the one at *read* time (a cached realtime quote whose source has
+        since failed is « périmé », rule 2), not the one at download."""
         res = self.refresh(s, config, calendars, isins, now=now)
-        return {i: v.quote for i, v in res.views.items() if v.session_open and v.quote is not None}
+        out: dict[str, Quote] = {}
+        for i, v in res.views.items():
+            if not v.session_open or v.quote is None or not v.plausible:
+                continue
+            try:
+                status = DataStatus(v.status)
+            except ValueError:
+                continue
+            out[i] = v.quote if v.quote.data_status == status else v.quote.model_copy(update={"data_status": status})
+        return out
 
 
 def _mic(inst: Instrument | None, isin: str) -> str | None:
@@ -437,11 +460,15 @@ def _session_open(calendars: Any, mic: str | None, now: datetime) -> bool:
 _SERVICE: LiveQuoteService | None = None
 
 
+_SERVICE_LOCK = threading.Lock()
+
+
 def service() -> LiveQuoteService:
     global _SERVICE
-    if _SERVICE is None:
-        _SERVICE = LiveQuoteService()
-    return _SERVICE
+    with _SERVICE_LOCK:
+        if _SERVICE is None:
+            _SERVICE = LiveQuoteService()
+        return _SERVICE
 
 
 def set_service(svc: LiveQuoteService | None) -> None:

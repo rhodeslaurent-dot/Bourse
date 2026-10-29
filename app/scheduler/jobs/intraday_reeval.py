@@ -123,6 +123,7 @@ def latest(s: Session, proposal_id: int) -> ProposalReevaluation | None:
         select(ProposalReevaluation)
         .where(ProposalReevaluation.proposal_id == proposal_id)
         .order_by(ProposalReevaluation.id.desc())
+        .limit(1)
     )
 
 
@@ -148,7 +149,8 @@ def _event(kind: str, p: Proposal, r: Reevaluation, q: Quote, name: str) -> Even
             [
                 r.reasons[0] if r.reasons else LABELS[r.status.value],
                 quote_line,
-                "Si un ordre limite est en attente chez le courtier : l'annuler (l'outil n'annule rien)",
+                "Ordre limite en attente chez le courtier : à revoir, l'annuler si la clôture confirme "
+                "(l'outil n'annule rien)",
             ],
             [Button("Vu", f"p{p.id}:vu"), Button("Ignorer", f"p{p.id}:ignorer")],
             isin=p.isin,
@@ -159,9 +161,11 @@ def _event(kind: str, p: Proposal, r: Reevaluation, q: Quote, name: str) -> Even
         f"Limite (prix maximal) {_fmt(d.get('p_max'))} · stop {_fmt(p.stop)} · objectif {_fmt(p.targets[0])}",
     ]
     if p.account_recommended:
+        # the size was computed at creation: other fills or pending orders may have used the risk budget since
+        # (rule 7, max_open_risk_pct) — it is shown as an upper bound, to recompute before entering the order
         lines.append(
             f"Compte conseillé : {label('account', p.account_recommended)}"
-            + (f" · {acc['titres']} titre(s)" if acc.get("titres") else "")
+            + (f" · au plus {acc['titres']} titre(s), taille à recalculer avant saisie" if acc.get("titres") else "")
         )
     lines += ["Ordre limite au prix maximal, jamais au-delà ; stop à poser dès l'exécution", "Aucun ordre n'est passé"]
     return Event("P2", kind, f"{name} : {LABELS[r.status.value]}", lines, proposal_buttons(p.id), isin=p.isin)

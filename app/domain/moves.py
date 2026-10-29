@@ -38,6 +38,7 @@ class Episode:
     sigma: float  # daily σ before the start
     max_session_share: float  # largest close-to-close log gain inside the episode / total log rise
     confirmed: bool  # False when the data ends before the reversal that confirms the peak
+    jump_share: float = 0.5  # MoveParams.jump_share the episode was found with
 
     @property
     def sessions(self) -> int:
@@ -45,7 +46,7 @@ class Episode:
 
     @property
     def shape(self) -> str:
-        return "saut" if self.max_session_share >= 0.5 else "progressive"
+        return "saut" if self.max_session_share >= self.jump_share else "progressive"
 
 
 def daily_sigma(closes: Sequence[float], end: int, n: int) -> float | None:
@@ -126,7 +127,7 @@ def find_episodes(bars: Sequence[Bar], p: MoveParams) -> list[Episode]:
             continue
         total = math.log(closes[i1] / closes[i0])
         best = max(math.log(closes[j] / closes[j - 1]) for j in range(i0 + 1, i1 + 1))
-        out.append(Episode(i0, i1, rise, sigma, best / total if total > 0 else 1.0, not k1.endswith("?")))
+        out.append(Episode(i0, i1, rise, sigma, best / total if total > 0 else 1.0, not k1.endswith("?"), p.jump_share))
     return out
 
 

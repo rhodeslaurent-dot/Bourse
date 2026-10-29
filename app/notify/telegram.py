@@ -8,6 +8,7 @@ without network; the :class:`TelegramBot` wraps python-telegram-bot.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import os
 from collections.abc import Callable
@@ -253,7 +254,14 @@ class TelegramBot:
         if current is loop:  # called from a coroutine of the bot's loop: never block it
             loop.create_task(self.send_event(event))
             return
-        asyncio.run_coroutine_threadsafe(self.send_event(event), loop).result(timeout=timeout_s)
+        fut = asyncio.run_coroutine_threadsafe(self.send_event(event), loop)
+        try:
+            fut.result(timeout=timeout_s)
+        except concurrent.futures.TimeoutError:
+            # the request may still reach Telegram: counted as sent (logged), never resent nor duplicated by email
+            log.warning(
+                "envoi Telegram sans réponse après %.0f s : délivrance non confirmée (%s)", timeout_s, event.kind
+            )
 
 
 def telegram_settings() -> tuple[str, int] | None:

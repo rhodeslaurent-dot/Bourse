@@ -38,7 +38,7 @@ LABELS: dict[str, str] = {
     ReevalStatus.WAITING.value: "déclencheur pas encore franchi",
     ReevalStatus.ENTRY_REACHED.value: "prix d'entrée atteint",
     ReevalStatus.TRIGGER_CROSSED.value: "déclencheur franchi sous la limite",
-    ReevalStatus.DEGRADED.value: "configuration dégradée : annuler l'ordre limite en attente",
+    ReevalStatus.DEGRADED.value: "configuration dégradée en séance : revoir l'ordre limite en attente",
     ReevalStatus.ABOVE_PMAX.value: "limite dépassée, ne pas courir après le prix",
     ReevalStatus.NOT_TESTABLE.value: "non testable",
 }
@@ -83,6 +83,12 @@ def fresh_realtime(data_status: str, market_timestamp: datetime | None, now: dat
 
 
 def classify(inp: ReevalInput) -> Reevaluation:
+    if inp.stop is not None and inp.price <= inp.stop:  # never an entry at or under its own stop
+        return Reevaluation(
+            ReevalStatus.DEGRADED,
+            False,
+            [f"cours {inp.price:.4g} au niveau du stop {inp.stop:.4g} ou dessous, en séance (à confirmer en clôture)"],
+        )
     adm = admit(
         AdmissionInput(
             inp.price,
@@ -98,7 +104,9 @@ def classify(inp: ReevalInput) -> Reevaluation:
     if adm.status == Status.NOT_TESTABLE:
         return Reevaluation(ReevalStatus.NOT_TESTABLE, False, list(adm.reasons))
     if adm.status == Status.DEGRADED:
-        return Reevaluation(ReevalStatus.DEGRADED, False, list(adm.reasons))
+        # R5 is a rule on closes: an intraday last under the support is a warning, confirmed (or not) at the close
+        intraday = [r.replace(" en clôture", " en séance (à confirmer en clôture)") for r in adm.reasons]
+        return Reevaluation(ReevalStatus.DEGRADED, False, intraday)
     if adm.status == Status.REFUSED:
         return Reevaluation(ReevalStatus.ABOVE_PMAX, False, list(adm.reasons))
     pmax = adm.p_max if adm.p_max is not None else inp.p_max
@@ -108,9 +116,10 @@ def classify(inp: ReevalInput) -> Reevaluation:
         )
     status = ReevalStatus.TRIGGER_CROSSED if inp.setup == Setup.BREAKOUT else ReevalStatus.ENTRY_REACHED
     reasons = [f"cours {inp.price:.4g} ≤ prix maximal {pmax:.4g}, structure intacte"]
-    if inp.level_low is None:
-        reasons.append("niveau de structure non enregistré : tenue du support non vérifiée")
     actionable = True
+    if inp.level_low is None:  # the structure cannot be checked: never an order card on it
+        actionable = False
+        reasons.append("à vérifier : niveau de structure non enregistré, tenue du support non vérifiée")
     if not fresh_realtime(inp.data_status, inp.market_timestamp, inp.now, inp.max_market_age_minutes):
         actionable = False
         if inp.data_status == "delayed":

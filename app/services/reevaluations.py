@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import ProposalReevaluation
@@ -17,11 +17,13 @@ def latest_by_proposal(s: Session, proposal_ids: list[int]) -> dict[int, Proposa
     out: dict[int, ProposalReevaluation] = {}
     if not proposal_ids:
         return out
-    for r in s.scalars(
-        select(ProposalReevaluation)
+    # one row per proposal (its last change), however many changes the day stored — polled every 15 s
+    last_ids = (
+        select(func.max(ProposalReevaluation.id))
         .where(ProposalReevaluation.proposal_id.in_(proposal_ids))
-        .order_by(ProposalReevaluation.id)
-    ):
+        .group_by(ProposalReevaluation.proposal_id)
+    )
+    for r in s.scalars(select(ProposalReevaluation).where(ProposalReevaluation.id.in_(last_ids))):
         out[r.proposal_id] = r
     return out
 
@@ -43,7 +45,7 @@ def summary(r: ProposalReevaluation) -> dict[str, Any]:
             tail = " · ".join(why) or "à vérifier"
         tone = "green" if r.actionable else "amber"
     elif r.status == ReevalStatus.DEGRADED.value:
-        tail, tone = "l'outil n'annule rien : à faire chez le courtier", "red"
+        tail, tone = "en séance, à confirmer en clôture ; l'outil n'annule rien : à faire chez le courtier", "red"
     else:
         tone = "slate"
     return {

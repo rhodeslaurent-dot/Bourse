@@ -96,14 +96,25 @@ def regimes(hist: History | None) -> dict[date, str]:
     return out
 
 
+def ttf_rate_of(tax: dict[str, Any], isin: str, market_cap_eur: float | None) -> float:
+    """French TTF for the backtest and the studies (no point-in-time official list): ``tax.ttf_rate`` for a
+    French ISIN whose current market cap reaches ``tax.ttf_cap_threshold_eur`` (dated block, rule 5). No
+    threshold in the block → every French ISIN pays it (prudent); no rate → 0."""
+    if not isin.startswith("FR"):
+        return 0.0
+    rate = float(tax.get("ttf_rate") or 0.0)
+    cap = tax.get("ttf_cap_threshold_eur")
+    if cap is None:
+        return rate
+    return rate if (market_cap_eur or 0) >= float(cap) else 0.0
+
+
 def _cost_params(config: LoadedConfig, inst: Instrument) -> CostParams:
-    from app.services.engine import _fees
+    from app.services.engine import _fees, _tax
 
     p = config.params
-    tax = (p.tax[0].model_dump() if p.tax and hasattr(p.tax[0], "model_dump") else {}) if p.tax else {}
-    ttf = (
-        float(tax.get("ttf_rate") or 0.004) if inst.isin.startswith("FR") and (inst.market_cap_eur or 0) >= 1e9 else 0.0
-    )
+    tax = _tax(config)  # the block in force today (dated parameters, rule 5)
+    ttf = ttf_rate_of(tax, inst.isin, inst.market_cap_eur)
     fx = float(((p.brokers or {}).get("saxo") or {}).get("fx_fee_pct") or 0) if inst.currency != "EUR" else 0.0
     ftt = ftt_rate_any((tax.get("ftt_by_country") or {}).get(inst.isin[:2]))
     return CostParams(_fees(config, "cto_cash"), ttf_rate=ttf, ftt_rate=ftt, fx_fee_pct=fx)
@@ -144,6 +155,8 @@ def run_backtest(
 
         cals = _calendars()
         groups = mic_groups(config, cals) if cals is not None else {}
+        if not groups:  # never a backtest on zero instruments that looks like a result
+            raise RuntimeError("périmètre européen du backtest indéterminé : calendriers de marché indisponibles")
         insts = {k: v for k, v in insts.items() if v.mic in groups}
     hist = load_history(s, list(insts), start, end)
     ranks = rs_ranks(hist) if hist else {}

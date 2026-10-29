@@ -111,9 +111,16 @@ def test_the_reaction_session_follows_an_announcement_after_the_close():
     ix = EarningsIndex(days, [(date(2025, 7, 24), "amc"), (date(2025, 7, 22), "bmo")])
     assert ix.is_reaction(4) is True  # Friday 25 reacts to Thursday 24 after the close
     assert ix.is_reaction(1) is True and ix.is_reaction(3) is False
-    assert ix.days_to_next(0) == 1 and ix.days_to_next(4) == 999
+    assert ix.days_to_next(0) == 1 and ix.days_to_next(4) is None  # after the last loaded one: not known
     far = EarningsIndex([date(2010, 1, 4)], [(date(2025, 7, 24), "amc")])
     assert far.is_reaction(0) is None and far.days_to_next(0) is None  # outside the loaded span: unknown
+    # a hole in the history (2021–2022 missing) stays unknown; half-yearly reporting stays known throughout
+    hole = EarningsIndex([date(2020, 9, 1), date(2021, 9, 1), date(2023, 1, 10)],
+                         [(date(2020, 7, 28), "amc"), (date(2023, 2, 1), "bmo")])  # fmt: skip
+    assert hole.is_reaction(1) is None and hole.days_to_next(1) is None
+    assert hole.is_reaction(0) is False and hole.days_to_next(0) is None and hole.days_to_next(2) == 22
+    half = EarningsIndex([date(2024, 8, 1)], [(date(2024, 7, 25), "amc"), (date(2025, 1, 30), "amc")])
+    assert half.days_to_next(0) == 182
 
 
 def test_the_study_says_which_rises_started_on_results(db_engine, example_raw, calendars):
