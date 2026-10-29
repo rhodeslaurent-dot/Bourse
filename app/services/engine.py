@@ -1399,6 +1399,7 @@ def notify_top(s: Session, config: LoadedConfig, alerts: Any, mode: str, day: da
     from app.notify.base import Event
     from app.notify.telegram import proposal_buttons
     from app.services.instruments import name_of
+    from app.web.labels import EXITS_NOTE
 
     top_n = int((getattr(config.params, "ranking", None) or {}).get("notify_top_n", 3))
     sent = 0
@@ -1415,7 +1416,7 @@ def notify_top(s: Session, config: LoadedConfig, alerts: Any, mode: str, day: da
             f"Compte : {p.account_recommended} · {acc.get('titres')} titres · limite {d.get('p_max'):.4g}"
             if d.get("p_max")
             else f"Compte : {p.account_recommended}",
-            f"Stop {p.stop:.4g} · objectif {(p.targets or [None])[0]}",
+            f"Stop {p.stop:.4g} · objectif {(p.targets or [None])[0]} ({EXITS_NOTE})",
             f"Gain net {(acc.get('gain_net_pct') or 0) * 100:.1f} % · perte nette "
             f"{(acc.get('perte_nette_pct') or 0) * 100:.1f} % · ratio net {acc.get('ratio_net')}",
             f"Portail {d.get('portail')} · horizon {p.horizon}",

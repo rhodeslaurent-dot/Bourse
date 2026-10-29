@@ -152,3 +152,13 @@ def label(kind: str, value: object) -> str:
 
 def help_of(key: str) -> str:
     return HELP.get(key, "")
+
+
+# User decision of 29/10/2026: no exit rule (target, stop) is validated by a pre-registered research plan yet
+# (docs/31, docs/33, docs/34) — said next to every target until one is. Removed when a plan validates the exits.
+EXITS_NOTE = "sorties non validées par la recherche"
+EXITS_HELP = (
+    "Objectifs et stop viennent des règles des détecteurs (résistance, plus haut, mesure de la base, niveau publié "
+    "par une lettre). Aucune de ces règles de sortie n'a encore été validée par un plan de recherche "
+    "pré-enregistré : ce sont des repères, pas des cibles mesurées."
+)

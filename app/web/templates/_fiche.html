@@ -64,7 +64,7 @@
       {% endfor %}
       </tbody>
     </table></div>
-    <p class="mt-1 text-[11px] text-slate-500">TTF : {{ 'due' if (dd.ttf or {}).due else 'non due' }} ({{ (dd.ttf or {}).base }}).{% if dd.taxe_etrangere %} Taxe étrangère ({{ dd.taxe_etrangere.pays }}) : {{ '%.2f %%'|format(dd.taxe_etrangere.taux * 100) }} à l'achat — {{ dd.taxe_etrangere.base }}.{% endif %}{% for a, why in (dd.comptes_exclus or {}).items() %} {{ label('account', a) }} exclu : {{ why }}.{% endfor %} Impôt de l'enveloppe sur le gain (PFU en CTO ; prélèvements sociaux en PEA de plus de 5 ans), aucun crédit d'impôt supposé sur une perte. Ce ne sont pas des promesses : objectif {{ 'publié par la lettre' if it.sig and it.sig.detector == 'external' else 'technique (résistance, plus haut, mesure de la base)' }}, jamais un multiple du risque.</p>
+    <p class="mt-1 text-[11px] text-slate-500">TTF : {{ 'due' if (dd.ttf or {}).due else 'non due' }} ({{ (dd.ttf or {}).base }}).{% if dd.taxe_etrangere %} Taxe étrangère ({{ dd.taxe_etrangere.pays }}) : {{ '%.2f %%'|format(dd.taxe_etrangere.taux * 100) }} à l'achat — {{ dd.taxe_etrangere.base }}.{% endif %}{% for a, why in (dd.comptes_exclus or {}).items() %} {{ label('account', a) }} exclu : {{ why }}.{% endfor %} Impôt de l'enveloppe sur le gain (PFU en CTO ; prélèvements sociaux en PEA de plus de 5 ans), aucun crédit d'impôt supposé sur une perte. Ce ne sont pas des promesses : objectif {{ 'publié par la lettre' if it.sig and it.sig.detector == 'external' else 'technique (résistance, plus haut, mesure de la base)' }}, jamais un multiple du risque ; {{ exits_note }}.</p>
   </div>
   {% endif %}
 

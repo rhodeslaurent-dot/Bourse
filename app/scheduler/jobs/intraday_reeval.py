@@ -135,7 +135,7 @@ def _fmt(x: float | None) -> str:
 
 def _event(kind: str, p: Proposal, r: Reevaluation, q: Quote, name: str) -> Event:
     from app.notify.telegram import proposal_buttons
-    from app.web.labels import label
+    from app.web.labels import EXITS_NOTE, label
 
     d = p.details or {}
     status = {"realtime": "temps réel", "delayed": "différé", "stale": "périmé"}.get(q.data_status.value, "")
@@ -158,7 +158,8 @@ def _event(kind: str, p: Proposal, r: Reevaluation, q: Quote, name: str) -> Even
     acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
     lines = [
         quote_line,
-        f"Limite (prix maximal) {_fmt(d.get('p_max'))} · stop {_fmt(p.stop)} · objectif {_fmt(p.targets[0])}",
+        f"Limite (prix maximal) {_fmt(d.get('p_max'))} · stop {_fmt(p.stop)} · objectif {_fmt(p.targets[0])} "
+        f"({EXITS_NOTE})",
     ]
     if p.account_recommended:
         # the size was computed at creation: other fills or pending orders may have used the risk budget since

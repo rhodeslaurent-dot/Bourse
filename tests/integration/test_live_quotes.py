@@ -254,6 +254,7 @@ def test_opportunities_card_and_order_book_update_live(client):
     html = client.get("/opportunites").text
     assert f'data-live-distance="{pid}"' in html and f'data-live-isin="{A}"' in html
     assert "prix d&#39;entrée atteint — cours différé 15 min, à vérifier" in html
+    assert "Sorties non validées par la recherche" in html  # user decision of 29/10/2026, next to the targets
 
 
 def test_an_implausible_quote_never_reaches_the_reevaluation(fake, config, calendars):
