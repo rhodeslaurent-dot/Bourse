@@ -254,14 +254,18 @@ def information_only(it: dict, far_pct: float) -> bool:
         return False
     pmax = (p.details or {}).get("p_max")
     price = (it.get("snapshot_price") or {}).get("last")
-    waiting = any("en attente d'un repli" in b for b in blocked)
+    # a breakout above the limit of its plage (docs/06 §6.3) follows the same display rule as a waiting limit; an
+    # armed breakout (BUY, its plage in the order book) is never folded
+    waiting = any("en attente d'un repli" in b or "au-dessus de la limite de la plage" in b for b in blocked)
     return bool(waiting and pmax and price and price / pmax - 1 > far_pct)
 
 
 def order_book(items: list[dict]) -> list[dict]:
     """R7 (docs/06 §6.7): open admitted proposals sorted by distance from the last price to the
     maximum entry price; the closest ``entry.standing_orders_max`` are the limit orders to post, with an expiry
-    date after ``entry.expiry_sessions`` sessions of the value's venue (user decision of 27/10/2026)."""
+    date after ``entry.expiry_sessions`` sessions of the value's venue (user decision of 27/10/2026). A breakout's
+    row is its order à plage de déclenchement (docs/06 §6.3): seuil, limite, expiry after ``entry.confirm_sessions``
+    sessions, and the distance from the price to the seuil."""
     rows = []
     seen: set[str] = set()
     for it in sorted(items, key=lambda x: (x["p"].rank is None, x["p"].rank or 0, x["p"].id)):
@@ -280,15 +284,20 @@ def order_book(items: list[dict]) -> list[dict]:
         price = (it.get("snapshot_price") or {}).get("last")
         if not pmax:
             continue
+        ent = d.get("entree") or {}
+        seuil = ent.get("seuil") if ent.get("type") == "ordre à plage de déclenchement" else None
+        ref = float(seuil) if isinstance(seuil, int | float) and seuil > 0 else float(pmax)
         rows.append(
             {
                 "p": p,
                 "name": it["name"],
                 "p_max": pmax,
+                "seuil": seuil,
                 "titres": acc.get("titres"),
                 "stop": p.stop,
-                "distance": (price / pmax - 1) if price else None,
-                "expire": (d.get("validite") or {}).get("jusqu_au"),  # the expiry date to type at the broker
+                "distance": (price / ref - 1) if price else None,  # to the seuil for a plage, else to the limit
+                # the expiry date to type at the broker
+                "expire": ent.get("jusqu_au") or (d.get("validite") or {}).get("jusqu_au"),
                 "blocked": [b for b in (p.gates or {}).get("blocked", []) if b.startswith("BLOQUÉ")],
             }
         )

@@ -17,6 +17,27 @@ class Explanation:
     data_used: list[str] = field(default_factory=list)  # snapshot facts with status / timestamps
     summary: str = ""  # headline + first blocking gate + "à vérifier" (single-line contexts)
     track: dict[str, Any] | None = None  # comparable history frozen in the snapshot (docs/18 §18.5)
+    order_line: str | None = None  # the order to type at the broker, when the entry is a plage (docs/06 §6.3)
+
+
+def _fr(x: Any) -> str:
+    return f"{float(x):.4g}".replace(".", ",")
+
+
+def entry_order_line(entree: dict[str, Any] | None, unit: str = "€") -> str | None:
+    """The breakout's order à plage de déclenchement as the card says it (docs/06 §6.3), from the stored entry
+    (``details.entree``); None for any other entry. Stored numbers only."""
+    e = entree or {}
+    seuil, limite, n = e.get("seuil"), e.get("limite"), e.get("validite_seances")
+    if e.get("type") != "ordre à plage de déclenchement" or not isinstance(seuil, int | float) or not limite:
+        return None
+    until = str(e.get("jusqu_au") or "")
+    date_txt = f" (jusqu'au {until[8:10]}/{until[5:7]}/{until[:4]})" if len(until) == 10 else ""
+    valid = f", valable {int(n)} séance{'s' if int(n) > 1 else ''}{date_txt}" if isinstance(n, int | float) else ""
+    return (
+        f"Ordre à plage de déclenchement J+1 : seuil {_fr(seuil)} {unit}, limite {_fr(limite)} {unit}{valid} — "
+        "à saisir chez le courtier ; l'outil ne passe aucun ordre"
+    )
 
 
 def _fmt(x: Any, digits: int = 2, unit: str = "") -> str:
@@ -64,7 +85,9 @@ def explain_proposal(
             {"buy": "avis achat", "sell": "avis vente", "watch": "à surveiller"}.get(ev["direction"], ev["direction"])
         )
     if entry_px:
-        parts.append(f"{'limite' if entry.get('limite') else 'entrée'} {_fmt(entry_px)} {unit}")
+        seuil = entry.get("seuil")  # a breakout's plage (docs/06 §6.3): its seuil before its limit
+        pre = f"seuil {_fmt(seuil)} {unit} · " if isinstance(seuil, int | float) else ""
+        parts.append(f"{pre}{'limite' if entry.get('limite') else 'entrée'} {_fmt(entry_px)} {unit}")
     if stop and entry_px:
         try:
             parts.append(f"stop {_fmt(stop)} {unit} ({(1 - float(stop) / float(entry_px)):.1%} sous l'entrée)")
@@ -86,6 +109,7 @@ def explain_proposal(
     if track and track.get("verdict") in ("favorable", "defavorable"):
         parts.append(f"historique {label('track_verdict', track['verdict'])}")
     headline = " · ".join(parts)
+    order_line = entry_order_line(entry, unit)
     summary = headline
     if blocked:
         summary += " · " + blocked[0].split("(")[0].strip()
@@ -160,7 +184,7 @@ def explain_proposal(
                     + ("déclaratif" if st.get("declarative") else "synchronisé")
                     + (f", synchronisé {st.get('synced_at')}" if st.get("synced_at") else ", jamais synchronisé")
                 )
-    return Explanation(headline, bullets, blocked, data_used, summary, track)
+    return Explanation(headline, bullets, blocked, data_used, summary, track, order_line)
 
 
 # --- plain-language reading of the engine's WATCH / BLOQUÉ lines (user request of 26/10/2026) ----------------
@@ -183,6 +207,12 @@ _PLAIN: list[tuple[str, str]] = [
         "Le cours est déjà au-dessus du prix maximal d'entrée : acheter plus haut "
         "rendrait le gain attendu trop faible face au risque. Un ordre limite est préparé au prix maximal (carnet "
         "d'ordres) ; il ne sera exécuté que si le cours redescend.",
+    ),
+    (
+        "au-dessus de la limite de la plage",
+        "C'est une cassure : l'ordre à plage de déclenchement n'achète qu'entre le seuil et la limite (prix maximal). "
+        "Le cours est déjà au-dessus de la limite : acheter plus haut rendrait le gain attendu trop faible face au "
+        "risque. Aucun ordre, on ne court pas après le prix.",
     ),
     (
         "au déclencheur",

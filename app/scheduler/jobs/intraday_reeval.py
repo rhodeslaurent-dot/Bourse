@@ -89,7 +89,8 @@ def reeval_input(p: Proposal, sig: Signal | None, price: float, q: Quote | None,
         (v for v in comptes.values() if isinstance(v, dict) and v.get("frais_aller_retour_pct") is not None), {}
     )
     k = float((getattr(config.params, "admission", None) or {}).get("min_reward_risk", 2.0))
-    trig = (d.get("entree") or {}).get("declencheur")
+    ent = d.get("entree") or {}
+    trig = ent.get("seuil", ent.get("declencheur"))  # a breakout's plage (docs/06 §6.3); older proposals: trigger
     if (d.get("configuration") or {}).get("franchi") is False and trig is not None and price < float(trig):
         low = None  # a letter's obstacle never crossed yet: nothing to give back, the breakout is still waiting
     return ReevalInput(
@@ -160,11 +161,11 @@ def _event(kind: str, p: Proposal, r: Reevaluation, q: Quote, name: str) -> Even
             isin=p.isin,
         )
     acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
-    lines = [
-        quote_line,
-        f"Limite (prix maximal) {_fmt(d.get('p_max'))} · stop {_fmt(p.stop)} · objectif {_fmt(p.targets[0])} "
-        f"({EXITS_NOTE})",
-    ]
+    ent = d.get("entree") or {}
+    levels = f"limite (prix maximal) {_fmt(d.get('p_max'))} · stop {_fmt(p.stop)} · objectif {_fmt(p.targets[0])}"
+    if isinstance(ent.get("seuil"), int | float):  # a breakout's plage (docs/06 §6.3): its seuil first
+        levels = f"Seuil {_fmt(ent['seuil'])} · {levels}"
+    lines = [quote_line, f"{levels[0].upper()}{levels[1:]} ({EXITS_NOTE})"]
     if p.account_recommended:
         # the size was computed at creation: other fills or pending orders may have used the risk budget since
         # (rule 7, max_open_risk_pct) — it is shown as an upper bound, to recompute before entering the order
@@ -172,7 +173,12 @@ def _event(kind: str, p: Proposal, r: Reevaluation, q: Quote, name: str) -> Even
             f"Compte conseillé : {label('account', p.account_recommended)}"
             + (f" · au plus {acc['titres']} titre(s), taille à recalculer avant saisie" if acc.get("titres") else "")
         )
-    lines += ["Ordre limite au prix maximal, jamais au-delà ; stop à poser dès l'exécution", "Aucun ordre n'est passé"]
+    from app.services.explain import entry_order_line
+
+    lines += [
+        entry_order_line(ent) or "Ordre limite au prix maximal, jamais au-delà",
+        "Stop à poser dès l'exécution ; aucun ordre n'est passé",
+    ]
     return Event("P2", kind, f"{name} : {LABELS[r.status.value]}", lines, proposal_buttons(p.id), isin=p.isin)
 
 

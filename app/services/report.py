@@ -170,9 +170,19 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         if p.action == "NO_TRADE"
     ]
     r.append({"titre": RUBRICS[6], "faits": (neg[:6] + avoid[:6]) or ["rien à signaler"]})
+
     # 8 — action plan
+    def _order(p: Any) -> str:
+        d = p.details or {}
+        seuil = (d.get("entree") or {}).get("seuil")
+        if isinstance(seuil, int | float):  # a breakout: its order à plage de déclenchement (docs/06 §6.3)
+            return (
+                f"Poser l'ordre à plage de déclenchement {name_of(p.isin)} : seuil {seuil:.4g}, limite {d['p_max']:.4g}"
+            )
+        return f"Poser l'ordre limite {name_of(p.isin)} à {d.get('p_max'):.4g}"
+
     plan = [
-        f"Poser l'ordre limite {name_of(p.isin)} à {(p.details or {}).get('p_max'):.4g}"
+        _order(p)
         for p in props
         if p.action == "BUY"
         and p.rank

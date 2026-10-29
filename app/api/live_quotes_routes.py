@@ -49,12 +49,16 @@ def live_quotes(request: Request, isins: str = "", force: int = 0) -> dict[str, 
             else []
         )
         distances: dict[str, dict[str, Any]] = {}
+        to_seuil: dict[str, dict[str, Any]] = {}
         for p in props:
             pmax = (p.details or {}).get("p_max")
             last = res.views[p.isin].last if p.isin in res.views else None
             if pmax and last is not None:
                 d = last / float(pmax) - 1
                 distances[str(p.id)] = {"ecart": d, "ecart_txt": fmt_pct(d)}
+                seuil = ((p.details or {}).get("entree") or {}).get("seuil")  # a breakout's plage (docs/06 §6.3)
+                if isinstance(seuil, int | float) and seuil > 0:
+                    to_seuil[str(p.id)] = {"ecart": last / float(seuil) - 1, "ecart_txt": fmt_pct(last / seuil - 1)}
         reevals = {str(k): summary(v) for k, v in latest_by_proposal(s, [p.id for p in props]).items()}
         message = res.message
         if not message and not res.any_open and wanted:
@@ -66,6 +70,7 @@ def live_quotes(request: Request, isins: str = "", force: int = 0) -> dict[str, 
             "maintenant": now.isoformat(),
             "cours": {i: v.as_json() for i, v in res.views.items()},
             "ecarts": distances,
+            "ecarts_seuil": to_seuil,
             "reevaluations": reevals,
             "next_poll_s": res.next_poll_s,
             "eodhd": {

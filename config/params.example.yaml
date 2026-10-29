@@ -169,6 +169,7 @@ entry:                                  # docs/06 §6.7 (R6, R7)
   fixing_card_time: "17:15"             # heure de Paris : fiche « repli sur support » pour le fixing de clôture
   standing_orders_max: 4
   expiry_sessions: 3
+  confirm_sessions: 3                   # 30/10/2026 (docs/06 §6.3, appliqué ce jour) : validité, en séances de la place de la valeur, de l'ordre à plage de déclenchement J+1 d'une cassure (seuil = déclencheur du détecteur, limite = prix maximal)
   far_limit_display_pct: 0.05           # page Opportunités (décision du 29/10/2026) : limite en attente à plus de 5 % sous le cours de l'analyse → repliée « pour information »
 
 zones:                                  # docs/06 §6.7 — supports / résistances détectés
