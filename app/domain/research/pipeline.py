@@ -58,6 +58,7 @@ from app.domain.research.exits import (
     bars_from,
     simulate,
 )
+from app.domain.research.insider_triggers import INSIDER_TRIGGERS, InsiderData, t17_insider
 from app.domain.research.panel import (
     F64,
     I8,
@@ -124,6 +125,7 @@ class Settings:
     min_turnover_cto_eur: float | None = None  # universe.min_adv_eur_cto: robustness split (plan §1.1)
     seal_start: date | None = None  # segments.holdout_start: no data-quality exclusion crosses it
     min_earnings_coverage: float | None = None  # thresholds.min_earnings_coverage (registration n° 3)
+    insiders: InsiderData | None = None  # registration n° 5: AMF declarations and the plan's insider_* rules
 
 
 # --- group data ------------------------------------------------------------------------------------
@@ -324,6 +326,8 @@ def raw_trigger(g: GroupData, cell: Cell, st: Settings) -> tuple[Bool, F64 | Non
         m = T.t08_gap(p, f, float(q["gap_min"]), float(q.get("rvol_min", 2.0)))
     elif cell.trigger == "t09":
         m = T.t09_volume_shock(p, f, float(q.get("mult", 3.0)))
+    elif cell.trigger in INSIDER_TRIGGERS:  # registration n° 5 (insider_triggers)
+        m = t17_insider(p, f, st.insiders, q)
     elif cell.trigger in T.EARNINGS_TRIGGERS and not g.earn_ok:  # coverage below the plan's floor: no signal
         m = np.zeros(p.shape, dtype=np.bool_)
     elif cell.trigger == "t14":

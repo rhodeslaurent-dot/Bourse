@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Literal
 
+from app.domain.research.insider_triggers import INSIDER_TRIGGERS
+
 CellTier = Literal["confirmatory", "exploratory", "f0"]
 Mode = Literal["event", "monthly", "monthly_overlay"]
 MOMENTUM_TRIGGERS = frozenset({"t01", "t03", "c1"})
@@ -230,6 +232,9 @@ def expand_family(fam: Mapping[str, Any]) -> list[Cell]:
         cid = f"{fam['family']}.{raw['trigger']}." + label
         out.append(_cell(raw, "exploratory", str(fam["family"]), cid))
     return out
+
+
+KNOWN_TRIGGERS = KNOWN_TRIGGERS | INSIDER_TRIGGERS  # registration n° 5: managers' dealings (insider_triggers)
 
 
 def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:

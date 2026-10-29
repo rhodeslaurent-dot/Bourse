@@ -1,0 +1,188 @@
+# Plan de recherche pré-enregistré — enregistrement n° 5 (docs/34 §34.12) : achats des dirigeants. Ce fichier EST
+# le plan : il est GELÉ le 29/10/2026 au soir par l'assistant, sur délégation de l'utilisateur du 29/10/2026 au soir,
+# AVANT tout chargement de l'historique des déclarations des dirigeants (insider-archive --from 2021-11-01, lancé
+# ensuite sur le PC) et AVANT toute lecture d'un résultat lié à ces déclarations. Son empreinte sha256 est inscrite
+# au registre à chaque exécution ; le modifier crée un NOUVEL enregistrement.
+# Hypothèse tirée de la littérature, pas des données : les achats en bourse des dirigeants d'émetteurs français
+# (MAR art. 19) sont suivis d'un rendement anormal positif sur 10 à 20 séances (Fidrmuc, Goergen & Renneboog 2006 ;
+# Betzer & Theissen 2009 ; Fidrmuc, Korczak & Korczak 2013), plus faible depuis MAR 2016 (Grimberg & Herberger 2020).
+# Repris à l'identique du n° 3 : seuils A1–A13, inférence, clés de paramètres, hypothèses chiffrées communes, entrée
+# E_open(1) validité 1, sortie X3, placebo X1 exécuté et lu AVANT C1 / C2, Holm sur 2, verdict sur le CTO et PEA en
+# seconde vue des coûts. Modifications déclarées, choisies avant toute donnée : un seul groupe, Paris (PA), jugé sur
+# le CAC 40 (les déclarations AMF ne couvrent que les émetteurs suivis par l'AMF) ; seuil de couverture des
+# publications de résultats retiré (sans objet) ; règles de lecture des déclarations (insider_*) ci-dessous.
+# Période : la conservation de la BDIF (5 ans annoncés) fixe le début au 2021-11-01. France seule ; la table des
+# instruments est celle d'aujourd'hui : un émetteur radié ou renommé depuis est « hors panneau » (biais de survie,
+# compté). AUCUNE période scellée n'existe pour ces données : le verdict de ce plan peut au mieux fonder un SUIVI EN
+# OMBRE à 50 % du risque par trade, jamais un détecteur actionnable sans la CONFIRMATION VERS L'AVANT définie plus bas
+# (forward_confirmation).
+# Couverture : l'en-tête du rapport imprime les déclarations chargées par mois, le taux d'analyse des PDF, l'entonnoir
+# des exclusions, l'origine de l'ISIN, le placement sur les séances et les mois sans déclaration. Une cellule
+# confirmatoire sous A1 (n ≥ 300, ≥ 100 semaines, ≥ 40 trades par pli) est déclarée « non concluant » — jamais
+# « pas d'avantage » —, et le titre l'annonce quand C1 et C2 le sont toutes deux.
+id: "2026-10-30_reg5"
+title: "Recherche de déclencheurs — enregistrement n° 5 : achats des dirigeants (AMF, MAR art. 19)"
+registered_on: "2026-10-29"
+seed: 20261030
+
+venue_groups:                                # un groupe : Paris, régime et rendement anormal sur le CAC 40
+  PA: [PA]
+
+segments:
+  warmup_sessions: 252
+  discovery: ["2021-11-01", "2026-10-29"]    # conservation BDIF → veille du gel ; tout est « test » (rien choisi dessus)
+  embargo: ["2099-01-01", "2099-01-02"]      # sans objet
+  holdout_start: "2026-10-30"                # période VERS L'AVANT : jamais lue par « run », ouverte une fois (unseal)
+  end_margin_sessions: 65
+  purge_sessions: 65
+  wf_test:                                   # 5 plis d'un an (A5 : ≥ 4 positifs sur 5) ; le dernier finit au gel
+    - ["2021-11-01", "2022-10-31"]
+    - ["2022-11-01", "2023-10-31"]
+    - ["2023-11-01", "2024-10-31"]
+    - ["2024-11-01", "2025-10-31"]
+    - ["2025-11-01", "2026-10-29"]
+
+forward_confirmation:                        # la seule réplication possible : des signaux postérieurs au verdict
+  # Ouverture UNIQUE de la période vers l'avant (research unseal, fichier de candidats figé de l'exécution), refusée
+  # tant que les données n'atteignent pas le verdict (première exécution « run » de ce plan au registre) + 12 mois de
+  # signaux + leurs sorties (65 séances), et tant que le suivi en ombre n'a pas enregistré 100 signaux de C1. Au-delà
+  # de 36 mois sans ces 100 signaux : « non concluant », sans ouverture. Verdict, mêmes seuils que les descellements
+  # des plans n° 1 à 3 : A2 complet sur la période vers l'avant (R moyen ≥ +0,10, ≥ +30 € pour 300 € de risque,
+  # facteur de profit ≥ 1,15, % du notionnel > 0) et même signe qu'en découverte. Confirmé → ADR de mise en
+  # production à 50 % de risk.max_risk_per_trade_pct avec règle de suspension ; sinon rien ne change.
+  start: "2026-10-30"
+  cell: C1
+  min_months_after_verdict: 12
+  min_shadow_signals: 100
+  max_months_after_verdict: 36
+  end_margin_sessions: 65
+
+parameters_keys:                             # lus dans config/params.yaml (règle 8 : source unique)
+  min_price: "universe.min_price"
+  min_turnover_eur: "universe.min_adv_eur_pea"
+  min_turnover_cto_eur: "universe.min_adv_eur_cto"
+  small_cap_threshold_eur: "universe.small_cap_threshold_eur"
+  breadth_green: "regime.breadth_green"
+  index_isins: "regime.index_isins"
+  slippage_pct: "risk.slippage_pct"
+  max_risk_per_trade_pct: "risk.max_risk_per_trade_pct"
+  max_position_pct_of_capital: "risk.max_position_pct_of_capital"
+  fx_haircut: "risk.fx_haircut"
+  max_open_risk_pct: "risk.max_open_risk_pct"
+  capital_pilote_eur: "capital.capital_pilote_eur"
+  expiry_sessions: "entry.expiry_sessions"
+  ma20_exit_closes: "detectors.exits.thesis_mm20_close_below_days"
+  ttf_rate: "tax.ttf_rate"
+  ttf_cap_threshold_eur: "tax.ttf_cap_threshold_eur"
+  pfu_total_rate: "tax.pfu_total_rate"
+  ftt_by_country: "tax.ftt_by_country"
+  srd_daily_rate: "srd.crd_daily_rate"
+  brokers: "brokers.saxo, brokers.boursobank"
+
+assumptions:
+  fx_static_eur_per_unit:                    # repli quand fx_rates ne couvre pas la date (seuil de liquidité seulement)
+    value: {SEK: 0.088, DKK: 0.134, NOK: 0.086, PLN: 0.232, GBP: 1.16, GBX: 0.0116, CHF: 1.04, USD: 0.92}
+    assumption: true
+  ca_jump: {value: 0.2, assumption: true}                  # saut du facteur d'ajustement = opération sur titres (exclue)
+  dividend_min_drop: {value: 0.002, assumption: true}      # baisse minimale du facteur = dividende
+  dividend_yield_sanity: {value: [0.0, 0.12], assumption: true}   # rendement annuel implicite plausible
+  bankruptcy_hazard_small: {value: 0.03, assumption: true}  # par an, petites capitalisations
+  bankruptcy_hazard_large: {value: 0.005, assumption: true} # par an, grandes capitalisations
+  takeover_jump: {value: 0.25, assumption: true}           # OPA : +25 % (même taux annuel que la faillite)
+  capacity_pct_of_turnover: {value: 0.02, assumption: true} # capacité : notionnel ≤ 2 % du volume médian 20 séances
+  momentum_entry_cap_atr: {value: 1.0, assumption: true}   # repris du n° 2 (aucune cellule momentum ici)
+  cost_stress_multiplier: {value: 1.5, assumption: false}
+  slippage_stress_multiplier: {value: 2.0, assumption: false}
+  top_n_monthly: {value: 6, assumption: false}
+  # --- lecture des déclarations (app/domain/research/insider_triggers.py) ---
+  # fonctions « dirigeant exécutif » : sous-liste fermée de amf_bdif.ROLES (président du conseil, conseil de
+  # surveillance, administrateur, gérant, directeur financier, président, autre dirigeant et personne liée : hors
+  # C1 / C2, comptés dans X5 seulement)
+  insider_executive_roles:
+    value: ["PDG", "directeur général", "directeur général délégué", "président du directoire", "membre du directoire"]
+    assumption: false
+  insider_close_cutoff_paris: {value: "17:30", assumption: true}  # publiée après 17:30 (Paris) → séance suivante
+  insider_max_gap_days: {value: 7, assumption: true}       # séance de placement au plus 7 jours après la publication
+  insider_max_price_ratio: {value: 2.0, assumption: true}  # prix lu hors [½ ; 2] × clôture de la séance → erreur de lecture
+  insider_share_wording: {value: ["action", "share", "equity"], assumption: true}   # instrument : une action
+  insider_excluded_wording:                  # instrument ou nature : options, actions gratuites, souscriptions, plans…
+    value: ["option", "gratuit", "attribution", "definitive", "souscri", "subscri", "exercice", "exercise", "levee",
+            "conversion", "converti", "bsa", "bspce", "bon de", "warrant", "droit", "epargne", "pee", "fcpe", "perco",
+            "plan d", "dividende", "pret", "emprunt", "nantissement", "gage", "donation", "succession", "heritage",
+            "apport", "echange", "remise", "livraison", "derive", "swap", "cfd", "obligation", "preference"]
+    assumption: true
+  insider_on_market_wording:                 # lieu : une plateforme de négociation
+    value: ["euronext", "xpar", "alxp", "xmli", "xams", "xbru", "xlis", "growth", "access", "marche reglemente",
+            "plateforme de negociation", "plate forme de negociation", "trading venue", "regulated market",
+            "systeme multilateral", "mtf", "bourse", "cboe", "bats", "chi x", "turquoise", "aquis", "xetra"]
+    assumption: true
+  insider_off_market_wording:                # lu AVANT le précédent : « en dehors d'une plateforme… » est hors marché
+    value: ["hors", "en dehors", "outside", "gre a gre", "otc", "off market", "bloc", "block", "prive", "private"]
+    assumption: true
+
+thresholds:
+  gate_t_week: 2.0
+  a1: {event_min_n: 300, event_min_weeks: 100, fold_min_trades: 40, rank_min_months: 60, rank_min_trades_slot: 200}
+  a2: {min_mean_r: 0.10, min_eur_per_budget: 30.0, min_profit_factor: 1.15}
+  a3: {holm_alpha: 0.05, rw_alpha: 0.05, min_t: 3.0, min_dsr: 0.95, max_pbo: 0.30}
+  a4: {min_excess: 0.08, max_perm_p: 0.01}
+  a5: {min_positive_folds: 4}
+  a9: {min_hazard_multiple: 2.0}
+  a10: {max_top10_share: 0.40}
+  a12: {max_hold_sessions: 63}
+  a13: {max_dd_ratio_vs_benchmark: 1.0, slots: 6}
+  watchlist_bh_q: 0.10
+  power_min: 0.5
+  report_min_n: 20
+  candidates_max: 5
+  stage1: {max_triggers: 4, min_delta_r: 0.05, min_positive_folds: 4, max_pbo: 0.30, max_dd_worse: 0.10}
+  existing_detectors_ci_high_max: 0.0
+
+inference:
+  bootstrap_draws: 2000
+  block_weeks: 4
+  permutation_draws: 500
+  permutation_top: 30
+  pbo_blocks: 16
+  power_edges: [0.10, 0.20]
+  power_decision_edge: 0.20
+  power_reps: 50
+
+confirmatory:                                # Holm sur 2, unilatéral ; verdict sur le CTO, PEA en seconde vue
+  # C1 = t17 : déclaration analysée (parse_status = parsed) d'une ACQUISITION par un dirigeant exécutif
+  # (insider_executive_roles), en bourse (chaque transaction sur une action, sur une plateforme de négociation, sans
+  # libellé exclu), montant prix × volume ≥ 10 000 € (prix et volume lus, euro ; inconnu → exclue, jamais estimé),
+  # ISIN de la déclaration, sinon celui de la correspondance enregistrée par nom ; signal sur la première séance de la
+  # valeur à partir de la publication AMF (après 17:30 → séance suivante) ; un signal par valeur toutes les 20
+  # séances (le premier, avant éligibilité) ; valeur cotée à Paris et éligible ce jour-là. Entrée à l'ouverture
+  # suivante plafonnée (E_open(1), validité 1), stop initial standard du banc (X3), sortie à 20 séances
+  - {id: C1, trigger: t17, params: {side: purchase, roles: executive, min_amount_eur: 10000, dedup_sessions: 20}, gate: none, h: 20, exit: X3, cap_atr: 1.0, validity: 1, accounts: [cto, pea]}
+  # C2 = C1 à 10 séances
+  - {id: C2, trigger: t17, params: {side: purchase, roles: executive, min_amount_eur: 10000, dedup_sessions: 20}, gate: none, h: 10, exit: X3, cap_atr: 1.0, validity: 1, accounts: [cto, pea]}
+
+exploratory:                                 # jamais une conséquence de production
+  # descriptives seulement : sans année d'apprentissage avant le premier pli, la sélection walk-forward d'une famille
+  # n'a pas de choix la première année, donc aucune cellule exploratoire ne peut être CANDIDAT ni SURVEILLANCE ici
+  # X1 placebo, lu AVANT C1/C2 : valeurs et dates éligibles de Paris tirées au hasard (graine du plan) au taux estimé
+  # de t17 AVANT toute donnée (≈ 10 à 15 signaux par mois sur ≈ 6 000 observations éligibles mensuelles), mêmes
+  # entrées et sorties
+  - {family: X1, trigger: t00, params: {seed: 20261030, rate: 0.002}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [10, 20]}}
+  # X2 : contrôle — CESSIONS des dirigeants exécutifs, mêmes filtres (attendu ≤ 0) ; X2 ≈ C1 → ce n'est pas
+  # l'information de l'achat
+  - {family: X2, trigger: t17, params: {side: sale, roles: executive, min_amount_eur: 10000, dedup_sessions: 20}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [20]}}
+  # X3 : contrôle — les signaux de C1 décalés de 20 séances de la valeur (attendu ≈ 0)
+  - {family: X3, trigger: t17, params: {side: purchase, roles: executive, min_amount_eur: 10000, dedup_sessions: 20, shift_sessions: 20}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [20]}}
+  # X4 : achats groupés — au moins 2 fonctions exécutives distinctes (les noms ne sont jamais conservés) achètent en
+  # 10 séances ; signal à la séance qui complète le groupe
+  - {family: X4, trigger: t17, params: {side: purchase, roles: executive, min_amount_eur: 10000, dedup_sessions: 20, cluster_min_roles: 2, cluster_window_sessions: 10}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [20]}}
+  # X5 : achats de toute fonction (administrateurs, personnes liées, fonction non reconnue comprises), mêmes filtres
+  - {family: X5, trigger: t17, params: {side: purchase, roles: any, min_amount_eur: 10000, dedup_sessions: 20}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [20]}}
+
+stage1:
+  exits: [X1, X2, X3, X4, X5, X6, X7, X8]
+  max_cells: 0                               # pas d'étape 1 : aucune sortie choisie dans ce plan
+stage2:
+  max_cells: 3
+
+max_total_cells: 20
+expected_total_cells: 11           # 2 confirmatoires + 2 placebo + 4 exploratoires + 0 étape 1 + 0 F0 + 3 portefeuille

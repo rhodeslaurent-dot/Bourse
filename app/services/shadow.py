@@ -30,7 +30,9 @@ PLAN = PREREG_DIR / "2026-10-28_reg2.yaml"
 SHADOW_CELLS = ("C1", "C2", "X2.t03.gatet13.h21")  # the placebo X1 is not tracked
 # registration n° 3 (docs/34 §34.5): its two confirmatory cells (t14 after an earnings announcement, h 10 / 20)
 PLAN_REG3 = PREREG_DIR / "2026-10-28_reg3.yaml"
-SHADOW_CELLS_BY_PLAN = {PLAN.name: SHADOW_CELLS, PLAN_REG3.name: ("C1", "C2")}
+# registration n° 5 (docs/34 §34.12): its primary cell (executive purchase, h 20) — the forward confirmation series
+PLAN_REG5 = PREREG_DIR / "2026-10-30_reg5.yaml"
+SHADOW_CELLS_BY_PLAN = {PLAN.name: SHADOW_CELLS, PLAN_REG3.name: ("C1", "C2"), PLAN_REG5.name: ("C1",)}
 
 
 def shadow_cells(plan: Path) -> tuple[str, ...]:
@@ -72,12 +74,14 @@ def record_shadow_signals(
     of day D are loaded the next morning by eod_backfill_check). A session already recorded is skipped; a
     group whose last session is more than 5 days old is skipped (data late, never guessed). Returns cell → n."""
     from app.domain.research.pipeline import cell_signals, prepare_group
+    from app.services.insider_research import with_insiders
     from app.services.research import load_panels, load_prereg, resolve_settings
 
     prereg = load_prereg(plan)
     tracked = shadow_cells(Path(plan))
     cells = [c for c in prereg.cells if c.id in tracked]
     st, _ = resolve_settings(config, prereg, "all")
+    st = with_insiders(s, st, prereg)  # registration n° 5: the archived AMF declarations (no-op otherwise)
     start = today - timedelta(days=700)  # 252 sessions of warm-up and the 12-month momentum, with a margin
     panels, _ = load_panels(s, config, calendars, prereg, start, today, "all", None, None, default_groups=True)
     out: dict[str, int] = {c.id: 0 for c in cells}

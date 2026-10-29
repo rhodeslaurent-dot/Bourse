@@ -58,6 +58,7 @@ from app.domain.research.prereg import (
 )
 from app.domain.research.registration import run_registration
 from app.domain.research.report import assert_no_price_fields, build_report, render_fr, suppress_deep
+from app.services.insider_research import check_forward_unseal, insider_context, insider_report, with_insiders
 
 log = logging.getLogger("bourse.research")
 GROUPS = VENUE_GROUPS
@@ -753,12 +754,14 @@ def run(
         )
     panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, max_instruments,
                                out_dir / "cache" if use_cache else None, progress)  # fmt: skip
+    st, insider_cov = insider_context(s, st, prereg, panels)  # registration n° 5 (AMF declarations), else no-op
     res = run_registration(panels, prereg, st, run2, prod, stage, None, progress, True, max_f0_candidates)
     cal = calibration_status(out_dir, prereg.sha256, rid, meta.end)
     header = _header(meta, universe, cal, st, config, prereg, rid, t0)
     report = build_report(prereg, res, header)
+    report, insider_txt = insider_report(report, res, prereg.thresholds, insider_cov)  # n° 5: coverage, A1 abstention
     name = _stamp()
-    j, t = _write(out_dir, name, report, render_fr(report))
+    j, t = _write(out_dir, name, report, render_fr(report) + insider_txt)
     frozen = freeze_candidates(out_dir, name, prereg, res, cal[0])
     append_ledger(out_dir, run_ledger_row(name, prereg, res, universe, j.name, frozen, cal[0]))
     return {"json": str(j), "txt": str(t), "titre": report["A_resume"]["titre"], "candidats": res.get("candidats") or [],
@@ -881,7 +884,9 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
         raw, sha = yaml.safe_load(b), file_sha256(b)
     ids = check_unseal(raw, sha, prereg, ledger)
     check_unseal_span(prereg, start, end)  # an old replication period needs its warm-up and its whole span
+    check_forward_unseal(s, prereg_path, prereg, ledger, end)  # registration n° 5: the forward confirmation rule
     st, prod = resolve_settings(config, prereg, universe)
+    st = with_insiders(s, st, prereg)
     panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, None, out_dir / "cache", progress)
     res = run_registration(panels, prereg, st, (), prod, "0", ids, progress, False)
     disc = (raw or {}).get("decouverte") or {}
