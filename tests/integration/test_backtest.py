@@ -81,3 +81,30 @@ def test_prior_needs_a_positive_control_interval_and_is_halved(db_engine):
         r, n = prior_expected_r(s, "a", 20)
         assert n == 100 and abs(r - 0.5 * 0.3 * 30 / 50) < 1e-9
         assert prior_expected_r(s, "b") is None and prior_expected_r(s, "c") is None
+
+
+def test_the_backtest_never_reads_the_test_markets_of_registration_2(db_engine, config):
+    """New York, London and Zurich are the test data of registration n° 2 (docs/33): the backtest, weekly job
+    included, keeps to the European research groups unless asked for every market."""
+    from app.services.backtest import run_backtest
+
+    with db_session() as s:
+        s.add(Instrument(isin="US0000000001", name="Test US", mic="XNYS", currency="USD", in_universe=True))
+        s.add(Instrument(isin="FR0000000099", name="Test Paris", mic="XPAR", currency="EUR", in_universe=True))
+        s.flush()
+        europe = run_backtest(s, config, date(2024, 1, 1), date(2025, 9, 30))
+        everywhere = run_backtest(s, config, date(2024, 1, 1), date(2025, 9, 30), markets="all")
+    assert europe.instruments == 0 and everywhere.instruments == 0  # no stored bars: nothing loaded either way
+    import app.services.backtest as bt
+
+    seen: list[list[str]] = []
+    real = bt.load_history
+    bt.load_history = lambda s, isins, *a, **k: seen.append(sorted(isins)) or real(s, isins, *a, **k)  # type: ignore[assignment]
+    try:
+        with db_session() as s:
+            run_backtest(s, config, date(2024, 1, 1), date(2025, 9, 30))
+            run_backtest(s, config, date(2024, 1, 1), date(2025, 9, 30), markets="all")
+    finally:
+        bt.load_history = real
+    assert "US0000000001" not in seen[0] and "FR0000000099" in seen[0]
+    assert "US0000000001" in seen[2]  # [1] is the index history of the first run

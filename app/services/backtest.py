@@ -117,6 +117,7 @@ def run_backtest(
     isins: list[str] | None = None,
     detectors: list[str] | None = None,
     progress: Callable[[int, int], None] | None = None,
+    markets: str | None = None,
 ) -> BacktestRun:
     p = config.params
     det_params = {k: v for k, v in (p.detectors or {}).items() if k in DETECTORS and (not detectors or k in detectors)}
@@ -134,6 +135,16 @@ def run_backtest(
         for i in s.scalars(select(Instrument).where(Instrument.in_universe.is_(True)))
         if not isins or i.isin in isins
     }
+    scope = markets or str(((config.raw or {}).get("backtest") or {}).get("markets") or "europe")
+    if scope == "europe" and not isins:
+        # New York, London and Zurich are the test data of registration n° 2 (docs/33): the backtest — weekly job
+        # included — never reads them; only the European research groups P0 / P1 / P2 (as the run-2 reference)
+        from app.services.engine import _calendars
+        from app.services.research import mic_groups
+
+        cals = _calendars()
+        groups = mic_groups(config, cals) if cals is not None else {}
+        insts = {k: v for k, v in insts.items() if v.mic in groups}
     hist = load_history(s, list(insts), start, end)
     ranks = rs_ranks(hist) if hist else {}
     from app.services.indices import EUROPE, index_specs

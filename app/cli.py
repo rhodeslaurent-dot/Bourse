@@ -1431,7 +1431,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             print(f"  {k}/{n} valeurs rejouées", flush=True)
 
     with db_session() as s:
-        run = run_backtest(s, cfg, start, end, None, dets, progress)
+        run = run_backtest(s, cfg, start, end, None, dets, progress, "all" if args.all_markets else None)
         seg = (run.summary or {}).get("segments", {})
         sm = run.summary or {}
         print(f"\nbacktest n° {run.id} : {start} → {end}, {run.instruments} valeurs, {sm.get('trades')} trades, "
@@ -2181,6 +2181,9 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--from", dest="from_date", default=None, help="début (défaut : 8 ans)")
     bt.add_argument("--to", default=None)
     bt.add_argument("--detectors", default=None, help="ex. d2_breakout,d7_trend_quality (défaut : tous les actifs)")
+    bt.add_argument("--all-markets", dest="all_markets", action="store_true",
+                    help="toutes les places (défaut : places européennes P0/P1/P2 ; New York, Londres et Zurich "
+                         "sont les données de test de l'enregistrement n° 2)")  # fmt: skip
     bt.set_defaults(fn=cmd_backtest)
     dc = sub.add_parser("delisted-check", help="valeurs radiées EODHD par place (enregistrement n° 2, docs/33)")
     dc.add_argument("--exchanges", default="US,LSE,SW")
