@@ -7,6 +7,8 @@ half-spread (Corwin–Schultz, per instrument-month, floored at ``risk.slippage_
 (``LegInputs.exit_slip``), so only the part of the half-spread above it is added. Sizing on
 the slipped stop and the risk budget (CLAUDE.md rule 7): ``shares = floor((budget − fees) / R_per_share_eur)``,
 R per share widened by the change haircut outside the euro, notional capped by ``risk.max_position_pct_of_capital``.
+A partial sale (registration n° 6) is a second sell leg: its own commission, change fee and half-spread on the sold
+notional; sizing unchanged (initial slipped stop), SRD carry on the whole buy notional (an upper bound).
 """
 
 from __future__ import annotations
@@ -68,6 +70,10 @@ class LegInputs:
     unit_frac: F64  # risk unit of the R metric as a fraction of the notional (2 σ √h)
     stop_exit: Bool  # exit by a stop order (stress: extra slippage)
     exit_slip: F64 | None = None  # slippage already in exit_px (engine-slipped exits), 0 otherwise; None: 0
+    partial_px: F64 | None = None  # registration n° 6: price of the partial sale (NaN: none)
+    partial_qty: F64 | None = None  # share of the initial quantity sold there (0: none)
+    fx_part: F64 | None = None  # EUR per unit at the partial sale
+    hs_part: F64 | None = None  # half-spread at the partial sale
 
 
 @dataclass(frozen=True)
@@ -111,14 +117,28 @@ def economics(
         es = np.asarray(x.exit_slip, dtype=np.float64)
         hs_out = np.maximum(x.hs_out - es, 0.0) / (1 - es)
 
+    part = x.partial_qty is not None and x.partial_px is not None
+    q_p = np.zeros_like(x.entry)
+    p_px = np.zeros_like(x.entry)
+    if x.partial_qty is not None and x.partial_px is not None:
+        q_p = np.where(np.isfinite(x.partial_px) & (x.partial_qty > 0), x.partial_qty, 0.0)
+        p_px = np.nan_to_num(x.partial_px)
+    fx_p = x.fx_part if x.fx_part is not None else x.fx_out
+    hs_p = x.hs_part if x.hs_part is not None else x.hs_out
+
     def result(s: F64) -> tuple[F64, F64, F64]:
         nb = s * unit_px
-        ns = s * x.exit_px * x.fx_out
+        ns = s * (1 - q_p) * x.exit_px * x.fx_out
         div = s * x.div_cash * div_rate * x.fx_out
         fees = commission(acct.fees, nb) + nb * (x.ttf + x.ftt + x.fx_fee) + commission(acct.fees, ns) + ns * x.fx_fee
         cost = fee_mult * fees + spread_mult * (x.hs_in * nb + hs_out * ns) + extra_exit_slip * ns * x.stop_exit
         cost = cost + acct.srd_daily_rate * nb * x.days
         gross = ns - nb + div
+        if part:  # the partial sale: a second sell leg with its own commission, change fee and half-spread
+            n_p = s * q_p * p_px * fx_p
+            fees_p = np.where(n_p > 0, commission(acct.fees, n_p) + n_p * x.fx_fee, 0.0)
+            cost = cost + fee_mult * fees_p + spread_mult * hs_p * n_p
+            gross = gross + n_p
         return gross - cost, gross, nb
 
     net, gross, nb = result(frac)

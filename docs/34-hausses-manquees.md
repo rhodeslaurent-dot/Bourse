@@ -469,3 +469,87 @@ X8 = stop 2,5 ATR sous l'exécution, sans objectif, sortie au temps h ; XP = sto
 4. `research run --prereg research/prereg/2026-10-30_reg5.yaml --universe all --from 2020-06-01 --run N`. Lire d'abord le placebo X1, puis C1 / C2, puis les contrôles X2 et X3.
 
 Aucun résultat ne change un paramètre ni un détecteur sans ADR.
+
+## 34.13 Enregistrement n° 6 : règles de sortie
+
+> Plan `research/prereg/2026-10-30_reg6.yaml`, empreinte sha256 `cdfe966094795cb89c996bc813e9a66fbf41115cb945ec3ef944faa9188c1dae` (ensemble de cellules `b4028643…`), graine 20261101.
+> - **Gelé le 29/10/2026 au soir par l'assistant**, sous la délégation de l'utilisateur du 29/10/2026 au soir, à partir du brouillon du comité « sorties » relu et corrigé (liste ci-dessous).
+> - Gelé **avant** toute sortie du n° 4, du rejeu « entry policy replay » et des mesures du matin, et **avant** tout chargement de l'historique européen antérieur à 2016.
+> - Un test (`tests/unit/test_research_exits.py`) vérifie que le fichier a toujours cette empreinte ; le modifier crée un nouvel enregistrement.
+> - Seuils A1–A13, inférence et plis repris du n° 3 ; entrées (P1, P2), déclencheurs (d7x, d2x, d8x, t00, lettres) et statistiques appariées repris du n° 4 gelé, t14 du n° 3 : rien n'est redéfini.
+
+**Question.** La sortie de production (stop structurel serré, objectif 1 proche, 60 séances) est-elle la pire pour une famille de tendance ? Backtest n° 2 : objectifs à 3,4–3,9 R pour un meilleur moment médian de 1,1 R, 40 % des perdants passés par +1 R. Le plan compare des sorties **sur les mêmes exécutions** : les deux bras d'une cellule partagent les ordres d'entrée, seule la sortie change ; Δ = R(sortie) − R(référence) par trade exécuté. Une exécution hors du cadre de XP (stop glissé < prix < objectif 1) est écartée des deux côtés et comptée.
+
+**Sorties** (ensemble fermé) :
+
+| Code | Règle |
+|---|---|
+| XP | production : stop R1 glissé, objectif 1 exploitable, sortie au temps du détecteur (référence) |
+| XS | stop de production, sans objectif, sortie au temps |
+| X4 | chandelier : plus haut depuis l'exécution − 3 ATR14, jamais abaissé ; stop initial de production |
+| XQ | moitié vendue à +1 R, stop remonté au prix de revient, chandelier de X4 sur le reste |
+| X5 | deux clôtures sous la MM20 → ouverture suivante ; stop initial de production |
+| X6 | sortie à la 5e séance si le meilleur moment < 0,5 R (R du trade) |
+| X1, X3, X8 | références du banc (n° 1 et n° 4) : temps seul, 3 σ20 √h, 2,5 ATR |
+
+**Cellules** (29, plus 3 rejeux de portefeuille = 32, plafond 34) :
+
+| Cellule | Rôle | Contenu | Référence |
+|---|---|---|---|
+| X1 (4) | placebo, **lu en premier**, diagnostic | X4 / XQ / XS / X5 sur des valeurs et dates tirées au hasard au taux de d7x, géométrie d7 | XP 60 |
+| C1 | confirmatoire | d7x, entrée P1, X4 (60 séances) | XP 60 |
+| C2 | confirmatoire | d7x, entrée P1, XQ (60 séances) | XP 60 |
+| X2 (6) | exploratoire | d7x, XS / X5 / X6 à 20 et 60 séances | XP 60 |
+| X5 (3) | exploratoire | d8x, X4 / X6 / XQ à 20 séances | XP 10 (géométrie d8) |
+| X7 (4) | exploratoire, en € pour 300 € | d7x : X8, X3 (60), X4 sur stop 2,5 ATR, X4 sur stop 3 σ √60 | XP 60 |
+| X3 (2) | diagnostic | d2x, X4 / XQ (n ≈ 17 attendu) | XP 60 |
+| X6 (2) | diagnostic | lettres à déclencheur, stop et objectif explicites, X4 / XQ | XP aux niveaux publiés |
+| X8 (1) | diagnostic | excursions des entrées d7x sous XS 60 : MFE / MAE en R à 5 / 10 / 20 / 60 séances, part passée par +1 R puis perdante, objectif 1 atteint et sa distance en R ; idem sous P0 | — |
+| X9 (2) | diagnostic, **lu après le verdict du n° 4** | d7x, entrée P2 (stop d'achat de confirmation), X4 / XQ ; A2 absolu imprimé | XP 60 |
+| X4 (3) | diagnostic, **lu après le verdict du n° 3** | t14 : X1 et X6 à 10 séances, X4 à 20 (unité R_ref sur 10) | X3 10 |
+| étape 2 (3) | — | rejeu à 6 lignes des bras XP, X4, XQ de C1 / C2 ; R par ligne-mois | — |
+
+Tests multiples : Holm sur 2 (C1, C2) ; Romano–Wolf sur les 13 exploratoires non diagnostiques (X2, X5, X7) ; q de BH sur les 15 ; les diagnostics sont hors familles et jamais candidats.
+
+**Critères du verdict (a)** (cellule CANDIDAT, confirmatoire seulement) :
+- A1 sur les paires : n ≥ 300, ≥ 100 semaines, ≥ 40 par pli ; sous A1, « non concluant », jamais « pas d'avantage » ;
+- Δ ≥ +0,05 R par trade (X7 : +15 € pour 300 €), t de Newey–West hebdomadaire ≥ 3, IC 95 % par blocs > 0, ≥ 4 plis positifs sur 5 ;
+- Δ > 0 sous les trois règles de parcours (chaque bras sous la même règle) et sous coûts × 1,5 et glissement × 2 ;
+- rejeu à 6 lignes des paires : recul max de la sortie ≤ 1,10 × celui de XP ;
+- DSR ≥ 0,95 avec N = 13 essais antérieurs (11 variantes F0(c) du n° 1, XP et X8 du n° 4) + les 14 cellules d7x appariées du plan ; exploratoire : PBO de la famille ≤ 0,30 en plus ;
+- p Holm ≤ 0,05 (Romano–Wolf ≤ 0,05 pour une exploratoire, SURVEILLANCE au mieux).
+
+L'excès sur le placebo de la même sortie est imprimé ; il n'entre pas dans (a), comme au n° 4.
+
+**Décisions que le plan peut fonder (chacune par ADR) :**
+1. **(a) règle de sortie de la famille tendance** — si C1 ou C2 est CANDIDAT **et** confirmé sur la réplication 2007-2015 (Δ > 0, borne basse de l'IC > −0,05) : XP → X4 ou XQ pour d7 (d2 par extension déclarée), mention « sorties non validées » retirée pour ce détecteur seulement.
+2. **(c) admission R4-bis** (docs/07 §7.9.1) pour une famille à sortie suiveuse, seulement après (a).
+Rien ici ne rend d7 actionnable : c'est la décision (b) du n° 4.
+
+**Réplication partagée.** La période 2007-2015 est partagée avec les n° 3 et 4. Ce plan étant gelé avant tout descellement du n° 4, les deux descellements se font **le même jour** (une ligne au registre par plan). Sinon, la commande `unseal` étiquette la réplication de ce plan « semi-propre (entrées et deux sorties vues) » : le verdict (a) reste possible, mais l'ADR entre à demi-risque et en ombre d'abord.
+
+**Corrections du brouillon (avant gel, aucune donnée lue) :**
+- X10 (t17) retiré : l'archive AMF ne commence qu'en 2021-11 (deux plis sur cinq vides), le n° 5 a sa propre confirmation vers l'avant, et ses règles auraient dû être recopiées ici (deux sources pour une règle). À reprendre après le verdict du n° 5.
+- X3 (d2x, n ≈ 17) et X4 (t14, sans réplication) en diagnostics ; X9 aussi (« jamais un verdict ici »).
+- X7 : les lignes « stop de production » doublaient C1 et X2.XS.h60 (leur Δ en € est imprimé pour chaque cellule) ; « XS sur 2,5 ATR » est X8 du n° 4 et « XS sur 3 σ √60 » est X3 (60) : nommés par leurs codes existants. 4 cellules au lieu de 6.
+- Durées explicites : X4 (t14) scindé (X1 / X6 à 10, X4 à 20) ; X5 (d8x) : sorties testées à 20 séances, XP à 10 (`baseline_h`) ; X2 : XP à 60 aussi pour les cellules à 20 ; verrou d'un signal par valeur sur la plus longue des deux durées.
+- Recul : « XP + 0,10 R » était absolu ; convention du banc (étape 1) : relatif, ≤ 1,10 × le recul de XP.
+- DSR et PBO : le banc les calcule ; DSR ≥ 0,95 dans le verdict, PBO pour les familles exploratoires (comme A3).
+- X6 : seuil de 0,5 R en R du trade dans les cellules r_stop, en R_ref dans les cellules t14.
+- Vente partielle dans la séance : stop d'abord sous les trois règles ; le stop remonté au prix de revient est touché après la vente si la clôture est dessous (certain), sinon si le plus bas l'atteint sous stop_first, si le plus haut est plus près de l'ouverture sous ohlc, jamais sous target_first.
+- X5 (d8x) ajouté à la famille Romano–Wolf, dont le brouillon l'oubliait ; seuil en € de X7 (15 € = 0,05 R × 300 €) ; part vendue figée à 0,5 (`risk.stop.reduce_at_target1_pct` au 29/10/2026).
+- 29 cellules + 3 rejeux = 32 (brouillon : 34 + 3), plafond 34.
+
+**Banc** :
+- `app/domain/research/exits.py` : vente partielle (quantité, prix, séance, stop au prix de revient, dividendes sur le reste), seuil conditionnel en R du trade ; le chandelier n'abaisse jamais un stop remonté.
+- `app/domain/research/costs.py` : jambe de vente partielle (commission, change, demi-écart propres) ; taille inchangée (stop initial glissé).
+- `app/domain/research/exit_rules.py` : bras appariés sur les mêmes ordres, Δ par trade (statistiques du n° 4), règles de parcours, coûts stressés, recul, DSR, PBO, excursions MFE / MAE, descellement étiqueté.
+- `app/domain/research/prereg.py` : champs `baseline_exit`, `baseline_h`, `stop`, unité `eur_300`, contrôle du plan.
+- Tests : `tests/unit/test_research_exits.py` (barres construites à la main : stop avant objectif et avant la vente dans une séance, comptabilité de la vente, chandelier, XQ ≡ X4 sans +1 R, pas de lecture après la sortie) et `tests/integration/test_research.py` (exécution du plan par la commande).
+
+**Sur le PC** (après les n° 3 et 4 ; une commande à la fois) :
+1. `docker compose exec app python -m app.cli research calibrate --prereg research/prereg/2026-10-30_reg6.yaml --run N`
+2. `docker compose exec app python -m app.cli research run --prereg research/prereg/2026-10-30_reg6.yaml --universe all --run N` — lire X1 (placebo), puis C1 / C2, puis X2, X5, X7, les diagnostics, X9 après le verdict du n° 4, X4 après celui du n° 3.
+3. Descellement, seulement pour un candidat C1 / C2, après `backfill --from 2005-01-01`, **le même jour que celui du n° 4** : `research unseal --prereg research/prereg/2026-10-30_reg6.yaml --candidates <fichier figé> --universe all --from 2006-01-01 --to 2016-01-31`.
+
+Aucun résultat ne change un paramètre, une sortie ni un détecteur sans ADR.

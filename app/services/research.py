@@ -34,6 +34,7 @@ from app.domain.research import f0 as F0
 from app.domain.research.classify import Tier, unseal_confirmed
 from app.domain.research.costs import Account, ttf_rates
 from app.domain.research.entry_policies import entry_unseal_verdict
+from app.domain.research.exit_rules import exit_unseal_verdict
 from app.domain.research.panel import (
     EarningsRow,
     FeatureParams,
@@ -679,6 +680,26 @@ ENTRY_LIMITS = [
 ]
 
 
+EXIT_LIMITS = [
+    "règles de sortie (n° 6) : barres quotidiennes — stop d'abord ; la vente partielle n'a jamais lieu dans une séance où le "
+    "stop est touché ni sur une exécution en séance à la limite ; le stop remonté au prix de revient est supposé touché "
+    "après la vente quand le plus bas l'atteint dans la même séance ; aucune file d'attente",
+    "règles de sortie : chaque paire partage la même exécution ; une exécution hors du cadre de XP (stop glissé < prix < "
+    "objectif 1) est écartée des deux côtés et comptée ; la découverte 2017-2026 a déjà été lue pour d7 (11 sorties du "
+    "n° 1, XP et X8 du n° 4) : pénalité DSR déclarée",
+]
+
+
+def replication_label(ledger: Sequence[Mapping[str, str]], prereg: Prereg, today: str) -> str:
+    """Registration n° 6: « propre » unless a plan sharing its old replication (``replication_shared_with``) was
+    unsealed on another day than ``today`` (YYYYMMDD) — its entries and exits were then seen on that period."""
+    shared = {str(x) for x in prereg.assumptions.get("replication_shared_with") or []}
+    days = {
+        str(r.get("timestamp", ""))[:8] for r in ledger if r.get("kind") == "unseal" and r.get("prereg_id") in shared
+    }
+    return "semi-propre (entrées et deux sorties vues)" if days - {today} else "propre"
+
+
 def _header(meta: PanelMeta, universe: str, calibration: tuple[str, str], st: Settings, config: LoadedConfig,
             prereg: Prereg, run2_id: int | None, t0: float) -> dict[str, Any]:  # fmt: skip
     return {
@@ -703,7 +724,8 @@ def _header(meta: PanelMeta, universe: str, calibration: tuple[str, str], st: Se
         "duree_s": round(time.time() - t0, 1),
         "limites": LIMITS
         + (earnings_limits(prereg) if prereg.needs_earnings else [])
-        + (ENTRY_LIMITS if prereg.is_entry_plan else []),
+        + (ENTRY_LIMITS if prereg.is_entry_plan else [])
+        + (EXIT_LIMITS if prereg.is_exit_plan else []),
         **({"publications_resultats": meta.earnings} if meta.earnings is not None else {}),
         **({"lettres": meta.letters} if meta.letters is not None else {}),
     }
@@ -891,9 +913,13 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
     res = run_registration(panels, prereg, st, (), prod, "0", ids, progress, False)
     disc = (raw or {}).get("decouverte") or {}
     verdicts = {}
+    label = replication_label(ledger, prereg, _stamp()[:8]) if prereg.is_exit_plan else None
     for cid in ids:
         c = res["cellules"].get(cid, {})
         d = disc.get(cid) or {}
+        if label is not None:  # registration n° 6: the paired Δ per trade, the replication labelled
+            verdicts[cid] = exit_unseal_verdict(c, d, prereg.thresholds, label)
+            continue
         if prereg.is_entry_plan:  # registration n° 4: the paired Δ (a) and the tested arm's A2 (b)
             verdicts[cid] = entry_unseal_verdict(c, d, prereg.thresholds)
             continue

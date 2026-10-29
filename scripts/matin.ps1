@@ -43,6 +43,7 @@ if (-not $SansReconstruction) {
     Start-Sleep -Seconds 60  # migrations et démarrage de l'application
 }
 $reg4 = "research/prereg/2026-10-30_reg4.yaml"
+$reg6 = "research/prereg/2026-10-30_reg6.yaml"
 App "2. historique des annonces macro (BCE, Fed, emploi et prix US)" @("macro-history-load", "--from", "2017-01-01")
 App "3. couverture des verrous en octobre" @("gates-coverage", "--from", "2026-10-01", "--to", "2026-10-29")
 App "4. étude historique des recommandations des lettres" @("letters-study", "--from", "2017-01-02")
@@ -50,6 +51,8 @@ App "5. rejeu des propositions réellement faites" @("entry-replay", "--mode", "
 App "6. rejeu des politiques d'entrée 2017-2026 (environ 1 h)" @("entry-replay", "--from", "2017-01-02")
 App "7a. calibration du plan n° 4" @("research", "calibrate", "--prereg", $reg4, "--run", "$Run")
 App "7b. exécution du plan n° 4" @("research", "run", "--prereg", $reg4, "--universe", "all", "--run", "$Run")
+App "7c. calibration du plan n° 6 (sorties)" @("research", "calibrate", "--prereg", $reg6, "--run", "$Run")
+App "7d. exécution du plan n° 6" @("research", "run", "--prereg", $reg6, "--universe", "all", "--run", "$Run")
 if ($Dirigeants) {
     App "8. historique AMF des déclarations de dirigeants depuis 11/2021 (long)" @("insider-archive", "--from", "2021-11-01")
     App "9. couverture de l'archive AMF" @("insider-archive", "--coverage-only")
