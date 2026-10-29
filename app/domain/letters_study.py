@@ -452,6 +452,7 @@ class RecRow:
     arms: dict[str, ArmOutcome] = field(default_factory=dict)
     tool: list[str] = field(default_factory=list)  # detectors with a setup within ±tool_window sessions
     tool_net: float | None = None  # net R (CTO) of the tool's own first trade
+    tool_known: bool = False  # one of those setups at or before the reference close: known at reception
 
 
 # --- statistics -----------------------------------------------------------------------------------------------------
@@ -614,6 +615,11 @@ def letters_vs_tool(rows: Sequence[RecRow], p: StudyParams) -> dict[str, Any]:
         "fenetre_seances": p.tool_window,
         "avec_configuration": summarize(with_, p),
         "sans_configuration": summarize(without, p),
+        # « avec configuration » counts setups up to ``tool_window`` sessions after the reception (not knowable then):
+        # the split a user could have used at reception is this one (review of 30/10/2026, m12)
+        "avec_configuration_connue_a_la_reception": summarize([r for r in with_ if r.tool_known], p),
+        "avertissement": f"« avec_configuration » inclut des configurations apparues jusqu'à {p.tool_window} séances "
+        "après la réception : seule « avec_configuration_connue_a_la_reception » était connaissable à la réception",
         "par_detecteur": dict(sorted(Counter(d for r in with_ for d in r.tool).items())),
         "trade_de_l_outil": {
             "r_net_cto": mean_stats(tool_nets, mb),

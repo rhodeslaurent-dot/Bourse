@@ -172,3 +172,14 @@ def test_aggregation_pairs_each_recommendation_with_its_controls_and_masks_small
     by = ls.breakdowns(rows + [_row(0.01, [], None, [], "zonebourse")], p)
     assert set(by["source"]) == {"momentum_capital", "zonebourse"} and by["source"]["zonebourse"]["n"] == 1
     assert ls.novelty([10], 25, 20) == "repetee" and ls.novelty([10], 31, 20) == "nouvelle"
+
+
+def test_letters_vs_tool_splits_the_setups_known_at_reception():
+    """Review of 30/10/2026 (m12): a setup up to ``tool_window`` sessions after the reception is not knowable then."""
+    p = ls.StudyParams()
+    before, after = _row(0.05, [0.0], 0.5, [0.0]), _row(0.02, [0.0], -0.2, [0.0])
+    before.tool, before.tool_known = ["d4_pullback"], True
+    after.tool = ["d2_breakout"]
+    out = ls.letters_vs_tool([before, after, _row(0.01, [0.0], 0.1, [0.0])], p)
+    assert out["avec_configuration"]["n"] == 2 and out["avec_configuration_connue_a_la_reception"]["n"] == 1
+    assert out["sans_configuration"]["n"] == 1 and "après la réception" in out["avertissement"]

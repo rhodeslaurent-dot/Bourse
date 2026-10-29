@@ -533,12 +533,16 @@ def _bench(venue: Venue, base: str, d0: date, d1: date, exclude: str, kinds: Cou
     return val
 
 
-def _tool(ctx: Ctx, se: Series, r: int, gc: GroupCloses | None, cto: CostParams) -> tuple[list[str], float | None]:
+def _tool(
+    ctx: Ctx, se: Series, r: int, gc: GroupCloses | None, cto: CostParams
+) -> tuple[list[str], float | None, bool]:
     """Detectors (production parameters, d8 excepted: it needs the forum radar of the day) that had a setup at the
-    closes from ``tool_window`` sessions before the reference close to ``tool_window`` after it, and the net R (CTO)
-    of the tool's own first trade, simulated as the backtest does (admission at the maximum price, limit order)."""
+    closes from ``tool_window`` sessions before the reference close to ``tool_window`` after it, the net R (CTO)
+    of the tool's own first trade, simulated as the backtest does (admission at the maximum price, limit order), and
+    whether one setup was known at reception (at or before the reference close — review of 30/10/2026, m12)."""
     names: list[str] = []
     net: float | None = None
+    known = False
     w = ctx.p.tool_window
     for k in range(r - 1 - w, r - 1 + w + 1):
         if k < 259 or k >= len(se.days) - 1:
@@ -557,6 +561,7 @@ def _tool(ctx: Ctx, se: Series, r: int, gc: GroupCloses | None, cto: CostParams)
             setups = DETECTORS[name](dp).detect(window, DetectorContext(rs, zones, ctx.wick, ctx.stop_buffer))
             if setups and name not in names:
                 names.append(name)
+            known = known or (bool(setups) and k <= r - 1)
             for st in setups:
                 if net is not None or not st.targets or st.p_max_technical <= st.stop:
                     continue
@@ -584,7 +589,7 @@ def _tool(ctx: Ctx, se: Series, r: int, gc: GroupCloses | None, cto: CostParams)
                 )
                 if res is not None and not se.ca_between(k + 1 + res.entry_index, k + 1 + res.exit_index):
                     net = res.net_r(frac)
-    return names, net
+    return names, net, known
 
 
 # --- study --------------------------------------------------------------------------------------------------------
@@ -805,7 +810,7 @@ def build_rows(
                 if st == ls.EXECUTED and net is not None:
                     row.arms[arm].controls_cto.append(net)
         row.ctrl_fwd = {b: dict(x) for b, x in row.ctrl_fwd.items()}
-        row.tool, row.tool_net = _tool(ctx, se, r, groups.get(c.group), costs[0])
+        row.tool, row.tool_net, row.tool_known = _tool(ctx, se, r, groups.get(c.group), costs[0])
         rows.append(row)
     say(f"{len(rows)} recommandation(s) mesurée(s)")
     meta.update({
@@ -1047,6 +1052,7 @@ def render_md(rep: dict[str, Any]) -> str:
     w(f"- Configurations par détecteur : {lt['par_detecteur'] or 'aucune'}.")
     for lab, key in (
         ("Avec une configuration de l'outil", "avec_configuration"),
+        ("Dont configuration connue à la réception", "avec_configuration_connue_a_la_reception"),
         ("Sans configuration", "sans_configuration"),
     ):
         x = lt[key]
@@ -1054,6 +1060,8 @@ def render_md(rep: dict[str, Any]) -> str:
         w(
             f"- {lab} : n {x['n']} · anormal 20 séances {_r(o20.get('anormal'), True)} · E1·X3 {_r(x['bras']['E1_X3']['r_net_cto'])} · E1·X1 {_r(x['bras']['E1_X1']['r_net_cto'])}."
         )
+    if lt.get("avertissement"):
+        w(f"- Attention : {lt['avertissement']}.")
     w(
         f"- Trade de l'outil sur ces valeurs (prix maximal, ordre limite, comme le backtest) : {_r(lt['trade_de_l_outil']['r_net_cto'])} · gagnants {_share(lt['trade_de_l_outil']['gagnants'])}."
     )
