@@ -1,7 +1,9 @@
 """Newsletter ingestion (docs/06 D5): values extracted (rules, then LLM refinement), receipt time,
 ``p_open`` (official open), ``p_recv`` (quote at receipt, with its market timestamp and status),
-``gap_open`` and ``drift_since_open``; each value becomes an *external* signal with a WATCH
-proposal, its decision snapshot and — when the letter says BUY — the D5 drift gate."""
+``gap_open`` and ``drift_since_open``; each recommended value (« achat » or « à surveiller ») becomes an
+*external* signal and a watchlist entry. Its proposal of the day is built by the engine right after the reception
+(``app.services.letter_analysis``, docs/20 §20.10), never here; only a letter imported after the fact (docs/19) keeps
+a reconstituted, expired WATCH with the D5 drift gate."""
 
 from __future__ import annotations
 
@@ -34,6 +36,10 @@ class NewsletterReport:
     values: int = 0
     signals: int = 0
     parsed_by_llm: int = 0
+    read: int = 0  # funnel of the letter (docs/20 §20.10): values read, resolved, with levels, recalculable (R15)
+    resolved: int = 0
+    with_levels: int = 0
+    recalculable: int = 0
 
 
 def _eod(s: Session, isin: str, day) -> PriceEod | None:  # type: ignore[no-untyped-def]
@@ -201,25 +207,24 @@ def ingest_mail(
         )
         row.signal_id = sig.id
         lv = v.levels or {}
-        if not historical and getattr(config.params, "admission", None) and recalculable(lv):
-            # R15: a testable letter is recalculated by the engine at reception (docs/22 §22.4 D),
-            # which creates the proposal with P_max, full cost and ranking; no duplicate WATCH here.
+        if not historical:
+            # docs/20 §20.10: every recommended value is analysed by the engine right after the reception
+            # (letter_analysis.analyse_items) — one proposal of the day with its verdict; no bare WATCH here.
             rep.signals += 1
             if s.scalar(select(WatchlistRow).where(WatchlistRow.isin == v.isin, WatchlistRow.active.is_(True))) is None:
                 s.add(WatchlistRow(isin=v.isin, reason="external", source=mail.source, active=True, levels=lv or None))
             continue
+        # docs/19: a letter imported after the fact keeps its reconstituted WATCH, dated from the letter, expired
         gates = {"passed": [], "blocked": []}
         if v.direction == "buy" and row.drift_since_open is not None and row.drift_since_open >= max_drift:
             gates["blocked"].append(
                 f"BLOQUÉ : drift depuis l'ouverture {row.drift_since_open:+.1%} ≥ {max_drift:.0%} (detectors.d5_external.drift_since_open_max_for_buy) — aucun BUY sur signal externe seul"  # noqa: E501
             )
-        action = "WATCH"  # phase 1: external signals feed the watchlist; BUY needs a D1–D4 setup (phase 2)
-        snap_quotes = {v.isin: q.model_dump(mode="json")} if q else None
-        if historical:
-            snap_quotes = {
-                "reconstitution": f"lettre historique importée le {datetime.now(UTC):%d/%m/%Y} : "
-                "cours à la réception inconnu, données de marché antérieures ou égales au jour de la lettre"
-            }
+        action = "WATCH"
+        snap_quotes = {
+            "reconstitution": f"lettre historique importée le {datetime.now(UTC):%d/%m/%Y} : "
+            "cours à la réception inconnu, données de marché antérieures ou égales au jour de la lettre"
+        }
         p = create_proposal(
             s,
             sig,
@@ -227,24 +232,19 @@ def ingest_mail(
             snap_quotes,
             gates,
             config.params.version,
-            to_verify=q is None or q.data_status.value != "realtime",
-            config=None if historical else config,
-            created_at=mail.received_at if historical else None,
-            as_of=day if historical else None,
+            to_verify=True,
+            config=None,
+            created_at=mail.received_at,
+            as_of=day,
             entry_zone={"achat": v.levels.get("achat")} if v.levels.get("achat") else None,
             stop=v.levels.get("stop"),
             targets=[v.levels["objectif"]] if "objectif" in v.levels else None,
         )
         rep.signals += 1
-        if historical:
-            p.status = "expired"  # no decision can be taken on an old letter
-            continue
-        if (
-            v.direction in ("buy", "watch")
-            and s.scalar(select(WatchlistRow).where(WatchlistRow.isin == v.isin, WatchlistRow.active.is_(True))) is None
-        ):
-            s.add(
-                WatchlistRow(isin=v.isin, reason="external", source=mail.source, active=True, levels=v.levels or None)
-            )
+        p.status = "expired"  # no decision can be taken on an old letter
+    rep.read = len(values)
+    rep.resolved = sum(1 for v in values if v.isin)
+    rep.with_levels = sum(1 for v in values if v.levels)
+    rep.recalculable = sum(1 for v in values if recalculable(v.levels))
     s.flush()
     return rep

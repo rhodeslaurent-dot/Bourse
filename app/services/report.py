@@ -71,6 +71,12 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
     items = [f"{LABELS.get(k, k)} : {v.value:.2f} ({v.day:%d/%m}, {v.source})" for k, v in ctxm.values.items()]
     lr = s.scalar(select(LetterReview).where(LetterReview.status == "ok").order_by(LetterReview.id.desc()))
     ext = [f"Revue des lettres du {lr.day:%d/%m} : {lr.synthesis}"] if lr and lr.synthesis else []
+    from app.services.letter_analysis import funnel_line
+
+    since = datetime.combine(day - timedelta(days=1), datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
+    fl = funnel_line(s, config, since, now)  # docs/20 §20.10: what the tool made of the letters since yesterday
+    if fl:
+        ext.append(fl)
     r.append({"titre": RUBRICS[0], "faits": items, "sources_externes": ext, "analyse": ctxm.explanations})
     # 2 — markets
     idx = (config.params.regime or {}).get("index_isins") or {}

@@ -1,8 +1,9 @@
 """What the tool made of the letters of one day (user question of 29/10/2026: « la lettre préconise Viridien,
 pourquoi n'est-elle ni dans la watchlist ni dans les opportunités ? »).
 
-For each value read in each letter: its ISIN, direction and levels, whether the engine could recalculate it
-(R15: stop, target and a buy or support level), and the proposal it led to — or why none. Then the opinions of
+For each value read in each letter: its ISIN, direction and levels, whether they are recalculable in the R15
+sense, and the proposal of the day with its verdict (docs/20 §20.10: every recommended value is analysed) — or why
+none; the letter's funnel. Then the opinions of
 the letters review and the proposal each one has. Reads only; the letter's text is never printed."""
 
 from __future__ import annotations
@@ -27,9 +28,13 @@ def _why_not_testable(levels: dict | None) -> str:
 
 
 def _proposal_line(p: Proposal) -> str:
+    from app.services.letters_verdict import label, sentence
+
     blocked = [str(b) for b in (p.gates or {}).get("blocked") or []]
-    tail = f" — {blocked[-1][:140]}" if blocked else ""
     flags = " · à vérifier" if p.to_verify else ""
+    if (p.details or {}).get("verdict"):  # docs/20 §20.10: the verdict and its sentence, as on the card
+        return f"proposition n° {p.id} : {p.action}{flags} · {label(p)} — {sentence(p)}"
+    tail = f" — {blocked[-1][:140]}" if blocked else ""
     return f"proposition n° {p.id} : {p.action}{flags}{tail}"
 
 
@@ -87,6 +92,13 @@ def trace(s: Session, day: date, reader: tuple[str, Path] | None = None) -> list
         if rejected:
             out.append(f"    niveaux proposés par l'IA mais absents du texte, rejetés : {', '.join(rejected[:12])}")
         values = list(s.scalars(select(NewsletterValue).where(NewsletterValue.item_id == it.id)))
+        fun = (it.parsed or {}).get("funnel")
+        if fun:
+            from app.services.letter_analysis import funnel_text
+
+            out.append(f"    entonnoir : {funnel_text([fun])}")
+            if fun.get("without_proposal"):
+                out.append(f"    sans proposition : {', '.join(fun['without_proposal'])}")
         if not values:
             out.append("    aucune valeur extraite de cette lettre")
         for v in values:
@@ -101,21 +113,17 @@ def trace(s: Session, day: date, reader: tuple[str, Path] | None = None) -> list
                 out.append("      → aucune proposition : simple mention ou avis de vente (docs/20 §20.1)")
                 continue
             mine = by_isin.get(v.isin, [])
-            if recalculable(lv):
-                eng = [p for p in mine if (sigs.get(p.signal_id) and sigs[p.signal_id].source == "moteur_lettre")]
-                if eng:
-                    out += [f"      → recalculée par le moteur, {_proposal_line(p)}" for p in eng]
-                else:
-                    out.append(
-                        "      → recalculable, mais le moteur n'a créé aucune proposition (valeur inactive, moins de "
-                        "60 séances d'historique, ou erreur : voir le journal de imap_poll)"
-                    )
+            r15 = "recalculable (R15)" if recalculable(lv) else f"non recalculable R15 ({_why_not_testable(lv)})"
+            out.append(f"      niveaux : {r15} — analysée par l'outil dans tous les cas (docs/20 §20.10)")
+            eng = [p for p in mine if (sigs.get(p.signal_id) and sigs[p.signal_id].source == "moteur_lettre")]
+            older = [p for p in mine if p.signal_id == v.signal_id]  # bare WATCH of the reception before 30/10/2026
+            if eng or older:
+                out += [f"      → {_proposal_line(p)}" for p in eng + older]
             else:
                 out.append(
-                    f"      → non recalculable ({_why_not_testable(lv)}) : surveillance avec les niveaux de la lettre"
+                    "      → aucune proposition ce jour : l'analyse n'a pas tourné (voir le journal de imap_poll, "
+                    "ou le scan du matin)"
                 )
-                linked = [p for p in mine if p.signal_id == v.signal_id] or mine
-                out += [f"        {_proposal_line(p)}" for p in linked] or ["        aucune proposition trouvée"]
             out.append(f"      watchlist : {'oui' if v.isin in watched else 'non'}")
     ops = list(s.scalars(select(LetterOpinion).where(LetterOpinion.day == day)))
     if ops:

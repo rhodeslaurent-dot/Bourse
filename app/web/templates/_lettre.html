@@ -1,0 +1,45 @@
+{# docs/20 §20.10 — a letter's proposal: what the letter says, what the tool sees, the verdict (deterministic text) #}
+{% set dl = dd.lettre or {} %}{% set ao = dd.analyse_outil or {} %}{% set vu = ao.vue or {} %}{% set v = it.verdict %}
+{% set unit = it.devise or '€' %}
+<div class="mt-2 grid lg:grid-cols-3 gap-3 text-sm" data-letter-blocks>
+  <div class="rounded-lg ring-1 ring-slate-200 dark:ring-slate-800 p-2">
+    <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Ce que dit la lettre</h3>
+    <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{{ dl.source or 'lettre' }}{% if v.recue %} · reçue à {{ v.recue }}{% endif %} · {{ {'buy': 'achat', 'watch': 'à surveiller'}.get(dl.sens, dl.sens or '—') }}{% if dl.via == 'revue_lettres' %} · relevée par la revue des lettres{% endif %}</p>
+    {% set lv = dl.niveaux or {} %}
+    {% if lv %}<ul class="mt-1 tabular text-xs space-y-0.5">{% for k, x in lv.items() if x is number %}<li>{{ level_labels.get(k, k)|capitalize }} <b>{{ '%.4g'|format(x) }}</b> {{ unit }}</li>{% endfor %}</ul>
+    {% if lv.objectif is defined %}<p class="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300"><span class="underline decoration-dotted" title="{{ exits_help }}">{{ exits_note|capitalize }}</span></p>{% endif %}
+    {% else %}<p class="mt-1 text-xs text-slate-500">Aucun niveau chiffré dans la lettre.</p>{% endif %}
+    {% if dl.citation %}<blockquote class="mt-1 border-l-2 border-slate-300 dark:border-slate-600 pl-2 text-xs italic text-slate-600 dark:text-slate-300">« {{ dl.citation }} »</blockquote>{% endif %}
+  </div>
+  <div class="rounded-lg ring-1 ring-slate-200 dark:ring-slate-800 p-2">
+    <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Ce que voit l'outil</h3>
+    {% if ao.mode %}
+    <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Entrée : {{ letter_modes.get(ao.mode, ao.mode) }}{% if ao.detecteur %} — lettre + détecteur {{ ao.detecteur }}{% endif %}</p>
+    <ul class="mt-1 tabular text-xs space-y-0.5">
+      <li>Entrée {{ '%.4g'|format(ao.entree) }}{% if ao.declencheur %} (déclencheur {{ '%.4g'|format(ao.declencheur) }}){% endif %} · prix maximal technique {{ '%.4g'|format(ao.p_max_technique) }}</li>
+      <li>Stop retenu <b>{{ '%.4g'|format(ao.stop) }}</b> ({{ "invalidation de la lettre" if ao.stop_retenu == 'lettre' else "structure de l'outil" }}){% if ao.distance_max is not none %} · maximum {{ '%.1f'|format(ao.distance_max * 100) }} % sous l'entrée{% endif %}</li>
+      <li>Stop de structure {{ '%.4g'|format(ao.stop_structure) if ao.stop_structure is not none else 'indisponible' }}{% if ao.distance_stop_structure is not none %} (−{{ '%.1f'|format(ao.distance_stop_structure * 100) }} %){% endif %} · invalidation de la lettre {{ '%.4g'|format(ao.stop_lettre) if ao.stop_lettre is not none else '—' }}{% if ao.distance_stop_lettre is not none %} (−{{ '%.1f'|format(ao.distance_stop_lettre * 100) }} %){% endif %}</li>
+      <li>Objectifs : {% for t in ao.objectifs_lettre or [] %}{{ '%.4g'|format(t) }}{% if not loop.last %} / {% endif %}{% endfor %}{% if ao.objectifs_lettre %} (lettre){% endif %}{% if ao.objectifs_outil %}{% if ao.objectifs_lettre %} puis {% endif %}{% for t in ao.objectifs_outil %}{{ '%.4g'|format(t) }}{% if not loop.last %} / {% endif %}{% endfor %} (outil){% endif %}{% if not ao.objectifs_lettre and not ao.objectifs_outil %}aucun{% endif %} <span class="text-amber-700 dark:text-amber-300 underline decoration-dotted" title="{{ exits_help }}" data-exits-note>({{ exits_note }})</span></li>
+      <li>Structure (R5) {{ '%.4g'|format(ao.bas_de_structure) }} — {{ ao.origine_bas_de_structure }}</li>
+      {% if vu.zone_support %}<li>Support détecté {{ '%.4g'|format(vu.zone_support.bas) }}–{{ '%.4g'|format(vu.zone_support.haut) }} ({{ vu.zone_support.contacts }} contacts)</li>{% endif %}
+      {% if vu.zone_resistance %}<li>Résistance détectée {{ '%.4g'|format(vu.zone_resistance.bas) }}–{{ '%.4g'|format(vu.zone_resistance.haut) }} ({{ vu.zone_resistance.contacts }} contacts)</li>{% endif %}
+      <li>Cours {{ '%.4g'|format(vu.cours) if vu.cours is not none else '—' }} · MM50 {{ '%.4g'|format(vu.mm50) if vu.mm50 else '—' }} · MM200 {{ '%.4g'|format(vu.mm200) if vu.mm200 else '—' }}{% if vu.mm50_sur_mm200 is not none %} · MM50 {{ 'au-dessus' if vu.mm50_sur_mm200 else 'sous' }} la MM200{% endif %}</li>
+      <li>Force relative {{ '%.0f'|format(vu.force_relative) if vu.force_relative is not none else '—' }}/100 · ATR14 {{ '%.4g'|format(vu.atr14) if vu.atr14 else '—' }} · ADR20 {{ '%.1f'|format(vu.adr20 * 100) if vu.adr20 else '—' }} %{% if vu.plus_haut_52s %} · plus haut 52 s {{ '%.4g'|format(vu.plus_haut_52s) }}{% endif %}</li>
+      {% if vu.distance_declencheur_pct is not none and vu.distance_declencheur_pct is defined %}<li>Déclencheur à {{ '%+.1f'|format(vu.distance_declencheur_pct * 100) }} % du cours{% if vu.distance_declencheur_atr is not none %} ({{ vu.distance_declencheur_atr }} ATR){% endif %}</li>{% endif %}
+      <li>Résultats {{ vu.prochains_resultats or 'date inconnue' }} · nouvelles 7 j : {{ vu.nouvelles_7j or 0 }}{% if vu.catalyseur %} · catalyseur {{ vu.catalyseur.ampleur or '' }} : {{ vu.catalyseur.titre }}{% endif %}</li>
+      {% if dd.signaux_faibles %}<li>Radar : {{ dd.signaux_faibles.texte }}</li>{% endif %}
+      {% if dd.echanges_forum %}<li>Forum : {{ dd.echanges_forum.effet or '' }}</li>{% endif %}
+    </ul>
+    {% for n in ao.notes or [] %}<p class="mt-0.5 text-xs text-slate-600 dark:text-slate-300">{{ n }}</p>{% endfor %}
+    {% else %}<p class="mt-1 text-xs text-slate-500">Aucune analyse : {{ dd.verdict_motif or 'données insuffisantes' }}.</p>{% endif %}
+  </div>
+  <div class="rounded-lg ring-1 ring-slate-200 dark:ring-slate-800 p-2">
+    <h3 class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Verdict</h3>
+    <p class="mt-1">{{ badge(v.label, v.tone) }}</p>
+    <p class="mt-1 text-sm font-medium" data-letter-verdict>{{ v.phrase }}</p>
+    {% for w in it.pourquoi %}<p class="mt-1 text-xs text-slate-600 dark:text-slate-300">Pourquoi : {{ w }}</p>{% endfor %}
+    <ul class="mt-2 text-xs space-y-0.5" data-letter-checklist>
+      {% for c in dd.controle or [] %}<li class="{{ 'text-emerald-700 dark:text-emerald-300' if c.ok else 'text-rose-700 dark:text-rose-300' }}">{{ '✓' if c.ok else '✗' }} {{ c.item }} <span class="text-slate-500 dark:text-slate-400">— {{ c.detail }}</span></li>{% endfor %}
+    </ul>
+  </div>
+</div>

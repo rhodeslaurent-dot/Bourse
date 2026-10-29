@@ -21,6 +21,7 @@ from app.data.dto import Quote
 from app.db.models import Account, DecisionSnapshot, Proposal, ProposalReevaluation, Signal
 from app.db.session import db_session
 from app.domain.admission import Setup
+from app.domain.letter_setup import TRIGGER_WAIT, WAITING_LIMIT
 from app.domain.reevaluation import LABELS, ReevalInput, Reevaluation, classify, notify_kind, should_store
 from app.domain.timeutil import format_dual, from_store
 from app.notify.base import Button, Event
@@ -56,7 +57,8 @@ def candidates(s: Session, now: datetime) -> list[Proposal]:
         if p.expires_at is not None and from_store(p.expires_at) <= now:
             continue
         waits = [b for b in (p.gates or {}).get("blocked", []) if b.startswith("WATCH")]
-        if any("en attente d'un repli" not in b for b in waits):
+        # a limit waiting for a pullback, or a letter's breakout waiting for its trigger (docs/20 §20.10)
+        if any(WAITING_LIMIT not in b and TRIGGER_WAIT not in b for b in waits):
             continue
         out.append(p)
     return out
@@ -88,6 +90,8 @@ def reeval_input(p: Proposal, sig: Signal | None, price: float, q: Quote | None,
     )
     k = float((getattr(config.params, "admission", None) or {}).get("min_reward_risk", 2.0))
     trig = (d.get("entree") or {}).get("declencheur")
+    if (d.get("configuration") or {}).get("franchi") is False and trig is not None and price < float(trig):
+        low = None  # a letter's obstacle never crossed yet: nothing to give back, the breakout is still waiting
     return ReevalInput(
         price=price,
         data_status=q.data_status.value if q is not None else "eod",

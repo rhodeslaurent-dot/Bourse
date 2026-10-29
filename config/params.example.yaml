@@ -733,7 +733,7 @@ availability:
 
 config_validation:
   required_groups: ["timezones", "capital", "risk", "accounts", "notifications", "data", "jobs"]
-  optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers", "learning", "letters_review", "admission", "market_gate", "conjuncture", "events", "entry", "zones", "ranking", "pockets"]   # manquant → fonctionnalité désactivée, mention sur /sante
+  optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers", "learning", "letters_review", "letters", "admission", "market_gate", "conjuncture", "events", "entry", "zones", "ranking", "pockets"]   # manquant → fonctionnalité désactivée, mention sur /sante
 
 review:
   human_delay_minutes: 5              # [non codé] délai humain appliqué en rejeu entre alerte et ordre
@@ -754,6 +754,17 @@ letters_review:                          # docs/20 — revue des lettres par Cla
   telegram_digest: true
   macro_days: 3                         # docs/21 §21.6 : « contexte macro » de la revue de presse dans le dossier
   max_macro_items: 10
+
+letters:                                  # docs/20 §20.10 — analyse déterministe de chaque valeur recommandée par une lettre
+  effective_from: 2026-10-30
+  analyse_every_recommendation: true      # achat ou à surveiller → passage du moteur, même sans niveau écrit (false : règle R15 seule)
+  stop_policy: "letter_within_max_else_structure"   # letter_only | structure_only | letter_within_max_else_structure (invalidation de la lettre si ≤ risk.stop.max_distance_adr × ADR20, sinon stop de structure de l'outil)
+  trigger_buffer_pct: 0.003               # entrée = déclencheur × (1 + x)
+  entry_max_pct_above_trigger: 0.01       # prix maximal technique au-dessus du déclencheur (ou du prix d'achat, du support, du cours)
+  trigger_alert_pct: 0.03                 # déclencheur à moins de 3 % du cours → « déclencheur proche » sur la carte
+  min_history_sessions: 60                # en dessous : « non analysable (historique) »
+  stop_lookback_low: 10                   # stop de structure : plus bas de N séances − risk.stop.buffer_atr_mult × ATR14 (comme d2_breakout)
+  report_line: true                       # une ligne « Lettres : … » dans le rapport du jour
 
 learning:                                # docs/18 — retour d'expérience ; aucune optimisation automatique
   effective_from: 2026-10-22

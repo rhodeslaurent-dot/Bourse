@@ -196,9 +196,18 @@ def test_newsletter_values_drift_signal_snapshot(client, config):
             and sig.source == "zonebourse"
             and sig.evidence["drift_since_open"] == pytest.approx(57 / 55.62 - 1)
         )
-        p = s.scalar(select(Proposal).where(Proposal.signal_id == sig.id))
-        assert p.action == "WATCH" and p.to_verify and p.stop == 52.5 and p.targets == [60.0]
+        # docs/20 §20.10 (29/10/2026): the reception no longer creates a bare WATCH; the engine analyses the value
+        assert s.scalar(select(Proposal).where(Proposal.signal_id == sig.id)) is None
+        from app.db.models import NewsletterItem
+        from app.services.letter_analysis import analyse_items
+
+        item = s.scalar(select(NewsletterItem).where(NewsletterItem.id == v.item_id))
+        analyse_items(s, config, [item], {"FR0000120271": q}, now=recv)
+        p = s.scalar(select(Proposal).where(Proposal.isin == "FR0000120271"))
+        assert p.action == "WATCH" and p.to_verify and p.stop == 52.5 and p.targets == [60.0]  # levels as quoted
+        assert p.details["verdict"] == "non_analysable" and p.details["non_analysable"] == "historique"
         assert any("drift" in b for b in p.gates["blocked"])  # +2.5 % ≥ 2 % → no BUY on the letter alone
+        assert item.parsed["funnel"]["recommended"] >= 1
         snap = s.scalar(select(DecisionSnapshot).where(DecisionSnapshot.proposal_id == p.id))
         assert (
             snap.quotes["FR0000120271"]["data_status"] == "delayed"

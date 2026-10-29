@@ -88,9 +88,26 @@ def enabled(config: LoadedConfig) -> bool:
 
 
 def _letter_levels(s: Session, isin: str, day: date, window_days: int = 5) -> list[dict[str, Any]]:
-    """Testable letter setups (R15): explicit invalidation + numeric target written in a letter."""
+    """The letters' recommendations on ``isin`` over the window, most recent first (docs/20 §20.10): the values read
+    in the letters (« achat » or « à surveiller »), then the explicit recommendations the letters review found in a
+    letter that gave no value row (a name in the linked page). Levels are the numbers written in the letter, under
+    the closed list of names; the quote is the review's literal citation, checked in the letter's text."""
+    from app.db.models import LetterOpinion
+
     since = datetime.combine(day - timedelta(days=window_days), datetime.min.time(), tzinfo=UTC)
-    out = []
+    ops = [
+        o
+        for o in s.scalars(
+            select(LetterOpinion).where(
+                LetterOpinion.isin == isin,
+                LetterOpinion.day >= day - timedelta(days=window_days),
+                LetterOpinion.day <= day,
+            )
+        )
+    ]
+    quotes = {i: o.quote for o in ops for i in (o.item_ids or []) if o.quote}
+    out: list[dict[str, Any]] = []
+    seen: set[int] = set()
     for v, it in s.execute(
         select(NewsletterValue, NewsletterItem)
         .join(NewsletterItem, NewsletterItem.id == NewsletterValue.item_id)
@@ -98,9 +115,32 @@ def _letter_levels(s: Session, isin: str, day: date, window_days: int = 5) -> li
         .order_by(NewsletterItem.received_at.desc())
     ):
         lv, _ = canonical_levels(v.levels or {})  # rows stored before the closed list of names (29/10/2026)
-        if v.direction in ("buy", "watch"):
-            out.append({"source": it.source, "item_id": it.id, "received_at": it.received_at, "levels": lv})
-    return out
+        if v.direction in ("buy", "watch") and it.id not in seen:
+            seen.add(it.id)
+            out.append({"source": it.source, "item_id": it.id, "received_at": _aware(it.received_at), "levels": lv,
+                        "direction": v.direction, "derive": v.drift_since_open, "via": "lettre",
+                        "citation": quotes.get(it.id)})  # fmt: skip
+    for o in ops:  # docs/20 §20.5: an explicit recommendation without a value row is analysed the same way
+        ids = [i for i in (o.item_ids or []) if isinstance(i, int)]
+        if not o.explicit or o.action not in ("achat", "surveiller") or o.stance == "negative" or seen & set(ids):
+            continue
+        it = s.get(NewsletterItem, ids[0]) if ids else None
+        nv = (
+            s.scalar(select(NewsletterValue).where(NewsletterValue.item_id == it.id, NewsletterValue.isin == isin))
+            if it is not None
+            else None
+        )
+        lv, _ = canonical_levels((nv.levels if nv is not None else None) or {})
+        seen.update(ids)
+        out.append({"source": o.source or (it.source if it else "lettres"), "item_id": it.id if it else None,
+                    "received_at": _aware(it.received_at) if it else datetime.combine(o.day, datetime.min.time(), UTC),
+                    "levels": lv, "direction": "buy" if o.action == "achat" else "watch", "derive": None,
+                    "via": "revue_lettres", "citation": o.quote})  # fmt: skip
+    return sorted(out, key=lambda x: x["received_at"], reverse=True)
+
+
+def _aware(ts: datetime) -> datetime:
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
 
 
 REGULATORY_TYPES = ("transaction_dirigeant", "franchissement_seuil", "rachat_actions")
@@ -195,6 +235,7 @@ class Evaluation:
     net_gain_pct: float | None = None
     expected_r: float | None = None
     admitted: bool = False
+    letter: dict[str, Any] | None = None  # a letter's analysis (docs/20 §20.10): facts for the control list
 
 
 def _fees(config: LoadedConfig, account: str) -> FeeSchedule:
@@ -274,6 +315,9 @@ def evaluate(
             "WATCH : espérance historique négative au coût complet (backtest n° 2, docs/27) — surveillance seulement "
             "(ADR-013)"
         )
+    if setup.detector == "external":
+        ev.blocked += _letter_drift_block(config, setup, now)
+    adm_price = _admission_price(setup, price)
     fx = fx_to_eur(s, inst.currency) or (1.0 if inst.currency == "EUR" else None)
     if fx is None:
         ev.blocked.append(f"BLOQUÉ : taux de change {inst.currency} indisponible (fx_refresh)")
@@ -408,7 +452,7 @@ def evaluate(
         )
         frac = round_trip_fee_fraction(est_notional, cp)
         adm = admit(
-            AdmissionInput(price, target, setup.stop, setup.kind, setup.level_low, frac, k, setup.p_max_technical)
+            AdmissionInput(adm_price, target, setup.stop, setup.kind, setup.level_low, frac, k, setup.p_max_technical)
         )
         row: dict[str, Any] = {
             "frais_aller_retour_pct": round(frac, 5),
@@ -418,7 +462,7 @@ def evaluate(
         }
         if alt and cp.fx_fee_pct > 0:  # docs/32 §32.3: the same entry on the euro listing, without the change fee
             adm_eur = admit(
-                AdmissionInput(price, target, setup.stop, setup.kind, setup.level_low,
+                AdmissionInput(adm_price, target, setup.stop, setup.kind, setup.level_low,
                                round_trip_fee_fraction(est_notional, replace(cp, fx_fee_pct=0.0)), k,
                                setup.p_max_technical)
             )  # fmt: skip
@@ -646,7 +690,7 @@ def evaluate(
         return ev
     any_adm = admit(
         AdmissionInput(
-            price,
+            adm_price,
             target,
             setup.stop,
             setup.kind,
@@ -663,12 +707,23 @@ def evaluate(
         ev.blocked += any_adm.reasons
         ev.action = "NO_TRADE"
         return ev
+    too_close = any_adm.status == Status.REFUSED and best is None and (any_adm.p_max or 0) <= setup.stop
+    if (
+        setup.detector == "external"
+        and too_close
+        and _breakout_under_trigger(
+            ev, setup, target, ev.details["p_max"], k, first_row.get("frais_aller_retour_pct", 0.0)
+        )
+    ):
+        return ev  # a letter's breakout: the ratio at its trigger and at its last target (docs/20 §20.10)
     if any_adm.status == Status.REFUSED and best is None and any_adm.p_max is not None and any_adm.p_max <= setup.stop:
         # a limit at or under its own stop is no order: the target is too close for the risk (R4)
         ev.blocked.append(
             f"WATCH : objectif trop proche — le prix maximal ({any_adm.p_max:.4g}) tombe au niveau du stop "
             f"({setup.stop:.4g}) ou dessous : aucune limite possible (R4)"
         )
+        return ev
+    if _breakout_under_trigger(ev, setup, target, ev.details["p_max"], k, first_row.get("frais_aller_retour_pct", 0.0)):
         return ev
     if any_adm.status == Status.REFUSED and best is None:
         # the limit order waits at P_max: account and quantity sized at that limit (rule 7), cash before SRD
@@ -702,6 +757,7 @@ def evaluate(
     ev.size_eur, ev.risk_eur = sz.notional_max_eur, sz.risk_if_filled_at_max_eur
     ev.net_rr, ev.net_gain_pct = no.net_reward_risk, no.gain_net_pct
     ev.passed.append(f"prix maximal {adm.p_max:.4g} (ratio gain/risque ≥ {k:g} net de frais, R4)")
+    _letter_trigger_wait(ev, setup, price)
     # the admission ratio is net of *fees* (framework §5.2); the after-tax ratio is shown and ranks, never blocks
     action = assess(adm.p_max, no.net_reward_risk)
     # --- caps (R8, R9) and override (R21) ---
@@ -712,6 +768,8 @@ def evaluate(
     ev.blocked += _events_blocks(s, config, inst, adm.p_max, sz.stop_exec, now, ev)
     ev.action = action
     ev.details["entree"] = {"declencheur": setup.entry_level, "limite": adm.p_max, "type": "limite au prix maximal"}
+    if setup.detector == "external" and setup.kind == SetupKind.BREAKOUT:  # a letter's breakout (docs/20 §20.10)
+        ev.details["entree"]["type"] = "ordre à plage de déclenchement : seuil = déclencheur, limite = prix maximal"
     der = getattr(p, "derivatives", None) or {}
     if der.get("enabled") and inst.kind == "stock":
         from app.domain.derivatives import turbo_criteria
@@ -728,6 +786,89 @@ def evaluate(
             tc.__dict__ if tc else {"note": "aucun produit compatible avec le stop et le levier maximal"}
         )
     return ev
+
+
+def _admission_price(setup: Setup, price: float) -> float:
+    """A letter's breakout not crossed yet is tested at its entry level: a stop order fills there, never under it
+    (docs/20 §20.10); every other setup at the price of the analysis."""
+    if setup.detector == "external" and setup.kind == SetupKind.BREAKOUT and price < setup.entry_level:
+        return setup.entry_level
+    return price
+
+
+def _breakout_under_trigger(
+    ev: Evaluation, setup: Setup, target: float | None, p_max: float | None, k: float, fee: float
+) -> bool:
+    """A breakout whose R4 maximum price falls under its entry trigger is no order (29/10/2026): a limit under the
+    obstacle is not a breakout and never waits for a pullback. WATCH with the ratio at the trigger and, for
+    information, at the last target (R4 keeps the first one). True when the evaluation stops here."""
+    from app.domain.admission import p_max_rr
+
+    entry, stop = setup.entry_level, setup.stop
+    if setup.kind != SetupKind.BREAKOUT or p_max is None or target is None or p_max >= entry or entry <= stop:
+        return False
+    # net of the round-trip fees as R4 counts them: P_max = (T + k·S)/(1 + k) × (1 − f) ⇔ at the entry E, the net
+    # ratio is (T − E/(1 − f)) / (E/(1 − f) − S)
+    e_net = entry / (1 - fee) if fee < 1 else entry
+    risk_ = e_net - stop
+    if risk_ <= 0:
+        return False
+    gain = target - e_net
+    last = float((setup.evidence.get("objectifs_lettre") or setup.targets or [target])[-1])
+    ev.details["ratio_au_declencheur"] = {
+        "declencheur": round(entry, 4),
+        "objectif": target,
+        "gain": round(gain, 4),
+        "risque": round(risk_, 4),
+        "ratio": round(gain / risk_, 2),
+        "dernier_objectif": last,
+        "ratio_dernier_objectif": round((last - e_net) / risk_, 2),
+        "dernier_objectif_suffit": p_max_rr(last, stop, fee, k) >= entry,
+    }
+    tail = (
+        f" ; au dernier objectif {last:.4g} : gain {last - e_net:.4g} / risque {risk_:.4g} = "
+        f"{(last - e_net) / risk_:.2f}"
+        if last != target
+        else ""
+    )
+    ev.blocked.append(
+        f"WATCH : ratio net < {k:g} au déclencheur (gain {gain:.4g} / risque {risk_:.4g} = {gain / risk_:.2f}){tail}"
+        f" — prix maximal {p_max:.4g} sous le déclencheur {entry:.4g} : aucune limite en attente (R4)"
+    )
+    ev.action = "WATCH"
+    return True
+
+
+def _letter_trigger_wait(ev: Evaluation, setup: Setup, price: float) -> None:
+    """A letter's breakout whose obstacle is not crossed yet: an alert at the crossing, an order only after a close
+    above (R5, R6) — never a buy before the breakout."""
+    from app.domain.letter_setup import TRIGGER_WAIT, crossed
+
+    if setup.detector != "external" or crossed(setup, price):
+        return
+    ev.blocked.append(
+        f"WATCH : {TRIGGER_WAIT} — cours {price:.4g} sous {setup.level_low:.4g} ({setup.level_low / price - 1:.1%}) ;"
+        f" ordre à plage de déclenchement (seuil {setup.entry_level:.4g}) après une clôture au-dessus (R5, R6)"
+    )
+
+
+def _letter_drift_block(config: LoadedConfig, setup: Setup, now: datetime) -> list[str]:
+    """D5 (docs/06): no BUY on an external signal alone once the price ran ≥ x % since the open of the day the letter
+    arrived — tested that day only (the drift is measured at reception)."""
+    evd = setup.evidence
+    drift, day = evd.get("derive_depuis_ouverture"), evd.get("recue_le")
+    today = now.astimezone(PARIS).date().isoformat()
+    if evd.get("sens") != "buy" or not isinstance(drift, int | float) or day != today:
+        return []
+    max_drift = float(
+        ((config.params.detectors or {}).get("d5_external") or {}).get("drift_since_open_max_for_buy", 0.02)
+    )
+    if drift < max_drift:
+        return []
+    return [
+        f"BLOQUÉ : drift depuis l'ouverture {drift:+.1%} ≥ {max_drift:.0%} "
+        "(detectors.d5_external.drift_since_open_max_for_buy) — aucun BUY sur signal externe seul"
+    ]
 
 
 def _alt_execution(
@@ -934,6 +1075,7 @@ class ScanReport:
     by_action: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     by_market: dict[str, list[int]] = field(default_factory=dict)  # MIC → [scanned, setups, proposals]
+    letters_na: int = 0  # letter values recorded « non analysable » (docs/20 §20.10)
 
     def count(self, mic: str | None, k: int) -> None:
         self.by_market.setdefault(mic or "?", [0, 0, 0])[k] += 1
@@ -958,43 +1100,289 @@ def _candidates(s: Session, isins: list[str] | None) -> list[Instrument]:
     return list(s.scalars(q))
 
 
-def _letter_setups(s: Session, inst: Instrument, day: date, ctx: DetectorContext) -> list[tuple[Setup, str]]:
-    from app.domain.zones import exploitable_targets
+def _letter_setups(
+    config: LoadedConfig,
+    recs: list[dict[str, Any]],
+    bars: list[Any],
+    f: Any,
+    ctx: DetectorContext,
+    price: float,
+    found: list[tuple[Setup, str]],
+) -> tuple[list[tuple[Setup, str]], dict[int, dict[str, Any]], list[tuple[dict[str, Any], Any]]]:
+    """The most recent letter recommendation on the value, analysed by the tool (docs/20 §20.10, one builder:
+    ``app.domain.letter_setup.build``): (setups, facts per setup, values that cannot be analysed with why)."""
+    from app.domain.letter_setup import LetterRecommendation, NotAnalysable, build
+    from app.services.letter_analysis import letter_params
 
-    out = []
-    for lv in _letter_levels(s, inst.isin, day):
-        levels = lv["levels"]
-        stop, target = levels.get("stop"), levels.get("objectif")
-        if stop is None or target is None:
-            continue  # R15: not testable — the letter's WATCH stays as recorded at reception
-        entry = levels.get("achat") or levels.get("support") or levels.get("declencheur")
-        if entry is None:
+    if not recs:
+        return [], {}, []
+    rec = recs[0]
+    watch_only = set((config.params.scoring or {}).get("watch_only_detectors") or [])  # ADR-013: never borrowed
+    borrow = [x for x, _ in found if x.detector not in watch_only]
+    res = build(
+        LetterRecommendation(rec["source"], rec["item_id"], rec["direction"], rec["levels"]),
+        bars,
+        f,
+        ctx,
+        letter_params(config),
+        price,
+        borrow,
+    )
+    if isinstance(res, NotAnalysable):
+        return [], {}, [(rec, res)]
+    st = res.setup
+    st.evidence.update(
+        {
+            "sens": rec["direction"],
+            "derive_depuis_ouverture": rec["derive"],
+            "recue_le": rec["received_at"].astimezone(PARIS).date().isoformat(),
+            "via": rec["via"],
+        }
+    )
+    return [(st, rec["source"])], {id(st): {"rec": rec, "res": res}}, []
+
+
+def _letter_facts(rec: dict[str, Any]) -> dict[str, Any]:
+    """« Ce que dit la lettre »: source, time, direction, the levels written (closed list), the checked quote."""
+    return {
+        "source": rec["source"],
+        "item_id": rec["item_id"],
+        "recue_a": rec["received_at"].isoformat(),
+        "sens": rec["direction"],
+        "niveaux": rec["levels"],
+        "citation": (rec.get("citation") or "")[:200] or None,
+        "via": rec["via"],
+        "derive_depuis_ouverture": rec.get("derive"),
+    }
+
+
+def _letter_context(s: Session, inst: Instrument, now: datetime) -> dict[str, Any]:
+    """Stored facts around the value: next earnings, news of 7 days and their strongest positive catalyst."""
+    news = [
+        n
+        for n in s.scalars(select(NewsItem).where(NewsItem.fetched_at >= now - timedelta(days=7)))
+        if inst.isin in (n.isins or [])
+    ]
+    order = {"forte": 3, "moyenne": 2, "faible": 1}
+    pos = [
+        n
+        for n in news
+        if (n.classification or {}).get("direction") == "positif"
+        and (n.classification or {}).get("type") not in REGULATORY_TYPES
+    ]
+    best = max(pos, key=lambda n: order.get((n.classification or {}).get("magnitude") or "", 0), default=None)
+    return {
+        "prochains_resultats": inst.earnings_next_date.isoformat() if inst.earnings_next_date else None,
+        "nouvelles_7j": len(news),
+        "catalyseur": (
+            {"titre": (best.title or "")[:160], "ampleur": (best.classification or {}).get("magnitude")}
+            if best is not None
+            else None
+        ),
+    }
+
+
+def _letter_details(
+    s: Session,
+    config: LoadedConfig,
+    ev: Evaluation,
+    inst: Instrument,
+    meta: dict[str, Any],
+    n_bars: int,
+    f: Any,
+    zones: list[Any],
+    rs_rank: float | None,
+    q: Any | None,
+    now: datetime,
+) -> None:
+    from app.domain.letter_setup import crossed, tool_view
+    from app.domain.reevaluation import fresh_realtime
+
+    res, rec = meta["res"], meta["rec"]
+    ev.details["lettre"] = _letter_facts(rec)
+    ev.details["analyse_outil"] = {
+        **res.analysis(),
+        "seances": n_bars,
+        "vue": {**tool_view(ev.price, f, zones, rs_rank, res.trigger), **_letter_context(s, inst, now)},
+    }
+    conf = ev.details.get("configuration")
+    if isinstance(conf, dict) and res.setup.kind == SetupKind.BREAKOUT:  # intraday_reeval: not crossed → waiting
+        conf["franchi"] = crossed(res.setup, ev.price)
+    earnings = None
+    if inst.earnings_next_date is not None:
+        days = (inst.earnings_next_date - now.date()).days
+        if 0 <= days <= HOLDING_DAYS.get(res.setup.horizon, 20) * 7 // 5:
+            earnings = inst.earnings_next_date.isoformat()
+    mts = getattr(q, "market_timestamp", None) if q is not None else None
+    max_age = int(config.params.data.buy_intraday_max_market_age_minutes)
+    ev.letter = {
+        "res": res,
+        "sessions": n_bars,
+        "fresh": mts is not None and fresh_realtime(ev.price_status, mts, now, max_age),
+        "max_age": max_age,
+        "earnings": earnings,
+    }
+
+
+def _letter_verdict(config: LoadedConfig, prop: Proposal, e: Evaluation) -> None:
+    """Control list, verdict and the numbers of its sentence (``letters_verdict.sentence``), from the final gates
+    of the proposal (a BUY demoted by the comparable history included); « à vérifier » derived from the list."""
+    from app.domain.letter_setup import ControlFacts, VerdictFacts, checklist, to_verify, verdict
+    from app.services.letter_analysis import letter_params
+
+    assert e.letter is not None
+    res, st = e.letter["res"], e.setup
+    d = dict(prop.details or {})
+    acc = (d.get("comptes") or {}).get(prop.account_recommended or "", {}) or {}
+    blocked = tuple(str(b) for b in (prop.gates or {}).get("blocked") or [])
+    k = float((config.params.admission or {}).get("min_reward_risk", 2.0))
+    lp = letter_params(config)
+    items = checklist(
+        ControlFacts(prop.isin, e.letter["sessions"], lp.min_history_sessions, e.price, e.price_status,
+                     bool(e.letter["fresh"]), e.letter["max_age"], st.level_low, res.level_low_origin,
+                     res.level_low_structural, st.targets[0] if st.targets else None, d.get("admission"),
+                     d.get("p_max"), k, st.entry_level, st.stop, res.max_stop_distance, blocked,
+                     e.letter["earnings"], acc.get("titres") or prop.shares)
+    )  # fmt: skip
+    check = to_verify(items)
+    rd = d.get("ratio_au_declencheur") or {}
+    code, why = verdict(VerdictFacts(prop.action, d.get("admission"), blocked, not check,
+                                     rd.get("dernier_objectif_suffit")))  # fmt: skip
+    pmax = d.get("p_max")
+    nums: dict[str, Any] = {
+        "cours": round(e.price, 4),
+        "statut_cours": e.price_status,
+        "p_max": round(float(pmax), 4) if isinstance(pmax, int | float) else None,
+        "stop": round(st.stop, 4),
+        "stop_retenu": res.stop_retenu,
+        "stop_lettre": res.stop_lettre,
+        "objectif": round(st.targets[0], 4) if st.targets else None,
+        "seuil": round(st.entry_level, 4),
+        "declencheur": res.trigger,
+        "titres": acc.get("titres"),
+        "compte": prop.account_recommended,
+    }
+    if isinstance(pmax, int | float) and pmax > 0:
+        nums["ecart_limite_pct"] = round((e.price / pmax - 1) * 100, 1)
+    if res.trigger and e.price > 0:
+        nums["distance_declencheur_pct"] = round((res.trigger / e.price - 1) * 100, 1)
+        nums["declencheur_proche"] = 0 <= res.trigger / e.price - 1 <= lp.trigger_alert_pct
+    if e.price_status == "eod":
+        nums["jour_cours"] = str(d.get("horodatage_cours"))
+    d.update({"controle": [i.as_dict() for i in items], "verdict": code, "verdict_motif": why,
+              "verdict_chiffres": nums})  # fmt: skip
+    prop.details = _json(d)
+    prop.to_verify = check or code == "non_analysable"
+
+
+def _missing_letter_values(s: Session, day: date, isins: set[str]) -> list[tuple[str, dict[str, Any], Any]]:
+    """Values a letter recommends that the scan does not reach (inactive, unknown): never silence."""
+    from app.domain.letter_setup import NotAnalysable
+
+    out: list[tuple[str, dict[str, Any], Any]] = []
+    for isin in sorted(isins):
+        recs = _letter_levels(s, isin, day)
+        if not recs:
             continue
-        support = levels.get("support")
-        # a range exit (« sortie au-dessus de 100,20 ») is a breakout: the trigger is the obstacle crossed (R5:
-        # a close back under it gives the breakout back)
-        trigger = levels.get("declencheur") if levels.get("achat") is None and support is None else None
-        # R4: the target published by the letter is the exploitable one; detected resistances above
-        # the entry are shown as the next levels, never substituted to the published target
-        nxt = [t for t in exploitable_targets(float(entry), ctx.zones, []) if t > float(target)]
-        out.append(
-            (
-                Setup(
-                    "external",
-                    SetupKind.PULLBACK if support else SetupKind.BREAKOUT,
-                    float(entry),
-                    float(entry) * 1.01,
-                    float(stop),
-                    "lettre",
-                    float(support or trigger or stop),
-                    [float(target), *nxt[:1]],
-                    "swing_2_6w",
-                    {"lettre": lv["source"], "item_id": lv["item_id"], "niveaux": levels},
-                ),
-                lv["source"],
-            )
+        na = (
+            NotAnalysable("inactive", "valeur inactive : hors des valeurs suivies (cotation suspendue ou radiée ?)")
+            if s.get(Instrument, isin) is not None
+            else NotAnalysable("referentiel", "valeur absente du référentiel")
         )
-    return out[:1]
+        out.append((isin, recs[0], na))
+    return out
+
+
+def _persist_not_analysable(
+    s: Session,
+    config: LoadedConfig,
+    day: date,
+    now: datetime,
+    items: list[tuple[str, dict[str, Any], Any]],
+    quotes: dict[str, Any] | None,
+    rep: ScanReport,
+) -> None:
+    """A recommended value the tool cannot analyse still gets its proposal of the day, « non analysable » with the
+    reason (docs/20 §20.10) — the letter's levels shown as quoted, no order card."""
+    from app.domain.letter_setup import LETTER_TARGET_KEYS, CheckItem
+
+    if not items:
+        return
+    p = config.params
+    start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
+    replaced = {
+        x.signal_id
+        for x in s.scalars(select(Proposal).where(Proposal.created_at >= start, Proposal.deleted_at.is_not(None)))
+    }
+    done = {
+        x.isin
+        for x in s.scalars(select(Signal).where(Signal.ts >= start, Signal.source == "moteur_lettre"))
+        if x.id not in replaced
+    }
+    cals = _calendars()
+    sessions = int((getattr(p, "entry", None) or {}).get("expiry_sessions", 3))
+    for isin, rec, na in items:
+        if isin in done:
+            continue
+        done.add(isin)
+        try:
+            with s.begin_nested():
+                lv = rec.get("levels") or {}
+                q = (quotes or {}).get(isin)
+                live = q is not None and getattr(q, "last", None) is not None
+                status = q.data_status.value if live else "unavailable"
+                targets = [float(lv[k]) for k in LETTER_TARGET_KEYS if lv.get(k) is not None] or None
+                evidence = {"lettre": rec["source"], "item_id": rec["item_id"], "niveaux": lv, "sens": rec["direction"],
+                            "derive_depuis_ouverture": rec.get("derive"), "via": rec.get("via"),
+                            "recue_le": rec["received_at"].astimezone(PARIS).date().isoformat(),
+                            "non_analysable": na.code}  # fmt: skip
+                sig = record_signal(s, isin, "external", "moteur_lettre", now, "eod", status, p.version,
+                                    evidence=evidence, entry_low=lv.get("achat"), stop_initial=lv.get("stop"),
+                                    targets=targets)  # fmt: skip
+                blocked = _letter_drift_block(config, SimpleNamespace(evidence=evidence), now)  # type: ignore[arg-type]
+                blocked.append(f"WATCH : non analysable — {na.reason}")
+                snap = (
+                    {
+                        isin: {
+                            "last": q.last,
+                            "data_status": status,
+                            "source": q.source,
+                            "market_timestamp": q.market_timestamp,
+                            "releve_a": now,
+                        }
+                    }  # fmt: skip
+                    if live
+                    else None
+                )
+                holder = SimpleNamespace(isin=isin, details={})
+                prop = create_proposal(
+                    s, sig, "WATCH", snap, {"passed": [], "blocked": blocked}, p.version, to_verify=True,
+                    expires_at=_expiry(s, cals, holder, day, now, sessions),  # type: ignore[arg-type]
+                    config=config, entry_zone={"achat": lv["achat"]} if lv.get("achat") is not None else None,
+                    stop=lv.get("stop"), targets=targets, horizon="swing_2_6w",
+                )  # fmt: skip
+                prop.details = _json(
+                    {
+                        **holder.details,
+                        "lettre": _letter_facts(rec),
+                        "non_analysable": na.code,
+                        "verdict": "non_analysable",
+                        "verdict_motif": na.reason,
+                        "verdict_chiffres": {},
+                        "controle": [
+                            CheckItem("valeur", "valeur résolue", True, isin).as_dict(),
+                            CheckItem("analyse", "analyse possible", False, na.reason).as_dict(),
+                        ],
+                    }
+                )
+                rep.created += 1
+                rep.letters_na += 1
+                rep.by_action["WATCH"] = rep.by_action.get("WATCH", 0) + 1
+        except Exception as exc:  # noqa: BLE001
+            rep.errors.append(f"{isin}: {exc.__class__.__name__}")
+            log.warning("moteur : valeur de lettre %s non enregistrée (%s)", isin, exc.__class__.__name__,
+                        exc_info=True)  # fmt: skip
+    s.flush()
 
 
 def scan(
@@ -1045,12 +1433,28 @@ def scan(
     sectors = sector_strength(s, day)
     # phase 1 — detection on the whole universe (cheap): the day's opportunities feed the risk level
     staged: list[dict[str, Any]] = []
-    for inst in _candidates(s, isins):
+    from app.domain.letter_setup import NotAnalysable
+    from app.services.letter_analysis import letter_params
+
+    lp = letter_params(config)
+    cands = _candidates(s, isins)
+    # docs/20 §20.10: every value a letter recommends gets a proposal of the day — « non analysable » when the
+    # scan cannot reach it or the tool cannot compute it, with the reason (never silence)
+    letter_na = _missing_letter_values(s, day, set(isins) - {i.isin for i in cands}) if isins else []
+    for inst in cands:
+        recs: list[dict[str, Any]] = []
         try:
             rep.scanned += 1
             rep.count(inst.mic, 0)
+            recs = _letter_levels(s, inst.isin, day)
             bars = load_bars(s, inst.isin, end=day, limit=int(zp.get("lookback_sessions", 250)) + 10)
-            if len(bars) < 60:
+            if len(bars) < 60 and not (recs and len(bars) >= lp.min_history_sessions):
+                if recs:
+                    na = NotAnalysable(
+                        "historique",
+                        f"{len(bars)} séances d'historique, {max(lp.min_history_sessions, 1)} exigées",
+                    )
+                    letter_na.append((inst.isin, recs[0], na))
                 continue
             feats = s.scalar(
                 select(FeatureDaily)
@@ -1083,13 +1487,19 @@ def scan(
                 (x, "radar" if x.detector == "d8_buzz_precoce" else "moteur")
                 for x in run_detectors(p.detectors or {}, bars, ctx)
             ]
-            found += _letter_setups(s, inst, day, ctx)
+            q0 = (quotes or {}).get(inst.isin)
+            price0 = float(q0.last) if q0 is not None and getattr(q0, "last", None) is not None else bars[-1].close
+            l_setups, l_meta, l_na = _letter_setups(config, recs, bars, f, ctx, price0, found)
+            letter_na += [(inst.isin, r, na) for r, na in l_na]
+            found += l_setups
             if found:
                 staged.append({"inst": inst, "bars": bars, "feats": feats, "f": f, "zones": zones, "ff": ff,
-                               "shown": shown, "at": at, "found": found})  # fmt: skip
+                               "shown": shown, "at": at, "found": found, "letters": l_meta})  # fmt: skip
         except Exception as exc:  # noqa: BLE001 — one bad instrument never stops the scan
             rep.errors.append(f"{inst.isin}: {exc.__class__.__name__}")
             log.warning("moteur : %s ignorée (%s)", inst.isin, exc.__class__.__name__, exc_info=True)
+            if recs:
+                letter_na.append((inst.isin, recs[0], NotAnalysable("erreur", f"erreur ({exc.__class__.__name__})")))
     # expected R per (detector, source): live history first, the backtest's control period otherwise
     from app.services.backtest import prior_expected_r
 
@@ -1214,12 +1624,19 @@ def scan(
                     ev.details["historique"] = track.as_dict() if track is not None else None
                     if prior is not None and er is not None:  # docs/27 §27.5: control-period prior
                         ev.details["esperance_backtest"] = {"r_net_retreci": round(prior[0], 3), "n": prior[1]}
+                meta = (st_.get("letters") or {}).get(id(setup))
+                if meta is not None:  # docs/20 §20.10: what the letter says, what the tool sees
+                    _letter_details(s, config, ev, inst, meta, len(bars), f, zones,
+                                    feats.rs_rank if feats else None, q if live else None, now)  # fmt: skip
                 evals.append(ev)
         except Exception as exc:  # noqa: BLE001 — one bad instrument never stops the scan
             rep.errors.append(f"{inst.isin}: {exc.__class__.__name__}")
             log.warning("moteur : %s ignorée (%s)", inst.isin, exc.__class__.__name__, exc_info=True)
+            for m in (st_.get("letters") or {}).values():
+                letter_na.append((inst.isin, m["rec"], NotAnalysable("erreur", f"erreur ({exc.__class__.__name__})")))
 
     _persist(s, config, day, now, evals, rep)
+    _persist_not_analysable(s, config, day, now, letter_na, quotes, rep)
     return rep
 
 
@@ -1367,6 +1784,8 @@ def _persist(
                 )
                 prop.rank = r
                 prop.details = _json(e.details)
+                if e.letter is not None:
+                    _letter_verdict(config, prop, e)
                 rep.created += 1
                 rep.by_action[prop.action] = rep.by_action.get(prop.action, 0) + 1
                 inst_e = s.get(Instrument, e.isin)
@@ -1377,11 +1796,21 @@ def _persist(
     s.flush()
 
 
+def same_any(level: float, values: Any) -> bool:
+    return any(
+        isinstance(x, int | float) and abs(level - float(x)) <= 1e-6 * max(1.0, abs(level)) for x in (values or [])
+    )
+
+
 def _target_origin(level: float, setup: Setup, analysts: float | None, high_52w: float | None) -> str:
     def same(x: Any) -> bool:
         return isinstance(x, int | float) and abs(level - float(x)) <= 1e-6 * max(1.0, abs(level))
 
-    if setup.detector == "external" and level == setup.targets[0]:
+    if setup.detector == "external" and (
+        same_any(level, setup.evidence.get("objectifs_lettre"))
+        if "objectifs_lettre" in setup.evidence
+        else level == setup.targets[0]
+    ):
         return "objectif publié par la lettre"
     if same(analysts):
         return "objectif moyen des analystes"

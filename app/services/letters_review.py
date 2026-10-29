@@ -363,7 +363,7 @@ def run_review(
         )
     rev.rejected = rejected
     s.flush()
-    _act_on_opinions(s, config, rev, alerts, mode)
+    _act_on_opinions(s, config, rev, alerts, mode, quotes)
     if alerts is not None:
         alert_recommendations(s, config, rev, alerts, mode)
     return rev
@@ -447,7 +447,7 @@ def alert_recommendations(s: Session, config: LoadedConfig, rev: LetterReview, a
     for r in recommendations(s, config, rev.day):
         if r["isin"] not in touched or r["type"] == "vigilance":
             continue
-        lines = []
+        lines = [f"Analyse de l'outil : {r['phrase']}"[:240]] if r.get("phrase") else []
         if r["sources_positives"]:
             lines.append("Avis positifs : " + ", ".join(r["sources_positives"]))
         if r["contradictions"]:
@@ -465,15 +465,18 @@ def alert_recommendations(s: Session, config: LoadedConfig, rev: LetterReview, a
     return n
 
 
-def _act_on_opinions(s: Session, config: LoadedConfig, rev: LetterReview, alerts: Any, mode: str) -> None:
-    """Explicit recommendations without a proposal get a WATCH one (levels written in the letter
-    only); negative opinions on held positions raise a P2 (deduplicated per value and day)."""
+def _act_on_opinions(
+    s: Session, config: LoadedConfig, rev: LetterReview, alerts: Any, mode: str, quotes: dict[str, Any] | None = None
+) -> None:
+    """Explicit recommendations without a value row (a name in the linked page) are analysed by the engine like the
+    values read at reception (docs/20 §20.10: the same targeted scan, one proposal of the day with its verdict —
+    never a bare WATCH); negative opinions on held positions raise a P2 (deduplicated per value and day)."""
     from app.notify.base import Event
-    from app.services.decisions import create_proposal, record_signal
 
     held = {
         r.isin for r in s.scalars(select(PositionRow).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0))
     }
+    to_analyse: set[str] = set()
     for op in s.scalars(select(LetterOpinion).where(LetterOpinion.review_id == rev.id)):
         if op.isin is None:
             continue
@@ -485,48 +488,8 @@ def _act_on_opinions(s: Session, config: LoadedConfig, rev: LetterReview, alerts
                     NewsletterValue.signal_id.is_not(None),
                 )
             )
-            if existing is None:
-                levels = {}
-                nv = s.scalar(
-                    select(NewsletterValue).where(
-                        NewsletterValue.item_id.in_(op.item_ids or [-1]), NewsletterValue.isin == op.isin
-                    )
-                )
-                if nv is not None and nv.levels:
-                    levels = dict(nv.levels)
-                item = s.get(NewsletterItem, (op.item_ids or [None])[0]) if op.item_ids else None
-                sig = record_signal(
-                    s,
-                    op.isin,
-                    "external",
-                    op.source or "lettres",
-                    _aware(item.received_at) if item else rev.ts,
-                    "eod",
-                    "unavailable",
-                    config.params.version,
-                    evidence={
-                        "direction": "buy" if op.action == "achat" else "watch",
-                        "via": "revue_lettres",
-                        "citation": op.quote,
-                        "levels": levels,
-                    },
-                    entry_low=levels.get("achat"),
-                    stop_initial=levels.get("stop"),
-                    targets=[levels["objectif"]] if "objectif" in levels else None,
-                )
-                create_proposal(
-                    s,
-                    sig,
-                    "WATCH",
-                    None,
-                    {"passed": ["recommandation explicite relevée par la revue des lettres"], "blocked": []},
-                    config.params.version,
-                    to_verify=True,
-                    config=config,
-                    entry_zone={"achat": levels["achat"]} if levels.get("achat") else None,
-                    stop=levels.get("stop"),
-                    targets=[levels["objectif"]] if "objectif" in levels else None,
-                )
+            if existing is None:  # a value read at reception is analysed there already
+                to_analyse.add(op.isin)
         if alerts is not None and op.isin in held and (op.stance == "negative" or op.action == "vente"):
             alerts.emit(
                 s,
@@ -539,6 +502,18 @@ def _act_on_opinions(s: Session, config: LoadedConfig, rev: LetterReview, alerts
                 ),
                 mode,
                 False,
+            )
+    if to_analyse:
+        from app.services.letter_analysis import analyse
+
+        try:
+            with s.begin_nested():
+                analyse(s, config, sorted(to_analyse), quotes, _aware(rev.ts))
+        except Exception as exc:  # noqa: BLE001 — the morning scan analyses what is left
+            import logging
+
+            logging.getLogger("bourse.letters_review").warning(
+                "analyse des recommandations de la revue en échec (%s)", exc.__class__.__name__, exc_info=True
             )
 
 
@@ -560,6 +535,10 @@ def recommendations(s: Session, config: LoadedConfig, day: date | None = None) -
     by: dict[str, list[LetterOpinion]] = defaultdict(list)
     for o in ops:
         by[o.isin or ""].append(o)
+    from app.services.letter_analysis import todays_letter_proposals
+    from app.services.letters_verdict import sentence
+
+    letter_props = todays_letter_proposals(s, day, sorted(by))
     out = []
     for isin, lst in by.items():
         pos_src = {o.source or f"lettre {o.item_ids}" for o in lst if o.stance == "positive"}
@@ -579,8 +558,12 @@ def recommendations(s: Session, config: LoadedConfig, day: date | None = None) -
         if kind is None:
             continue
         last = max(lst, key=lambda o: (o.day, o.id))
+        prop = letter_props.get(isin)  # docs/20 §20.10: the tool's analysis of the day, same sentence as the card
         out.append(
             {
+                "proposal_id": prop.id if prop is not None else None,
+                "verdict": (prop.details or {}).get("verdict") if prop is not None else None,
+                "phrase": sentence(prop) if prop is not None else None,
                 "isin": isin,
                 "valeur": name_of(isin),
                 "type": kind,

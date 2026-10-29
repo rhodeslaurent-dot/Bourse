@@ -40,6 +40,7 @@ OPTIONAL_FEATURES: dict[str, tuple[str, Any]] = {
     "srd": ("Calendrier SRD et coûts SRD", SrdParams),
     "learning": ("Retour d'expérience et ajustement des propositions", LearningParams),
     "letters_review": ("Revue quotidienne des lettres par Claude", LettersReviewParams),
+    "letters": ("Analyse par l'outil de chaque valeur recommandée par une lettre (docs/20 §20.10)", None),
 }
 
 

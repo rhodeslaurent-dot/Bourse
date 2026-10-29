@@ -85,6 +85,15 @@ def ingest_newsletter(body: NewsletterIn, request: Request) -> dict[str, object]
         )
     with db_session() as s:
         rep = ingest_mail(s, mail, cfg, request.app.state.llm, calendars=request.app.state.calendars)
+        if rep.new:  # docs/20 §20.10: every recommended value analysed by the engine (stored close), with its verdict
+            from sqlalchemy import select
+
+            from app.db.models import NewsletterItem
+            from app.services.letter_analysis import analyse_items
+
+            item = s.scalar(select(NewsletterItem).where(NewsletterItem.dedup_hash == mail.dedup_hash))
+            if item is not None:
+                analyse_items(s, cfg, [item])
     return rep.__dict__
 
 

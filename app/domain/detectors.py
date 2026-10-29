@@ -65,6 +65,9 @@ def _stop(
     return stop, basis, warnings
 
 
+structure_stop = _stop  # R1 as every detector applies it, shared with the letters' analysis (letter_setup.py)
+
+
 def _targets(p_max: float, ctx: DetectorContext, extra: list[float]) -> list[float]:
     return [t for t in exploitable_targets(p_max, ctx.zones, extra + ctx.extra_targets) if t > p_max * 1.005]
 

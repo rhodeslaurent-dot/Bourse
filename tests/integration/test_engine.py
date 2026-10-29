@@ -111,7 +111,18 @@ def test_engine_scan_creates_ranked_proposal_with_full_cost(db_engine, config):
         assert again.created == 0 and again.skipped_existing >= 1  # one proposal per value, detector and day
 
 
+def letter_stop_only(config):
+    """docs/20 §20.10: the default policy swaps a letter's invalidation wider than risk.stop.max_distance_adr × ADR20
+    for the tool's structure stop (tests/unit/test_letter_setup.py); these tests keep the letter's own stop."""
+    import copy
+
+    config = copy.deepcopy(config)
+    config.params.letters["stop_policy"] = "letter_only"
+    return config
+
+
 def test_testable_letter_recalculated_and_untestable_left(db_engine, config):
+    config = letter_stop_only(config)  # the letter's stop 93 is 5.1 % under 98, just over 2.5 × ADR20 (5.05 %)
     with db_session() as s:
         _seed(s, breakout_bars()[:-1])
         it = NewsletterItem(source="momentum_capital", message_id="m1", dedup_hash="h1",
@@ -170,6 +181,7 @@ def test_fixing_card_support_holds_or_degrades(db_engine, config):
 
     from app.services import fixing
 
+    config = letter_stop_only(config)
     with db_session() as s:
         _seed(s, breakout_bars()[:-1])
         it = NewsletterItem(source="momentum_capital", message_id="m2", dedup_hash="h2", subject="Momentum",
@@ -260,13 +272,47 @@ def test_a_row_the_database_rejects_is_rolled_back_alone(config, monkeypatch, tm
         assert s.query(Signal).count() == s.query(Proposal).count() == rep.created  # savepoint dropped that row only
 
 
-def test_a_limit_waiting_for_a_pullback_has_an_account_and_a_quantity(db_engine, config):
+def seed_pullback_letter(s) -> None:
+    """A letter's pullback (support 96, invalidation 93, target 110) while the price runs at 100.8: the limit waits
+    at the maximum entry price 96.96 (support × 1.01), above the stop — a real pullback order."""
+    _seed(s, breakout_bars())
+    it = NewsletterItem(source="momentum_capital", message_id="mp", dedup_hash="hp", subject="Momentum",
+                        received_at=NOW - timedelta(hours=20), body_text="(privé)")  # fmt: skip
+    s.add(it)
+    s.flush()
+    s.add(NewsletterValue(item_id=it.id, isin=ISIN, name="TotalEnergies", direction="buy",
+                          levels={"support": 96.0, "stop": 93.0, "objectif": 110.0}))  # fmt: skip
+    s.flush()
+
+
+def test_a_breakout_whose_limit_falls_under_its_trigger_never_waits(db_engine, config):
+    """29/10/2026: the synthetic d2 breakout (trigger 99.78) gets a maximum price of 99.28 at k = 0.3 — a limit
+    under the obstacle is not a breakout: WATCH « ratio net < k au déclencheur », never a waiting limit."""
     import copy
 
-    config = copy.deepcopy(config)  # at k = 2 the synthetic limit falls under its stop: no limit (29/10/2026)
+    config = copy.deepcopy(config)
     config.params.admission["min_reward_risk"] = 0.3
     with db_session() as s:
         _seed(s, breakout_bars())
+        engine.scan(s, config, DAY, now=NOW)
+        d2 = [
+            p
+            for p in s.query(Proposal).all()
+            if (p.details or {}).get("configuration", {}).get("type") == "franchissement"
+        ]
+        assert d2
+        for p in d2:
+            blocked = p.gates["blocked"]
+            assert not any("en attente d'un repli" in b for b in blocked)
+            assert any(b.startswith("WATCH : ratio net < 0.3 au déclencheur (gain ") for b in blocked)
+            assert p.details["ratio_au_declencheur"]["ratio"] < 0.3 and p.action == "WATCH"
+            assert p.details.get("entree") is None  # a detector's entry is left as it was (no order card)
+
+
+def test_a_limit_waiting_for_a_pullback_has_an_account_and_a_quantity(db_engine, config):
+    # 29/10/2026: the former case was the d2 breakout above, whose limit under the trigger was the defect
+    with db_session() as s:
+        seed_pullback_letter(s)
         engine.scan(s, config, DAY, now=NOW)
         waiting = [
             p

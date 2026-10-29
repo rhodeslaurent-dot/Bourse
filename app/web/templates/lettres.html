@@ -44,6 +44,7 @@
         <a href="/assistant?isin={{ r.isin }}" data-ai-isin="{{ r.isin }}" data-ai-name="{{ r.valeur }}" class="ml-auto text-xs underline decoration-dotted text-sky-700 dark:text-sky-300">Demander</a></div>
       <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{% if r.sources_positives %}avis positifs : {{ r.sources_positives|join(', ') }}{% endif %}{% if r.avis_negatifs %} · {{ r.avis_negatifs }} avis négatif(s){% endif %}{% if r.confirmations %} · confirme {{ r.confirmations }}{% endif %}{% if r.contradictions %} · contredit {{ r.contradictions }}{% endif %}</p>
       {% if r.dernier_resume %}<p class="mt-1 text-sm">{{ r.dernier_resume }}</p>{% endif %}
+      {% if r.phrase %}<p class="mt-1 text-sm"><span class="text-xs text-slate-500 dark:text-slate-400">Analyse de l'outil :</span> <span class="font-medium" data-letter-verdict>{{ r.phrase }}</span> <a href="/opportunites#p{{ r.proposal_id }}" class="text-xs underline decoration-dotted text-sky-700 dark:text-sky-300">carte</a></p>{% elif r.type != 'vigilance' %}<p class="mt-1 text-xs text-slate-500">Pas encore d'analyse de l'outil aujourd'hui (passage du moteur au scan du matin ou à la réception).</p>{% endif %}
     </li>
   {% endfor %}
   </ul>

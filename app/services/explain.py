@@ -185,6 +185,22 @@ _PLAIN: list[tuple[str, str]] = [
         "d'ordres) ; il ne sera exécuté que si le cours redescend.",
     ),
     (
+        "au déclencheur",
+        "C'est une cassure : on n'achète qu'au-dessus du déclencheur. À ce prix, le gain jusqu'au premier objectif "
+        "ne vaut pas deux fois la perte possible jusqu'au stop ; une limite plus basse ne serait plus une cassure. "
+        "Aucun ordre ; le ratio au dernier objectif est donné pour information.",
+    ),
+    (
+        "déclencheur non franchi",
+        "Le cours n'a pas encore franchi le niveau de la lettre : alerte au franchissement, ordre seulement après "
+        "une clôture au-dessus.",
+    ),
+    (
+        "invalidation de la lettre franchie",
+        "Le cours est déjà sous le niveau d'invalidation publié par la lettre : son scénario ne tient plus.",
+    ),
+    ("non analysable", "L'outil ne peut pas calculer cette valeur (raison écrite sur la carte) : aucun ordre."),
+    (
         "objectif trop proche",
         "Le premier objectif est trop près pour le risque pris : même acheté juste au-dessus du stop, le gain "
         "ne vaudrait pas deux fois la perte possible. Aucun ordre limite n'est préparé.",

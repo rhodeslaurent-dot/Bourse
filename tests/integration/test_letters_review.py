@@ -113,6 +113,10 @@ def seeded(db_engine, config, calendars):
                 classification={"type": "guidance", "direction": "positif"},
             )
         )
+        from app.services.letter_analysis import analyse_items
+
+        # docs/20 §20.10: the reception's analysis (imap_poll.engine_at_reception) — ASML has 2 sessions only
+        analyse_items(s, config, list(s.scalars(select(NewsletterItem))), now=NOW)
         ids = {i.source: i.id for i in s.scalars(select(NewsletterItem))}
     return ids
 
