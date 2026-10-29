@@ -13,23 +13,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import LetterOpinion, NewsletterItem, NewsletterValue, Proposal, Signal, WatchlistRow
+from app.domain.letter_levels import recalculable
 from app.domain.timeutil import PARIS
-
-
-def recalculable(levels: dict | None) -> bool:
-    lv = levels or {}
-    return (
-        lv.get("stop") is not None
-        and lv.get("objectif") is not None
-        and (lv.get("achat") is not None or lv.get("support") is not None)
-    )
 
 
 def _why_not_testable(levels: dict | None) -> str:
     lv = levels or {}
     missing = [k for k in ("stop", "objectif") if lv.get(k) is None]
-    if lv.get("achat") is None and lv.get("support") is None:
-        missing.append("achat ou support")
+    if lv.get("achat") is None and lv.get("support") is None and lv.get("declencheur") is None:
+        missing.append("achat, support ou déclencheur")
     return "niveaux manquants : " + ", ".join(missing)
 
 
@@ -59,6 +51,11 @@ def trace(s: Session, day: date) -> list[str]:
     out = [f"Lettres reçues le {day:%d/%m/%Y} : {len(items)}"]
     for it in items:
         out.append(f"· {it.source} {it.received_at.astimezone(PARIS):%H:%M} Paris — « {it.subject[:90]} »")
+        how = {"llm": "lecture par l'IA puis contrôle", "rules": "lecture par règles seules (IA indisponible)"}
+        out.append(f"    {how.get(it.parsed_by or '', it.parsed_by or 'lecture inconnue')}")
+        rejected = (it.parsed or {}).get("rejected_llm_levels") or []
+        if rejected:
+            out.append(f"    niveaux proposés par l'IA mais absents du texte, rejetés : {', '.join(rejected[:12])}")
         values = list(s.scalars(select(NewsletterValue).where(NewsletterValue.item_id == it.id)))
         if not values:
             out.append("    aucune valeur extraite de cette lettre")

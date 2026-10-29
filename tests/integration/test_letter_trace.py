@@ -33,7 +33,7 @@ def test_the_trace_says_what_became_of_each_value(db_engine):
         create_proposal(s, sig, "WATCH", None, {"blocked": []}, "t", to_verify=True, created_at=T)
         lines = trace(s, date(2026, 10, 29))
     text = "\n".join(lines)
-    assert "Viridien (FR001400PVN6) · buy" in text and "niveaux manquants : achat ou support" in text
+    assert "Viridien (FR001400PVN6) · buy" in text and "niveaux manquants : achat, support ou déclencheur" in text
     assert "proposition n° " in text and ": WATCH · à vérifier" in text and "watchlist : oui" in text
     assert "Sopra Steria (ISIN non reconnu)" in text and "valeur non reconnue" in text
     assert "simple mention" in text

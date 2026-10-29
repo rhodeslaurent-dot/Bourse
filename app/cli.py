@@ -1463,6 +1463,24 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mentions_recheck(args: argparse.Namespace) -> int:
+    """Values read in a French word instead of a company name (report of 29/10/2026): their proposals withdrawn,
+    their watchlist lines deactivated, news re-attached. Dry run unless ``--apply``."""
+    from datetime import UTC, datetime
+
+    from app.db.session import db_session
+    from app.services.mentions_recheck import recheck
+
+    with db_session() as s:
+        rep = recheck(s, date.fromisoformat(args.since), args.apply, datetime.now(UTC))
+        for line in rep.lines():
+            print(line)
+        print(
+            "appliqué" if args.apply else "aperçu seulement : relancer avec --apply (réversible : deleted_at, active)"
+        )
+    return 0
+
+
 def cmd_letters_trace(args: argparse.Namespace) -> int:
     """What the tool made of the letters of one day: values read, levels, recalculation, proposal or why none."""
     from app.db.session import db_session
@@ -2165,6 +2183,10 @@ def main(argv: list[str] | None = None) -> int:
     nh.add_argument("--dry-run", action="store_true", help="repérage : compte expéditeurs et dates, n'enregistre rien")
     nh.add_argument("--no-llm", action="store_true", help="extraction par règles seules (gratuite)")
     nh.set_defaults(fn=cmd_newsletters_history)
+    mr = sub.add_parser("mentions-recheck", help="retire les valeurs lues dans un mot courant (SUR, AUX, PAS…)")
+    mr.add_argument("--since", required=True, help="AAAA-MM-JJ")
+    mr.add_argument("--apply", action="store_true", help="appliquer (sinon aperçu)")
+    mr.set_defaults(fn=cmd_mentions_recheck)
     lt = sub.add_parser(
         "letters-trace", help="ce que l'outil a fait des lettres d'un jour (valeurs, niveaux, propositions)"
     )

@@ -231,9 +231,10 @@ def _press_context(s: Session, config: LoadedConfig, now: datetime) -> list[dict
 def _resolve_isin(s: Session, isin: str | None, name: str) -> str | None:
     if isin and s.get(Instrument, isin.upper()) is not None:
         return isin.upper()
-    from app.services.news import alias_index
+    from app.domain.names import resolve
+    from app.services.news import name_index
 
-    return alias_index(s).get((name or "").strip().lower())
+    return resolve(name or "", name_index(s))
 
 
 def run_review(

@@ -18,6 +18,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 from app.data.providers.rss import strip_html
+from app.domain.names import find_mentions
 
 ISIN_RE = re.compile(r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b")
 LEVEL_RE = re.compile(
@@ -158,7 +159,7 @@ def direction_of(text: str) -> str:
 
 
 def extract_values(body: str, aliases: dict[str, str] | None = None) -> list[ExtractedValue]:
-    """Rule-based extraction: ISINs and known names (aliases: lowercase alias → ISIN) with the
+    """Rule-based extraction: ISINs and known names (aliases: normalized name → ISIN, ``news.alias_index``) with the
     direction and price levels found in the surrounding paragraph. The LLM refines afterwards."""
     aliases = aliases or {}
     out: list[ExtractedValue] = []
@@ -166,10 +167,7 @@ def extract_values(body: str, aliases: dict[str, str] | None = None) -> list[Ext
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n|\r\n\r\n", body) if p.strip()]
     for para in paragraphs:
         found: list[tuple[str | None, str | None]] = [(m, None) for m in ISIN_RE.findall(para)]
-        low = para.lower()
-        for alias, isin in aliases.items():
-            if re.search(rf"\b{re.escape(alias)}\b", low):
-                found.append((isin, alias))
+        found += [(isin, key) for isin, key in find_mentions(para, aliases)]  # names only, never tickers
         levels: dict[str, float] = {}
         for m in LEVEL_RE.finditer(para):
             kind = m.group("kind").lower().replace("é", "e")

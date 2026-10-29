@@ -56,6 +56,7 @@ from app.domain.heat import (
     override_fits,
 )
 from app.domain.indicators import compute_daily_features
+from app.domain.letter_levels import canonical_levels
 from app.domain.ranking import RankItem, rank
 from app.domain.risk import (
     EntryOrderKind,
@@ -96,7 +97,7 @@ def _letter_levels(s: Session, isin: str, day: date, window_days: int = 5) -> li
         .where(NewsletterValue.isin == isin, NewsletterItem.received_at >= since)
         .order_by(NewsletterItem.received_at.desc())
     ):
-        lv = v.levels or {}
+        lv, _ = canonical_levels(v.levels or {})  # rows stored before the closed list of names (29/10/2026)
         if v.direction in ("buy", "watch"):
             out.append({"source": it.source, "item_id": it.id, "received_at": it.received_at, "levels": lv})
     return out
@@ -966,10 +967,13 @@ def _letter_setups(s: Session, inst: Instrument, day: date, ctx: DetectorContext
         stop, target = levels.get("stop"), levels.get("objectif")
         if stop is None or target is None:
             continue  # R15: not testable — the letter's WATCH stays as recorded at reception
-        entry = levels.get("achat") or levels.get("support")
+        entry = levels.get("achat") or levels.get("support") or levels.get("declencheur")
         if entry is None:
             continue
         support = levels.get("support")
+        # a range exit (« sortie au-dessus de 100,20 ») is a breakout: the trigger is the obstacle crossed (R5:
+        # a close back under it gives the breakout back)
+        trigger = levels.get("declencheur") if levels.get("achat") is None and support is None else None
         # R4: the target published by the letter is the exploitable one; detected resistances above
         # the entry are shown as the next levels, never substituted to the published target
         nxt = [t for t in exploitable_targets(float(entry), ctx.zones, []) if t > float(target)]
@@ -982,7 +986,7 @@ def _letter_setups(s: Session, inst: Instrument, day: date, ctx: DetectorContext
                     float(entry) * 1.01,
                     float(stop),
                     "lettre",
-                    float(support or stop),
+                    float(support or trigger or stop),
                     [float(target), *nxt[:1]],
                     "swing_2_6w",
                     {"lettre": lv["source"], "item_id": lv["item_id"], "niveaux": levels},

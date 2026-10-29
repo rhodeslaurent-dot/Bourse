@@ -15,12 +15,14 @@ from sqlalchemy.orm import Session
 from app.config import LoadedConfig
 from app.data.dto import Quote
 from app.data.providers.imap_gmail import NewsletterMail, extract_values
-from app.db.models import NewsletterItem, NewsletterValue, PriceEod, WatchlistRow
+from app.db.models import Instrument, NewsletterItem, NewsletterValue, PriceEod, WatchlistRow
 from app.domain.indicators import gap_open as gap_fn
+from app.domain.letter_levels import canonical_levels, recalculable
+from app.domain.names import resolve
 from app.llm.gateway import ClaudeGateway, LlmUnavailable
 from app.llm.schemas import NewsletterExtraction
 from app.services.decisions import create_proposal, record_signal
-from app.services.news import alias_index
+from app.services.news import alias_index, name_index
 
 log = logging.getLogger("bourse.newsletters")
 
@@ -95,6 +97,7 @@ def ingest_mail(
     s.flush()
     rep.new = 1
     aliases = alias_index(s)
+    names = name_index(s)  # a name given by the reader is resolved on every referential name, common words too
     values = extract_values(mail.body_text, aliases)
     rejected_levels: list[str] = []
     parsed_by = "rules"
@@ -114,7 +117,9 @@ def ingest_mail(
             version = load_prompt(gateway.settings.prompts_dir, "newsletter_extract")[0]
             merged = {v.isin or (v.name or "").lower(): v for v in values}
             for lv in ext.values:
-                isin = lv.isin or aliases.get(lv.name.lower())
+                isin = (lv.isin if lv.isin and s.get(Instrument, lv.isin) is not None else None) or resolve(
+                    lv.name, names
+                )
                 key = isin or lv.name.lower()
                 # M16: keep only levels written in the letter; rule-extracted levels take precedence
                 verified = {k: v for k, v in lv.levels.items() if _number_in_text(v, mail.body_text)}  # noqa: F821
@@ -135,9 +140,16 @@ def ingest_mail(
             rep.parsed_by_llm = 1
         except LlmUnavailable as exc:
             log.warning("LLM indisponible (%s) : extraction par règles", exc)
+    dropped_keys: list[str] = []
+    for v in values:  # one closed list of level names (« entrée » → achat, « invalidation » → stop…)
+        v.levels, dropped = canonical_levels(v.levels or {})
+        dropped_keys += [f"{v.name}:{k}" for k in dropped]
+    if dropped_keys:
+        log.warning("niveaux de nom inconnu, ignorés : %s", dropped_keys)
     item.parsed = {
         "values": [{"isin": v.isin, "name": v.name, "direction": v.direction, "levels": v.levels} for v in values],
         "rejected_llm_levels": rejected_levels,
+        "unknown_level_names": dropped_keys,
         **({"page_liee": mail.linked} if getattr(mail, "linked", None) else {}),
     }
     item.parsed_by, item.llm_prompt_version = parsed_by, version
@@ -189,13 +201,7 @@ def ingest_mail(
         )
         row.signal_id = sig.id
         lv = v.levels or {}
-        if (
-            not historical
-            and getattr(config.params, "admission", None)
-            and lv.get("stop") is not None
-            and lv.get("objectif") is not None
-            and (lv.get("achat") is not None or lv.get("support") is not None)
-        ):
+        if not historical and getattr(config.params, "admission", None) and recalculable(lv):
             # R15: a testable letter is recalculated by the engine at reception (docs/22 §22.4 D),
             # which creates the proposal with P_max, full cost and ranking; no duplicate WATCH here.
             rep.signals += 1

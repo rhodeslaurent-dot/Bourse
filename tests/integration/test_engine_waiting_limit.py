@@ -69,3 +69,30 @@ def test_fees_are_estimated_in_euros_for_a_value_quoted_in_pence(db_engine, conf
             if p.details.get("p_max") is not None and p.stop is not None:
                 waiting = any("en attente d'un repli" in b for b in p.gates.get("blocked", []))
                 assert not waiting or p.details["p_max"] > p.stop  # never a limit under its own stop
+
+
+def test_a_range_exit_letter_is_recalculated_as_a_breakout(db_engine, config):
+    """Viridien, 29/10/2026: « sortie du range au-dessus de 100,20, objectif 109,10, invalidé sous 97 » has no buy
+    level: the trigger is the entry and the range top is the obstacle a close must hold (R5)."""
+    from app.db.models import NewsletterItem, NewsletterValue, Signal
+
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        it = NewsletterItem(source="momentum_capital", message_id="m", dedup_hash="h",
+                            received_at=NOW - timedelta(hours=1), subject="sortie par le haut ?",
+                            body_text="(privé)")  # fmt: skip
+        s.add(it)
+        s.flush()
+        s.add(NewsletterValue(item_id=it.id, isin=ISIN, name="TotalEnergies", direction="buy",
+                              levels={"Déclencheur": 100.2, "objectif 1": 109.1, "invalidation": 97.0}))  # fmt: skip
+        s.flush()
+        engine.scan(s, config, DAY, isins=[ISIN], now=NOW)
+        letter = [
+            p
+            for p in s.query(Proposal).filter(Proposal.isin == ISIN)
+            if (s.get(Signal, p.signal_id).source == "moteur_lettre")
+        ]
+    assert letter, "the range exit must reach the engine"
+    p = letter[0]
+    assert p.stop == 97.0 and p.targets[0] == 109.1
+    assert p.details["admission"] in ("admis", "refuse", "degrade")

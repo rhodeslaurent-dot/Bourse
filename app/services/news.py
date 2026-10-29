@@ -4,7 +4,6 @@ classification (rules fallback, reduced confidence) → ``premarket_watch`` for 
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -15,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.data.providers.imap_gmail import ISIN_RE
 from app.data.providers.rss import NewsItem as RssItem
 from app.db.models import Instrument, InstrumentAlias, NewsItem, PremarketWatch
+from app.domain.names import find_mentions, mention_safe, name_keys
 from app.llm.gateway import ClaudeGateway, LlmUnavailable
 from app.llm.rules import classify_by_rules, classify_regulatory
 from app.llm.schemas import NewsClassification
@@ -32,16 +32,44 @@ class IngestReport:
     llm_cost_usd: float = 0.0
 
 
-def alias_index(s: Session) -> dict[str, str]:
-    """lowercase alias → ISIN (names and tickers from the referential + aliases table)."""
+US_MICS = frozenset({"XNYS", "XNAS", "ARCX", "BATS", "XASE", "OTC", "OTCM"})
+
+
+def _names(s: Session) -> list[tuple[tuple[int, int, int], str, str]]:
+    """(priority, name, ISIN) for the referential names and the providers' names (never their tickers: an
+    upper-case code without a space is a ticker). Priority: universe first, then European venues, then shorter."""
+    out: list[tuple[tuple[int, int, int], str, str]] = []
+    insts = {i.isin: i for i in s.scalars(select(Instrument).where(Instrument.active.is_(True)))}
+
+    def prio(isin: str, name: str) -> tuple[int, int, int]:
+        inst = insts.get(isin)
+        return (0 if inst is not None and inst.in_universe else 1, 1 if inst is not None and inst.mic in US_MICS else 0,
+                len(name))  # fmt: skip
+
+    for inst in insts.values():
+        if inst.name:
+            out.append((prio(inst.isin, inst.name), inst.name, inst.isin))
+    for a in s.scalars(select(InstrumentAlias).where(InstrumentAlias.provider == "eodhd")):
+        if a.isin in insts and (" " in a.alias or any(c.islower() for c in a.alias)):
+            out.append((prio(a.isin, a.alias), a.alias, a.isin))
+    return sorted(out)
+
+
+def name_index(s: Session) -> dict[str, str]:
+    """Normalized name (full and core, docs: app/domain/names.py) → ISIN, to resolve a company name given by a
+    reader (LLM). A key shared by two values goes to the best placed one (universe, European venue)."""
     idx: dict[str, str] = {}
-    for inst in s.scalars(select(Instrument).where(Instrument.active.is_(True))):
-        if inst.name and len(inst.name) >= 3:
-            idx[inst.name.lower()] = inst.isin
-    for a in s.scalars(select(InstrumentAlias)):
-        if len(a.alias) >= 3 and not a.alias.lower().endswith((".pa", ".xetra", ".as", ".br")):
-            idx[a.alias.lower()] = a.isin
+    for _, name, isin in _names(s):
+        for k in name_keys(name):
+            idx.setdefault(k, isin)
     return idx
+
+
+def alias_index(s: Session) -> dict[str, str]:
+    """Normalized name → ISIN of the names that may be searched as words in free text (letters, news, forums):
+    several words, or one word of 4+ letters that is not a common word; never a ticker (« sur », « aux », « pas »
+    are French words before being tickers — report of 29/10/2026)."""
+    return {k: v for k, v in name_index(s).items() if mention_safe(k)}
 
 
 def attach_instruments(text: str, aliases: dict[str, str]) -> list[str]:
@@ -49,11 +77,8 @@ def attach_instruments(text: str, aliases: dict[str, str]) -> list[str]:
     for isin in ISIN_RE.findall(text):
         if isin not in found:
             found.append(isin)
-    low = text.lower()
-    for alias, isin in aliases.items():
-        if isin in found:
-            continue
-        if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", low):
+    for isin, _ in find_mentions(text, aliases):
+        if isin not in found:
             found.append(isin)
     return found
 

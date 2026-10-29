@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import MediaMention, NewsItem, PriceEod
+from app.domain.names import resolve
 from app.domain.timeutil import PARIS
 from app.llm.gateway import LlmUnavailable
 from app.llm.schemas import MediaExtraction
@@ -205,7 +206,7 @@ def extract_mentions(
         after_close = bool((feed or {}).get("broadcast_after_close"))
         names = name_matcher(aliases)
         for v in values:
-            isin = aliases.get(v["name"].lower()) or names.get(norm_name(v["name"]))
+            isin = resolve(v["name"], aliases) or names.get(norm_name(v["name"]))
             ref = (close_on_or_before if after_close else close_before)(s, isin, day) if isin else None
             exists = s.scalar(
                 select(MediaMention.id).where(
