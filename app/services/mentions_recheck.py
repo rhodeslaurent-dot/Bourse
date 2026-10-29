@@ -35,7 +35,8 @@ class RecheckReport:
         return out
 
 
-def _keys_by_isin(s: Session, isins: set[str]) -> dict[str, set[str]]:
+def keys_by_isin(s: Session, isins: set[str]) -> dict[str, set[str]]:
+    """Name keys of each value: its referential name and its provider names (never a ticker)."""
     keys: dict[str, set[str]] = {i: set() for i in isins}
     for inst in s.scalars(select(Instrument).where(Instrument.isin.in_(isins or {""}))):
         keys[inst.isin] |= name_keys(inst.name or "")
@@ -46,6 +47,7 @@ def _keys_by_isin(s: Session, isins: set[str]) -> dict[str, set[str]]:
 
 
 def written(text: str, isin: str, keys: set[str]) -> bool:
+    """The value's ISIN or one of its name keys is written, as whole words, in the text."""
     t = f" {norm(text)} "
     return isin.lower() in t or any(f" {k} " in t for k in keys if k)
 
@@ -59,7 +61,7 @@ def recheck(s: Session, since: date, apply: bool, now: datetime) -> RecheckRepor
     values = [
         v for v in s.scalars(select(NewsletterValue).where(NewsletterValue.item_id.in_(list(items) or [-1]))) if v.isin
     ]
-    keys = _keys_by_isin(s, {v.isin for v in values if v.isin})
+    keys = keys_by_isin(s, {v.isin for v in values if v.isin})
     kept: set[str] = set()
     bad: list[NewsletterValue] = []
     for v in values:

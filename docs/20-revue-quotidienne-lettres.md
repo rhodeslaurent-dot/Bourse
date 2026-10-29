@@ -78,3 +78,45 @@ Groupe optionnel : absent → revue désactivée (page affichant la marche à su
 - A20.2 Une citation absente du texte, un chiffre hors dossier ou une validation sur une cible inconnue sont écartés et listés.
 - A20.3 Deux sources positives sur 5 jours sans avis négatif → « à étudier » ; un avis négatif sur une position → P2 dédupliquée.
 - A20.4 `/lettres` affiche synthèse, préconisations, validations et avis ; sans clé API, la page liste les lettres et indique que la revue IA est indisponible.
+
+## 20.11 Étude historique des recommandations des lettres (exploratoire, 29/10/2026)
+
+> Question de l'utilisateur : les valeurs recommandées par les lettres payantes (Momentum Capital, Zonebourse) montent-elles vraiment après la recommandation, **après tous les frais**, et quelle règle d'entrée et de stop le capture ? L'étude **décrit** l'historique stocké sur le PC. Elle ne change aucune règle : une règle n'est adoptée qu'au terme d'un **plan pré-enregistré** (docs/31), testé sur des lettres reçues après ce plan.
+
+**Lancer** (sur le PC, de préférence le soir) :
+
+```
+docker compose exec app python -m app.cli letters-study --from 2017-01-02
+docker compose exec app python -m app.cli letters-study --from 2017-01-02 --source momentum_capital
+```
+
+Options : `--to AAAA-MM-JJ` (défaut : hier), `--source` (répétable, ou `a,b`), `--seed` (graine des contrôles, défaut 20261029), `--controls` (20), `--out data/research`. Sortie : `data/research/letters_study_<horodatage>.json` (complet) et `.md` (lecture en français), une ligne `etude_lettres_exploratoire` au registre `data/research/ledger.csv`. **Partager ces deux fichiers seulement** : ils ne contiennent que des agrégats (contrôle `assert_no_price_fields` : aucun cours, aucun nom, aucun ISIN ; une statistique sur moins de 5 observations est masquée).
+
+**Ce qui compte comme recommandation.**
+- Une valeur lue dans une lettre (extraction à la réception, ou avis explicite « achat » / « surveiller » de la revue), avec un **ISIN résolu** et le sens **achat** ou **à surveiller** ; une mention neutre ou un avis de vente n'est pas compté.
+- Seulement si **le nom de la société ou son ISIN est écrit dans la lettre** (`mentions_recheck.written`) : les anciennes lectures d'un code boursier dans un mot français (« sur » → Surteco…, 29/10/2026) sont écartées et comptées.
+- Une même source, une même valeur, une même séance : comptée une fois. Les niveaux stockés sont remis dans la liste fermée (`canonical_levels`) ; un niveau hors de [0,5 ; 2] × le cours de référence est écarté (lecture d'un autre cours).
+- Places européennes seulement (groupes P0 / P1 / P2) : New York, Londres et Zurich restent non lues tant que l'enregistrement n° 2 n'a pas tourné. Aucune recommandation avant le 02/01/2017 (refus, code 2), aucun cours de la période scellée (avant le 01/10/2015) n'est lu.
+
+**Placement sans regard vers le futur.**
+- **Séance de réaction** : la séance elle-même si la lettre arrive avant l'ouverture de la place de la valeur (son fuseau, son heure d'ouverture), sinon la séance suivante. Séances : le calendrier de la place quand l'année est encodée, sinon les jours où ses valeurs ont coté.
+- **Base « ouverture »** : l'ouverture de la séance de réaction. **Base « clôture »** : la première clôture après la réception (celle du jour si la lettre arrive en séance).
+- Niveaux transposés, ATR et stop de structure : la dernière clôture connue avant l'ouverture de la séance de réaction.
+
+**Mesures.**
+- Rendements à 1, 3, 5, 10 et 20 séances depuis chaque base : brut, net de l'aller-retour complet (CTO), **anormal** (moins l'indice de la place s'il est en base, sinon la moitié la plus liquide de la place, équipondérée, ce jour-là), et en **excès sur les contrôles** ; part des recommandations positives nettes (Wilson). Excursions favorable et défavorable sur 20 séances, en ATR.
+- **Entrées** : E1 ouverture de la séance de réaction ; E2 achat sur franchissement du déclencheur de la lettre (sinon sa résistance), prix maximal déclencheur + 0,5 ATR, valable 3 séances ; E3 limite au niveau d'achat (sinon au support), valable 3 séances.
+- **Sorties** : X1 stop et premier objectif de la lettre ; X2 stop de structure de l'outil (R1 : sous la zone de support la plus proche, sinon plus bas des 10 séances − tampon ATR) et premier objectif de la lettre ; X3 stop à 2 ATR et objectif à 3 ATR ; sortie au temps après 20 séances dans tous les cas.
+- Conventions prudentes du banc (docs/31 §31.3) : stop et objectif dans la même séance → stop d'abord ; une séance exécutée en cours de séance ne peut que toucher le stop et son plus haut n'entre pas dans l'excursion ; une ouverture sous le stop avant l'exécution annule l'ordre ; une fenêtre qui traverse une opération sur titres est écartée.
+- **Coûts** : l'aller-retour complet comme le backtest (`_cost_params`, `ttf_rate_of` : courtage, TTF, taxes étrangères, change) en CTO comptant Saxo, et en PEA BoursoBank quand la valeur y est éligible ; taille = budget de risque ÷ distance au stop glissé, plafonnée à la ligne maximale. Résultat en **R net**.
+- **Contrôles** : 20 valeurs par recommandation, tirées avec une graine, même place et même séance, liquidité au moins 25 % de celle de la valeur (ou la médiane de la place), ATR % dans un rapport 2/3 – 3/2 (sinon les plus proches, comptés « élargis ») ; mêmes entrées et sorties, niveaux de la lettre transposés en ATR. Les valeurs recommandées le même jour en sont exclues. **Excès apparié** : R net de la recommandation moins la moyenne de ses contrôles exécutés (au moins 3), avec intervalle et t.
+- **Découpages** : source, achat ou à surveiller, avec ou sans niveaux (recalculables, partiels, aucun), groupe de places, année, « déjà en hausse de plus de 3 % sur les 5 séances avant la réception », nouvelle ou répétée (même source, même valeur, 20 séances), origine (extraction ou revue).
+- **Lettres et outil** : pour les recommandations où un détecteur (paramètres de production, d8 excepté) avait une configuration à ± 3 séances, les mêmes mesures, le trade de l'outil lui-même (prix maximal, ordre limite, comme le backtest) et l'écart apparié lettre − outil.
+
+**Lire le rapport.**
+- Seuils **à rapporter, non à décider** : au moins **50 recommandations** et **20 trades exécutés par bras** avant toute conclusion. En dessous, le rapport l'écrit en tête (« Échantillon insuffisant ») et les chiffres ne disent rien d'un avantage.
+- Un rendement brut positif peut n'être que la hausse du marché : ce sont le rendement **anormal** et surtout l'**excès sur les contrôles** qui mesurent ce qu'apportent les lettres. Beaucoup de découpages sont lus : une découverte exige t ≥ 3 (Harvey, Liu & Zhu). Des recommandations répétées d'une même valeur ne sont pas indépendantes : le t est optimiste.
+- Biais connus (écrits dans le rapport) : référentiel, capitalisations et TTF d'aujourd'hui ; valeurs radiées absentes des contrôles si leurs cours manquent ; rang de force relative recalculé sur les places chargées ; une valeur que la lecture des lettres a manquée n'est pas comptée.
+- **Adoption** : seulement par un plan pré-enregistré (docs/31) qui fige la règle (par exemple E1·X3 sur les recommandations « achat » nouvelles) **avant** de lire de nouvelles lettres, puis la teste vers l'avant ; jamais en retenant le meilleur bras de ce rapport.
+
+Code : `app/domain/letters_study.py` (pur : placement, rendements, ordres et sorties, transposition, tirage des contrôles, agrégats), `app/services/letters_study.py` (lettres, cours par place, contrôles, outil, rapport), commande `letters-study` (`app/cli.py`). Tests : `tests/unit/test_letters_study.py`, `tests/integration/test_letters_study.py`. Durée estimée : quelques minutes pour quelques centaines de recommandations (lecture des cours de chaque place concernée, puis environ 20 contrôles × 9 bras par recommandation).

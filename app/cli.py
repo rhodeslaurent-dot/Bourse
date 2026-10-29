@@ -1601,6 +1601,43 @@ def cmd_moves_study(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_letters_study(args: argparse.Namespace) -> int:
+    """docs/20 §20.11 — do the values recommended by the letters rise after the reception, after full costs, and
+    which entry / stop rule captures it? Exploratory; European venues only; aggregated report (JSON + Markdown in
+    French) under ``--out`` and a line in the research ledger."""
+    from pathlib import Path
+
+    from app.db.session import db_session
+    from app.domain.calendar import load_market_calendars
+    from app.domain.letters_study import StudyParams
+    from app.services import letters_study
+    from app.services.research import append_ledger
+
+    end = date.fromisoformat(args.to) if args.to else date.today() - timedelta(days=1)
+    start = date.fromisoformat(args.from_date)
+    if start < letters_study.FIRST_DAY:
+        print("refusé : avant 2017 les données européennes sont réservées à la confirmation (docs/34 §34.5)")
+        return 2
+    if end < start:
+        print("refusé : --to avant --from")
+        return 2
+    cfg = load_params(args.params)
+    calendars = load_market_calendars(args.calendars)
+    sources = [x for v in (args.source or []) for x in v.split(",") if x] or None
+    p = StudyParams(seed=args.seed, controls=args.controls)
+    with db_session() as s:
+        rep = letters_study.run_study(s, cfg, calendars, start, end, sources, p, lambda m: print(f"  {m}", flush=True))
+    j, t = letters_study.write(rep, Path(args.out))
+    append_ledger(
+        Path(args.out),
+        {"timestamp": datetime.now(UTC).isoformat(timespec="seconds"), "kind": "etude_lettres_exploratoire",
+         "universe": f"lettres {','.join(sources) if sources else 'toutes'} P0/P1/P2 {start}→{end}", "report": str(t)},
+    )  # fmt: skip
+    print(letters_study.render_md(rep))
+    print(f"\nrapport : {t} (agrégats seulement) · détail : {j}")
+    return 0
+
+
 def cmd_research(args: argparse.Namespace) -> int:
     """docs/31 — trigger research harness (pre-registered plan): run, decompose, calibrate, unseal. Writes an
     aggregated report (statistics only) under ``--out``."""
@@ -2322,6 +2359,16 @@ def main(argv: list[str] | None = None) -> int:
     mv.add_argument("--out", default="data/studies")
     mv.add_argument("--research-out", dest="research_out", default="data/research", help="dossier du registre")
     mv.set_defaults(fn=cmd_moves_study)
+    lsd = sub.add_parser(
+        "letters-study", help="recommandations des lettres (docs/20 §20.11) : hausse après coût, entrées"
+    )
+    lsd.add_argument("--from", dest="from_date", default="2017-01-02", help="début (pas avant 2017-01-02)")
+    lsd.add_argument("--to", default=None, help="fin (défaut : hier)")
+    lsd.add_argument("--source", action="append", default=None, help="source(s) de lettres (répétable ou a,b)")
+    lsd.add_argument("--seed", type=int, default=20261029, help="graine du tirage des contrôles")
+    lsd.add_argument("--controls", type=int, default=20, help="valeurs de contrôle par recommandation")
+    lsd.add_argument("--out", default="data/research", help="dossier du rapport et du registre")
+    lsd.set_defaults(fn=cmd_letters_study)
     rs = sub.add_parser("research", help="recherche de déclencheurs pré-enregistrée (docs/31) : rapport agrégé")
     rs.add_argument("action", choices=["run", "decompose", "calibrate", "unseal", "explain"])
     rs.add_argument("--prereg", default="research/prereg/2026-10-27_reg1.yaml")
