@@ -165,3 +165,12 @@ def test_a_form_whose_nature_comes_before_the_instrument_keeps_each_nature_in_it
     assert g is not None and g["nature"] == "acquisition" and g["volume"] == 1000 and g["price"] == 12.5
     assert g["venue"] == "Euronext Paris" and g["tx_date"] == date(2026, 10, 23)
     assert A.parse_declaration_text(_text("declaration_buy.txt"))["nature"] == "acquisition"  # the other order
+
+
+def test_the_real_layout_date_venue_nature_then_instrument_and_an_english_copy():
+    """Labels order of a real PDF read on the PC (30/10/2026): date, venue, nature, then the instrument; the same
+    form follows in English (« VOLUME » again) — the figures are the French aggregated ones, never doubled."""
+    f = A.parse_declaration_text(_text("declaration_real_layout.txt"))
+    assert f is not None and f["nature"] == "acquisition" and f["n_transactions"] == 1
+    assert f["tx_date"] == date(2025, 5, 15) and f["venue"] == "Euronext Paris"
+    assert f["volume"] == 200 and f["price"] == 10.5 and f["amount"] == 2100
