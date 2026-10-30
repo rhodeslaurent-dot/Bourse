@@ -274,3 +274,11 @@ def test_forward_outcome_is_bought_at_the_open_after_the_cause():
     assert abs(o.net_cto[5] - (o.gross[5] - 0.004)) < 1e-12 and o.net_pea[5] is None
     assert abs(o.excess[10] - (o.gross[10] - 0.01)) < 1e-12 and o.week == "2024-02"
     assert o.label == 0  # +5 % never reached in 10 sessions
+
+
+def test_suspect_price_jumps_are_flagged():
+    """First PC run of 30/10/2026: a series with a unit change averaged d7's measured returns at +794 %."""
+    closes = [10.0, 10.2, 1020.0, 1015.0, 9.9, 0.0]
+    opens = [10.0, 10.1, 1010.0, 1012.0, 9.8, 9.8]
+    assert mc.suspect_sessions(opens, closes, 4.0) == [2, 4, 5]
+    assert mc.suspect_sessions([10.0, 30.0], [10.0, 35.0], 4.0) == []  # +250 % in a session can be real

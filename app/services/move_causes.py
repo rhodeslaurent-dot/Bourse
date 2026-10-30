@@ -160,13 +160,14 @@ class Value:
         return i < len(self.ca) and self.ca[i] <= b
 
 
-def _value(pn: Panel, j: int) -> Value:
+def _value(pn: Panel, j: int, p: mc.CauseParams | None = None) -> Value:
     r = np.flatnonzero(pn.valid[:, j])
     o, h, lo, c, v = (M[r, j].tolist() for M in (pn.O, pn.H, pn.L, pn.C, pn.V))
     bars = [Bar(a, b, x, y, int(z)) for a, b, x, y, z in zip(o, h, lo, c, v, strict=True)]
+    ca = np.flatnonzero(pn.ca[r, j]).tolist()  # suspect prices are skipped like a corporate action
+    ca = sorted(set(ca) | set(mc.suspect_sessions(o, c, (p or mc.CauseParams()).suspect_ratio)))
     return Value(j, pn.cols[j], r, [pn.days[i] for i in r.tolist()], bars, o, c, atr_series(bars),
-                 mc.rvol_series(v), np.flatnonzero(pn.ca[r, j]).tolist(), np.flatnonzero(pn.div[r, j]).tolist(),
-                 pn.adj[r, j])  # fmt: skip
+                 mc.rvol_series(v), ca, np.flatnonzero(pn.div[r, j]).tolist(), pn.adj[r, j])  # fmt: skip
 
 
 def _bench(pn: Panel, cols: np.ndarray | None, a: int, b: int, base: str, exclude: int, liquid: bool,
@@ -633,7 +634,7 @@ def run_study(
     for j, isin in enumerate(pn.cols):
         if j % 200 == 0:
             say(f"repérage : valeur {j + 1}/{len(pn.cols)}")
-        v = _value(pn, j)
+        v = _value(pn, j, p)
         n = len(v.bars)
         if n < MIN_BARS + 2:
             continue
@@ -708,7 +709,7 @@ def run_study(
     for n_done, j in enumerate(sorted(need), 1):
         if n_done % 100 == 0:
             say(f"mesures : valeur {n_done}/{len(need)}")
-        v = _value(pn, j)
+        v = _value(pn, j, p)
         codes = codes_of[j]
         er = src.earnings.get(v.isin)
         eidx = EarningsIndex(v.days, er, p.earnings_margin_days) if er else None
@@ -732,7 +733,7 @@ def run_study(
         for j, e in rng.sample(lst, p.events_max) if len(lst) > p.events_max else lst:
             setup_need[j].append((cause, e))
     for j in sorted(setup_need):
-        v = _value(pn, j)
+        v = _value(pn, j, p)
         for cause, e in setup_need[j]:
             outs[cause].append(_outcome(c, v, e))
     say(f"{len(units)} unité(s) mesurée(s) ; agrégation…")
@@ -1083,7 +1084,7 @@ def render_md(rep: dict[str, Any]) -> str:
     w("- La partie A sélectionne sur le résultat (on part des mouvements) : elle classe des hypothèses. La partie B ne regarde pas la suite pour choisir ses événements : "
       "c'est elle qui dit si une cause se joue. Ni l'une ni l'autre ne change une règle (docs/31) ; une piste devient un plan pré-enregistré, testé sur des données jamais lues.")  # fmt: skip
     w(
-        "- Capitalisation et secteur d'aujourd'hui ; valeurs radiées absentes (biais de survie) ; cours non ajustés (fenêtres traversant une opération sur titres écartées)."
+        "- Capitalisation et secteur d'aujourd'hui ; valeurs radiées absentes (biais de survie) ; cours non ajustés (fenêtres traversant une opération sur titres, ou un saut de cours suspect de × 4 ou ÷ 4 en une séance, écartées)."
     )
     return "\n".join(L) + "\n"
 

@@ -127,6 +127,7 @@ class CauseParams:
     dividend_min: float = 0.002  # change of the adjustment factor (adj_close ÷ close) read as a dividend detachment
     ca_jump: float = 0.2  # … and above 20 %: a corporate action, prices not comparable (skipped, as docs/34)
     comparability_before: int = 22  # no corporate action from t0 − 22 (ATR, σ, RVOL inputs) to the end of the move
+    suspect_ratio: float = 4.0  # a session at ≥ 4 × or ≤ ¼ of the previous close: suspect prices, skipped like a CA
     max_gap_days: int = 7  # an event placed more than 7 calendar days before its session is not placed
     earnings_margin_days: int = 100  # earnings history « known » within 100 days of a loaded one (docs/34)
     refractory: int = 10  # event study: one occurrence per value and cause every 10 sessions (the first one)
@@ -319,6 +320,21 @@ def flag_from_sessions(sessions: Sequence[int], t0: int, p: CauseParams, known: 
         k = sessions[i]
         return Flag(True, KNOWN_BEFORE if k < t0 else BEFORE_OPEN if k == t0 else DURING, k)
     return ABSENT
+
+
+def suspect_sessions(opens: Sequence[float], closes: Sequence[float], ratio: float) -> list[int]:
+    """Own sessions whose open or close is ≥ ``ratio`` × or ≤ 1/``ratio`` of the previous close (or a price ≤ 0): a
+    unit change or a bad tick the adjustment factor does not show. Skipped like a corporate action (first run of
+    30/10/2026: one such series averaged d7's measured returns at +794 %)."""
+    out: list[int] = []
+    for k in range(1, len(closes)):
+        prev = closes[k - 1]
+        if prev <= 0 or closes[k] <= 0 or opens[k] <= 0:
+            out.append(k)
+            continue
+        if any(x / prev >= ratio or x / prev <= 1 / ratio for x in (opens[k], closes[k])):
+            out.append(k)
+    return out
 
 
 def opening_gap(open_t0: float, close_prev: float) -> float | None:
