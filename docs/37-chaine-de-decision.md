@@ -134,6 +134,7 @@ Pour aligner ce format sur celui que vous utilisez dans votre projet Claude, un 
 | D12 | R4 : la limite reste calculée sur l'objectif 1 pour « à considérer » ; « spéculative » peut reposer sur l'objectif final avec ratio ≥ 2, dit en clair | oui : la limite remonte près du cours, le pari est nommé |
 | D13 | Ordre des lots (§37.7) | L0 → L1 → L2 → L3 → L4 |
 | D14 | Exemple de préconisation de votre projet Claude | à fournir |
+| D15 | Si D10 : une carte d7 « spéculative » entre par **ordre à plage** (plan n° 4 : la plage exécute les bons signaux, la limite d'attente les mauvais), stop à 2,5 ATR, **sans objectif 1 fixe** (sortie au temps ou chandelier), espérance mesurée affichée « ≈ 0 R (−0,10 à +0,08 R selon la sortie, non confirmée) » | oui, comme information de risque ; rien de cela n'est une règle validée (plans n° 4 et 6 : aucune confirmation) |
 
 D2 (risque « élevé » → demi-taille) et D6 (double pénalité orange) de docs/35 sont absorbés par l'échelle : le régime et le risque modulent le verdict et la taille, ils ne bloquent plus.
 
