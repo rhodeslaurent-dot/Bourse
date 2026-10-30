@@ -1638,6 +1638,46 @@ def cmd_moves_study(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_moves_causes(args: argparse.Namespace) -> int:
+    """docs/36 — causes of the rises, step 1 (computable causes, no LLM): rises, falls and stratified controls under
+    the same rules (attribution), then every occurrence of each cause bought at the next open after it was known
+    (event study). Exploratory; European venues only. Aggregated report (JSON + Markdown in French) under ``--out``
+    and a line in the research ledger (``etude_causes_exploratoire``)."""
+    from pathlib import Path
+
+    start = date.fromisoformat(args.from_date)
+    if start < date(2017, 1, 2):  # before the parameters are even read: the sealed history is never touched
+        print("refusé : avant 2017 les données européennes sont réservées à la confirmation (docs/34 §34.5)")
+        return 2
+    end = date.fromisoformat(args.to) if args.to else date.today() - timedelta(days=1)
+    if end < start:
+        print("refusé : --to avant --from")
+        return 2
+    from app.db.session import db_session
+    from app.domain.calendar import load_market_calendars
+    from app.services import move_causes
+    from app.services.research import append_ledger, read_ledger
+
+    cfg = load_params(args.params)
+    calendars = load_market_calendars(args.calendars)
+    out = Path(args.out)
+    with db_session() as s:
+        rep = move_causes.run_study(
+            s, cfg, calendars, start, end, rises=args.rises, falls=args.falls, controls=args.controls, seed=args.seed,
+            setup_values=args.setup_values, events_max=args.events_max, progress=lambda m: print(f"  {m}", flush=True),
+            max_instruments=args.max_instruments, ledger=read_ledger(out),
+        )  # fmt: skip
+    j, md = move_causes.write(rep, out)
+    append_ledger(
+        out,
+        {"timestamp": datetime.now(UTC).isoformat(timespec="seconds"), "kind": "etude_causes_exploratoire",
+         "universe": f"P0/P1/P2 {start}→{end}", "report": str(md)},
+    )  # fmt: skip
+    print(move_causes.render_md(rep))
+    print(f"\nrapport : {md} (agrégats seulement) · détail : {j}")
+    return 0
+
+
 def cmd_letters_study(args: argparse.Namespace) -> int:
     """docs/20 §20.11 — do the values recommended by the letters rise after the reception, after full costs, and
     which entry / stop rule captures it? Exploratory; European venues only; aggregated report (JSON + Markdown in
@@ -2444,6 +2484,22 @@ def main(argv: list[str] | None = None) -> int:
     mv.add_argument("--out", default="data/studies")
     mv.add_argument("--research-out", dest="research_out", default="data/research", help="dossier du registre")
     mv.set_defaults(fn=cmd_moves_study)
+    mc_ = sub.add_parser(
+        "moves-causes", help="causes des hausses, étape 1 (docs/36) : hausses, baisses, contrôles ; étude d'événements"
+    )
+    mc_.add_argument("--from", dest="from_date", default="2017-01-02", help="début (pas avant 2017-01-02)")
+    mc_.add_argument("--to", default=None, help="fin (défaut : hier)")
+    mc_.add_argument("--rises", type=int, default=1500, help="hausses tirées")
+    mc_.add_argument("--falls", type=int, default=1500, help="baisses tirées")
+    mc_.add_argument("--controls", type=int, default=1500, help="séances de contrôle tirées (stratifiées)")
+    mc_.add_argument("--setup-values", dest="setup_values", type=int, default=120,
+                     help="valeurs tirées dont toutes les séances passent par les détecteurs (partie B)")  # fmt: skip
+    mc_.add_argument("--events-max", dest="events_max", type=int, default=None,
+                     help="occurrences mesurées par cause (défaut 20 000, tirage au-delà)")  # fmt: skip
+    mc_.add_argument("--seed", type=int, default=20261030)
+    mc_.add_argument("--max-instruments", dest="max_instruments", type=int, default=None)
+    mc_.add_argument("--out", default="data/research", help="dossier du rapport et du registre")
+    mc_.set_defaults(fn=cmd_moves_causes)
     lsd = sub.add_parser(
         "letters-study", help="recommandations des lettres (docs/20 §20.11) : hausse après coût, entrées"
     )
