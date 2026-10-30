@@ -343,7 +343,7 @@ Ces paramètres sont les **hypothèses de l'étude** (imprimées dans le rapport
 
 ## 34.11 Enregistrement n° 4 : politiques d'entrée
 
-> Plan `research/prereg/2026-10-30_reg4.yaml`, empreinte sha256 `86ac714f71fd502b1debbaf24e750264ba8bebd6928330ed01920b0dc5784f36` (ensemble de cellules `74a7169e…`), graine 20261030.
+> Plan `research/prereg/2026-10-30_reg4.yaml`, empreinte sha256 `86ac714f71fd502b1debbaf24e750264ba8bebd6928330ed01920b0dc5784f36` (fins de ligne Unix ; même fichier sur le PC Windows, fins de ligne CRLF : `b43888b844e9693de88f4100c26ebc21ed014d2e4b31ab7765d2d19937cf6d07`) (ensemble de cellules `74a7169e…`), graine 20261030.
 > - **Gelé le 30/10/2026 par l'assistant**, sous la délégation de l'utilisateur du 29/10/2026 au soir, à partir du brouillon de l'agent « entrées » relu et corrigé (liste ci-dessous).
 > - Gelé **avant** toute sortie du rejeu exploratoire « entry policy replay » (2017-2026, PC) et **avant** tout chargement de l'historique européen antérieur à 2016.
 > - Seuils A1–A13, inférence, plis et paramètres (`config/params.yaml`) repris du n° 3 ; seuils propres au plan sous `thresholds.paired`.
@@ -404,7 +404,7 @@ X8 = stop 2,5 ATR sous l'exécution, sans objectif, sortie au temps h ; XP = sto
 
 ## 34.12 Enregistrement n° 5 : achats des dirigeants
 
-> Plan `research/prereg/2026-10-30_reg5.yaml`, empreinte sha256 `5d1e4a1df0e194dad8cc6176b2356737192267b6be81639fc4a87bc9ee512d3d`.
+> Plan `research/prereg/2026-10-30_reg5.yaml`, empreinte sha256 `5d1e4a1df0e194dad8cc6176b2356737192267b6be81639fc4a87bc9ee512d3d` (fins de ligne Unix ; même fichier sur le PC Windows, fins de ligne CRLF : `da56a73974969638ebdbc9d09766f0999d67d2adebc102a156eafaddbcdcab50`).
 > - **Gelé le 29/10/2026 au soir par l'assistant**, sur délégation de l'utilisateur du 29/10/2026 au soir, **avant tout chargement de l'historique des déclarations** (`insider-archive --from 2021-11-01` est lancé ensuite sur le PC) et avant toute lecture d'un résultat lié à ces déclarations.
 > - L'empreinte est inscrite au registre (`data/research/ledger.csv`) à chaque calibration et exécution ; un test (`tests/unit/test_research_insiders.py`) vérifie que le fichier a toujours cette empreinte. Le modifier crée un nouvel enregistrement.
 > - Hypothèse tirée de la littérature, pas des données : après un achat en bourse d'un dirigeant d'un émetteur français (MAR art. 19), rendement anormal positif sur 10 à 20 séances (Fidrmuc, Goergen & Renneboog 2006 ; Betzer & Theissen 2009 ; Fidrmuc, Korczak & Korczak 2013), plus faible depuis MAR 2016 (Grimberg & Herberger 2020). Graine 20261030.
@@ -472,7 +472,7 @@ Aucun résultat ne change un paramètre ni un détecteur sans ADR.
 
 ## 34.13 Enregistrement n° 6 : règles de sortie
 
-> Plan `research/prereg/2026-10-30_reg6.yaml`, empreinte sha256 `cdfe966094795cb89c996bc813e9a66fbf41115cb945ec3ef944faa9188c1dae` (ensemble de cellules `b4028643…`), graine 20261101.
+> Plan `research/prereg/2026-10-30_reg6.yaml`, empreinte sha256 `cdfe966094795cb89c996bc813e9a66fbf41115cb945ec3ef944faa9188c1dae` (fins de ligne Unix ; même fichier sur le PC Windows, fins de ligne CRLF : `2d20bfd1edb710ed2e0b940b05209409885754012eabb28ccc558b4147beacb8`) (ensemble de cellules `b4028643…`), graine 20261101.
 > - **Gelé le 29/10/2026 au soir par l'assistant**, sous la délégation de l'utilisateur du 29/10/2026 au soir, à partir du brouillon du comité « sorties » relu et corrigé (liste ci-dessous).
 > - Gelé **avant** toute sortie du n° 4, du rejeu « entry policy replay » et des mesures du matin, et **avant** tout chargement de l'historique européen antérieur à 2016.
 > - Un test (`tests/unit/test_research_exits.py`) vérifie que le fichier a toujours cette empreinte ; le modifier crée un nouvel enregistrement.
