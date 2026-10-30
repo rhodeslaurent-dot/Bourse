@@ -1517,6 +1517,56 @@ def cmd_letters_trace(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_letters_reextract(args: argparse.Namespace) -> int:
+    """docs/20 §20.11 — stored letters read again with the current extraction prompt (levels, names resolved), so the
+    letters study can test the arms that need the letter's levels. Dry run (estimated cost, no call) unless
+    ``--apply``; resumable; stops at the daily LLM cap or at ``--max-cost-usd``."""
+    from app.db.session import db_session
+    from app.llm import ClaudeGateway, settings_from
+    from app.services import letters_reextract as rx
+
+    start = date.fromisoformat(args.from_date)
+    end = date.fromisoformat(args.to) if args.to else date.today()
+    if end < start:
+        print("refusé : --to avant --from")
+        return 2
+    if args.max_cost_usd <= 0:
+        print("refusé : --max-cost-usd doit être positif")
+        return 2
+    sources = [x for v in (args.source or []) for x in v.split(",") if x] or None
+    cfg = load_params(args.params)
+    st = settings_from(cfg)
+    if st is None:
+        print("IA désactivée dans params.yaml (llm) : relecture impossible")
+        return 2
+    with db_session() as s:
+        items = rx.select_items(s, start, end, sources)
+        p = rx.plan(s, items, st, retry_failed=args.retry_failed)
+    who = ", ".join(sources) if sources else "toutes les sources"
+    print(
+        f"Relecture des lettres du {start:%d/%m/%Y} au {end:%d/%m/%Y} ({who}) avec la consigne {rx.PROMPT} "
+        f"v{p.version}, modèle {p.model}"
+    )
+    if not args.apply:
+        for line in p.lines(args.max_cost_usd):
+            print(line)
+        return 0
+    gateway = ClaudeGateway(st)
+    if not gateway.enabled:
+        print("ANTHROPIC_API_KEY absent : lancer `env-setup anthropic` puis recréer le conteneur")
+        return 2
+    from app.domain.calendar import load_market_calendars
+
+    calendars = load_market_calendars(args.calendars)
+    rep = rx.run(db_session, p.todo_ids, gateway, args.max_cost_usd, calendars, lambda m: print(f"  {m}", flush=True),
+                 retry_failed=args.retry_failed)  # fmt: skip
+    for line in rep.lines():
+        print(line)
+    src = f" --source {','.join(sources)}" if sources else ""
+    print(f"ensuite : python -m app.cli letters-study --from 2017-01-02{src}")
+    return 0  # a stop at a cap is clean: the next run resumes
+
+
 def cmd_earnings_history(args: argparse.Namespace) -> int:
     """docs/34 §34.4 — past earnings announcements (EODHD calendar if the plan includes it, else Yahoo) and their
     coverage per year and venue group. Dates and EPS only: no price is read."""
@@ -2370,6 +2420,19 @@ def main(argv: list[str] | None = None) -> int:
     lt.add_argument("--date", help="AAAA-MM-JJ (défaut : aujourd'hui)")
     lt.add_argument("--ia", action="store_true", help="montrer aussi la réponse de l'IA (valeurs et niveaux)")
     lt.set_defaults(fn=cmd_letters_trace)
+    lx = sub.add_parser(
+        "letters-reextract",
+        help="relit les lettres stockées avec la consigne actuelle (niveaux, noms) — aperçu du coût",
+    )
+    lx.add_argument("--from", dest="from_date", required=True, help="AAAA-MM-JJ (jour de réception, heure de Paris)")
+    lx.add_argument("--to", default=None, help="AAAA-MM-JJ inclus (défaut : aujourd'hui)")
+    lx.add_argument("--source", action="append", default=None, help="source(s) de lettres (répétable ou a,b)")
+    lx.add_argument("--apply", action="store_true", help="appeler l'IA et enregistrer (sinon aperçu, aucun appel)")
+    lx.add_argument("--max-cost-usd", dest="max_cost_usd", type=float, default=15.0,
+                    help="plafond de dépense de la commande en $ (défaut 15) ; plafond journalier en plus")  # fmt: skip
+    lx.add_argument("--retry-failed", dest="retry_failed", action="store_true",
+                    help="reprendre aussi les lettres dont la relecture a échoué (réponse tronquée…)")  # fmt: skip
+    lx.set_defaults(fn=cmd_letters_reextract)
     am = sub.add_parser("archive-mentions", help="aperçu / archivage des propositions issues de simples mentions")
     am.add_argument("--apply", action="store_true", help="archiver réellement (sinon aperçu)")
     am.set_defaults(fn=cmd_archive_mentions)
