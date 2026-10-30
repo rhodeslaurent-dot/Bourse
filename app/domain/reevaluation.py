@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-from app.domain.admission import AdmissionInput, Setup, Status, admit
+from app.domain.admission import Admission, AdmissionInput, Setup, Status, admit
 
 
 class ReevalStatus(StrEnum):
@@ -66,6 +66,8 @@ class ReevalInput:
     blocked: tuple[str, ...] = ()  # « BLOQUÉ : <règle> » gates of the proposal
     to_verify: bool = False
     wait_for_close: bool = False  # a letter's breakout not crossed at analysis: an alert, never an intraday entry
+    # docs/37 D15 (verdict scale only): a d7 plage P2 has no R4 — its limit is the stored one, never recomputed
+    r4: bool = True
 
 
 @dataclass
@@ -107,6 +109,8 @@ def classify(inp: ReevalInput) -> Reevaluation:
             inp.p_max,  # the stored limit caps the recomputed one: never a higher P_max than the proposal's
         )
     )
+    if not inp.r4 and adm.status in (Status.ADMITTED, Status.REFUSED) and inp.price <= inp.p_max:
+        adm = Admission(Status.ADMITTED, inp.p_max, None, adm.gross_reward_risk)  # the plage's own limit (D15)
     if adm.status == Status.NOT_TESTABLE:
         return Reevaluation(ReevalStatus.NOT_TESTABLE, False, list(adm.reasons))
     if adm.status == Status.DEGRADED:

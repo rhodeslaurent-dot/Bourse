@@ -323,6 +323,17 @@ def prior_expected_r(s: Session, detector: str, shrinkage_k: int = 20) -> tuple[
     return 0.5 * float(ctl["mean_r"]) * w / (w + shrinkage_k), n
 
 
+def production_segment(s: Session, detector: str) -> dict[str, Any] | None:
+    """The detector's measured net R at full cost on the latest run, production conditions (admitted, no warning),
+    whole period: what a « spéculative » card shows (docs/37 L0) — the number as measured, negative included, never
+    an estimate. None without a run or without trades of the detector."""
+    run = s.scalar(select(BacktestRun).order_by(BacktestRun.id.desc()))
+    seg = (((run.summary or {}).get("segments") or {}) if run else {}).get(f"production:{detector}")
+    if not seg or not seg.get("n") or seg.get("mean_r") is None:
+        return None
+    return {"run": run.id if run else None, **seg}
+
+
 def diagnostics(s: Session, run_id: int | None = None) -> dict[str, Any]:
     """Why a detector wins or loses, from the stored trades of a run (production conditions: admitted, no
     warning): gross R (the edge before costs) vs net R (after costs), how trades end, how far they went in

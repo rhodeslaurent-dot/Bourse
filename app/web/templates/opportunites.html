@@ -50,23 +50,26 @@
 {% endif %}
 
 {% set groups = {0: ("Actionnables aujourd'hui", "Les ordres du carnet ci-dessus, détaillés : achats retenus et limites préparées au prix maximal. Ce sont les seules propositions sur lesquelles agir."), 1: ("À surveiller — pas d'ordre aujourd'hui", "Une condition manque (score, contexte, prix un peu trop haut…) : la raison est écrite en clair sous chaque valeur. Leur rang est celui du classement brut, avant ces filtres."), 2: ("Pour information — ne peuvent pas devenir un ordre", "Détecteur en surveillance seule (espérance négative après frais), pas d'objectif, objectif trop proche du stop, stop trop large, ou limite très en dessous du cours : repliées par défaut."), 3: ("Écartées", "Propositions refusées par une règle.")} %}
-{% set n_info = items|selectattr('groupe', 'equalto', 2)|list|length %}
+{% if level_groups %}{% set groups = level_groups %}{% endif %}{# docs/37 L0: grouped by verdict level when graded #}
+{% set fold = fold_group if fold_group is defined else 2 %}
+{% set n_info = items|selectattr('groupe', 'equalto', fold)|list|length %}
 {% for it in items %}
 {% set p = it.p %}{% set ex = it.explain %}
-{% if not loop.first and it.groupe != loop.previtem.groupe and loop.previtem.groupe == 2 %}</div></details>{% endif %}
+{% if not loop.first and it.groupe != loop.previtem.groupe and loop.previtem.groupe == fold %}</div></details>{% endif %}
 {% if loop.first or it.groupe != loop.previtem.groupe %}
-{% if it.groupe == 2 %}<details class="space-y-3" data-info-group><summary class="pt-2 cursor-pointer list-none"><h2 class="inline text-base font-semibold">▸ {{ groups[2][0] }} ({{ n_info }})</h2><p class="text-xs text-slate-500 dark:text-slate-400">{{ groups[2][1] }}</p></summary><div class="space-y-3">
+{% if it.groupe == fold %}<details class="space-y-3" data-info-group><summary class="pt-2 cursor-pointer list-none"><h2 class="inline text-base font-semibold">▸ {{ groups[fold][0] }} ({{ n_info }})</h2><p class="text-xs text-slate-500 dark:text-slate-400">{{ groups[fold][1] }}</p></summary><div class="space-y-3">
 {% else %}
 <section class="pt-2"><h2 class="text-base font-semibold">{{ groups[it.groupe][0] }}</h2><p class="text-xs text-slate-500 dark:text-slate-400">{{ groups[it.groupe][1] }}</p></section>
 {% endif %}
 {% endif %}
-<section id="p{{ p.id }}" class="card {% if p.action == 'BUY' and not ex.blocked and not p.to_verify %}border-l-4 border-l-emerald-500{% elif ex.blocked %}border-l-4 border-l-rose-500{% elif p.to_verify %}border-l-4 border-l-amber-500{% endif %}">
+<section id="p{{ p.id }}" class="card {% if it.niveau == 'speculative' %}border-l-4 border-l-amber-500{% elif it.niveau == 'conviction_forte' %}border-l-4 border-l-emerald-700{% elif p.action == 'BUY' and not ex.blocked and not p.to_verify %}border-l-4 border-l-emerald-500{% elif ex.blocked %}border-l-4 border-l-rose-500{% elif p.to_verify %}border-l-4 border-l-amber-500{% endif %}">
   <div class="flex flex-wrap items-start justify-between gap-2">
     <div class="min-w-0">
       <div class="flex flex-wrap items-center gap-2">
-        {% if p.rank %}{% if it.groupe == 0 %}<span class="rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-2 py-0.5 text-xs font-bold tabular" title="rang du jour (docs/22 §22.4)">#{{ p.rank }}</span>{% else %}<span class="rounded-full ring-1 ring-slate-300 dark:ring-slate-700 text-slate-400 px-2 py-0.5 text-xs tabular" title="rang brut, avant les filtres qui empêchent un ordre aujourd'hui">rang brut {{ p.rank }}</span>{% endif %}{% endif %}
+        {% if p.rank %}{% if (it.niveau and it.niveau in ('conviction_forte', 'a_considerer', 'speculative')) or (not it.niveau and it.groupe == 0) %}<span class="rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-2 py-0.5 text-xs font-bold tabular" title="rang du jour (docs/22 §22.4)">#{{ p.rank }}</span>{% else %}<span class="rounded-full ring-1 ring-slate-300 dark:ring-slate-700 text-slate-400 px-2 py-0.5 text-xs tabular" title="rang brut, avant les filtres qui empêchent un ordre aujourd'hui">rang brut {{ p.rank }}</span>{% endif %}{% endif %}
         <h2 class="text-lg font-semibold"><a href="/valeur/{{ p.isin }}" class="hover:underline">{{ it.name }}</a></h2>
         <a href="/assistant?isin={{ p.isin }}" data-ai-isin="{{ p.isin }}" data-ai-name="{{ it.name }}" class="inline-flex items-center gap-1 rounded-full border border-sky-200 dark:border-sky-800 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10" title="Poser une question sur cette valeur"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Demander</a>
+        {% if it.niveau %}{{ badge(label('verdict_niveau', it.niveau), verdict_tones[it.niveau], help_of('verdict_niveau')) }}{% endif %}
         {{ badge(label('action', p.action), 'green' if p.action == 'BUY' else 'blue' if p.action == 'WATCH' else 'slate') }}
         {{ badge(label('proposal_status', p.status), 'slate', p.status) }}
         {% if p.to_verify %}{{ badge('à vérifier', 'amber', help_of('to_verify')) }}{% endif %}
@@ -80,6 +83,12 @@
       <p class="mt-1 text-sm">{{ ex.headline }}</p>
       {% set dd = p.details or {} %}{% set acc = (dd.comptes or {}).get(p.account_recommended or '', {}) %}
       {% if it.verdict %}{% include "_lettre.html" %}{% endif %}
+      {% set sp = dd.speculative %}{% if sp and sp.etiquette %}{# docs/37 L0: the measured history, the reduced size, the bet named #}
+      <p class="mt-1 text-sm font-medium text-amber-800 dark:text-amber-200" data-speculative>{{ sp.etiquette }} · taille {{ sp.taille }}</p>
+      {% if sp.objectif_final %}<p class="mt-1 text-xs text-amber-700 dark:text-amber-300">Objectif final {{ '%.4g'|format(sp.objectif_final.objectif_final) }} retenu pour le ratio (D12) : l'objectif 1 {{ '%.4g'|format(sp.objectif_final.objectif_1) }} ne donnait pas un ratio ≥ 2 à ce prix — le pari porte sur l'objectif final.</p>{% endif %}
+      {% if sp.entree == 'plage_p2' and dd.entree %}<p class="mt-1 text-xs text-amber-700 dark:text-amber-300">Entrée à plage du plan n° 4 (P2) : stop {{ dd.entree.stop_atr }} ATR sous l'exécution ({{ '%.4g'|format(p.stop) if p.stop else '—' }} pour une exécution au seuil), sortie au temps après {{ dd.entree.sortie_au_temps_seances }} séances ; les objectifs sont des repères, pas des ordres (D15).</p>{% endif %}
+      {% set ap = (p.gates or {}).appreciation or [] %}{% if ap %}<p class="mt-1 text-xs text-amber-700 dark:text-amber-300">Éléments d'appréciation : {{ ap|join(' · ') }}</p>{% endif %}
+      {% endif %}
       {% if dd and dd.p_max %}
       {% if day == today %}<p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-slate-700 dark:text-slate-300"><span class="text-slate-500 dark:text-slate-400">Cours</span> {{ live.quote(p.isin) }} <span class="text-xs text-slate-500 dark:text-slate-400">écart à la limite <b class="tabular" data-live-distance="{{ p.id }}">—</b></span></p>{% endif %}
       <p class="mt-1 text-sm tabular text-slate-700 dark:text-slate-300">Limite <b>{{ '%.4g'|format(dd.p_max) }}</b> · stop {{ '%.4g'|format(p.stop) if p.stop else '—' }} · objectif{{ 's' if (p.targets or [])|length > 1 }} {% for t in p.targets or [] %}{{ '%.4g'|format(t) }}{% if not loop.last %} / {% endif %}{% else %}—{% endfor %}{% if acc.gain_net_pct is not none and acc.gain_net_pct is defined %} · gain net <b class="text-emerald-700 dark:text-emerald-300">{{ '%+.1f %%'|format(acc.gain_net_pct * 100) }}</b> · perte nette <b class="text-rose-700 dark:text-rose-300">{{ '%.1f %%'|format(acc.perte_nette_pct * 100) }}</b> · ratio net {{ acc.ratio_net }}{% endif %}{% if dd.esperance_nette_r is not none and dd.esperance_nette_r is defined %} · <span class="underline decoration-dotted" title="Moyenne des cas passés du même détecteur ({{ 'backtest, ' ~ dd.esperance_backtest.n ~ ' trades' if dd.esperance_backtest else 'historique comparable' }}), au coût complet : ce n'est pas un calcul propre à cette valeur.">espérance du détecteur {{ '%+.2f'|format(dd.esperance_nette_r) }} R</span>{% endif %}</p>
@@ -141,7 +150,7 @@
     <button type="button" data-close-details class="mt-3 text-xs font-medium text-sky-700 dark:text-sky-300 hover:underline">▴ refermer le détail</button>
   </details>
 </section>
-{% if loop.last and it.groupe == 2 %}</div></details>{% endif %}
+{% if loop.last and it.groupe == fold %}</div></details>{% endif %}
 {% else %}
 <section class="card">{{ empty("Aucune proposition ce jour : absence de proposition = résultat normal. Les signaux viennent des lettres (phase 1) puis des détecteurs D1–D4 (phase 2).", 'green') }}</section>
 {% endfor %}

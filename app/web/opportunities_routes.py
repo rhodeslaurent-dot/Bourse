@@ -4,6 +4,7 @@ detail (fiche, data used, gates, decisions, note) and decision buttons → ``rec
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from typing import Any
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -20,6 +21,7 @@ from app.services.letters_verdict import label as verdict_label
 from app.services.letters_verdict import tone as verdict_tone
 from app.services.notes import notes_for
 from app.services.pitch import pitch
+from app.web.labels import VERDICT_GROUPS, VERDICT_TONES
 from app.web.routes import templates
 
 router = APIRouter()
@@ -181,6 +183,7 @@ def opportunities_page(
                 else 1
             )
             it["pourquoi"] = [x for x in dict.fromkeys(plain_reason(b) for b in blocked) if x]
+        level_groups = _verdict_groups(cfg, items)  # docs/37 L0: only when the day's proposals carry a level
         items.sort(key=lambda it: (it["groupe"], sort_key(it)))
         counts = {a: sum(1 for it in items if it["p"].action == a) for a in ("BUY", "WATCH", "NO_TRADE")}
         places: dict[str, int] = {}
@@ -199,8 +202,36 @@ def opportunities_page(
             "book": book,
             "places": sorted(places.items(), key=lambda kv: -kv[1]),
             "today": datetime.now(UTC).date(),
+            **(
+                {"level_groups": level_groups, "fold_group": len(level_groups) - 1, "verdict_tones": VERDICT_TONES}
+                if level_groups
+                else {}
+            ),
         },
     )
+
+
+def _verdict_groups(cfg: Any, items: list[dict]) -> dict[int, tuple[str, str]] | None:
+    """docs/37 §37.2 (lot L0): when the day's proposals were graded (``details.verdict_niveau``, written by the engine
+    with ``verdict.enabled``), the page groups them by level — conviction forte, à considérer, spéculative, à
+    surveiller, écartées (folded) — instead of actionable / watched / information / set aside. A proposal of the
+    same day made before the scale was on is graded on its stored gates. None: the page as before."""
+    if not any((it["p"].details or {}).get("verdict_niveau") for it in items):
+        return None
+    from app.domain.verdict import LEVEL_ORDER
+    from app.services import verdict as verdict_svc
+
+    vp, _ = verdict_svc.preview_params(cfg)
+    for it in items:
+        p = it["p"]
+        lvl = (p.details or {}).get("verdict_niveau")
+        if lvl not in LEVEL_ORDER and vp is not None:
+            price = (it.get("snapshot_price") or {}).get("last")
+            v, _ = verdict_svc.grade_proposal(p, it["sig"], vp, price=price, config=cfg)
+            lvl = v.level.value
+        it["niveau"] = lvl if lvl in LEVEL_ORDER else "a_surveiller"
+        it["groupe"] = LEVEL_ORDER[it["niveau"]]
+    return {LEVEL_ORDER[k]: v for k, v in VERDICT_GROUPS.items()}
 
 
 @router.post("/opportunites/decision")

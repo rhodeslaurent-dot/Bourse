@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
-from functools import lru_cache
+from functools import lru_cache, partial
 from types import SimpleNamespace
 from typing import Any
 
@@ -35,7 +35,7 @@ from app.db.models import (
     Proposal,
     Signal,
 )
-from app.domain.admission import AdmissionInput, Status, admit
+from app.domain.admission import Admission, AdmissionInput, Status, admit
 from app.domain.admission import Setup as SetupKind
 from app.domain.calendar import load_market_calendars, order_expiry_session
 from app.domain.costs import (
@@ -72,6 +72,19 @@ from app.domain.risk import (
 )
 from app.domain.scoring import ScoreInput, missing_data, score
 from app.domain.timeutil import PARIS
+from app.domain.verdict import (
+    Level,
+    PlageP2,
+    VerdictFacts,
+    VerdictParams,
+    edge_text,
+    grade,
+    plage_admission,
+    r4_first_target_only,
+    size_label,
+    speculative_plage,
+    split_appreciation,
+)
 from app.domain.zones import detect_zones
 from app.services.decisions import create_proposal, expire_proposals, record_signal
 from app.services.market_data import fx_to_eur, load_bars
@@ -259,6 +272,19 @@ class Evaluation:
     expected_r: float | None = None
     admitted: bool = False
     letter: dict[str, Any] | None = None  # a letter's analysis (docs/20 §20.10): facts for the control list
+    # docs/37 L0 (verdict.enabled only): the elements of appreciation of a speculative BUY, moved off ``blocked``
+    appreciation: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Speculative:
+    """docs/37 lot L0 (``verdict.enabled``): how a « spéculative » card is evaluated — never built when the scale is
+    off, so that ``evaluate`` runs exactly as before."""
+
+    multiplier: float  # verdict.speculative_size_multiplier: the risk budget × this (rule 7: fees iterated, caps)
+    lift: bool  # a detector of verdict.speculative_detectors: ADR-013 no longer forces it to WATCH (D10)
+    last_target: bool  # D12: R4 failing on the first target may use the last exploitable target
+    plage: PlageP2 | str | None = None  # D15 (d7): the plan n° 4 P2 order, or why there is none
 
 
 def _fees(config: LoadedConfig, account: str) -> FeeSchedule:
@@ -324,14 +350,24 @@ def evaluate(
     circuit: Any | None = None,
     level: float = 1.0,
     ref: Any | None = None,
+    spec: Speculative | None = None,
 ) -> Evaluation:
+    """``spec`` (docs/37 L0, only with ``verdict.enabled``): a « spéculative » card — budget × its multiplier, ADR-013
+    lifted for a speculative detector, D12 (last target) and D15 (d7 plage P2) when allowed. None: as before."""
     p = config.params
     risk = p.risk
     adm_p = p.admission or {}
     k = float(adm_p.get("min_reward_risk", 2.0))
     tax = _tax(config)
     ev = Evaluation(inst.isin, setup.detector, source, setup, "WATCH", price, price_status)
-    if setup.detector in ((config.params.scoring or {}).get("watch_only_detectors") or []):
+    if spec is not None:
+        ev.details["speculative"] = {
+            "multiplicateur": spec.multiplier,
+            "detecteur_speculatif": spec.lift,
+            "objectif_final_autorise": spec.last_target,
+        }
+    lifted = spec is not None and spec.lift
+    if setup.detector in ((config.params.scoring or {}).get("watch_only_detectors") or []) and not lifted:
         # ADR-013 (user decision of 26/10/2026): measured negative at full cost — first, so that no early return
         # (a limit waiting for a pullback, a missing target…) can leave it orderable
         ev.blocked.append(
@@ -349,6 +385,25 @@ def evaluate(
         )
         ev.action = "NO_TRADE"
         return ev
+    d15 = spec.plage if spec is not None else None
+    wording_kind = setup.kind  # R5 wording of the setup as detected (support / obstacle)
+    if isinstance(d15, str):  # D15: the plan n° 4 P2 places no order on this setup (seuil at or above target 1…)
+        ev.details["speculative"]["entree"] = "plage_p2"
+        ev.blocked.append(f"WATCH : {d15} — aucun ordre (entrée à plage P2, plan n° 4 ; docs/37 D15)")
+        return ev
+    if d15 is not None:  # D15: seuil, limite, stop k × ATR under the entry; the structural stop cancels the order
+        ev.details["speculative"]["entree"] = "plage_p2"
+        setup = replace(
+            setup,
+            kind=SetupKind.BREAKOUT,  # a buy stop-limit on the crossing: filled between the seuil and the limit
+            entry_level=d15.seuil,
+            p_max_technical=d15.limite,
+            stop=d15.stop,
+            stop_basis=f"{d15.stop_atr:g} ATR14 sous l'entrée (D15)",
+            horizon=_horizon_of(d15.sortie_seances),
+            evidence={**setup.evidence, "entree_p2": d15.as_dict()},
+        )
+        ev.setup = setup
     adm_price = _admission_price(setup, price)
     # docs/06 §6.3 (applied 30/10/2026): a breakout is entered with an order à plage de déclenchement for J+1 —
     # seuil = the detector's trigger (``entry_level``), limite = P_max (R4, capped by the technical maximum)
@@ -444,7 +499,11 @@ def evaluate(
     ref_pct = float(ref.risk_pct) if ref is not None else float(risk.max_risk_per_trade_pct)
     cap_pct = float(ref.max_trade_pct) if ref is not None else 0.01
     common = min(level * line, cap_pct / ref_pct) if ref_pct > 0 else 0.0
-    if others or level != 1.0:
+    if spec is not None:  # docs/37 L0: a speculative card at budget × multiplier, never above the absolute cap
+        common = min(level * line * spec.multiplier, cap_pct / ref_pct) if ref_pct > 0 else 0.0
+        ev.details["reductions_taille"] = {**others, "niveau du jour": round(level, 3),
+                                           "spéculative": spec.multiplier, "total": round(common, 4)}  # fmt: skip
+    elif others or level != 1.0:
         ev.details["reductions_taille"] = {**others, "niveau du jour": round(level, 3), "total": round(common, 4)}
     budget = capital * ref_pct * common
     # the risk per share is in the listing's currency: converted to EUR like the budget (29/10/2026: without fx, a
@@ -454,9 +513,6 @@ def evaluate(
     est_notional = max(est_shares, 1) * setup.p_max_technical * fx
     pea_open = (p.pea or {}).get("opening_date")
     pea_age = (now.date() - date.fromisoformat(str(pea_open))).days / 365.25 if pea_open else None
-    per_account: dict[str, Any] = {}
-    sized: dict[str, tuple[Any, Any, float]] = {}  # account → (sizing, cost params, P_max): net gain per target
-    best: tuple[str, Any, Any, Any] | None = None
     alt_cfg = (p.universe or {}).get("alt_listing") or {}
     alt = (
         s.scalar(
@@ -467,83 +523,115 @@ def evaluate(
         if fx != 1.0 and alt_cfg
         else None
     )
-    for acc in options:
-        fees = _fees(config, acc)
-        cp = CostParams(
-            fees,
-            ttf_rate=float(tax.get("ttf_rate") or 0) if ttf_due else 0.0,
-            ftt_rate=ftt,
-            fx_fee_pct=float(((p.brokers or {}).get("saxo") or {}).get("fx_fee_pct") or 0) if fx != 1.0 else 0.0,
-            srd_daily_rate=float((p.srd.crd_daily_rate if p.srd else 0) or 0) if acc == "cto_srd" else 0.0,
-            holding_days=HOLDING_DAYS.get(setup.horizon, 20),
-            tax_rate=envelope_tax_rate(
-                acc,
-                float(tax.get("pfu_total_rate") or 0),
-                float(tax.get("pea_ps_rate_after_5y") or tax.get("social_contributions_rate") or 0),
-                pea_age,
-                bool((p.pea or {}).get("no_withdrawal_before_5y", False)),
-            ),
-            assume_loss_offset=bool(tax.get("assume_loss_offset", False)),
+    no_r4 = isinstance(d15, PlageP2)  # D15: the plan n° 4 tests the plage without R4 (time exit, targets = landmarks)
+
+    def admit_at(tgt: float | None, frac: float) -> Admission:
+        if no_r4:
+            return plage_admission(adm_price, tgt, setup.stop, wording_kind, setup.level_low, setup.p_max_technical)
+        return admit(
+            AdmissionInput(adm_price, tgt, setup.stop, setup.kind, setup.level_low, frac, k, setup.p_max_technical)
         )
-        frac = round_trip_fee_fraction(est_notional, cp)
-        adm = admit(
-            AdmissionInput(adm_price, target, setup.stop, setup.kind, setup.level_low, frac, k, setup.p_max_technical)
-        )
-        row: dict[str, Any] = {
-            "frais_aller_retour_pct": round(frac, 5),
-            "frais_courtage_connus": fees.known,
-            "p_max": adm.p_max,
-            "statut": adm.status.value,
-        }
-        if alt and cp.fx_fee_pct > 0:  # docs/32 §32.3: the same entry on the euro listing, without the change fee
-            adm_eur = admit(
-                AdmissionInput(adm_price, target, setup.stop, setup.kind, setup.level_low,
-                               round_trip_fee_fraction(est_notional, replace(cp, fx_fee_pct=0.0)), k,
-                               setup.p_max_technical)
-            )  # fmt: skip
-            row["sans_change"] = {"p_max": adm_eur.p_max, "statut": adm_eur.status.value}
-        if adm.p_max is not None and target is not None:
-            sz = size_position(
-                SizingInput(
-                    capital_eur=capital,
-                    max_risk_pct=ref_pct,
-                    entry_level=adm.p_max,
-                    stop_initial=setup.stop,
-                    order_kind=EntryOrderKind.STOP_LIMIT if plage else EntryOrderKind.LIMIT,  # both bound the price
-                    slippage_pct=float(risk.slippage_pct),
-                    fees=fees,
-                    max_position_pct_of_capital=float(risk.max_position_pct_of_capital),
-                    max_position_pct_of_adv=float(risk.max_position_pct_of_adv),
-                    ttf_rate=cp.ttf_rate,
-                    fx_rate=fx,
-                    fx_haircut=float(risk.fx_haircut) if inst.currency != "EUR" else 0.0,
-                    adv20_eur=inst.adv_eur_20,
-                    size_multiplier=min(common * (srd_factor if acc == "cto_srd" else 1.0), cap_pct / ref_pct),
-                )
+
+    def price_accounts(
+        tgt: float | None,
+    ) -> tuple[dict[str, Any], dict[str, tuple[Any, Any, float]], tuple[str, Any, Any, Any] | None]:
+        """Costs, admission and size per account toward ``tgt`` (R4, R11, R13, rule 7)."""
+        per_account: dict[str, Any] = {}
+        sized: dict[str, tuple[Any, Any, float]] = {}  # account → (sizing, cost params, P_max): net gain per target
+        best: tuple[str, Any, Any, Any] | None = None
+        for acc in options:
+            fees = _fees(config, acc)
+            cp = CostParams(
+                fees,
+                ttf_rate=float(tax.get("ttf_rate") or 0) if ttf_due else 0.0,
+                ftt_rate=ftt,
+                fx_fee_pct=float(((p.brokers or {}).get("saxo") or {}).get("fx_fee_pct") or 0) if fx != 1.0 else 0.0,
+                srd_daily_rate=float((p.srd.crd_daily_rate if p.srd else 0) or 0) if acc == "cto_srd" else 0.0,
+                holding_days=HOLDING_DAYS.get(setup.horizon, 20),
+                tax_rate=envelope_tax_rate(
+                    acc,
+                    float(tax.get("pfu_total_rate") or 0),
+                    float(tax.get("pea_ps_rate_after_5y") or tax.get("social_contributions_rate") or 0),
+                    pea_age,
+                    bool((p.pea or {}).get("no_withdrawal_before_5y", False)),
+                ),
+                assume_loss_offset=bool(tax.get("assume_loss_offset", False)),
             )
-            if sz.shares > 0:
-                sized[acc] = (sz, cp, adm.p_max)
-                no = net_outcome(sz.shares, adm.p_max, target, sz.stop_exec, cp, fx)
-                row.update(
-                    {
-                        "titres": sz.shares,
-                        "montant_eur": round(sz.notional_max_eur, 2),
-                        "risque_eur": round(sz.risk_if_filled_at_max_eur, 2),
-                        "gain_net_eur": round(no.gain_net_eur, 2),
-                        "gain_net_pct": round(no.gain_net_pct, 4),
-                        "perte_nette_eur": round(no.loss_net_eur, 2),
-                        "perte_nette_pct": round(no.loss_net_pct, 4),
-                        "ratio_net": round(no.net_reward_risk, 3) if no.net_reward_risk is not None else None,
-                        "impot_eur": round(no.tax_eur, 2),
-                        "portage_srd_eur": round(no.carry_eur, 2),
-                    }
+            frac = round_trip_fee_fraction(est_notional, cp)
+            adm = admit_at(tgt, frac)
+            row: dict[str, Any] = {
+                "frais_aller_retour_pct": round(frac, 5),
+                "frais_courtage_connus": fees.known,
+                "p_max": adm.p_max,
+                "statut": adm.status.value,
+            }
+            if alt and cp.fx_fee_pct > 0:  # docs/32 §32.3: the same entry on the euro listing, without the change fee
+                adm_eur = admit_at(tgt, round_trip_fee_fraction(est_notional, replace(cp, fx_fee_pct=0.0)))
+                row["sans_change"] = {"p_max": adm_eur.p_max, "statut": adm_eur.status.value}
+            if adm.p_max is not None and tgt is not None:
+                sz = size_position(
+                    SizingInput(
+                        capital_eur=capital,
+                        max_risk_pct=ref_pct,
+                        entry_level=adm.p_max,
+                        stop_initial=setup.stop,
+                        # both bound the price
+                        order_kind=EntryOrderKind.STOP_LIMIT if plage else EntryOrderKind.LIMIT,
+                        slippage_pct=float(risk.slippage_pct),
+                        fees=fees,
+                        max_position_pct_of_capital=float(risk.max_position_pct_of_capital),
+                        max_position_pct_of_adv=float(risk.max_position_pct_of_adv),
+                        ttf_rate=cp.ttf_rate,
+                        fx_rate=fx,
+                        fx_haircut=float(risk.fx_haircut) if inst.currency != "EUR" else 0.0,
+                        adv20_eur=inst.adv_eur_20,
+                        size_multiplier=min(common * (srd_factor if acc == "cto_srd" else 1.0), cap_pct / ref_pct),
+                    )
                 )
-                # best net ratio; on a tie (±0.01) the order of ``options`` wins: PEA, then cash, then SRD
-                if adm.ok and (best is None or (no.net_reward_risk or 0) > (best[3].net_reward_risk or 0) + 0.01):
-                    best = (acc, adm, sz, no)
-            else:
-                row["blocage_taille"] = sz.blocked
-        per_account[acc] = row
+                if sz.shares > 0:
+                    sized[acc] = (sz, cp, adm.p_max)
+                    no = net_outcome(sz.shares, adm.p_max, tgt, sz.stop_exec, cp, fx)
+                    row.update(
+                        {
+                            "titres": sz.shares,
+                            "montant_eur": round(sz.notional_max_eur, 2),
+                            "risque_eur": round(sz.risk_if_filled_at_max_eur, 2),
+                            "gain_net_eur": round(no.gain_net_eur, 2),
+                            "gain_net_pct": round(no.gain_net_pct, 4),
+                            "perte_nette_eur": round(no.loss_net_eur, 2),
+                            "perte_nette_pct": round(no.loss_net_pct, 4),
+                            "ratio_net": round(no.net_reward_risk, 3) if no.net_reward_risk is not None else None,
+                            "impot_eur": round(no.tax_eur, 2),
+                            "portage_srd_eur": round(no.carry_eur, 2),
+                        }
+                    )
+                    # best net ratio; on a tie (±0.01) the order of ``options`` wins: PEA, then cash, then SRD
+                    if adm.ok and (best is None or (no.net_reward_risk or 0) > (best[3].net_reward_risk or 0) + 0.01):
+                        best = (acc, adm, sz, no)
+                else:
+                    row["blocage_taille"] = sz.blocked
+            per_account[acc] = row
+        return per_account, sized, best
+
+    per_account, sized, best = price_accounts(target)
+    if (
+        spec is not None
+        and spec.last_target
+        and not no_r4
+        and best is None
+        and len(setup.targets) > 1
+        and any(r.get("statut") == Status.REFUSED.value for r in per_account.values())
+    ):  # D12 (docs/37): R4 fails on the first target — the last exploitable target, the bet named on the card
+        last_pa, last_sized, last_best = price_accounts(setup.targets[-1])
+        if last_best is not None:
+            first = target
+            target, per_account, sized, best = setup.targets[-1], last_pa, last_sized, last_best
+            ev.details["objectif_r4"] = target
+            ev.details["speculative"]["objectif_final"] = {"objectif_1": first, "objectif_final": target}
+            ev.passed.append(
+                f"objectif final {target:.4g} retenu pour R4 (D12) : l'objectif 1 {first:.4g} ne donne pas un ratio "
+                f"≥ {k:g} net de frais à ce prix — pari sur l'objectif final"
+            )
     ev.details["comptes"] = per_account
     if alt and target is not None:
         _alt_execution(ev, alt, best[0] if best else None, sized, per_account, target, fx, setup,
@@ -804,18 +892,7 @@ def evaluate(
         ev.blocked.append("WATCH : pas d'objectif exploitable (aucune résistance ni niveau publié au-dessus)")
         ev.action = "WATCH"
         return ev
-    any_adm = admit(
-        AdmissionInput(
-            adm_price,
-            target,
-            setup.stop,
-            setup.kind,
-            setup.level_low,
-            first_row.get("frais_aller_retour_pct", 0.0),
-            k,
-            setup.p_max_technical,
-        )
-    )
+    any_adm = admit_at(target, first_row.get("frais_aller_retour_pct", 0.0))
     ev.details["admission"] = any_adm.status.value
     ev.details["p_max"] = primary.p_max if primary else any_adm.p_max
     ev.details["ratio_brut"] = any_adm.gross_reward_risk
@@ -883,7 +960,13 @@ def evaluate(
     ev.details["objectifs"] = objectives(acc)
     ev.size_eur, ev.risk_eur = sz.notional_max_eur, sz.risk_if_filled_at_max_eur
     ev.net_rr, ev.net_gain_pct = no.net_reward_risk, no.gain_net_pct
-    ev.passed.append(f"prix maximal {adm.p_max:.4g} (ratio gain/risque ≥ {k:g} net de frais, R4)")
+    if isinstance(d15, PlageP2):
+        ev.passed.append(
+            f"limite de la plage {adm.p_max:.4g} : seuil {setup.entry_level:.4g} + {d15.cap_atr:g} ATR (P2, plan n° 4) "
+            "; R4 non appliqué — sortie au temps, objectifs = repères (docs/37 D15)"
+        )
+    else:
+        ev.passed.append(f"prix maximal {adm.p_max:.4g} (ratio gain/risque ≥ {k:g} net de frais, R4)")
     _letter_trigger_wait(ev, setup, price)
     # the admission ratio is net of *fees* (framework §5.2); the after-tax ratio is shown and ranks, never blocks
     action = assess(adm.p_max, no.net_reward_risk)
@@ -901,6 +984,14 @@ def evaluate(
             "limite": adm.p_max,
             "validite_seances": int((getattr(p, "entry", None) or {}).get("confirm_sessions", 3)),
         }
+        if isinstance(d15, PlageP2):  # D15: the plan n° 4 P2 (validity, cancellation, time exit)
+            ev.details["entree"].update({
+                "validite_seances": d15.validite_seances,
+                "politique": "P2 (plan n° 4)",
+                "annulation_ouverture_au_stop_structurel": d15.stop_structurel,
+                "stop_atr": d15.stop_atr,
+                "sortie_au_temps_seances": d15.sortie_seances,
+            })  # fmt: skip
     else:
         ev.details["entree"] = {"declencheur": setup.entry_level, "limite": adm.p_max, "type": LIMIT_AT_PMAX}
     der = getattr(p, "derivatives", None) or {}
@@ -924,6 +1015,12 @@ def evaluate(
 PLAGE = "ordre à plage de déclenchement"  # docs/06 §6.3: the entry of every breakout (seuil, limite)
 LIMIT_AT_PMAX = "limite au prix maximal"  # every other setup
 ABOVE_RANGE = "cours au-dessus de la limite de la plage"
+
+
+def _horizon_of(sessions: int) -> str:
+    """The horizon key of a time exit after ``sessions`` sessions (D15): the shortest ``HOLDING_DAYS`` that holds it."""
+    fits = [k for k, v in sorted(HOLDING_DAYS.items(), key=lambda kv: kv[1]) if v >= sessions]
+    return fits[0] if fits else max(HOLDING_DAYS, key=lambda k: HOLDING_DAYS[k])
 
 
 def _admission_price(setup: Setup, price: float) -> float:
@@ -1766,6 +1863,11 @@ def _scan(
     if not enabled(config):
         return rep
     p = config.params
+    from app.services import verdict as verdict_svc
+
+    # docs/37 lot L0: the graduated verdict, None unless ``verdict.enabled`` (then nothing below changes)
+    vp = verdict_svc.params(config, day)
+    edges: dict[str, Any] = {}  # measured edge per detector (backtest), loaded once per scan
     expire_proposals(s, now)
     published, published_why = published_gate(s, config, day)
     ctxm = market_context(s, config, day, published)  # Europe: the risk level of the day (docs/28)
@@ -1944,7 +2046,8 @@ def _scan(
                 line_level = (
                     min(level * conv, dparams.max_level) if level_row is None or level_row.override is None else level
                 )
-                ev = evaluate(
+                ev_of = partial(
+                    evaluate,
                     s,
                     config,
                     inst,
@@ -1964,39 +2067,14 @@ def _scan(
                     level=line_level,
                     ref=ref,
                 )
-                ev.details["niveau_risque"] = {**level_info, "niveau_ligne": round(line_level, 3),
-                                               "conviction": conv_why or None}  # fmt: skip
-                ev.details["source_cours"], ev.details["horodatage_cours"] = price_source, price_ts
-                for o in ev.details.get("objectifs") or []:  # docs/22 §22.2: each target with its origin
-                    o["origine"] = _target_origin(o["niveau"], setup, at, f.high_52w)
-                if shown:
-                    ev.details["fondamentaux"] = {
-                        **shown,
-                        "objectif_retenu": at is not None and at in (setup.targets or []),
-                    }
-                ev.details["contexte_marche"] = {
-                    "marche": cm.market,
-                    "regime": cm.regime,
-                    "regime_de": cm.regime_source,  # EU when the venue has no regime of its own
-                    "risque_conjoncturel": cm.level,
-                    "composantes": cm.components,
-                    "portail": cm.gate,
-                    "raison_portail": cm.gate_reason,
-                    "publication_lettres": published_why,
-                    "mode_srd": cm.srd_mode,
-                }
-                ev.details["zones"] = [
-                    {"bas": z.low, "haut": z.high, "contacts": z.touches, "type": z.kind} for z in zones[-8:]
-                ]
-                if ev.admitted:
-                    ev.expected_r = er
-                    ev.details["historique"] = track.as_dict() if track is not None else None
-                    if prior is not None and er is not None:  # docs/27 §27.5: control-period prior
-                        ev.details["esperance_backtest"] = {"r_net_retreci": round(prior[0], 3), "n": prior[1]}
-                meta = (st_.get("letters") or {}).get(id(setup))
-                if meta is not None:  # docs/20 §20.10: what the letter says, what the tool sees
-                    _letter_details(s, config, ev, inst, meta, len(bars), f, zones,
-                                    feats.rs_rank if feats else None, q if live else None, now)  # fmt: skip
+                finish = partial(_finish_card, s, config, inst, setup, cm, published_why, level_info, line_level,
+                                 conv_why, price_source, price_ts, at, f, shown, zones, er, track, prior,
+                                 (st_.get("letters") or {}).get(id(setup)), len(bars),
+                                 feats.rs_rank if feats else None, q if live else None, now)  # fmt: skip
+                spec = _speculative_for(config, vp, setup, bars, f) if vp is not None else None
+                ev = finish(ev_of(spec=spec))
+                if vp is not None:  # docs/37 L0: the graduated verdict (never built when the scale is off)
+                    ev = _graded(s, config, vp, ev, ev_of, finish, track, edges)
                 evals.append(ev)
         except Exception as exc:  # noqa: BLE001 — one bad instrument never stops the scan
             rep.errors.append(f"{inst.isin}: {exc.__class__.__name__}")
@@ -2004,9 +2082,172 @@ def _scan(
             for m in (st_.get("letters") or {}).values():
                 letter_na.append((inst.isin, m["rec"], NotAnalysable("erreur", f"erreur ({exc.__class__.__name__})")))
 
-    _persist(s, config, day, now, evals, rep)
+    _persist(s, config, day, now, evals, rep, vp)
     _persist_not_analysable(s, config, day, now, letter_na, quotes, rep)
     return rep
+
+
+def _finish_card(
+    s: Session,
+    config: LoadedConfig,
+    inst: Instrument,
+    setup: Setup,
+    cm: Any,
+    published_why: Any,
+    level_info: dict[str, Any],
+    line_level: float,
+    conv_why: Any,
+    price_source: str,
+    price_ts: Any,
+    at: float | None,
+    f: Any,
+    shown: dict[str, Any] | None,
+    zones: list[Any],
+    er: float | None,
+    track: Any,
+    prior: Any,
+    meta: dict[str, Any] | None,
+    n_bars: int,
+    rs_rank: float | None,
+    q: Any | None,
+    now: datetime,
+    ev: Evaluation,
+) -> Evaluation:
+    """The facts of the scan added to one evaluation: risk level, quote, targets' origin, fundamentals, market
+    context, zones, history, a letter's analysis."""
+    ev.details["niveau_risque"] = {**level_info, "niveau_ligne": round(line_level, 3),
+                                   "conviction": conv_why or None}  # fmt: skip
+    ev.details["source_cours"], ev.details["horodatage_cours"] = price_source, price_ts
+    for o in ev.details.get("objectifs") or []:  # docs/22 §22.2: each target with its origin
+        o["origine"] = _target_origin(o["niveau"], setup, at, f.high_52w)
+    if shown:
+        ev.details["fondamentaux"] = {
+            **shown,
+            "objectif_retenu": at is not None and at in (setup.targets or []),
+        }
+    ev.details["contexte_marche"] = {
+        "marche": cm.market,
+        "regime": cm.regime,
+        "regime_de": cm.regime_source,  # EU when the venue has no regime of its own
+        "risque_conjoncturel": cm.level,
+        "composantes": cm.components,
+        "portail": cm.gate,
+        "raison_portail": cm.gate_reason,
+        "publication_lettres": published_why,
+        "mode_srd": cm.srd_mode,
+    }
+    ev.details["zones"] = [{"bas": z.low, "haut": z.high, "contacts": z.touches, "type": z.kind} for z in zones[-8:]]
+    if ev.admitted:
+        ev.expected_r = er
+        ev.details["historique"] = track.as_dict() if track is not None else None
+        if prior is not None and er is not None:  # docs/27 §27.5: control-period prior
+            ev.details["esperance_backtest"] = {"r_net_retreci": round(prior[0], 3), "n": prior[1]}
+    if meta is not None:  # docs/20 §20.10: what the letter says, what the tool sees
+        _letter_details(s, config, ev, inst, meta, n_bars, f, zones, rs_rank, q, now)
+    return ev
+
+
+# --- graduated verdict (docs/37 lot L0: only with ``verdict.enabled``) ---------------------------------------------
+
+
+def _speculative_for(
+    config: LoadedConfig, vp: VerdictParams, setup: Setup, bars: list[Any], f: Any
+) -> Speculative | None:
+    """D10: a setup of a ``verdict.speculative_detectors`` detector is a speculative card from the start — ADR-013
+    lifted, budget × multiplier, D12 allowed; a d7 setup with ``speculative_d7_entry: plage`` gets the plan n° 4 P2
+    order (D15) built on its signal day (the last bar of the scan)."""
+    from app.services import verdict as verdict_svc
+
+    if setup.detector not in vp.speculative_detectors:
+        return None
+    plage: PlageP2 | str | None = None
+    if setup.detector == verdict_svc.D7 and vp.speculative_d7_entry == "plage":
+        last = bars[-1]
+        plage = speculative_plage(last.close, last.high, f.atr14, setup.entry_level, setup.stop, tuple(setup.targets),
+                                  verdict_svc.policy_params(config, vp), vp.speculative_stop_atr,
+                                  vp.time_exit_sessions)  # fmt: skip
+    return Speculative(vp.speculative_size_multiplier, True, vp.speculative_last_target, plage)
+
+
+def _verdict_facts(ev: Evaluation, edge_positive: bool) -> VerdictFacts:
+    return VerdictFacts(
+        action=ev.action,
+        blocked=tuple(ev.blocked),
+        caps=tuple(ev.details.get("blocages_plafonds") or ()),
+        appreciation=tuple(ev.appreciation),
+        to_verify=ev.price_status not in ("realtime", "delayed", "eod"),  # as ``_persist`` stores it (rule 2)
+        price_status=ev.price_status,
+        admitted=ev.admitted,
+        speculative="speculative" in ev.details,
+        edge_positive=edge_positive,
+        gate=(ev.details.get("contexte_marche") or {}).get("portail"),
+    )
+
+
+def _history_note(config: LoadedConfig, ev: Evaluation, track: Any) -> None:
+    """An unfavourable comparable history on enough cases (docs/12 §12.5.3) is an element of appreciation under the
+    scale — the card becomes speculative with the measured number, instead of the BUY → WATCH demotion that
+    ``create_proposal`` applies when the scale is off (it is told not to: ``demote=False``)."""
+    from app.domain.learning import should_demote
+    from app.services.outcomes import learning_params
+
+    lp = learning_params(config)
+    min_signals = int((config.params.review or {}).get("profitability_min_signals_per_detector", 60))
+    if track is None or lp is None or not ev.admitted or not should_demote("BUY", track, min_signals,
+                                                                            lp.demote_buy_to_watch):  # fmt: skip
+        return
+    ev.blocked.append(
+        f"WATCH : historique défavorable ({track.n} cas comparables, espérance rétrécie {track.shrunk_r:+.2f} R) — "
+        "carte spéculative au lieu d'un WATCH (learning.demote_buy_to_watch, docs/37 D9)"
+    )
+
+
+def _graded(
+    s: Session,
+    config: LoadedConfig,
+    vp: VerdictParams,
+    ev: Evaluation,
+    ev_of: Any,
+    finish: Any,
+    track: Any,
+    edges: dict[str, Any],
+) -> Evaluation:
+    """docs/37 §37.2 (lot L0): the level of the card, computed in Python on the evaluation's facts.
+
+    A card whose only reasons are elements of appreciation (score, confidence, high risk, restricted gate, media
+    run-up, unfavourable history, late entry) is evaluated again as speculative — budget × multiplier, fees iterated,
+    caps applied — and so is a card held back only by R4 on its first target when D12 is allowed (kept only if the
+    last target makes it speculative). A speculative card is a BUY only without any absolute block: caps, circuit
+    breaker, R14, rule 2 are never bypassed; its elements of appreciation move off the blocks to its card."""
+    from app.services import verdict as verdict_svc
+
+    edge = verdict_svc.measured_edge(s, ev.detector, track, edges)
+    pos = bool(edge and edge.positive)
+    _history_note(config, ev, track)
+    v = grade(_verdict_facts(ev, pos), vp)
+    if "speculative" not in ev.details:
+        blocked, caps = tuple(ev.blocked), tuple(ev.details.get("blocages_plafonds") or ())
+        d12 = vp.speculative_last_target and len(ev.setup.targets) > 1 and r4_first_target_only(blocked, caps)
+        if v.base == Level.SPECULATIVE or d12:
+            again = finish(ev_of(spec=Speculative(vp.speculative_size_multiplier, False, vp.speculative_last_target)))
+            _history_note(config, again, track)
+            v2 = grade(_verdict_facts(again, pos), vp)
+            if v.base == Level.SPECULATIVE or v2.base == Level.SPECULATIVE:
+                ev, v = again, v2
+    sp = ev.details.get("speculative")
+    if sp is not None:
+        plage = sp.get("entree") == "plage_p2"
+        sp.update({"etiquette": edge_text(edge, plage), "taille": size_label(vp.speculative_size_multiplier)})
+        if v.base == Level.SPECULATIVE and ev.admitted:
+            ev.blocked, ev.appreciation = split_appreciation(
+                ev.blocked, tuple(ev.details.get("blocages_plafonds") or ())
+            )
+            ev.action = "BUY"  # executable, labelled, reduced size: the user decides (docs/37 §37.2)
+            sp["raisons"] = list(v.reasons)
+        elif ev.action != "NO_TRADE":
+            ev.action = "WATCH"
+    ev.details["avantage_mesure"] = verdict_svc.edge_dict(edge)
+    return ev
 
 
 def rescan_today(s: Session, config: LoadedConfig, day: date, now: datetime | None = None) -> int:
@@ -2065,8 +2306,17 @@ def _expiry(s: Session, cals: Any, e: Evaluation, day: date, now: datetime, sess
 
 
 def _persist(
-    s: Session, config: LoadedConfig, day: date, now: datetime, evals: list[Evaluation], rep: ScanReport
+    s: Session,
+    config: LoadedConfig,
+    day: date,
+    now: datetime,
+    evals: list[Evaluation],
+    rep: ScanReport,
+    vp: VerdictParams | None = None,
 ) -> None:
+    """``vp`` (docs/37 L0, ``verdict.enabled`` only): no BUY → WATCH demotion by the comparable history (the engine
+    turned it into an element of appreciation), the elements of appreciation of a speculative BUY in its gates, and
+    the level of the stored proposal in ``details.verdict_niveau`` (the preview's own computation)."""
     p = config.params
     start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
     replaced = {  # signals whose proposal was withdrawn by a rescan at another risk level (docs/28)
@@ -2153,11 +2403,14 @@ def _persist(
                             "releve_a": now,
                         }
                     },
-                    {"passed": e.passed, "blocked": e.blocked},
+                    {"passed": e.passed, "blocked": e.blocked}
+                    if vp is None
+                    else {"passed": e.passed, "blocked": e.blocked, "appreciation": e.appreciation},
                     p.version,
                     to_verify=e.price_status not in ("realtime", "delayed", "eod"),
                     expires_at=expires,
                     config=config,
+                    demote=vp is None,
                     account_recommended=e.account,
                     entry_zone=e.details.get("entree"),
                     stop=e.setup.stop,
@@ -2172,6 +2425,15 @@ def _persist(
                 prop.details = _json(e.details)
                 if e.letter is not None:
                     _letter_verdict(config, prop, e)
+                if vp is not None:  # docs/37 L0: the level of the stored proposal, as ``verdict-preview`` reads it
+                    from app.services import verdict as verdict_svc
+
+                    v, _ = verdict_svc.grade_proposal(
+                        prop, sig, vp, price=e.price, price_status=e.price_status, config=config,
+                        edge_positive=bool((e.details.get("avantage_mesure") or {}).get("positif")),
+                    )  # fmt: skip
+                    prop.details = {**(prop.details or {}), "verdict_niveau": v.level.value,
+                                    "verdict_gradue": v.as_dict()}  # fmt: skip
                 rep.created += 1
                 rep.by_action[prop.action] = rep.by_action.get(prop.action, 0) + 1
                 inst_e = s.get(Instrument, e.isin)
@@ -2227,10 +2489,12 @@ def notify_top(s: Session, config: LoadedConfig, alerts: Any, mode: str, day: da
     decision buttons; deduplicated per value, kind and day by the alert service."""
     from app.notify.base import Event
     from app.notify.telegram import proposal_buttons
+    from app.services import verdict as verdict_svc
     from app.services.instruments import name_of
     from app.web.labels import EXITS_NOTE
 
     top_n = int((getattr(config.params, "ranking", None) or {}).get("notify_top_n", 3))
+    vp = verdict_svc.params(config, day)
     sent = 0
     for p in todays_ranked(s, day):
         if sent >= top_n:
@@ -2239,13 +2503,18 @@ def notify_top(s: Session, config: LoadedConfig, alerts: Any, mode: str, day: da
         if p.action != "BUY" or p.rank is None or blocked or p.sent_at is not None or p.to_verify:
             continue  # « à vérifier » (stale quote, portfolio state): never an order card (rule 2)
         d = p.details or {}
+        spec = d.get("speculative")
+        if spec is not None and not (vp is not None and vp.notify_speculative):
+            continue  # docs/37 L0: a speculative card stays on /opportunites unless verdict.notify_speculative
         acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
         th = (p.thesis or {}).get("arguments") or []
         lines = [
             f"Compte : {p.account_recommended} · {acc.get('titres')} titres · limite {d.get('p_max'):.4g}"
             if d.get("p_max")
             else f"Compte : {p.account_recommended}",
-            f"Stop {p.stop:.4g} · objectif {(p.targets or [None])[0]} ({EXITS_NOTE})",
+            f"Stop {p.stop:.4g} · objectif {(p.targets or [None])[0]} ({EXITS_NOTE})"
+            if not (spec and spec.get("entree") == "plage_p2")
+            else f"Stop {p.stop:.4g} · sortie au temps, objectifs = repères ({EXITS_NOTE})",
             f"Gain net {(acc.get('gain_net_pct') or 0) * 100:.1f} % · perte nette "
             f"{(acc.get('perte_nette_pct') or 0) * 100:.1f} % · ratio net {acc.get('ratio_net')}",
             f"Portail {d.get('portail')} · horizon {p.horizon}",
@@ -2257,6 +2526,8 @@ def notify_top(s: Session, config: LoadedConfig, alerts: Any, mode: str, day: da
                 + (" (modifié par vous)" if lv.get("modifie_par_vous") else " (conseillé)")
                 + " · pourquoi : /risque"
             )
+        if spec is not None:  # docs/37 L0: the measured history and the reduced size, said in clear
+            lines.append(f"{spec.get('etiquette')} · taille {spec.get('taille')}")
         if th:
             lines.append("Thèse : " + th[0]["texte"][:180])
         lines.append("Pas un ordre : à saisir vous-même · fiche complète sur /opportunites")

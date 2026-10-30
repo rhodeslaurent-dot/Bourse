@@ -99,6 +99,14 @@ LABELS: dict[str, dict[str, str]] = {
         "manual": "Ajout manuel",
         "a_l_affut": "À l’affût (repli)",
     },
+    # docs/37 §37.2 (lot L0, verdict.enabled): the graduated verdict, a closed list computed in Python
+    "verdict_niveau": {
+        "conviction_forte": "Conviction forte",
+        "a_considerer": "À considérer",
+        "speculative": "Spéculative",
+        "a_surveiller": "À surveiller",
+        "ecartee": "Écartée",
+    },
     "detector": {
         "d1": "D1 · gap + catalyseur",
         "d2": "D2 · cassure",
@@ -141,6 +149,46 @@ FEATURE_LABELS: dict[str, str] = {
     "adr20": "Amplitude 20 j (%)",
     "consolidation_20": "Consolidation 20 j",
 }
+
+
+# docs/37 §37.2: badge colour of each level (vert foncé / vert / ambre / bleu / gris) — tones of ``_ui.html › badge``
+VERDICT_TONES: dict[str, str] = {
+    "conviction_forte": "darkgreen",
+    "a_considerer": "green",
+    "speculative": "amber",
+    "a_surveiller": "blue",
+    "ecartee": "slate",
+}
+VERDICT_GROUPS: dict[str, tuple[str, str]] = {
+    "conviction_forte": (
+        "Conviction forte",
+        "Source dont l'avantage est mesuré positif, contexte favorable, ratio ≥ 2 : taille pleine.",
+    ),
+    "a_considerer": (
+        "À considérer",
+        "Configuration valide, risque borné, ratio ≥ 2 sur l'objectif 1 ; historique neutre ou non mesuré (dit sur "
+        "la carte) : taille pleine.",
+    ),
+    "speculative": (
+        "Spéculative",
+        "Avantage faible, non mesuré ou mesuré négatif (chiffre affiché), ou risque élevé : exécutable, taille "
+        "réduite. Les éléments d'appréciation sont écrits sur chaque carte ; la décision vous revient.",
+    ),
+    "a_surveiller": (
+        "À surveiller",
+        "Déclencheur non atteint, limite en attente d'un repli, ratio insuffisant sur l'objectif 1, ou données à "
+        "vérifier (règle 2) : pas d'ordre aujourd'hui.",
+    ),
+    "ecartee": (
+        "Écartées",
+        "Règle absolue seulement : plafond de risque, coupe-circuit, annonce non couverte par un stop (R14), stop "
+        "impossible, taille nulle, change indisponible, emballement, surveillance seule (ADR-013).",
+    ),
+}
+HELP["verdict_niveau"] = (
+    "Verdict gradué (docs/37) : calculé en Python sur les portes de la proposition, jamais par l'IA ; les règles "
+    "absolues restent des blocages, le reste devient un élément d'appréciation affiché sur la carte"
+)
 
 
 def label(kind: str, value: object) -> str:

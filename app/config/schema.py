@@ -239,6 +239,23 @@ class LettersReviewParams(_Model):
     telegram_digest: bool = True
 
 
+class VerdictParamsModel(_Model):
+    """docs/37 lot L0 — graduated verdict, OFF by default (decisions D9–D15 awaiting the user). Every value is
+    required: a group present but incomplete disables the feature (rule 8), today's behaviour is kept."""
+
+    effective_from: date
+    enabled: bool
+    speculative_detectors: list[str]
+    speculative_size_multiplier: float = Field(gt=0, le=1)
+    speculative_last_target: bool
+    speculative_d7_entry: Literal["plage", "limite"]
+    speculative_stop_atr: float = Field(gt=0)
+    speculative_plage_cap_atr: float = Field(ge=0)
+    speculative_plage_validity_sessions: int = Field(ge=1)
+    speculative_time_exit_sessions: int = Field(ge=1)
+    notify_speculative: bool
+
+
 class LearningParams(_Model):
     """docs/18 §18.4–18.6 — feedback loop thresholds (never auto-optimised)."""
 
