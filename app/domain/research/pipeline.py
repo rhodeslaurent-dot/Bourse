@@ -81,7 +81,7 @@ from app.domain.research.panel import (
     unpack_bool,
     valid_bars,
 )
-from app.domain.research.prereg import R_STOP_EXITS, Cell, Prereg
+from app.domain.research.prereg import LEGACY_R_STOP_EXITS, Cell, Prereg
 
 Arr = npt.NDArray[Any]
 ComboKey = tuple[str, float, int, int, int | None, str | None]  # exit, cap ATR, validity, h, max hold, D2x cap
@@ -130,6 +130,8 @@ class Settings:
     # registration n° 7: the plan's ``suspect_price_ratio`` — a session at ≥ ratio × or ≤ 1/ratio of the previous close
     # is skipped like a corporate action (``move_causes.suspect_sessions``); None (every earlier plan): no check
     suspect_ratio: float | None = None
+    # exits measured in R of the trade (``prereg.r_stop_exits``): X4 alone for plans n° 1 to 6
+    r_stop_exits: tuple[str, ...] = LEGACY_R_STOP_EXITS
 
 
 # --- group data ------------------------------------------------------------------------------------
@@ -409,9 +411,9 @@ def combo_label(key: ComboKey) -> str:
     return f"{key[0]} {cap} validité {key[2]} h {key[3]}"
 
 
-def primary_unit(key: ComboKey) -> str:
+def primary_unit(key: ComboKey, r_stop_exits: tuple[str, ...] = LEGACY_R_STOP_EXITS) -> str:
     """Unit of a combination's controls and benchmark — the unit of its cells (``prereg.check_units``)."""
-    return "r_stop" if key[0] in R_STOP_EXITS else "r_ref"
+    return "r_stop" if key[0] in r_stop_exits else "r_ref"
 
 
 @dataclass
@@ -483,7 +485,7 @@ def simulate_combo(g: GroupData, key: ComboKey, st: Settings, rows: tuple[int, i
     sim = exclude_unreliable(g, ts, cols, simulate(g.bars, od, model.spec, st.slippage))
     lg = legs(g, ts, cols, sim, model, st.fx_haircut, st.slippage)
     e = economics(lg, st.cto, st.risk_budget_eur, st.notional_cap_eur)
-    unit = primary_unit(key)
+    unit = primary_unit(key, st.r_stop_exits)
     val = np.where(sim.status == CLOSED, unit_value(e, unit), np.nan)
     shape = g.p.shape
     r = np.full(shape, np.nan)

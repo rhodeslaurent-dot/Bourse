@@ -57,6 +57,7 @@ from app.domain.research.prereg import (
     check_unseal_span,
     file_sha256,
     parse_prereg,
+    r_stop_exits,
 )
 from app.domain.research.registration import run_registration
 from app.domain.research.report import assert_no_price_fields, build_report, render_fr, suppress_deep
@@ -160,6 +161,7 @@ def resolve_settings(config: LoadedConfig, prereg: Prereg, universe: str) -> tup
         ),
         # registration n° 7: suspect prices skipped like a corporate action, only when the plan declares the ratio
         suspect_ratio=float(a["suspect_price_ratio"]) if a.get("suspect_price_ratio") is not None else None,
+        r_stop_exits=r_stop_exits(a),
     )
     stop_p = risk.stop
     prod = {

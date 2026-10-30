@@ -104,6 +104,8 @@ assumptions:
   # (éligibilité masquée 252 séances, trade traversant une telle séance exclu et compté) — règle de l'étude des causes
   # (move_causes.suspect_sessions, défaut corrigé le 30/10/2026) ; absente des plans n° 1 à 6 (inchangés)
   suspect_price_ratio: {value: 4.0, assumption: true}
+  # sorties sur stop ATR (X4, X8, XT) : contrôles et cellules en R du trade (les plans n° 1 à 6 gardent X4 seul)
+  atr_stop_exits_in_r_stop: {value: true, assumption: true}
 
 thresholds:
   gate_t_week: 2.0

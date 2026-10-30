@@ -53,6 +53,13 @@ REPLICATION_MODES = ("candidates", "confirmatory")
 # registration n° 7: the verdict of a plan whose confirmatory cells are declared for the sealed period
 SEALED_KEYS = ("min_t_week", "min_dsr", "dsr_prior_trials", "placebo_max_abs_t")
 R_STOP_EXITS = ("X4", "X8", "XT")  # exits on an ATR stop: controls and cells in R of the trade (pipeline.primary_unit)
+# plans n° 1 to 6 were run with X4 alone in R of the trade (X8 in R_ref): kept for them, so that their replication
+# computes exactly what their discovery computed; a plan opts in with the assumption ``atr_stop_exits_in_r_stop``
+LEGACY_R_STOP_EXITS = ("X4",)
+
+
+def r_stop_exits(assumptions: Mapping[str, Any]) -> tuple[str, ...]:
+    return R_STOP_EXITS if assumptions.get("atr_stop_exits_in_r_stop") else LEGACY_R_STOP_EXITS
 
 
 class PreregError(ValueError):
@@ -474,7 +481,7 @@ def check_units(p: Prereg) -> None:
     for c in p.cells:
         if c.tier == "f0":
             continue
-        want = "r_stop" if c.exit in R_STOP_EXITS else "r_ref"
+        want = "r_stop" if c.exit in r_stop_exits(p.assumptions) else "r_ref"
         if c.unit != want:
             raise PreregError(f"cellule {c.id} : la sortie {c.exit} se mesure en {want} (unité des contrôles appariés)")
 

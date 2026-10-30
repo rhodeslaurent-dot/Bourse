@@ -275,8 +275,17 @@ def test_xt_is_a_time_exit_sized_on_a_never_executed_atr_stop():
     assert sim_t.reason[0] == TIME and sim_t.exit_pos[0] == 310  # never stopped: held to the 10th session
     assert sim_8.reason[0] in (STOP, GAP_STOP) and sim_8.exit_pos[0] < 310  # X8 executes the same stop
     assert tr_t["r"][0] < tr_8["r"][0] - 0.5 < -1.0  # unprotected, the loss runs well beyond 1 R of the trade
-    assert primary_unit(c1.combo_key) == "r_stop" and primary_unit(x5.combo_key) == "r_stop"
-    assert primary_unit(("X3", 1.0, 1, 10, None, None)) == "r_ref"
+    from app.domain.research.prereg import r_stop_exits
+
+    rs = r_stop_exits(_frozen7().assumptions)
+    assert rs == ("X4", "X8", "XT")  # the plan opts in (assumption atr_stop_exits_in_r_stop)
+    assert primary_unit(c1.combo_key, rs) == "r_stop" and primary_unit(x5.combo_key, rs) == "r_stop"
+    assert primary_unit(("X3", 1.0, 1, 10, None, None), rs) == "r_ref"
+    # plans n° 1 to 6 keep X8 in R_ref, as their discovery runs computed it (replication unchanged)
+    assert (
+        primary_unit(("X8", 1.0, 1, 20, None, None)) == "r_ref"
+        and primary_unit(("X4", 1.0, 1, 20, None, None)) == "r_stop"
+    )
 
 
 # --- 3. the draft plan -----------------------------------------------------------------------------------------------
