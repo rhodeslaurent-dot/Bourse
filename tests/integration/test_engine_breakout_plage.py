@@ -203,3 +203,18 @@ def test_a_targeted_analysis_in_session_without_a_quote_is_to_verify(db_engine, 
         p = _d2(s)
     assert p.to_verify
     assert "séance en cours" in p.details["source_cours"]
+
+
+def test_a_proposal_to_verify_has_no_order_in_the_book(db_engine, config):
+    """Review of 31/10/2026 (rule 2): a stale or delayed quote in session gives no order to post."""
+    from app.web.opportunities_routes import order_book
+
+    with db_session() as s:
+        _seed(s, plage_bars(99.7))
+        engine.scan(s, config, DAY, now=NOW)
+        p = _d2(s)
+        p.action, p.gates = "BUY", {"passed": [], "blocked": []}
+        it = {"p": p, "name": "TotalEnergies", "snapshot_price": {"last": 99.7}}
+        assert len(order_book([it])) == 1
+        p.to_verify = True
+        assert order_book([it]) == []

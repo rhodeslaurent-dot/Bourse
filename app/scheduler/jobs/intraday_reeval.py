@@ -185,6 +185,9 @@ def _event(kind: str, p: Proposal, r: Reevaluation, q: Quote, name: str) -> Even
     if isinstance(ent.get("seuil"), int | float):  # a breakout's plage (docs/06 §6.3): its seuil first
         levels = f"Seuil {_fmt(ent['seuil'])} · {levels}"
     lines = [quote_line, f"{levels[0].upper()}{levels[1:]} ({EXITS_NOTE})"]
+    etiquette = (d.get("speculative") or {}).get("etiquette")
+    if etiquette:  # docs/37 L0: a speculative card says so, with its measured history and its size
+        lines.insert(0, str(etiquette))
     if p.account_recommended:
         # the size was computed at creation: other fills or pending orders may have used the risk budget since
         # (rule 7, max_open_risk_pct) — it is shown as an upper bound, to recompute before entering the order
@@ -236,6 +239,12 @@ def reevaluate_once(s: Session, ctx: JobContext, props: list[Proposal], quotes: 
         s.flush()
         stored += 1
         kind = notify_kind(prev, baseline(s, p, sig, ctx.config, now) if prev is None else None, r)
+        if kind and kind != "reeval_degraded" and (p.details or {}).get("speculative"):
+            from app.services.verdict import params as verdict_params
+
+            vp = verdict_params(ctx.config, now.date())
+            if not (vp is not None and vp.notify_speculative):  # as notify_top: the page only (review of 31/10)
+                kind = None
         if kind and ctx.alerts is not None:
             acc_id = (
                 s.scalar(select(Account.id).where(Account.type == p.account_recommended))

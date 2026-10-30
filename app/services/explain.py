@@ -286,7 +286,7 @@ _PLAIN: list[tuple[str, str]] = [
     ("dans les 30 h", "Une annonce macroéconomique majeure arrive : entrée gelée jusqu'à sa publication."),
     ("taux de change", "Le taux de change n'est pas disponible : la taille ne peut pas être calculée."),
     (
-        "historique défavorable",
+        "carte spéculative au lieu d'un watch",  # only the graded wording: the flag-off demotion keeps no plain line
         "Les cas passés comparables (même détecteur, même source) ont perdu en moyenne : le chiffre mesuré est donné, "
         "la carte reste à vous de juger (verdict gradué, docs/37).",
     ),

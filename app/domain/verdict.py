@@ -452,6 +452,11 @@ def speculative_plage(
     if isinstance(order, str):
         return NO_ORDER_FR.get(order, order)
     assert atr14 is not None  # plan() returns « atr_inconnu » otherwise
+    if targets and order.max_price >= targets[0]:  # deliberately stricter than the research (review of 31/10/2026)
+        return (
+            f"limite de la plage {_fr(order.max_price, '.4g')} au niveau du premier objectif "
+            f"{_fr(targets[0], '.4g')} ou au-dessus : aucun ordre"
+        )
     stop = order.level - stop_atr * atr14
     if not stop > 0 or not math.isfinite(stop):
         return f"stop à {_fr(stop_atr, 'g')} ATR sous le seuil non positif"

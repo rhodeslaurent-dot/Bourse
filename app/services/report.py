@@ -123,10 +123,12 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         d = p.details or {}
         acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
         blocked = [b for b in (p.gates or {}).get("blocked", []) if b.startswith("BLOQUÉ")]
+        etiquette = (d.get("speculative") or {}).get("etiquette")
         buys.append(
             f"#{p.rank} {name_of(p.isin)} — {p.account_recommended}, limite {d.get('p_max'):.4g}, stop {p.stop:.4g}, "
             f"objectif {(p.targets or ['—'])[0]}, gain net {(acc.get('gain_net_pct') or 0):+.1%}, ratio net {acc.get('ratio_net')}"
             + (f" — {blocked[0]}" if blocked else "")
+            + (f" — {etiquette}" if etiquette else "")  # docs/37 L0: a speculative card is said so
         )
     r.append(
         {
@@ -200,9 +202,16 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
             and not [b for b in (p.gates or {}).get("blocked", []) if b.startswith("BLOQUÉ")]
         ):
             acc = ((p.details or {}).get("comptes") or {}).get(p.account_recommended or "", {})
+            ent = (p.details or {}).get("entree") or {}
+            kind, limit = "limite (jour)", (p.details or {}).get("p_max")
+            if isinstance(ent.get("seuil"), int | float):  # a plage (docs/06 §6.3, D15): never a day limit at P_max
+                n = ent.get("validite_seances")
+                kind = f"ordre à plage de déclenchement, seuil {ent['seuil']:.4g}" + (
+                    f", valable {n} séances" if n else ""
+                )
+                limit = ent.get("limite", limit)
             orders.append({"sens": "achat", "valeur": name_of(p.isin), "isin": p.isin, "compte": p.account_recommended,
-                           "type": "limite (jour)", "quantite": acc.get("titres"), "limite": (p.details or {}).get("p_max"),
-                           "stop": p.stop})  # fmt: skip
+                           "type": kind, "quantite": acc.get("titres"), "limite": limit, "stop": p.stop})  # fmt: skip
     for ln in lines:
         if ln["verdict"] in ("VENDRE", "ALLÉGER"):
             q = ln["quantite"] if ln["verdict"] == "VENDRE" else int(ln["quantite"] * (ln.get("alleger_pct") or 0.5))

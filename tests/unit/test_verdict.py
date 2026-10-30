@@ -226,3 +226,23 @@ def test_intraday_reeval_of_a_plage_p2_keeps_its_own_limit():
     assert r.status == ReevalStatus.TRIGGER_CROSSED and r.actionable
     assert classify(ReevalInput(**{**inp, "price": 109.9}, r4=False)).status == ReevalStatus.ABOVE_PMAX
     assert classify(ReevalInput(**{**inp, "price": 108.5}, r4=False)).status == ReevalStatus.WAITING
+
+
+def test_d15_no_plage_whose_limit_reaches_the_first_target():
+    """Review of 31/10/2026: seuil 108.76 under the target 109.30 but limit 109.72 above — a BUY with a negative gain
+    to its first target. Stricter than the research on purpose: no order."""
+    close, high, atr, trig, stop = 108.10, 108.54, 1.90, 108.757, 105.17
+    got = speculative_plage(close, high, atr, trig, stop, (109.30,), _pp(), 2.5, 20)
+    assert isinstance(got, str) and got.startswith("limite de la plage ") and "aucun ordre" in got
+
+
+def test_the_flag_off_demotion_keeps_no_graded_plain_line():
+    """Review of 31/10/2026: with the scale off, the « BLOQUÉ : historique défavorable … → WATCH seulement » line
+    must not read « la carte reste à vous de juger (verdict gradué) »."""
+    from app.services.explain import plain_reason
+
+    off = "BLOQUÉ : historique défavorable (80 cas comparables, espérance rétrécie -0.12 R) → WATCH seulement"
+    on = ("WATCH : historique défavorable (80 cas comparables, espérance rétrécie -0.12 R) — carte spéculative au "
+          "lieu d'un WATCH (learning.demote_buy_to_watch, docs/37 D9)")  # fmt: skip
+    assert plain_reason(off) is None or "verdict gradué" not in (plain_reason(off) or "")
+    assert "verdict gradué" in (plain_reason(on) or "")

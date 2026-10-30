@@ -304,6 +304,8 @@ def order_book(items: list[dict]) -> list[dict]:
         d = p.details or {}
         if p.status != "open" or p.action not in ("BUY", "WATCH") or d.get("admission") not in ("admis", "refuse"):
             continue
+        if getattr(p, "to_verify", False):  # rule 2: a stale or delayed quote in session: no order (review 31/10)
+            continue
         waits = [b for b in (p.gates or {}).get("blocked", []) if b.startswith("WATCH")]
         if any("en attente d'un repli" not in b for b in waits):
             continue  # WATCH for another reason (score, stop too wide…): no order to post
