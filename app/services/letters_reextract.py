@@ -270,9 +270,12 @@ def _match(rows: list[NewsletterValue], v: _Read, used: set[int]) -> NewsletterV
                 return r
     keys = {k for k in (norm(v.name), core_name(v.name)) if k}
     for r in free:
+        same_name = bool(keys & {k for k in (norm(r.name or ""), core_name(r.name or "")) if k})
         if r.isin and v.isin and r.isin != v.isin:
+            if same_name and r.signal_id is not None:
+                return r  # a linked row read again under another ISIN: kept as it is, never doubled (review 30/10)
             continue
-        if keys & {k for k in (norm(r.name or ""), core_name(r.name or "")) if k}:
+        if same_name:
             return r
     return None
 
@@ -330,6 +333,9 @@ def apply_reading(
         used.add(row.id)
         linked = row.signal_id is not None  # its proposal and decision snapshot stay as they were (rule 10)
         changed = kept = False
+        if linked and row.isin and v.isin and row.isin != v.isin:
+            res.kept_linked += 1
+            continue
         if not row.isin and v.isin:
             row.isin = v.isin
             res.isin_filled += 1
@@ -508,6 +514,13 @@ def run(
                 )
             except LlmUnavailable as exc:
                 if letter_failure(exc):
+                    # a truncated or refused answer is billed: its upper estimate counts in the command's cap and
+                    # in the daily cap (the gateway does not log it — review of 30/10/2026)
+                    billed = letter_cost_max(body, system, price) if price else 0.0
+                    rep.cost += billed
+                    s.add(LlmCall(ts=now, model=model, prompt_version=version, prompt_hash="reextract-echec",
+                                  input_tokens=letter_tokens_in(body, system), output_tokens=MAX_TOKENS,
+                                  cost_usd=billed, cached=False, purpose=PROMPT))  # fmt: skip
                     mark_failed(it, version, now, str(exc))
                     rep.failed.append(f"{it.source} {from_store(it.received_at).astimezone(PARIS):%d/%m/%Y} — {exc}")
                     continue

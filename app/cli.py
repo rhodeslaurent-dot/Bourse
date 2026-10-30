@@ -1526,7 +1526,11 @@ def cmd_letters_reextract(args: argparse.Namespace) -> int:
     from app.services import letters_reextract as rx
 
     start = date.fromisoformat(args.from_date)
-    end = date.fromisoformat(args.to) if args.to else date.today()
+    newest = date.today() - timedelta(days=7)  # the live analyses read the letters of the last days: never touched
+    end = date.fromisoformat(args.to) if args.to else newest
+    if end > newest:
+        print(f"refusé : --to au plus le {newest} (les lettres récentes servent à l'analyse en cours)")
+        return 2
     if end < start:
         print("refusé : --to avant --from")
         return 2

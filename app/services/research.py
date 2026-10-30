@@ -48,10 +48,12 @@ from app.domain.research.panel import (
 from app.domain.research.pipeline import VENUE_GROUPS, Settings, prepare_group
 from app.domain.research.prereg import (
     CELL_SEP,
+    UNSEAL_KINDS,
     Prereg,
     PreregError,
     check_frozen,
     check_ledger,
+    check_not_sealed,
     check_run_start,
     check_unseal,
     check_unseal_span,
@@ -714,12 +716,22 @@ EXIT_LIMITS = [
 ]
 
 
+def _unseal_started(out_dir: Path, prereg: Prereg, universe: str) -> None:
+    """The ledger row that marks the single opening, written before the sealed data is read (review of 30/10/2026: a
+    crash after the read left no row, so the period could be opened again)."""
+    append_ledger(out_dir, {"timestamp": f"descellement_{_stamp()}", "kind": "unseal_started", "prereg_id": prereg.id,
+                            "prereg_sha256": prereg.sha256, "cell_set_sha256": prereg.cell_set_hash,
+                            "universe": universe, "report": "(lecture commencée)"})  # fmt: skip
+
+
 def replication_label(ledger: Sequence[Mapping[str, str]], prereg: Prereg, today: str) -> str:
     """Registration n° 6: « propre » unless a plan sharing its old replication (``replication_shared_with``) was
     unsealed on another day than ``today`` (YYYYMMDD) — its entries and exits were then seen on that period."""
     shared = {str(x) for x in prereg.assumptions.get("replication_shared_with") or []}
     days = {
-        str(r.get("timestamp", ""))[:8] for r in ledger if r.get("kind") == "unseal" and r.get("prereg_id") in shared
+        str(r.get("timestamp", ""))[:8]
+        for r in ledger
+        if r.get("kind") in UNSEAL_KINDS and r.get("prereg_id") in shared
     }
     return "semi-propre (entrées et deux sorties vues)" if days - {today} else "propre"
 
@@ -791,6 +803,7 @@ def run(
     prereg = load_prereg(prereg_path)
     check_frozen(prereg)  # registration n° 7: a BROUILLON is never run
     check_run_start(prereg, start)  # registration n° 3: no bar of the sealed old replication period is read
+    check_not_sealed(start, "exécution")  # every plan, replication declared or not (review of 30/10/2026)
     ledger = read_ledger(out_dir)
     check_ledger(ledger, prereg)
     st, prod = resolve_settings(config, prereg, universe)
@@ -886,6 +899,7 @@ def _default_prereg() -> Prereg:
 def _panels_for(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg: Prereg, isins: list[str],
                 run2: list[F0.Run2Trade], progress: Progress | None) -> tuple[list[Panel], PanelMeta]:  # fmt: skip
     start = min(t.signal_day for t in run2) - timedelta(days=420)
+    check_not_sealed(start, "calibration")  # a reference backtest never reaches into the sealed period
     end = max(t.exit_day for t in run2) + timedelta(days=10)
     panels, meta = load_panels(s, config, calendars, prereg, start, end, "all", None, None, progress,
                                drop_illiquid=False, default_groups=True)  # fmt: skip
@@ -949,6 +963,7 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
     check_forward_unseal(s, prereg_path, prereg, ledger, end)  # registration n° 5: the forward confirmation rule
     st, prod = resolve_settings(config, prereg, universe)
     st = with_insiders(s, st, prereg)
+    _unseal_started(out_dir, prereg, universe)  # written before any read: a crash cannot reopen the period
     panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, None, out_dir / "cache", progress)
     res = run_registration(panels, prereg, st, (), prod, "0", ids, progress, False)
     disc = (raw or {}).get("decouverte") or {}
@@ -1008,10 +1023,16 @@ def unseal_confirmatory(
     if cal[0] != "VALIDE":
         raise PreregError(f"descellement refusé : {cal[1]} — l'ouverture est unique, le moteur doit être calibré avant")
     st, prod = resolve_settings(config, prereg, universe)
+    # another plan opened the same old period before: it was seen — the verdict says so (review of 30/10/2026)
+    seen = sorted({str(r.get("prereg_id")) for r in ledger if r.get("kind") in UNSEAL_KINDS and r.get("prereg_id")
+                   and r.get("prereg_id") != prereg.id})  # fmt: skip
+    _unseal_started(out_dir, prereg, universe)  # written before any read: a crash cannot reopen the period
     panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, None, out_dir / "cache", progress)
     sp = sealed_plan(prereg)
     res = run_registration(panels, sp, st, (), prod, "all", None, progress, False)
     verdict = sealed_verdicts(res, sp)
+    if seen:
+        verdict["titre"] = f"SEMI-PROPRE (période déjà ouverte par {', '.join(seen)}) — {verdict['titre']}"
     res["titre"] = verdict["titre"]
     res["candidats"] = list(verdict["confirmes"])
     res["surveillance"] = []

@@ -158,6 +158,9 @@ def run_backtest(
         if not groups:  # never a backtest on zero instruments that looks like a result
             raise RuntimeError("périmètre européen du backtest indéterminé : calendriers de marché indisponibles")
         insts = {k: v for k, v in insts.items() if v.mic in groups}
+    from app.domain.research.prereg import check_not_sealed
+
+    check_not_sealed(start - timedelta(days=420), "backtest")  # its 420-day look-back, too (review of 30/10/2026)
     hist = load_history(s, list(insts), start, end)
     ranks = rs_ranks(hist) if hist else {}
     from app.services.indices import EUROPE, index_specs

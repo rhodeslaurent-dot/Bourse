@@ -472,3 +472,22 @@ def test_the_report_view_masks_small_rows_but_keeps_every_verdict():
     assert view["placebo"]["X1.t00.h10"]["suspect"] is False
     txt = render_sealed(view)
     assert "C1 : NON CONCLUANT" in txt and "V — Verdict de la période scellée 2007-01-02 → 2015-09-30" in txt
+
+
+# --- review of 30/10/2026: the sealed period is guarded for every plan and command -------------------------------
+
+
+def test_no_research_read_starts_inside_the_sealed_period():
+    from app.domain.research.prereg import SEALED_PERIOD, UNSEAL_KINDS, check_not_sealed
+    from app.domain.research.sealed import check_sealed_once
+
+    assert SEALED_PERIOD == (date(2007, 1, 2), date(2015, 9, 30))
+    check_not_sealed(date(2015, 10, 1), "exécution")  # after the period: allowed
+    for start in (date(2015, 9, 30), date(2006, 1, 1), date(2014, 11, 8)):
+        with pytest.raises(PreregError, match="période scellée"):
+            check_not_sealed(start, "exécution")
+    # a provisional row written before the read counts as an opening: a crash cannot reopen the period
+    p = _frozen7()
+    assert "unseal_started" in UNSEAL_KINDS
+    with pytest.raises(PreregError, match="déjà été ouverte"):
+        check_sealed_once(p, [{"kind": "unseal_started", "prereg_id": p.id, "prereg_sha256": "x"}], None)

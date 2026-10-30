@@ -108,3 +108,13 @@ def test_the_backtest_never_reads_the_test_markets_of_registration_2(db_engine, 
         bt.load_history = real
     assert "US0000000001" not in seen[0] and "FR0000000099" in seen[0]
     assert "US0000000001" in seen[2]  # [1] is the index history of the first run
+
+
+def test_the_backtest_never_reads_the_sealed_period(db_engine, config):
+    """Review of 30/10/2026: with its 420-day look-back, a backtest from 2016-06 would read 2015 — refused."""
+    import pytest
+
+    from app.domain.research.prereg import PreregError
+
+    with db_session() as s, pytest.raises(PreregError, match="période scellée"):
+        run_backtest(s, config, date(2016, 6, 1), date(2017, 6, 30))

@@ -515,6 +515,21 @@ def check_ledger(rows: Sequence[Mapping[str, str]], prereg: Prereg) -> None:
             )
 
 
+SEALED_PERIOD = (date(2007, 1, 2), date(2015, 9, 30))  # docs/31: the old period every replication shares
+UNSEAL_KINDS = ("unseal", "unseal_started")  # a ledger row of either kind: the period was (being) opened
+
+
+def check_not_sealed(start: date, what: str) -> None:
+    """No research read outside the single ``unseal`` starts on or before the end of the sealed period — whatever the
+    plan (plans n° 1, 2 and 5 declare no replication) and whatever the command (run, calibration, backtest).
+    Review of 30/10/2026: once ``backfill --from 2006`` is loaded, nothing else stopped such a read."""
+    if start <= SEALED_PERIOD[1]:
+        raise PreregError(
+            f"{what} refusé(e) : les données commenceraient le {start}, avant la fin de la période scellée "
+            f"({SEALED_PERIOD[0]} → {SEALED_PERIOD[1]}), qui ne s'ouvre qu'une fois par « research unseal »"
+        )
+
+
 def check_run_start(prereg: Prereg, start: date) -> None:
     """A registration run never loads a bar of the plan's sealed replication period (registration n° 3): its
     data start after the replication end, so no signal, feature or warm-up reads that period before the
@@ -577,7 +592,7 @@ def check_unseal(
     if unknown:
         raise PreregError(f"descellement refusé : cellules inconnues du plan {unknown}")
     for r in rows:
-        if r.get("kind") == "unseal" and r.get("prereg_sha256") == prereg.sha256:
+        if r.get("kind") in UNSEAL_KINDS and r.get("prereg_sha256") == prereg.sha256:
             raise PreregError("descellement refusé : la période scellée de ce plan a déjà été ouverte une fois")
     runs = [
         r for r in rows

@@ -34,7 +34,7 @@ from typing import Any
 import numpy as np
 
 from app.domain.research import stats as S
-from app.domain.research.prereg import Cell, Prereg, PreregError
+from app.domain.research.prereg import UNSEAL_KINDS, Cell, Prereg, PreregError
 
 CONFIRMED = "CONFIRMÉ"
 NOT_CONFIRMED = "NON CONFIRMÉ"
@@ -69,7 +69,7 @@ def check_sealed_once(p: Prereg, rows: Sequence[Mapping[str, str]], candidates_p
             "confirmatory) — aucun fichier de candidats"
         )
     for r in rows:
-        if r.get("kind") == "unseal" and (r.get("prereg_sha256") == p.sha256 or r.get("prereg_id") == p.id):
+        if r.get("kind") in UNSEAL_KINDS and (r.get("prereg_sha256") == p.sha256 or r.get("prereg_id") == p.id):
             raise PreregError("descellement refusé : la période scellée de ce plan a déjà été ouverte une fois")
 
 

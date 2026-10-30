@@ -202,6 +202,8 @@ def archive(
         rep.pdf_read += res.pdf_read
         rep.notes.extend(res.notes)
         store(s, res.declarations, received_at, rep, overwrite=reparse)
+        if reparse:  # hours of PDFs: each window kept even if a later one fails (review of 30/10/2026)
+            s.commit()
         say(f"{lo} → {hi} : {len(res.declarations)} déclaration(s), {rep.added} ajoutée(s) au total")
         lo = hi + timedelta(days=1)
     if rep.skipped:

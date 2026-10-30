@@ -116,12 +116,11 @@ def test_the_dry_run_estimates_the_cost_and_calls_nothing(letters, monkeypatch, 
 
     monkeypatch.setattr(gw, "_sdk_parse", no_call)
     args = argparse.Namespace(params="config/params.example.yaml", calendars="config/market_calendars.yaml",
-                              from_date="2026-03-01", to="2026-10-30", source=["momentum_capital"], apply=False,
+                              from_date="2026-03-01", to="2026-10-20", source=["momentum_capital"], apply=False,
                               max_cost_usd=15.0, retry_failed=False)  # fmt: skip
     assert cmd_letters_reextract(args) == 0
     out = capsys.readouterr().out
-    assert "3 lettre(s) dans la période · à relire : 2" in out
-    assert "lues avec la consigne v2 dès la réception : 1" in out
+    assert "2 lettre(s) dans la période · à relire : 2" in out  # the letter of 29/10 is too recent (see below)
     assert "coût estimé : ≈ " in out and "llm.prices_usd_per_mtok" in out and "aucun appel à l'IA" in out
     assert "Viridien :" not in out  # the letter's text is never printed
     with db_session() as s:
@@ -228,3 +227,28 @@ def test_the_trace_says_a_letter_was_read_again(letters):
         text = "\n".join(trace(s, date(2026, 3, 10)))
     assert "avec la consigne v2 : 3 valeur(s), 3 avec niveaux" in text
     assert "Viridien (FR001400PVN6) · buy · declencheur 100.2, objectif 109.1" in text
+
+
+def test_recent_letters_are_never_re_read(letters, capsys):
+    """Review of 30/10/2026: the live analyses read the letters of the last days — a re-reading would change their
+    inputs; ``--to`` is refused after today − 7 days."""
+    from datetime import date as d
+
+    from app.cli import cmd_letters_reextract
+
+    args = argparse.Namespace(params="config/params.example.yaml", calendars="config/market_calendars.yaml",
+                              from_date="2026-03-01", to=d.today().isoformat(), source=None, apply=False,
+                              max_cost_usd=15.0, retry_failed=False)  # fmt: skip
+    assert cmd_letters_reextract(args) == 2
+    assert "lettres récentes" in capsys.readouterr().out
+
+
+def test_a_linked_value_read_again_under_another_isin_is_kept_never_doubled():
+    """Review of 30/10/2026: a second instrument with the same name gave the re-reading another ISIN — the linked
+    row was skipped and an unlinked « buy » duplicate inserted. The linked row is matched and left as it is."""
+    linked = NewsletterValue(id=1, item_id=1, isin="FR0000051732", name="Atos", direction="watch", signal_id=7)
+    other = NewsletterValue(id=2, item_id=1, isin="FR0000000XX1", name="Autre", direction="watch")
+    got = rx._match([linked, other], rx._Read("Atos", "FR0000051733", "buy", {}), set())
+    assert got is linked
+    free = NewsletterValue(id=3, item_id=1, isin="FR0000051732", name="Atos", direction="watch")  # unlinked
+    assert rx._match([free], rx._Read("Atos", "FR0000051733", "buy", {}), set()) is None  # another value: inserted
