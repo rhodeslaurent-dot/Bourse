@@ -2,6 +2,7 @@
 
 {% macro badge(text, tone='slate', title='') -%}
 {%- set tones = {
+  'darkgreen': 'bg-emerald-700 text-white ring-emerald-700 dark:bg-emerald-600 dark:text-white dark:ring-emerald-500',
   'green': 'bg-emerald-50 text-emerald-800 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30',
   'amber': 'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30',
   'red':   'bg-rose-50 text-rose-800 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30',

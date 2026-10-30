@@ -93,12 +93,15 @@ def reeval_input(p: Proposal, sig: Signal | None, price: float, q: Quote | None,
     trig = ent.get("seuil", ent.get("declencheur"))  # a breakout's plage (docs/06 §6.3); older proposals: trigger
     if (d.get("configuration") or {}).get("franchi") is False and trig is not None and price < float(trig):
         low = None  # a letter's obstacle never crossed yet: nothing to give back, the breakout is still waiting
+    # docs/37 L0 (verdict scale only): R4 on the last target (D12), none under a d7 plage P2 (D15)
+    r4_target = d.get("objectif_r4")
+    spec = d.get("speculative") or {}
     return ReevalInput(
         price=price,
         data_status=q.data_status.value if q is not None else "eod",
         market_timestamp=q.market_timestamp if q is not None else None,
         now=now,
-        target=float(p.targets[0]) if p.targets else None,
+        target=float(r4_target) if isinstance(r4_target, int | float) else float(p.targets[0]) if p.targets else None,
         stop=p.stop,
         setup=kind,
         level_low=low,
@@ -111,6 +114,7 @@ def reeval_input(p: Proposal, sig: Signal | None, price: float, q: Quote | None,
         blocked=tuple(b for b in (p.gates or {}).get("blocked", []) if b.startswith("BLOQUÉ")),
         to_verify=bool(p.to_verify),
         wait_for_close=any(TRIGGER_WAIT in b for b in (p.gates or {}).get("blocked", [])),
+        r4=spec.get("entree") != "plage_p2",
     )
 
 

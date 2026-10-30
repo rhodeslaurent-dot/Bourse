@@ -76,6 +76,7 @@ def create_proposal(
     config: Any | None = None,
     created_at: datetime | None = None,
     as_of: date | None = None,
+    demote: bool = True,
     **fields: Any,
 ) -> Proposal:
     """Create the proposal and its snapshot in one go: the snapshot is what the decision saw.
@@ -84,7 +85,10 @@ def create_proposal(
     the snapshot and an unfavourable BUY on enough cases is issued as WATCH (docs/12 §12.5.3).
 
     ``created_at`` / ``as_of`` reconstitute a past proposal (docs/19): the snapshot then holds only
-    the indicators and regime of the last stored day on or before ``as_of`` and no portfolio state."""
+    the indicators and regime of the last stored day on or before ``as_of`` and no portfolio state.
+
+    ``demote=False`` (graduated verdict, docs/37 L0): the history is attached to the snapshot but never demotes — the
+    engine already made an unfavourable history an element of appreciation of a speculative card."""
     track = None
     if config is not None:
         from app.domain.learning import should_demote
@@ -93,7 +97,12 @@ def create_proposal(
         track = comparable_history(s, config, sig, datetime.now(UTC))
         lp = learning_params(config)
         min_signals = int((config.params.review or {}).get("profitability_min_signals_per_detector", 60))
-        if track is not None and lp is not None and should_demote(action, track, min_signals, lp.demote_buy_to_watch):
+        if (
+            demote
+            and track is not None
+            and lp is not None
+            and should_demote(action, track, min_signals, lp.demote_buy_to_watch)
+        ):
             action = "WATCH"
             gates = dict(gates or {})
             gates["blocked"] = [

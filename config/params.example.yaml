@@ -746,7 +746,7 @@ availability:
 
 config_validation:
   required_groups: ["timezones", "capital", "risk", "accounts", "notifications", "data", "jobs"]
-  optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers", "learning", "letters_review", "letters", "admission", "market_gate", "conjuncture", "events", "entry", "zones", "ranking", "pockets"]   # manquant → fonctionnalité désactivée, mention sur /sante
+  optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers", "learning", "letters_review", "letters", "admission", "market_gate", "conjuncture", "events", "entry", "zones", "ranking", "pockets", "verdict"]   # manquant → fonctionnalité désactivée, mention sur /sante
 
 review:
   human_delay_minutes: 5              # [non codé] délai humain appliqué en rejeu entre alerte et ordre
@@ -778,6 +778,19 @@ letters:                                  # docs/20 §20.10 — analyse détermi
   min_history_sessions: 60                # en dessous : « non analysable (historique) »
   stop_lookback_low: 10                   # stop de structure : plus bas de N séances − risk.stop.buffer_atr_mult × ATR14 (comme d2_breakout)
   report_line: true                       # une ligne « Lettres : … » dans le rapport du jour
+
+verdict:                                  # docs/37 lot L0 (ADR-016 proposé) — échelle de verdict graduée ; CONSTRUITE, DÉSACTIVÉE : décisions D9–D15 en attente. Groupe absent ou enabled: false → comportement actuel inchangé. Aperçu sans rien changer : `verdict-preview --date AAAA-MM-JJ`
+  effective_from: 2026-10-30
+  enabled: false                          # D9 : true = les portes non absolues deviennent des éléments d'appréciation (conviction forte / à considérer / spéculative / à surveiller / écartée)
+  speculative_detectors: ["d2_breakout", "d7_trend_quality"]   # D10 : ces détecteurs ne sont plus forcés en WATCH par l'ADR-013 ; carte « spéculative », espérance mesurée affichée ([] = ADR-013 inchangé)
+  speculative_size_multiplier: 0.5        # D10 : budget de risque × 0,5 pour une carte spéculative (frais itérés, plafonds inchangés, règle 7)
+  speculative_last_target: true           # D12 : R4 échoue sur l'objectif 1 mais passe sur le dernier objectif exploitable → carte spéculative sur l'objectif final, dit en clair
+  speculative_d7_entry: "plage"           # D15 : "plage" = stop d'achat à plage du plan n° 4 (P2), stop ATR, sortie au temps, objectifs = repères ; "limite" = limite R4 (D12 possible)
+  speculative_stop_atr: 2.5               # D15 : stop à 2,5 × ATR14 sous l'entrée (glissé pour la taille), comme la sortie X8 du banc
+  speculative_plage_cap_atr: 0.5          # D15 : limite = seuil × (1 + 0,5 × ATR14 / clôture) (plan n° 4, confirm_cap_atr)
+  speculative_plage_validity_sessions: 3  # D15 : validité de la plage, en séances de la place (plan n° 4, validity)
+  speculative_time_exit_sessions: 20      # D15 : sortie à la clôture de la 20e séance (plan n° 4, cellule C1 : P2 + X8 à 20 séances)
+  notify_speculative: false               # Telegram : les cartes spéculatives ne sont envoyées que si true (elles restent sur /opportunites)
 
 learning:                                # docs/18 — retour d'expérience ; aucune optimisation automatique
   effective_from: 2026-10-22

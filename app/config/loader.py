@@ -25,6 +25,7 @@ from app.config.schema import (
     Params,
     SrdParams,
     TaxVersion,
+    VerdictParamsModel,
 )
 
 DEFAULT_REQUIRED = ["timezones", "capital", "risk", "accounts", "notifications", "data", "jobs"]
@@ -41,6 +42,10 @@ OPTIONAL_FEATURES: dict[str, tuple[str, Any]] = {
     "learning": ("Retour d'expérience et ajustement des propositions", LearningParams),
     "letters_review": ("Revue quotidienne des lettres par Claude", LettersReviewParams),
     "letters": ("Analyse par l'outil de chaque valeur recommandée par une lettre (docs/20 §20.10)", None),
+    "verdict": (
+        "Échelle de verdict graduée (docs/37, lot L0 ; active seulement si verdict.enabled)",
+        VerdictParamsModel,
+    ),
 }
 
 

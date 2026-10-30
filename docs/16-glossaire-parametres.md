@@ -91,6 +91,7 @@
 | `learning.*` (horizon 20 séances, validité d'entrée 5, k = 20, seuils +0,3 / −0,2 R, rétrogradation BUY → WATCH) | 22/10/2026 | — | docs/18 §18.5 |
 | `llm.monthly_budget_usd` | 15 | — | Choix spec |
 | `data.buy_intraday_max_market_age_minutes` | 3 (âge de l'horodatage de marché ; l'âge de téléchargement ne compte pas) | — | Choix spec v1.1 |
+| `verdict.enabled` / `speculative_detectors` / `speculative_size_multiplier` / `speculative_last_target` / `speculative_d7_entry` / `speculative_stop_atr` / `speculative_plage_cap_atr` / `speculative_plage_validity_sessions` / `speculative_time_exit_sessions` / `notify_speculative` | `false` / [d2, d7] / 0,5 / `true` / `plage` / 2,5 / 0,5 / 3 / 20 / `false` (30/10/2026) | — | docs/37 lot L0, ADR-016 **proposé** (D9–D15 en attente) ; plafond 0,5 ATR, validité 3 et sortie 20 séances = plan n° 4 (docs/34 §34.11) |
 
 ## 16.4 Sources réglementaires et de référence (consultées le 09/09/2026)
 

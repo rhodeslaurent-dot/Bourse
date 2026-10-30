@@ -438,6 +438,7 @@ NEW_TOP_BLOCKS = [
     "brokers.boursobank",
     "pea",  # docs/26
     "committee",  # docs/24 v2
+    "verdict",  # docs/37 lot L0 — échelle de verdict, livrée désactivée (enabled: false)
 ]
 
 
@@ -1633,6 +1634,24 @@ def cmd_gates_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_verdict_preview(args: argparse.Namespace) -> int:
+    """docs/37 lot L0 — the level each stored proposal of a day would get with the graduated verdict (conviction forte,
+    à considérer, spéculative, à surveiller, écartée), recomputed from its stored gates and details. Read only: works
+    with ``verdict.enabled: false`` (or the group absent: the example's proposed values) — the user's way to see the
+    effect before deciding D9–D15."""
+    import json as _json
+
+    from app.db.session import db_session
+    from app.services import verdict as verdict_svc
+
+    cfg = load_params(args.params)
+    day = date.fromisoformat(args.date) if args.date else date.today()
+    with db_session() as s:
+        rep = verdict_svc.preview(s, cfg, day)
+    print(_json.dumps(rep, ensure_ascii=False, indent=1) if args.json else verdict_svc.preview_text(rep))
+    return 0
+
+
 def cmd_insider_archive(args: argparse.Namespace) -> int:
     """docs/34 §34.8 — archive of the managers' dealing declarations published by the AMF (BDIF) over a period
     (backfill of whatever the source still exposes: about 5 years), then the coverage per month. Archive only."""
@@ -2539,6 +2558,12 @@ def main(argv: list[str] | None = None) -> int:
     gc.add_argument("--to", default=None, help="fin (défaut : aujourd'hui)")
     gc.add_argument("--json", action="store_true")
     gc.set_defaults(fn=cmd_gates_coverage)
+    vpv = sub.add_parser(
+        "verdict-preview", help="niveau de verdict gradué des propositions d'un jour (docs/37, lecture seule)"
+    )
+    vpv.add_argument("--date", default=None, help="jour des propositions, AAAA-MM-JJ (défaut : aujourd'hui)")
+    vpv.add_argument("--json", action="store_true")
+    vpv.set_defaults(fn=cmd_verdict_preview)
     ia = sub.add_parser("insider-archive", help="déclarations des dirigeants AMF (BDIF) : archivage et couverture")
     ia.add_argument("--from", dest="from_date", default=None, help="début (défaut : il y a 5 ans)")
     ia.add_argument("--to", default=None, help="fin (défaut : aujourd'hui)")

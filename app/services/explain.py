@@ -34,8 +34,16 @@ def entry_order_line(entree: dict[str, Any] | None, unit: str = "€") -> str | 
     until = str(e.get("jusqu_au") or "")
     date_txt = f" (jusqu'au {until[8:10]}/{until[5:7]}/{until[:4]})" if len(until) == 10 else ""
     valid = f", valable {int(n)} séance{'s' if int(n) > 1 else ''}{date_txt}" if isinstance(n, int | float) else ""
+    p2 = ""
+    cancel, hold = e.get("annulation_ouverture_au_stop_structurel"), e.get("sortie_au_temps_seances")
+    if e.get("politique") and isinstance(cancel, int | float) and isinstance(hold, int | float):
+        # docs/37 D15 (verdict scale only): the plan n° 4 P2 — cancelled by an opening at the structural stop
+        p2 = (
+            f" ; à annuler si une séance ouvre à {_fr(cancel)} {unit} ou dessous avant l'exécution ; sortie au temps "
+            f"après {int(hold)} séances"
+        )
     return (
-        f"Ordre à plage de déclenchement J+1 : seuil {_fr(seuil)} {unit}, limite {_fr(limite)} {unit}{valid} — "
+        f"Ordre à plage de déclenchement J+1 : seuil {_fr(seuil)} {unit}, limite {_fr(limite)} {unit}{valid}{p2} — "
         "à saisir chez le courtier ; l'outil ne passe aucun ordre"
     )
 
@@ -277,6 +285,16 @@ _PLAIN: list[tuple[str, str]] = [
     ),
     ("dans les 30 h", "Une annonce macroéconomique majeure arrive : entrée gelée jusqu'à sa publication."),
     ("taux de change", "Le taux de change n'est pas disponible : la taille ne peut pas être calculée."),
+    (
+        "historique défavorable",
+        "Les cas passés comparables (même détecteur, même source) ont perdu en moyenne : le chiffre mesuré est donné, "
+        "la carte reste à vous de juger (verdict gradué, docs/37).",
+    ),
+    (
+        "entrée à plage p2",
+        "L'entrée à plage du plan n° 4 (stop d'achat sur le franchissement confirmé) ne s'applique pas ici, par "
+        "exemple parce que le seuil atteint déjà le premier objectif : aucun ordre.",
+    ),
 ]
 
 

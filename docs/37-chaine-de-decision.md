@@ -1,6 +1,6 @@
 # 37 — Chaîne de décision en quatre temps : de la détection à la préconisation explicite
 
-> **Statut : proposition du 30/10/2026, à valider par l'utilisateur.** Rien n'est codé tant que les décisions du §37.6 ne sont pas prises.
+> **Statut : proposition du 30/10/2026, à valider par l'utilisateur.** Le lot L0 est **construit, désactivé par défaut** (`verdict.enabled: false`, ADR-016 proposé) : il ne change rien tant que les décisions D9–D15 du §37.6 ne sont pas prises (§37.8). Les lots L1 à L5 ne sont pas codés.
 >
 > Demande de l'utilisateur (30/10/2026) :
 > - « la démarche ne peut pas être binaire » ;
@@ -142,9 +142,45 @@ D2 (risque « élevé » → demi-taille) et D6 (double pénalité orange) de do
 
 | Lot | Contenu | Dépend de |
 |---|---|---|
-| **L0** | échelle de verdict, ADR-013 bis, cartes et Telegram ; règles absolues inchangées ; tests | D9 à D12 |
+| **L0** | échelle de verdict, ADR-013 bis, cartes et Telegram ; règles absolues inchangées ; tests — **construit, désactivé par défaut** (30/10/2026, §37.8) | D9 à D12, D15 |
 | **L1** | causes des hausses : étape 1 (en cours), étape 2 avec les nouvelles | source de nouvelles |
 | **L2** | préconisation explicite (§37.5) sur chaque carte ≥ « spéculative » | L0, D14 |
 | **L3** | dossier d'analyse globale + comité étendu à ces cartes (coût estimé avant de coder, plafond journalier inchangé sauf décision) | L2 |
 | **L4** | module de recherche proactive (§37.4) et liste d'anticipation | L1, L3 |
 | **L5** | podcasts et vidéos (transcription), régulateurs hors France | domaines réseau, décision |
+
+## 37.8 Lot L0 : construit, désactivé par défaut (30/10/2026)
+
+**Rien ne change tant que vous n'activez pas l'échelle.** Groupe absent de `params.yaml`, ou `verdict.enabled: false` (valeur livrée) : le moteur enregistre exactement les mêmes propositions qu'avant (test de non-régression qui compare les deux, octet par octet).
+
+**Voir l'effet avant de décider** (lecture seule, fonctionne échelle désactivée) :
+
+```
+uv run python -m app.cli verdict-preview --date 2026-10-30
+```
+
+La commande reprend chaque proposition enregistrée du jour (ses portes et ses détails) et affiche :
+- le nombre de propositions par niveau ;
+- une ligne par proposition : valeur, détecteur, action d'aujourd'hui → niveau, raison principale ;
+- ce que le moteur changerait (ADR-013 levé, plage P2 estimée de d7, objectif final D12).
+
+**Activer** (dans `config/params.yaml`, groupe `verdict`, ajouté par `params-init --update`) :
+
+| Clé | Livré | Décision |
+|---|---|---|
+| `enabled` | `false` | D9 : `true` active l'échelle |
+| `speculative_detectors` | `[d2_breakout, d7_trend_quality]` | D10 (`[]` = ADR-013 inchangé) |
+| `speculative_size_multiplier` | 0,5 | D10 : taille ½ |
+| `speculative_last_target` | `true` | D12 |
+| `speculative_d7_entry` | `plage` | D15 (`limite` = R4 classique, D12 possible) |
+| `speculative_stop_atr` / `speculative_plage_cap_atr` / `speculative_plage_validity_sessions` / `speculative_time_exit_sessions` | 2,5 / 0,5 / 3 / 20 | D15 : plan n° 4, cellule C1 |
+| `notify_speculative` | `false` | Telegram : cartes spéculatives envoyées seulement si `true` |
+
+**Ce que fait l'échelle activée** (ADR-016) :
+- **Écartée** : règles absolues seulement — plafonds, coupe-circuit, R14 (gel maintenu, décision C du 29/10), stop impossible, taille nulle, change ou cours indisponible, emballement, ADR-013 pour un détecteur que vous y laissez.
+- **À surveiller** : limite en attente, R4 non atteint sur l'objectif 1, déclencheur non franchi, cours au-dessus de la limite, pas d'objectif, donnée à vérifier (règle 2).
+- **Spéculative** : éléments d'appréciation seulement, ou détecteur spéculatif. Achat exécutable à taille ½, avec la ligne « Spéculative — espérance historique … » (chiffre mesuré ou « non mesurée ») ; les éléments d'appréciation sont écrits sur la carte, pas en blocage.
+- **À considérer** : l'achat d'aujourd'hui sans aucun blocage.
+- **Conviction forte** : avantage mesuré positif dans un portail ouvert. **Aucune source ne l'a aujourd'hui** : ce niveau restera vide tant qu'un plan de recherche ou l'historique comparable ne l'aura pas établi.
+
+La page Opportunités regroupe alors les cartes par niveau (vert foncé, vert, ambre, bleu, gris ; écartées repliées). Le niveau et ses raisons sont enregistrés dans `details.verdict_niveau` et `details.verdict_gradue`.
