@@ -75,6 +75,17 @@ def trace(s: Session, day: date, reader: tuple[str, Path] | None = None) -> list
         out.append(f"· {it.source} {it.received_at.astimezone(PARIS):%H:%M} Paris — « {it.subject[:90]} »")
         how = {"llm": "lecture par l'IA puis contrôle", "rules": "lecture par règles seules (IA indisponible)"}
         out.append(f"    {how.get(it.parsed_by or '', it.parsed_by or 'lecture inconnue')}")
+        rx = (it.parsed or {}).get("reextract") or {}
+        if rx.get("status") == "ok":  # letters-reextract (30/10/2026): read again with the current prompt
+            from app.domain.timeutil import to_reunion
+
+            at = datetime.fromisoformat(rx["at"]) if rx.get("at") else None
+            out.append(
+                f"    relue le {f'{to_reunion(at):%d/%m/%Y}' if at else '?'} avec la consigne v{rx.get('version')} : "
+                f"{rx.get('values', 0)} valeur(s), {rx.get('with_levels', 0)} avec niveaux"
+            )
+        elif rx.get("status") == "echec":
+            out.append(f"    relecture en échec (consigne v{rx.get('version')}) : {rx.get('error', '')}")
         if reader is not None:
             ans = llm_answer(s, it, *reader)
             if ans is None:
