@@ -54,6 +54,8 @@ def exit_model(code: str, h: int, max_hold: int | None = None) -> ExitModel:
         return ExitModel(code, ExitSpec("X7", h, target_r=2.0), "atr", 2.5, h)
     if code == "X8":
         return ExitModel(code, ExitSpec("X8", long), "atr", 2.5, h)
+    if code == "XT":  # registration n° 7: time exit at h; the 2.5 ATR14 stop only sizes the trade (never executed)
+        return ExitModel(code, ExitSpec("XT", h, stop_active=False), "atr", 2.5, h)
     raise ValueError(f"unknown exit model {code}")
 
 

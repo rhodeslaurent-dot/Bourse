@@ -583,6 +583,20 @@ def adj_factor_events(adj_factor: F64, close: F64, pk: Packing, ca_jump: float, 
     return unpack_bool(ca, pk, t_len), np.nan_to_num(unpack(div, pk, t_len))
 
 
+def suspect_price_sessions(open_: F64, close: F64, pk: Packing, ratio: float) -> Bool:
+    """Own sessions whose open or close is at least ``ratio`` × or at most 1/``ratio`` of the previous own close (or a
+    price ≤ 0): a unit change or a bad tick the adjustment factor does not show — ``move_causes.suspect_sessions``,
+    vectorised. Registration n° 7 (``suspect_price_ratio`` in the plan) skips them like a corporate action. Calendar."""
+    o, c = pack(open_, pk), pack(close, pk)
+    prev = shift(c, 1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        has_prev = np.isfinite(prev) & np.isfinite(c)
+        bad = (prev <= 0) | (c <= 0) | (o <= 0)
+        for x in (o, c):
+            bad |= (x / prev >= ratio) | (x / prev <= 1.0 / ratio)
+    return unpack_bool(has_prev & bad, pk, open_.shape[0])
+
+
 # --- earnings announcements (registration n° 3, docs/34 §34.5) ---------------------------------------------
 
 

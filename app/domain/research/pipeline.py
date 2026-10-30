@@ -76,11 +76,12 @@ from app.domain.research.panel import (
     pack,
     recent_any,
     rescale_vintage_boundaries,
+    suspect_price_sessions,
     unpack,
     unpack_bool,
     valid_bars,
 )
-from app.domain.research.prereg import Cell, Prereg
+from app.domain.research.prereg import R_STOP_EXITS, Cell, Prereg
 
 Arr = npt.NDArray[Any]
 ComboKey = tuple[str, float, int, int, int | None, str | None]  # exit, cap ATR, validity, h, max hold, D2x cap
@@ -126,6 +127,9 @@ class Settings:
     seal_start: date | None = None  # segments.holdout_start: no data-quality exclusion crosses it
     min_earnings_coverage: float | None = None  # thresholds.min_earnings_coverage (registration n° 3)
     insiders: InsiderData | None = None  # registration n° 5: AMF declarations and the plan's insider_* rules
+    # registration n° 7: the plan's ``suspect_price_ratio`` — a session at ≥ ratio × or ≤ 1/ratio of the previous close
+    # is skipped like a corporate action (``move_causes.suspect_sessions``); None (every earlier plan): no check
+    suspect_ratio: float | None = None
 
 
 # --- group data ------------------------------------------------------------------------------------
@@ -169,6 +173,12 @@ def prepare_group(gid: int, p: Panel, st: Settings) -> GroupData:
     t_len = p.shape[0]
     pk = make_packing(valid_bars(p))
     ca, div = adj_factor_events(adjustment_factor(p, pk), p.close, pk, st.ca_jump, st.div_min)
+    n_suspect = 0
+    if st.suspect_ratio is not None:  # registration n° 7: suspect prices skipped like a corporate action
+        sus = suspect_price_sessions(p.open, p.close, pk, st.suspect_ratio)
+        n_suspect = int((sus & ~ca).sum())
+        ca = ca | sus
+        div = np.where(sus, 0.0, div)
     block = unpack_bool(recent_any(pack(ca.astype(np.float64), pk) == 1.0, st.ca_mask_sessions), pk, t_len)
     f = build_features(p, st.features, exclude=block)
     week, month, year = day_ids(p.days)
@@ -186,6 +196,7 @@ def prepare_group(gid: int, p: Panel, st: Settings) -> GroupData:
         "jours_sauts_de_masse": int(mass.sum()),
         "evenements_jours_sauts_de_masse": int(((div > 0) | ca)[mass].sum()),
         "operations_sur_titres": int(ca.sum()),
+        **({"seances_suspectes": n_suspect} if st.suspect_ratio is not None else {}),
     }
     return GroupData(gid, p, f, bars, hs, week, month, year, n_years, unreliable, quality)
 
@@ -328,7 +339,7 @@ def raw_trigger(g: GroupData, cell: Cell, st: Settings) -> tuple[Bool, F64 | Non
         m = T.t09_volume_shock(p, f, float(q.get("mult", 3.0)))
     elif cell.trigger in INSIDER_TRIGGERS:  # registration n° 5 (insider_triggers)
         m = t17_insider(p, f, st.insiders, q)
-    elif cell.trigger in T.EARNINGS_TRIGGERS and not g.earn_ok:  # coverage below the plan's floor: no signal
+    elif T.cell_needs_earnings(cell.trigger, q) and not g.earn_ok:  # coverage below the plan's floor: no signal
         m = np.zeros(p.shape, dtype=np.bool_)
     elif cell.trigger == "t14":
         m = T.t14_earnings_reaction(p, f, float(q.get("k_sigma", 2.0)), float(q.get("rvol_min", 2.0)),
@@ -338,6 +349,8 @@ def raw_trigger(g: GroupData, cell: Cell, st: Settings) -> tuple[Bool, F64 | Non
     elif cell.trigger == "t16":
         m = T.t16_shock_without_news(p, f, float(q.get("k_sigma", 2.0)), float(q.get("rvol_min", 2.0)),
                                      float(q.get("close_top", 0.5)))  # fmt: skip
+    elif cell.trigger == "t18":  # registration n° 7: opening gap down, bought at the next open
+        m = T.t18_gap_down(p, f, q)
     elif cell.trigger == "d2x":
         kind, value = str(cell.cap).split(":")
         m = T.d2_base(p, f, st.detectors.get("d2_breakout") or {})
@@ -397,7 +410,8 @@ def combo_label(key: ComboKey) -> str:
 
 
 def primary_unit(key: ComboKey) -> str:
-    return "r_stop" if key[0] == "X4" else "r_ref"
+    """Unit of a combination's controls and benchmark — the unit of its cells (``prereg.check_units``)."""
+    return "r_stop" if key[0] in R_STOP_EXITS else "r_ref"
 
 
 @dataclass
@@ -1120,7 +1134,7 @@ def run_cells(
             quality[k] += v
         if rows[1] < rows[0]:
             continue
-        if any(c.trigger in T.EARNINGS_TRIGGERS for c in cells):
+        if any(T.cell_needs_earnings(c.trigger, c.params) for c in cells):
             cov = earnings_coverage(g, rows, st.min_earnings_coverage)
             g.earn_ok = bool(cov["compte_dans_le_verdict"])
             coverage[g.p.group] = cov

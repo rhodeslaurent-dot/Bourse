@@ -553,3 +553,115 @@ Rien ici ne rend d7 actionnable : c'est la décision (b) du n° 4.
 3. Descellement, seulement pour un candidat C1 / C2, après `backfill --from 2005-01-01`, **le même jour que celui du n° 4** : `research unseal --prereg research/prereg/2026-10-30_reg6.yaml --candidates <fichier figé> --universe all --from 2006-01-01 --to 2016-01-31`.
 
 Aucun résultat ne change un paramètre, une sortie ni un détecteur sans ADR.
+
+## 34.14 Enregistrement n° 7 (brouillon) : rebond après un saut d'ouverture baissier
+
+> Plan `research/prereg/2026-10-31_reg7.yaml`, **BROUILLON du 31/10/2026, non gelé** (clé `draft: true` : `research calibrate`, `run` et `unseal` le refusent, code 2). Empreinte à inscrire ici au gel (celle du brouillon ne vaut rien : retirer la clé change le fichier). Graine 20261031.
+> - **À geler avant que le moindre cours d'avant 2016 (`backfill --from 2005-01-01` ou `--from 2006`) ne soit lu par une commande de recherche** : trancher D1–D6 (ci-dessous), retirer le bloc « BROUILLON » et la clé `draft`, inscrire l'empreinte sha256 ici et dans docs/15-status.md (fins de ligne Unix ; noter aussi l'empreinte CRLF du PC Windows, comme aux n° 4 à 6).
+> - Seuils A1–A13, inférence, clés de paramètres, hypothèses communes, entrée E_open(1) validité 1, compte CTO pour le verdict et PEA en seconde vue, groupes européens P0 / P1 / P2 et plancher de couverture des publications (0,50) repris à l'identique du n° 3.
+
+**Origine.** Seule piste de l'étude exploratoire des causes (docs/36, rapport `causes_20261030_150454`, 2017-01-02 → 2026-10-29) :
+- après un **saut d'ouverture baissier** d'au moins max(3 % ; 1,5 × ATR14 ÷ clôture précédente), achat à l'ouverture de la séance **suivante** ;
+- excès sur la moitié liquide de la place, équipondérée : +0,48 % à 5 séances (t hebdomadaire 4,2), +0,56 % à 10 (t 2,8), +0,72 % à 20 (t 2,9) ;
+- net CTO +0,83 % à 20 séances (t 3,8) ; PEA ≈ 0 (coûts) ; n ≈ 19 400.
+
+Littérature : un choc **sans** nouvelle se retourne, un choc **avec** nouvelle se prolonge (Chan 2003 ; Savor 2012). Sans historique daté des nouvelles, seule une approximation est possible : saut un jour de réaction à une publication de résultats, ou non.
+
+**Pourquoi la période scellée est le test.**
+- La découverte 2017-2026 a déjà été lue par l'étude des causes. Un plan testé dessus serait « semi-propre » : la piste a été choisie parmi environ 80 cellules lues.
+- Les cellules du n° 7 sont donc **déclarées pour la période ancienne scellée 2007-01-02 → 2015-09-30**, qu'aucune commande de recherche n'a lue (clé `replication.mode: confirmatory`).
+- Une seule ouverture, par `research unseal` **sans fichier de candidats**, avec les statistiques complètes d'une exécution sur cette période : Holm sur 2, A1–A13 sur 5 plis propres à la période, permutation, rejeu à 6 lignes.
+- `research run` sur 2017-2026 reste possible mais **descriptif** : titre préfixé « DESCRIPTIF », aucun fichier de candidats figé.
+
+**Déclencheur t18** (`app/domain/research/triggers.py`, tous les paramètres écrits dans le plan) :
+- saut de la séance k = ouverture(k) ÷ clôture(k − 1) − 1, sur les séances propres de la valeur, cours bruts ;
+- seuil = max(3 % ; 1,5 × ATR ÷ clôture(k − 1)), ATR = **moyenne simple** des vraies amplitudes des 14 séances finissant en k − 1 : définition de l'étude (`move_causes.gap_threshold`, `moves.atr_series`), testée égale sur barres construites ; ce n'est pas l'ATR de Wilder du banc, qui place le stop ;
+- `dividend_neutral: true` : le saut est corrigé du rapport des facteurs d'ajustement de k et k − 1, un détachement n'ouvre donc aucun saut (D2) ;
+- un événement par valeur toutes les 10 séances, le premier, compté sur tous les sauts baissiers de la valeur (éligible ou non, avant tout découpage) ;
+- signal en k sur une séance éligible, connu à l'ouverture de k ; l'ordre ne travaille qu'à partir de l'ouverture de k + 1 ;
+- opérations sur titres : éligibilité masquée 252 séances, trade traversant exclu, comme tous les déclencheurs ;
+- **cours suspects** (ouverture ou clôture ≥ 4 × ou ≤ ¼ de la clôture précédente) : écartés comme une opération sur titres. C'est la règle corrigée le 30/10/2026 dans l'étude ; elle est déclarée par le plan (`suspect_price_ratio`), donc absente des plans n° 1 à 6, qui restent inchangés.
+
+**Sortie et unité.**
+- **XT** (`app/domain/research/entries.py`) : sortie au temps à la clôture de la h-ième séance, la séance d'exécution comptant pour la première.
+- Le stop 2,5 ATR14 (Wilder, à la clôture du signal) sous le prix exécuté, glissé de `risk.slippage_pct`, **sert seulement à la taille** (règle 7) et n'est jamais exécuté. C'est la mesure de l'étude : achat à l'ouverture, vente à la clôture h (D1).
+- Unité `r_stop` : résultat net ÷ risque initial au stop glissé ; aussi en € pour 300 € de budget de risque.
+- Excès = R − **contrôles appariés** : même jour, même groupe de places, même tercile de liquidité et de volatilité, même tendance, mêmes entrée et sortie. C'est plus exigeant que l'excès sur la moitié liquide de la place de l'étude ; l'excès sur la moyenne équipondérée du groupe est aussi imprimé.
+
+**Cellules** (15, plus 3 rejeux de portefeuille = 18, plafond 20) :
+
+| Cellule | Rôle | Contenu | Sortie |
+|---|---|---|---|
+| X1 (2) | placebo, **lu en premier** | valeurs et dates éligibles tirées au hasard, taux 0,003 fixé avant toute lecture de la période | XT h 10, h 20 |
+| C1 | confirmatoire | t18 | XT h 10 |
+| C2 | confirmatoire | t18 | XT h 20 |
+| X2a / X2b / X2c | exploratoire | taille du saut : du seuil à 5 %, de 5 à 10 %, 10 % et plus (partition de C2 avant le verrou) | XT h 20 |
+| X3 (2) | exploratoire | petite / grande capitalisation (celle d'aujourd'hui, signalé) | XT h 20 |
+| X4 (2) | exploratoire | saut un jour de réaction à une publication (« avec nouvelle ») / intervalle connu sans publication à ± 2 séances (« sans nouvelle ») ; groupe sous 50 % de couverture : aucun signal | XT h 20 |
+| X5 (2) | exploratoire | le stop 2,5 ATR **exécuté** (X8) : ce que vivrait un ordre réel protégé | X8 h 10, h 20 |
+| X6 | exploratoire | 5 séances (le t le plus élevé de la découverte) | XT h 5 |
+| X7 | exploratoire | la définition de la découverte, sur cours bruts : un détachement de dividende compte comme un saut | XT h 20 |
+
+- Les exploratoires sont **descriptives** : sans année d'apprentissage avant le premier pli, aucune ne peut passer A2, donc aucune ne peut être candidate.
+- Le PEA est imprimé pour chaque cellule (seconde vue des coûts), sans conclusion propre.
+
+**Verdict de la période scellée** (`app/domain/research/sealed.py`, `thresholds.sealed`), pour C1 et C2 :
+- **NON CONCLUANT** si A1 manque (n ≥ 300, ≥ 100 semaines, ≥ 40 trades par pli), ou si le placebo de même sortie et même durée a |t| ≥ 3 : la mesure est alors en cause ;
+- **CONFIRMÉ** si A1–A13 sont remplis (plis 2007-01 → 2008-09, → 2010-06, → 2012-03, → 2013-12, → 2015-09 ; Holm sur 2 ; A4 avec permutation ; A9 en univers point-in-time), **et** t hebdomadaire de Newey–West de l'excès ≥ 3, **et** Sharpe déflaté ≥ 0,95 avec N = 80 cellules lues par l'étude des causes + les 13 cellules non placebo du plan = 93 (variance des Sharpe : celle des cellules du plan sur la période) ;
+- sinon **NON CONCLUANT** si la puissance à l'effet de décision (+0,20 R) est sous 50 %, **NON CONFIRMÉ** autrement.
+
+**Règle de décision** (clé `decision` du plan, dans l'empreinte) :
+- C1 ou C2 CONFIRMÉ → **suivi en ombre** de la cellule confirmée (aucun ordre). Ensuite, ADR de mise en production à 50 % de `risk.max_risk_per_trade_pct`, avec règle de suspension, seulement après au moins 100 signaux et 6 mois en ombre, de même signe que la période scellée. La sortie réelle protégée se compare à X5.
+- NON CONFIRMÉ ou NON CONCLUANT → rien ne change. La piste n'est re-testée ni sur 2007-2015 (ouverte une fois) ni sur 2017-2026 (déjà lue) ; seul un nouveau plan vers l'avant pourrait la reprendre.
+
+**Changement du banc (le plus petit possible), testé.**
+- Le banc ne savait pas déclarer des cellules confirmatoires pour la période scellée. Le descellement exigeait un fichier de candidats écrit par une exécution de la découverte, classés CANDIDAT sur cette découverte : impossible ici, puisque la découverte est déjà lue.
+- `replication.mode: confirmatory` et `replication.wf_test` (plis dans la période), avec les seuils `thresholds.sealed` : `research unseal` exécute alors les cellules du plan sur la période.
+- Ce descellement refuse, avant toute lecture des cours :
+  - un fichier de candidats ;
+  - un autre univers que `all` (A9) ;
+  - une ouverture antérieure du même plan, même empreinte **ou même identifiant** ;
+  - des données sans préchauffage ni sorties ;
+  - l'absence de calibration VALIDE de ce plan (l'ouverture est unique : jamais sur un moteur non vérifié).
+- Il écrit `descellement_<horodatage>.json` / `.txt` (rapport complet A–K et section « V — Verdict de la période scellée ») et une ligne `unseal` au registre.
+- `draft: true` : plan BROUILLON, refusé par les trois commandes.
+- Unité des contrôles appariés : R du trade pour les sorties sur stop ATR (X4, X8, XT). Le plan est refusé si l'unité d'une cellule n'est pas celle de ses contrôles.
+- Tests : `tests/unit/test_research_gaps.py` (t18 = définition de l'étude sur barres construites, point dans le temps, un événement toutes les 10 séances compté avant l'éligibilité, dividende neutralisé, découpages en partition, cours suspects, XT contre X8, plan, ouverture unique, règles du verdict, rejeu synthétique : rebond planté CONFIRMÉ, mêmes sauts sans rebond non confirmé, signaux de la seule période scellée) et `tests/integration/test_research.py` (brouillon refusé ; copie gelée : calibration, exécution descriptive sans candidats, refus, descellement unique avec rapport et registre).
+
+**Écarts déclarés à l'étude des causes** (choisis avant toute lecture de la période) :
+
+| Écart | Raison |
+|---|---|
+| Univers éligible du banc (médiane 60 séances des capitaux ≥ `universe.min_adv_eur_pea`, cours ≥ `universe.min_price`) au lieu de toutes les valeurs | périmètre achetable ; l'effet peut être plus faible sur les valeurs liquides |
+| Contrôles appariés de strate au lieu de la moitié liquide de la place | référence du banc, plus exigeante |
+| E_open(1) : limite clôture + 1 ATR, annulée si l'ouverture suivante est sous la limite − 2,5 ATR (second saut baissier) ; l'étude achetait à toute ouverture | règle 7 (prix maximal, stop sous l'entrée) ; ordres annulés comptés |
+| Verrou du banc d'un signal par valeur toutes les h séances : à h = 20, un signal toutes les 20 séances au plus (l'étude : 10) | pas de positions chevauchantes sur une même valeur |
+| Saut neutralisé du dividende (C1, C2), cours bruts en X7 | un détachement n'est pas un choc (D2) |
+| Cours suspects × 4 / ÷ 4 masqués 252 séances (l'étude : écartés de t0 − 22 à la sortie) | convention des opérations sur titres du banc |
+
+**Limites propres à ce plan.**
+- **Survie** : la table des instruments est celle d'aujourd'hui, et les valeurs radiées entre 2007 et 2015 sont absentes. Or acheter après une chute est précisément ce que ce biais flatte. A9 (multiple de faillite ≥ 2, sorties sur cotation interrompue à −100 %) n'en corrige qu'une partie ; le nombre d'instruments inactifs est imprimé.
+- Historique des publications d'avant 2016 probablement très incomplet (Yahoo) : X4 sera souvent « couverture insuffisante ».
+- Capitalisation et secteur d'aujourd'hui.
+- La période scellée est partagée avec les n° 3, 4 et 6. Chaque plan ne l'ouvre qu'une fois, pour ses propres cellules ; aucun d'eux ne lit t18.
+
+**À décider avant le gel (D1–D6).**
+1. **D1 — sortie mesurée.** XT (stop de taille, jamais exécuté : la mesure de l'étude) en confirmatoire, X8 (stop exécuté) en exploratoire X5. L'inverse est possible ; un ordre réel est toujours protégé (règle 9).
+2. **D2 — dividende.** Saut neutralisé du détachement (proposé) ou cours bruts comme la découverte (X7).
+3. **D3 — durées et seuils : puissance probable faible.**
+   - Rapporté au stop de 2,5 ATR14 (≈ 5 à 7,5 % après un saut), l'effet de la découverte vaut ≈ +0,08 à +0,11 R d'excès à 10 séances et ≈ +0,10 à +0,14 R à 20 séances, soit ≈ +0,11 à +0,17 R net à 20 séances. A4 (≥ +0,08 R) et A2 (≥ +0,10 R, ≥ 30 € pour 300 €) sont donc **au niveau de l'effet attendu**, surtout à 10 séances.
+   - Le t de la découverte (2,8 et 2,9 sur ≈ 19 400 occurrences, valeurs illiquides comprises) laisse attendre t < 3 sur un univers liquide de 2007-2015 à effet égal (moins d'occurrences, survivants seuls).
+   - Options : accepter un « NON CONCLUANT » probable ; ou rendre confirmatoire X6 (5 séances, t 4,2 en découverte : Holm sur 3) ; ou, pour les confirmatoires seulement, remplacer t ≥ 3 par le seul Holm à 5 %. **Jamais après lecture.**
+4. **D4 — 5 séances** : exploratoire (proposé) ou confirmatoire (voir D3).
+5. **D5 — essais du DSR** : 80 = 8 causes lues × (3 durées × 3 mesures + barrière) ; vérifier la ligne « cellules lues » du rapport `causes_20261030_150454` (90 si la ligne « résultats » était démasquée).
+6. **D6 — règle de décision** : seuils du suivi en ombre (100 signaux, 6 mois) avant l'ADR.
+
+En plus, hors plan : aucune commande de recherche ne refuse aujourd'hui une exécution `run` des plans n° 1 et 2 (sans clé `replication`) avec `--from` avant 2016. Après le chargement de l'historique ancien, ne lancer sur cette période que les descellements prévus. Un verrou global est possible si tu le souhaites.
+
+**Sur le PC** (une commande à la fois, après le gel) :
+1. `backfill --from 2005-01-01` pour l'Europe, puis `earnings-history --from 2005-01-01` (aucune commande de recherche entre les deux).
+2. `docker compose exec app python -m app.cli research calibrate --prereg research/prereg/2026-10-31_reg7.yaml --run N`.
+3. Facultatif, descriptif : `research run --prereg research/prereg/2026-10-31_reg7.yaml --universe all --run N`.
+4. L'ouverture unique : `research unseal --prereg research/prereg/2026-10-31_reg7.yaml --universe all --from 2005-01-03 --to 2016-01-31`. Lire le placebo X1, puis C1 / C2, puis les exploratoires. Me transmettre le `.txt` du descellement.
+
+Aucun résultat ne change un paramètre ni un détecteur sans ADR.

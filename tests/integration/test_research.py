@@ -299,3 +299,70 @@ def test_registration_6_runs_through_the_command_and_guards_its_old_replication(
         last = list(csv.DictReader(fh))[-1]
     assert last["prereg_id"] == "2026-10-30_reg6" and last["kind"] == "run"
     assert main(["--params", PARAMS, "research", "unseal", "--prereg", plan, "--out", out]) == 2
+
+
+def test_registration_7_draft_is_refused_and_its_frozen_copy_opens_the_sealed_period_once(research_db, tmp_path):
+    """docs/34 §34.14: the draft of registration n° 7 is refused by calibrate, run and unseal (BROUILLON). Its frozen
+    copy (« draft » removed, as the freeze will do): calibration, a DESCRIPTIVE run on the discovery (no candidate
+    file), then the single opening of the sealed old replication period by the plan's own cells — no candidate file,
+    the point-in-time universe, its warm-up and its exits, once only — with a full aggregated report and its verdict."""
+    import numpy as np
+
+    plan = "research/prereg/2026-10-31_reg7.yaml"
+    out = str(tmp_path / "research")
+    base = ["--params", PARAMS, "research"]
+    assert main([*base, "calibrate", "--run", str(research_db), "--prereg", plan, "--out", out]) == 2
+    assert main([*base, "run", "--prereg", plan, "--universe", "all", "--out", out]) == 2
+    assert main([*base, "unseal", "--prereg", plan, "--universe", "all", "--out", out]) == 2
+    assert not (tmp_path / "research").exists() or not list((tmp_path / "research").glob("*.json"))
+    frozen = tmp_path / "reg7_gele.yaml"
+    text = open(plan, encoding="utf-8").read()
+    assert "\ndraft: true" in text
+    frozen.write_text(text.replace("\ndraft: true", "\n# (clé draft retirée : copie de test)"), encoding="utf-8")
+    fp = str(frozen)
+    # old prices (2005 → early 2016) for 15 more values and the two indices, with a gap down every 120 sessions
+    n_old = int(np.busday_count("2005-01-03", "2016-01-01"))
+    with db_session() as s:
+        for k in range(15):
+            mic, cur, cc = [("XPAR", "EUR", "FR"), ("XETR", "EUR", "DE"), ("XAMS", "EUR", "NL")][k % 3]
+            isin = f"{cc}20000000{k:02d}"
+            s.add(Instrument(isin=isin, name=f"A{k}", mic=mic, currency=cur, in_universe=False, market_cap_eur=3e9,
+                             pea_eligible=True, kind="stock"))  # fmt: skip
+            rows = _series(isin, n_old + 30, 0.0003, seed=300 + k, start=date(2005, 1, 3))
+            for j in range(150 + 7 * k, len(rows), 120):
+                rows[j].open = rows[j - 1].close * 0.93
+                rows[j].low = min(rows[j].low, rows[j].open * 0.999)
+            s.add_all(rows)
+        for isin in ("FR0003500008", "EU0009658202"):
+            s.add_all(_series(isin, n_old, 0.0003, seed=98, start=date(2005, 1, 3)))
+    assert main([*base, "calibrate", "--run", str(research_db), "--prereg", fp, "--out", out]) == 0
+    run_args = [*base, "run", "--prereg", fp, "--universe", "all", "--to", "2018-12-31", "--out", out,
+                "--run", str(research_db)]  # fmt: skip
+    assert main([*run_args, "--from", "2015-09-30"]) == 2  # a bar of the sealed period: refused before any read
+    assert main(run_args) == 0
+    rep = json.loads(sorted(p for p in (tmp_path / "research").glob("2*.json") if "candidates" not in p.name)[-1]
+                     .read_text())  # fmt: skip
+    assert rep["A_resume"]["titre"].startswith("DESCRIPTIF") and rep["entete"]["cellules_enregistrees"]["total"] == 18
+    assert not list((tmp_path / "research").glob("*_candidates.yaml"))  # descriptive: nothing frozen
+    unseal = [*base, "unseal", "--prereg", fp, "--out", out]
+    assert main([*unseal, "--universe", "all", "--candidates", "x_candidates.yaml", "--from", "2005-01-03",
+                 "--to", "2016-01-31"]) == 2  # fmt: skip
+    assert main([*unseal, "--universe", "in_universe", "--from", "2005-01-03", "--to", "2016-01-31"]) == 2
+    assert main([*unseal, "--universe", "all"]) == 2  # data from 2016: no warm-up, no sealed period
+    assert not list((tmp_path / "research").glob("descellement_*.json"))
+    assert main([*unseal, "--universe", "all", "--from", "2005-01-03", "--to", "2016-01-31"]) == 0
+    sealed = sorted((tmp_path / "research").glob("descellement_*.json"))
+    assert len(sealed) == 1
+    rep = json.loads(sealed[0].read_text())
+    assert_no_price_fields(rep)
+    v = rep["V_verdict_periode_scellee"]
+    assert v["periode"] == ["2007-01-02", "2015-09-30"] and len(v["plis"]) == 5
+    assert set(v["confirmatoires"]) == {"C1", "C2"} and set(v["placebo"]) == {"X1.t00.h10", "X1.t00.h20"}
+    assert all(x["verdict"] in ("CONFIRMÉ", "NON CONFIRMÉ", "NON CONCLUANT") for x in v["confirmatoires"].values())
+    assert rep["A_resume"]["titre"].startswith("PÉRIODE SCELLÉE 2007-01-02 → 2015-09-30")
+    assert rep["entete"]["calibration_verdict"] == "VALIDE" and rep["entete"]["debut_donnees"] < "2006-01-01"
+    assert "V — Verdict de la période scellée" in sealed[0].with_suffix(".txt").read_text()
+    with open(tmp_path / "research" / "ledger.csv", encoding="utf-8") as fh:
+        last = list(csv.DictReader(fh))[-1]
+    assert last["kind"] == "unseal" and last["prereg_id"] == "2026-10-31_reg7" and last["candidate_cells"] == "C1;C2"
+    assert main([*unseal, "--universe", "all", "--from", "2005-01-03", "--to", "2016-01-31"]) == 2  # once only

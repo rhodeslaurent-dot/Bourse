@@ -5,6 +5,11 @@ exploratory + stage-1 cap + F0 + stage-2 cap) must not exceed ``max_total_cells`
 ``expected_total_cells``. The file's sha256 and the hash of the expanded cell set identify a registration:
 the same file hash with another cell set is refused (the ledger keeps both), and the holdout is unsealed at
 most once per frozen candidate file.
+
+Registration n° 7 (docs/34 §34.14) adds two keys: ``draft: true`` (a BROUILLON: parsed, but ``run``, ``calibrate``
+and ``unseal`` refuse it until the key is removed — removing it gives the frozen file its sha256) and
+``replication.mode: confirmatory`` (the plan's cells are declared for the sealed old replication period itself: no
+candidate file, the single ``unseal`` is the confirmatory test, ``run`` on the discovery is descriptive only).
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ from datetime import date, timedelta
 from typing import Any, Literal
 
 from app.domain.research.insider_triggers import INSIDER_TRIGGERS
+from app.domain.research.triggers import GAP_TRIGGERS, cell_needs_earnings, check_gap_params
 
 CellTier = Literal["confirmatory", "exploratory", "f0"]
 Mode = Literal["event", "monthly", "monthly_overlay"]
@@ -43,6 +49,10 @@ KNOWN_TRIGGERS = (
     | EARNINGS_TRIGGERS
 )
 SEALED_FAR_FUTURE = date(2999, 12, 31)
+REPLICATION_MODES = ("candidates", "confirmatory")
+# registration n° 7: the verdict of a plan whose confirmatory cells are declared for the sealed period
+SEALED_KEYS = ("min_t_week", "min_dsr", "dsr_prior_trials", "placebo_max_abs_t")
+R_STOP_EXITS = ("X4", "X8", "XT")  # exits on an ATR stop: controls and cells in R of the trade (pipeline.primary_unit)
 
 
 class PreregError(ValueError):
@@ -137,6 +147,11 @@ class Prereg:
     # registration n° 3: a sealed period BEFORE the discovery (old replication), opened once by ``unseal`` for
     # the frozen candidates; no ``run`` may load a bar of it (``check_run_start``)
     replication: tuple[date, date] | None = None
+    # registration n° 7: ``replication.mode: confirmatory`` — the cells are tested directly on the replication
+    # period (folds ``replication.wf_test``), the discovery having been read already (``run`` descriptive only)
+    sealed_confirmation: bool = False
+    replication_folds: tuple[tuple[date, date], ...] = ()
+    draft: bool = False  # BROUILLON: never run, calibrated nor unsealed (``check_frozen``)
 
     @property
     def is_exit_plan(self) -> bool:
@@ -154,7 +169,7 @@ class Prereg:
 
     @property
     def needs_earnings(self) -> bool:
-        return any(c.trigger in EARNINGS_TRIGGERS for c in self.cells)
+        return any(cell_needs_earnings(c.trigger, c.params) for c in self.cells)
 
     @property
     def sealed_window(self) -> tuple[date, date]:
@@ -259,6 +274,37 @@ def expand_family(fam: Mapping[str, Any]) -> list[Cell]:
 
 
 KNOWN_TRIGGERS = KNOWN_TRIGGERS | INSIDER_TRIGGERS  # registration n° 5: managers' dealings (insider_triggers)
+KNOWN_TRIGGERS = KNOWN_TRIGGERS | GAP_TRIGGERS  # registration n° 7: opening gap down (triggers.t18_gap_down)
+
+
+Span = tuple[date, date]
+
+
+def _replication(raw: Mapping[str, Any], segments: Segments) -> tuple[Span | None, bool, tuple[Span, ...]]:
+    """The old replication period, its mode and (confirmatory mode) its own walk-forward folds, all inside it."""
+    rep = raw.get("replication")
+    if not rep:
+        return None, False, ()
+    period = (_d(rep["start"]), _d(rep["end"]))
+    if not period[0] < period[1] < segments.discovery[0]:
+        raise PreregError("période de réplication : début < fin < début de la découverte exigés")
+    mode = str(rep.get("mode", "candidates"))
+    if mode not in REPLICATION_MODES:
+        raise PreregError(f"période de réplication : mode {mode!r} inconnu ({', '.join(REPLICATION_MODES)})")
+    if mode != "confirmatory":
+        return period, False, ()
+    folds = tuple((_d(a), _d(b)) for a, b in rep.get("wf_test") or [])
+    if not folds:
+        raise PreregError("réplication confirmatoire : plis (replication.wf_test) absents")
+    prev = period[0] - timedelta(days=1)
+    for a, b in folds:
+        if not (prev < a <= b <= period[1]):
+            raise PreregError("réplication confirmatoire : plis ordonnés, disjoints et dans la période exigés")
+        prev = b
+    missing = [k for k in SEALED_KEYS if k not in (raw.get("thresholds") or {}).get("sealed", {})]
+    if missing:
+        raise PreregError(f"réplication confirmatoire : seuils du verdict scellé absents (thresholds.sealed) {missing}")
+    return period, True, folds
 
 
 def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
@@ -282,12 +328,15 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
     unknown = sorted({c.trigger for c in cells} - KNOWN_TRIGGERS)
     if unknown:
         raise PreregError(f"déclencheur(s) inconnu(s) du banc : {unknown}")
-    replication = None
-    if raw.get("replication"):
-        rep = raw["replication"]
-        replication = (_d(rep["start"]), _d(rep["end"]))
-        if not replication[0] < replication[1] < segments.discovery[0]:
-            raise PreregError("période de réplication : début < fin < début de la découverte exigés")
+    for c in cells:
+        if c.trigger in GAP_TRIGGERS:
+            if c.cap is not None or c.cap_atr is None:  # ``cap`` is the D2x cap rule, never a t18 split (cap_class)
+                raise PreregError(f"cellule {c.id} : t18 exige cap_atr (E_open), sans « cap » (découpage : cap_class)")
+            try:
+                check_gap_params(c.params)
+            except ValueError as e:
+                raise PreregError(f"cellule {c.id} : {e}") from e
+    replication, sealed_conf, rep_folds = _replication(raw, segments)
     assumptions = {
         k: (v["value"] if isinstance(v, Mapping) and "value" in v else v) for k, v in raw["assumptions"].items()
     }
@@ -320,11 +369,16 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
         if raw.get("venue_groups")
         else None,
         replication=replication,
+        sealed_confirmation=sealed_conf,
+        replication_folds=rep_folds,
+        draft=bool(raw.get("draft", False)),
     )
     if p.is_exit_plan:
         check_exit_plan(p)
     elif p.is_entry_plan:
         check_entry_plan(p)
+    else:
+        check_units(p)
     if p.total_cells > p.max_total_cells:
         raise PreregError(f"{p.total_cells} cellules enregistrées > plafond {p.max_total_cells}")
     expected = raw.get("expected_total_cells")
@@ -414,8 +468,29 @@ def check_exit_plan(p: Prereg) -> None:
             raise PreregError(f"cellule {c.id} : durée au-delà de A12 ({max_hold} séances)")
 
 
+def check_units(p: Prereg) -> None:
+    """A cell of the standard bench is measured in the unit of its combination's controls: R of the trade
+    (``r_stop``) on an ATR-stop exit (X4, X8, XT), R_ref otherwise — else its excess would mix two units."""
+    for c in p.cells:
+        if c.tier == "f0":
+            continue
+        want = "r_stop" if c.exit in R_STOP_EXITS else "r_ref"
+        if c.unit != want:
+            raise PreregError(f"cellule {c.id} : la sortie {c.exit} se mesure en {want} (unité des contrôles appariés)")
+
+
 def file_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def check_frozen(prereg: Prereg) -> None:
+    """A BROUILLON plan (``draft: true``) is never run, calibrated nor unsealed: the key is removed when the plan is
+    frozen, which gives the file the sha256 recorded in the docs and in the ledger."""
+    if prereg.draft:
+        raise PreregError(
+            f"plan {prereg.id} au statut BROUILLON (clé « draft: true ») : le geler d'abord — retirer la clé, inscrire "
+            "l'empreinte sha256 dans la documentation — avant toute calibration, exécution ou descellement"
+        )
 
 
 # --- ledger rules -----------------------------------------------------------------------------------

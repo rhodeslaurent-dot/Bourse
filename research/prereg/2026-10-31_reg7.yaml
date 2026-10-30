@@ -1,0 +1,221 @@
+# ==================================================================================================================
+# BROUILLON — NON GELÉ. Le banc REFUSE ce plan (calibrate, run, unseal) tant que la clé « draft: true » est présente.
+# Pour le geler (docs/34 §34.14) : trancher les décisions D1–D6, retirer ce bloc et la clé « draft », inscrire
+# l'empreinte sha256 du fichier dans docs/34 §34.14 et docs/15-status.md — AVANT que le moindre cours d'avant 2016
+# (backfill --from 2006) ne soit lu par une commande de recherche.
+# ==================================================================================================================
+# Plan de recherche pré-enregistré — enregistrement n° 7 (docs/34 §34.14) : rebond après un saut d'ouverture baissier.
+# Ce fichier EST le plan ; son empreinte sha256 est inscrite au registre à chaque exécution ; le modifier après le gel
+# crée un NOUVEL enregistrement.
+# Origine : piste de l'étude exploratoire des causes des hausses (docs/36, première exécution sur le PC le 30/10/2026,
+# rapport causes_20261030_150454, places européennes P0 / P1 / P2, 2017-01-02 → 2026-10-29). Après un saut d'ouverture
+# baissier d'au moins max(3 % ; 1,5 × ATR14 ÷ clôture précédente) (move_causes.gap_threshold / opening_gap), achat à
+# l'ouverture de la séance SUIVANTE : excès sur la moitié liquide de la place, équipondérée, +0,48 % à 5 séances
+# (t hebdomadaire 4,2), +0,56 % à 10 (t 2,8), +0,72 % à 20 (t 2,9) ; net CTO +0,83 % à 20 séances (t 3,8) ; PEA ≈ 0
+# (coûts) ; n ≈ 19 400 (une occurrence par valeur toutes les 10 séances, opérations sur titres écartées).
+# Littérature : un choc SANS nouvelle se retourne, un choc AVEC nouvelle se prolonge (Chan 2003 ; Savor 2012) — non
+# séparables faute d'historique daté des nouvelles ; approximation exploratoire : saut un jour de réaction à une
+# publication de résultats, ou non (couverture partielle de l'historique des publications, imprimée).
+# Pourquoi la période scellée est le test : la découverte 2017-2026 a déjà été lue par l'étude des causes ; un test sur
+# elle serait « semi-propre ». Les cellules de ce plan sont donc déclarées POUR la période ancienne scellée
+# 2007-01-02 → 2015-09-30 (replication.mode: confirmatory), jamais lue par une commande de recherche : une seule
+# ouverture, par « research unseal » SANS fichier de candidats, avec les statistiques complètes d'une exécution (Holm
+# sur 2, A1–A13 sur les plis de la période, t ≥ 3, DSR avec tous les essais comptés, placebo lu d'abord). Une
+# exécution « research run » sur 2017-2026 reste possible mais DESCRIPTIVE : aucun fichier de candidats n'est figé.
+# Repris à l'identique du n° 3 : seuils A1–A13, inférence, clés de paramètres, hypothèses chiffrées communes, entrée
+# E_open(1) validité 1, verdict sur le CTO et PEA en seconde vue des coûts, groupes européens P0 / P1 / P2 de
+# params.yaml (régime et indices CAC 40 / STOXX 600 ; Londres, Zurich et New York exclus), plancher de couverture des
+# publications (0,50) pour les seules cellules découpées sur les publications.
+id: "2026-10-31_reg7"
+title: "Recherche de déclencheurs — enregistrement n° 7 : rebond après un saut d'ouverture baissier (confirmation sur la période scellée)"
+registered_on: "BROUILLON du 2026-10-31 (date de gel à inscrire)"
+draft: true                                  # BROUILLON : refusé par calibrate / run / unseal (prereg.check_frozen)
+seed: 20261031
+
+# pas de clé venue_groups : les groupes européens P0 / P1 / P2 de params.yaml (régime CAC 40 / STOXX 600)
+
+segments:
+  warmup_sessions: 252
+  discovery: ["2017-01-02", "2026-07-31"]    # DÉJÀ LUE par l'étude des causes : « research run » y est DESCRIPTIF
+  embargo: ["2099-01-01", "2099-01-02"]      # sans objet : la période scellée de ce plan est ANCIENNE (replication)
+  holdout_start: "2099-01-03"
+  end_margin_sessions: 65
+  purge_sessions: 65
+  wf_test:                                   # plis de l'exécution descriptive (ceux du n° 3)
+    - ["2018-01-01", "2019-08-31"]
+    - ["2019-09-01", "2021-04-30"]
+    - ["2021-05-01", "2022-12-31"]
+    - ["2023-01-01", "2024-08-31"]
+    - ["2024-09-01", "2026-07-31"]
+
+replication:                                 # LA période de test de ce plan : ouverte une seule fois (research unseal)
+  start: "2007-01-02"
+  end: "2015-09-30"
+  mode: confirmatory                         # cellules déclarées pour cette période ; aucun fichier de candidats
+  wf_test:                                   # 5 plis de ≈ 21 mois (A5 : ≥ 4 positifs sur 5 ; A1 : ≥ 40 trades par pli)
+    - ["2007-01-02", "2008-09-30"]
+    - ["2008-10-01", "2010-06-30"]
+    - ["2010-07-01", "2012-03-31"]
+    - ["2012-04-01", "2013-12-31"]
+    - ["2014-01-01", "2015-09-30"]
+
+parameters_keys:                             # lus dans config/params.yaml (règle 8 : source unique)
+  min_price: "universe.min_price"
+  min_turnover_eur: "universe.min_adv_eur_pea"
+  min_turnover_cto_eur: "universe.min_adv_eur_cto"
+  small_cap_threshold_eur: "universe.small_cap_threshold_eur"
+  breadth_green: "regime.breadth_green"
+  index_isins: "regime.index_isins"
+  slippage_pct: "risk.slippage_pct"
+  max_risk_per_trade_pct: "risk.max_risk_per_trade_pct"
+  max_position_pct_of_capital: "risk.max_position_pct_of_capital"
+  fx_haircut: "risk.fx_haircut"
+  max_open_risk_pct: "risk.max_open_risk_pct"
+  capital_pilote_eur: "capital.capital_pilote_eur"
+  expiry_sessions: "entry.expiry_sessions"
+  ma20_exit_closes: "detectors.exits.thesis_mm20_close_below_days"
+  ttf_rate: "tax.ttf_rate"
+  ttf_cap_threshold_eur: "tax.ttf_cap_threshold_eur"
+  pfu_total_rate: "tax.pfu_total_rate"
+  ftt_by_country: "tax.ftt_by_country"
+  srd_daily_rate: "srd.crd_daily_rate"
+  brokers: "brokers.saxo, brokers.boursobank"
+
+assumptions:
+  fx_static_eur_per_unit:                    # repli quand fx_rates ne couvre pas la date (seuil de liquidité seulement)
+    value: {SEK: 0.088, DKK: 0.134, NOK: 0.086, PLN: 0.232, GBP: 1.16, GBX: 0.0116, CHF: 1.04, USD: 0.92}
+    assumption: true
+  ca_jump: {value: 0.2, assumption: true}                  # saut du facteur d'ajustement = opération sur titres (exclue)
+  dividend_min_drop: {value: 0.002, assumption: true}      # baisse minimale du facteur = dividende
+  dividend_yield_sanity: {value: [0.0, 0.12], assumption: true}   # rendement annuel implicite plausible (contrôle Milan)
+  bankruptcy_hazard_small: {value: 0.03, assumption: true}  # par an, petites capitalisations
+  bankruptcy_hazard_large: {value: 0.005, assumption: true} # par an, grandes capitalisations
+  takeover_jump: {value: 0.25, assumption: true}           # OPA : +25 % (même taux annuel que la faillite)
+  capacity_pct_of_turnover: {value: 0.02, assumption: true} # capacité : notionnel ≤ 2 % du volume médian 20 séances
+  momentum_entry_cap_atr: {value: 1.0, assumption: true}   # repris du n° 2 (aucune cellule momentum ici)
+  cost_stress_multiplier: {value: 1.5, assumption: false}
+  slippage_stress_multiplier: {value: 2.0, assumption: false}
+  top_n_monthly: {value: 6, assumption: false}
+  earnings_known_margin_days: {value: 100, assumption: true}      # « connue » : à ≤ 100 jours d'une publication chargée
+  earnings_reaction_max_gap_days: {value: 7, assumption: true}    # séance de réaction au plus 7 jours après la date
+  earnings_date_known_sessions_ahead: {value: 2, assumption: true} # X4 « hors publication » : ± 2 séances connues d'avance
+  # séance dont l'ouverture ou la clôture est ≥ 4 × ou ≤ ¼ de la clôture précédente (ou un cours ≤ 0) : changement
+  # d'unité ou cours aberrant que le facteur d'ajustement ne montre pas → écartée comme une opération sur titres
+  # (éligibilité masquée 252 séances, trade traversant une telle séance exclu et compté) — règle de l'étude des causes
+  # (move_causes.suspect_sessions, défaut corrigé le 30/10/2026) ; absente des plans n° 1 à 6 (inchangés)
+  suspect_price_ratio: {value: 4.0, assumption: true}
+
+thresholds:
+  gate_t_week: 2.0
+  a1: {event_min_n: 300, event_min_weeks: 100, fold_min_trades: 40, rank_min_months: 60, rank_min_trades_slot: 200}
+  a2: {min_mean_r: 0.10, min_eur_per_budget: 30.0, min_profit_factor: 1.15}
+  a3: {holm_alpha: 0.05, rw_alpha: 0.05, min_t: 3.0, min_dsr: 0.95, max_pbo: 0.30}
+  a4: {min_excess: 0.08, max_perm_p: 0.01}
+  a5: {min_positive_folds: 4}
+  a9: {min_hazard_multiple: 2.0}
+  a10: {max_top10_share: 0.40}
+  a12: {max_hold_sessions: 63}
+  a13: {max_dd_ratio_vs_benchmark: 1.0, slots: 6}
+  watchlist_bh_q: 0.10
+  power_min: 0.5
+  report_min_n: 20
+  candidates_max: 5
+  stage1: {max_triggers: 4, min_delta_r: 0.05, min_positive_folds: 4, max_pbo: 0.30, max_dd_worse: 0.10}
+  existing_detectors_ci_high_max: 0.0
+  min_earnings_coverage: 0.50                # cellules X4 (découpage publications) : groupe sous 50 % → aucun signal
+  # verdict de la période scellée (app/domain/research/sealed.py), cellule confirmatoire par cellule confirmatoire :
+  # NON CONCLUANT si A1 manque ou si le placebo de même sortie et même durée a |t| ≥ placebo_max_abs_t ; CONFIRMÉ si
+  # A1–A13 (plis = replication.wf_test) ET t hebdomadaire de l'excès ≥ min_t_week ET DSR ≥ min_dsr avec N =
+  # dsr_prior_trials + les 13 cellules non placebo de ce plan ; sinon NON CONCLUANT si la puissance à l'effet de
+  # décision < power_min, NON CONFIRMÉ autrement
+  sealed:
+    min_t_week: 3.0
+    min_dsr: 0.95
+    # D5 : cellules lues par l'étude des causes (partie B, ligne « cellules lues » du rapport causes_20261030_150454) :
+    # 8 causes (lettres, sauts haussiers, sauts baissiers, volume anormal, configurations d2 / d3 / d4 / d7) × (3 durées
+    # × 3 mesures + barrière) = 80 ; 90 si la ligne « résultats » était démasquée — À VÉRIFIER SUR LE RAPPORT AVANT LE GEL
+    dsr_prior_trials: 80
+    placebo_max_abs_t: 3.0
+
+inference:
+  bootstrap_draws: 2000
+  block_weeks: 4
+  permutation_draws: 500
+  permutation_top: 30
+  pbo_blocks: 16
+  power_edges: [0.10, 0.20]
+  power_decision_edge: 0.20
+  power_reps: 50
+
+# Déclencheur t18 (app/domain/research/triggers.py) — définition commune, tous les paramètres écrits ici :
+# saut d'ouverture de la séance k = ouverture(k) ÷ clôture(k − 1) − 1, cours bruts, séances propres de la valeur ;
+# dividend_neutral: true → multiplié par le rapport des facteurs d'ajustement de k et k − 1 (un détachement n'ouvre
+# aucun saut) — D2 ; seuil = max(gap_min ; gap_atr × ATR ÷ clôture(k − 1)), ATR = moyenne simple des vraies amplitudes
+# des atr_sessions séances finissant en k − 1 (définition de l'étude, moves.atr_series ; ≠ ATR de Wilder du banc, qui
+# place le stop) ; saut baissier ≤ − seuil ; un événement par valeur toutes les dedup_sessions séances (le premier,
+# compté sur tous les sauts baissiers de la valeur, éligible ou non, avant tout découpage) ; signal en k sur une
+# séance éligible (connu à l'ouverture de k) → ordre E_open(1) à partir de l'ouverture de k + 1 (limite clôture(k)
+# + 1 ATR14, validité 1, annulé si l'ouverture de k + 1 est sous limite − 2,5 ATR14). Le verrou du banc (un signal par
+# valeur toutes les h séances) s'ajoute : à h = 20, un signal par valeur toutes les 20 séances au plus.
+# Sortie XT (app/domain/research/entries.py) : sortie au temps à la clôture de la h-ième séance (la séance d'exécution
+# comptant pour la première) ; stop 2,5 ATR14 (Wilder, à la clôture du signal) sous le prix exécuté, glissé de
+# risk.slippage_pct, qui SERT SEULEMENT À LA TAILLE (règle 7) et n'est jamais exécuté — c'est la mesure de l'étude
+# (achat à l'ouverture, vente à la clôture h) — D1. Unité r_stop : résultat net ÷ risque initial au stop glissé ;
+# € pour 300 € de budget de risque ; excès = R − contrôles appariés (même jour, même groupe de places, même tercile de
+# liquidité, même tercile de volatilité, même tendance, mêmes entrée et sortie), plus exigeant que l'excès sur la moitié
+# liquide de la place de l'étude.
+
+confirmatory:                                # Holm sur 2, unilatéral ; verdict sur le CTO, PEA en seconde vue
+  # C1 = t18 (définition commune ci-dessus), sortie XT à 10 séances
+  - {id: C1, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: true}, gate: none, h: 10, exit: XT, unit: r_stop, cap_atr: 1.0, validity: 1, accounts: [cto, pea]}
+  # C2 = C1 à 20 séances
+  - {id: C2, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: true}, gate: none, h: 20, exit: XT, unit: r_stop, cap_atr: 1.0, validity: 1, accounts: [cto, pea]}
+
+exploratory:                                 # descriptives : jamais une conséquence (aucune année d'apprentissage avant
+                                             # le premier pli de la période scellée → aucune ne peut passer A2)
+  # X1 placebo, LU AVANT C1 / C2 : valeurs et dates éligibles tirées au hasard (graine du plan) au taux estimé de t18
+  # AVANT toute lecture de la période (≈ 19 400 occurrences sur ≈ 2 000 valeurs × 2 450 séances, toutes valeurs ;
+  # ≈ 0,3 % des observations éligibles), mêmes entrées et sorties ; |t| ≥ 3 → mesure suspecte, C1 / C2 NON CONCLUANT
+  - {family: X1, trigger: t00, params: {seed: 20261031, rate: 0.003}, gate: none, cap_atr: 1.0, validity: 1, exit: XT, unit: r_stop, accounts: [cto, pea], grid: {h: [10, 20]}}
+  # X2a / X2b / X2c : taille du saut (|saut| du seuil à 5 %, de 5 à 10 %, 10 % et plus) — les trois partitionnent C2
+  # avant le verrou du banc
+  - {family: X2a, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: true, size_from: 0.0, size_to: 0.05}, gate: none, cap_atr: 1.0, validity: 1, exit: XT, unit: r_stop, accounts: [cto, pea], grid: {h: [20]}}
+  - {family: X2b, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: true, size_from: 0.05, size_to: 0.10}, gate: none, cap_atr: 1.0, validity: 1, exit: XT, unit: r_stop, accounts: [cto, pea], grid: {h: [20]}}
+  - {family: X2c, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: true, size_from: 0.10}, gate: none, cap_atr: 1.0, validity: 1, exit: XT, unit: r_stop, accounts: [cto, pea], grid: {h: [20]}}
+  # X3 : classe de capitalisation (petite / grande, seuil universe.small_cap_threshold_eur, capitalisation
+  # d'AUJOURD'HUI — signalé)
+  - {family: X3, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: true}, gate: none, cap_atr: 1.0, validity: 1, exit: XT, unit: r_stop, accounts: [cto, pea], grid: {cap_class: [small, large], h: [20]}}
+  # X4 : saut un jour de réaction à une publication de résultats (« avec nouvelle » approchée : attendu ≤ C2) ou dans
+  # l'intervalle connu sans publication à ± 2 séances (« sans nouvelle » approchée : attendu ≥ C2) ; inconnu → aucun
+  # signal ; groupe sous min_earnings_coverage → aucun signal, hors lecture (couverture imprimée)
+  - {family: X4, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: true}, gate: none, cap_atr: 1.0, validity: 1, exit: XT, unit: r_stop, accounts: [cto, pea], grid: {earnings: ["on", "off"], h: [20]}}
+  # X5 : le même déclencheur avec le stop 2,5 ATR14 EXÉCUTÉ (X8, sortie au temps h) : ce que vivrait un ordre réel
+  # protégé (règle 9) — l'écart à C1 / C2 mesure ce que coûte le stop après un saut baissier
+  - {family: X5, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: true}, gate: none, cap_atr: 1.0, validity: 1, exit: X8, unit: r_stop, accounts: [cto, pea], grid: {h: [10]}, max_hold: 10}
+  - {family: X5, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: true}, gate: none, cap_atr: 1.0, validity: 1, exit: X8, unit: r_stop, accounts: [cto, pea], grid: {h: [20]}, max_hold: 20}
+  # X6 : 5 séances (la durée au t le plus élevé de la découverte : +0,48 %, t 4,2) — D4
+  - {family: X6, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: true}, gate: none, cap_atr: 1.0, validity: 1, exit: XT, unit: r_stop, accounts: [cto, pea], grid: {h: [5]}}
+  # X7 : la définition de la découverte, saut sur cours bruts (un détachement de dividende ≥ seuil compte comme un
+  # saut) — D2
+  - {family: X7, trigger: t18, params: {gap_min: 0.03, gap_atr: 1.5, atr_sessions: 14, dedup_sessions: 10, dividend_neutral: false}, gate: none, cap_atr: 1.0, validity: 1, exit: XT, unit: r_stop, accounts: [cto, pea], grid: {h: [20]}}
+
+stage1:
+  exits: []                                  # pas d'étape 1 : la sortie est fixée par le plan (XT ; X8 en X5)
+  max_cells: 0
+stage2:
+  max_cells: 3                               # rejeu à 6 lignes (A13) ; seules C1 / C2 peuvent y prétendre
+
+max_total_cells: 20
+expected_total_cells: 18           # 2 confirmatoires + 2 placebo + 11 exploratoires + 0 étape 1 + 0 F0 + 3 portefeuille
+
+# Règle de décision (lue par la documentation, pas par le banc ; fait partie de l'empreinte) — D6
+decision:
+  ordre_de_lecture: "placebo X1 (h 10, h 20), puis C1, C2, puis les exploratoires (descriptives)"
+  confirme: >-
+    C1 ou C2 CONFIRMÉ sur la période scellée → SUIVI EN OMBRE de la cellule confirmée (shadow_signals, aucun ordre),
+    puis ADR de mise en production à 50 % de risk.max_risk_per_trade_pct, avec règle de suspension, seulement après
+    au moins 100 signaux en ombre et 6 mois, de même signe que la période scellée (sortie réelle protégée : comparer à X5)
+  non_confirme: >-
+    NON CONFIRMÉ ou NON CONCLUANT → rien ne change ; la piste n'est re-testée ni sur 2007-2015 (ouverte une fois) ni sur
+    2017-2026 (déjà lue) ; seul un suivi vers l'avant, déclaré dans un nouveau plan, pourrait la reprendre
+  pea: "aucune conclusion PEA : seconde vue des coûts seulement (≈ 0 en découverte)"
