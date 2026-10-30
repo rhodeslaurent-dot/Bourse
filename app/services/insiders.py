@@ -97,7 +97,11 @@ def _isin_of(d: DealingDeclaration, names: dict[str, str]) -> tuple[str | None, 
     return (hit, "name") if hit else (None, None)
 
 
-def store(s: Session, decls: list[DealingDeclaration], received_at: datetime, rep: ArchiveReport) -> None:
+def store(
+    s: Session, decls: list[DealingDeclaration], received_at: datetime, rep: ArchiveReport, overwrite: bool = False
+) -> None:
+    """Each declaration stored once; a known one only gets what it lacked — or, with ``overwrite`` (``--reparse``),
+    the fields of its PDF read again replace the former ones (parser fixed on 30/10/2026)."""
     names = _name_index(s)
     ids = [d.doc_id for d in decls]
     known = {
@@ -121,6 +125,14 @@ def store(s: Session, decls: list[DealingDeclaration], received_at: datetime, re
             known[d.doc_id] = row
             rep.added += 1
             rep.parsed += int(d.parse_status == "parsed")
+        elif overwrite and d.parse_status == "parsed":
+            for k in _FILLABLE:
+                setattr(row, k, getattr(d, k))
+            row.transactions = [t.model_dump(mode="json") for t in d.transactions] or None
+            if how == "declaration" or row.isin is None:
+                row.isin, row.isin_source = isin, how
+            row.parse_status, row.processed_at = "parsed", now
+            rep.completed += 1
         else:
             changed = False
             for k in _FILLABLE:
@@ -158,9 +170,12 @@ def archive(
     pdf_text: PdfText | None | Literal["auto"] = "auto",
     sleep: Callable[[float], None] | None = None,
     progress: Progress | None = None,
+    reparse: bool = False,
 ) -> ArchiveReport:
     """Declarations published between ``start`` and ``end`` (Paris days), read window by window
-    (``data.insiders.window_days``) and stored once. Raises ProviderUnavailable when the listing is unreachable."""
+    (``data.insiders.window_days``) and stored once. Raises ProviderUnavailable when the listing is unreachable.
+    ``reparse``: the PDFs of the declarations whose nature was not recognised (empty or « mixte ») are read again
+    and their fields replaced (parser fixed on 30/10/2026)."""
     say = progress or (lambda m: None)
     st = settings(config)
     rep = ArchiveReport()
@@ -172,13 +187,12 @@ def archive(
     lo = start
     while lo <= end:
         hi = min(lo + timedelta(days=st["window_days"] - 1), end)
-        parsed_ids = set(  # their PDF is never downloaded again
-            s.scalars(
-                select(InsiderDeclaration.doc_id).where(
-                    InsiderDeclaration.source == SOURCE, InsiderDeclaration.parse_status == "parsed"
-                )
-            )
+        done = select(InsiderDeclaration.doc_id).where(
+            InsiderDeclaration.source == SOURCE, InsiderDeclaration.parse_status == "parsed"
         )
+        if reparse:
+            done = done.where(InsiderDeclaration.nature.is_not(None), InsiderDeclaration.nature != "mixte")
+        parsed_ids = set(s.scalars(done))  # their PDF is never downloaded again
         received_at = datetime.now(UTC)
         res = fetch_declarations(
             lo, hi, fetch, st["page_size"], st["min_interval_s"], pdf_text, parsed_ids, **kw
@@ -187,7 +201,7 @@ def archive(
         rep.skipped += res.skipped
         rep.pdf_read += res.pdf_read
         rep.notes.extend(res.notes)
-        store(s, res.declarations, received_at, rep)
+        store(s, res.declarations, received_at, rep, overwrite=reparse)
         say(f"{lo} → {hi} : {len(res.declarations)} déclaration(s), {rep.added} ajoutée(s) au total")
         lo = hi + timedelta(days=1)
     if rep.skipped:

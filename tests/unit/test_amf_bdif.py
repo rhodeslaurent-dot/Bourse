@@ -150,3 +150,18 @@ def test_fetch_pages_throttles_and_reads_pdfs_only_when_an_extractor_is_given():
 def test_an_unreadable_listing_is_unavailable():
     with pytest.raises(ProviderUnavailable):
         A.fetch_declarations(date(2026, 10, 27), date(2026, 10, 27), lambda u, p: b"<html>", sleep=lambda s: None)
+
+
+def test_a_form_whose_nature_comes_before_the_instrument_keeps_each_nature_in_its_transaction():
+    """PC archive of 30/10/2026: the real PDFs' text writes the nature (and the date, the venue) before the
+    instrument; splitting on the instrument left 22 237 single-transaction natures empty and shifted the others."""
+    text = _text("declaration_nature_first.txt")
+    f = A.parse_declaration_text(text)
+    assert f is not None and [t.nature for t in f["transactions"]] == ["acquisition", "cession"]
+    assert [t.tx_date for t in f["transactions"]] == [date(2026, 10, 23), date(2026, 10, 24)]
+    assert f["nature"] == "mixte" and f["role"] is not None
+    single = text.split("NATURE DE LA TRANSACTION : Cession")[0]
+    g = A.parse_declaration_text(single)
+    assert g is not None and g["nature"] == "acquisition" and g["volume"] == 1000 and g["price"] == 12.5
+    assert g["venue"] == "Euronext Paris" and g["tx_date"] == date(2026, 10, 23)
+    assert A.parse_declaration_text(_text("declaration_buy.txt"))["nature"] == "acquisition"  # the other order

@@ -1594,7 +1594,7 @@ def cmd_insider_archive(args: argparse.Namespace) -> int:
             try:
                 rep = insiders.archive(
                     s, cfg, start, end, pdf_text=None if args.no_pdf else "auto",
-                    progress=lambda m: print(f"  {m}", flush=True),
+                    progress=lambda m: print(f"  {m}", flush=True), reparse=args.reparse,
                 )  # fmt: skip
             except ProviderUnavailable as exc:
                 print(f"AMF BDIF indisponible : {exc}")
@@ -2471,6 +2471,9 @@ def main(argv: list[str] | None = None) -> int:
     ia.add_argument("--to", default=None, help="fin (défaut : aujourd'hui)")
     ia.add_argument("--no-pdf", dest="no_pdf", action="store_true", help="liste seulement, sans lire les PDF")
     ia.add_argument("--coverage-only", dest="coverage_only", action="store_true", help="couverture seulement")
+    ia.add_argument(
+        "--reparse", action="store_true", help="relit les PDF dont la nature n'a pas été reconnue (correctif du 30/10)"
+    )
     ia.set_defaults(fn=cmd_insider_archive)
     mv = sub.add_parser("moves-study", help="hausses manquées (docs/34) : rejeu de l'outil, pourquoi pas, contrôle")
     mv.add_argument("--from", dest="from_date", default="2017-01-02", help="début (pas avant 2017-01-02)")

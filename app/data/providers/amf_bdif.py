@@ -292,12 +292,28 @@ def _transaction(block: str) -> DealingTransaction:
     )
 
 
+_TX_LABELS = ("instrument", "isin", "nature", "tx_date", "venue")
+
+
+def _tx_anchor(text: str) -> str:
+    """The label that opens each transaction: whichever transaction label the form writes first. The real AMF
+    PDFs, as their text is extracted, put the nature before the instrument (PC archive of 30/10/2026: the split on
+    the instrument left every single-transaction nature outside its block — 22 237 natures empty, 2 111 shifted
+    into « mixte »)."""
+    best: tuple[int, str] | None = None
+    for key in _TX_LABELS:
+        m = re.search(r"(?im)^[ \t]*" + _LABELS[key], text)
+        if m and (best is None or m.start() < best[0]):
+            best = (m.start(), _LABELS[key])
+    return best[1] if best else _LABELS["instrument"]
+
+
 def parse_declaration_text(text: str) -> dict[str, Any] | None:
     """Fields of one AMF declaration from its PDF text; None when the form is not recognised. The declarant's
     name is read only to be dropped (``classify_role``)."""
     if not text or not re.search(r"(?i)NATURE DE LA TRANSACTION", text):
         return None
-    parts = re.split(r"(?im)^(?=[ \t]*DESCRIPTION DE L.INSTRUMENT FINANCIER)", text)
+    parts = re.split(r"(?im)^(?=[ \t]*" + _tx_anchor(text) + ")", text)
     blocks = parts[1:] or [text]  # a form whose blocks do not start with the instrument: one transaction
     role, related, linked = classify_role(_value(parts[0], _LABELS["who"]) or _value(text, _LABELS["who"]))
     txs = [_transaction(b) for b in blocks]

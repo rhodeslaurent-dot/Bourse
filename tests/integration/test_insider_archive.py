@@ -142,3 +142,22 @@ def test_the_job_archives_the_look_back_window(db_engine, config, calendars, mon
     assert got == {"start": date(2026, 10, 22), "end": date(2026, 10, 29)}  # data.insiders.lookback_days: 7
     assert ctx.note and "2 ajoutée(s)" in ctx.note
     assert config.params.jobs.specs()["insider_archive"].market_days_only is False
+
+
+def test_reparse_reads_again_the_declarations_whose_nature_was_not_recognised(db_engine, config):
+    """PC archive of 30/10/2026: 24 348 declarations parsed with their nature empty or shifted into « mixte ».
+    ``--reparse`` downloads those PDFs again and replaces their fields; a recognised one is never downloaded."""
+    with db_session() as s:
+        calls: list[str] = []
+        args = dict(fetch=_fetcher(calls), sleep=lambda x: None)
+        insiders.archive(s, config, date(2026, 10, 27), date(2026, 10, 28), pdf_text=_pdf_text, **args)
+        buy = s.scalar(select(InsiderDeclaration).where(InsiderDeclaration.doc_id == "2026DD9000001"))
+        sale = s.scalar(select(InsiderDeclaration).where(InsiderDeclaration.doc_id == "2026DD9000002"))
+        buy.nature, buy.transactions, buy.tx_date = None, [{"nature": None}], None  # as the former parser left it
+        s.flush()
+        calls.clear()
+        rep = insiders.archive(s, config, date(2026, 10, 27), date(2026, 10, 28), pdf_text=_pdf_text, reparse=True,
+                               **args)  # fmt: skip
+        assert any("AAAA0001" in c for c in calls) and not any("BBBB0002" in c for c in calls)
+        assert rep.completed >= 1 and buy.nature == "acquisition" and buy.tx_date == date(2026, 10, 23)
+        assert len(buy.transactions) == 2 and sale.nature == "cession"
