@@ -1870,8 +1870,14 @@ def cmd_research(args: argparse.Namespace) -> int:
             elif args.action == "unseal":
                 u = research.unseal(s, cfg, calendars, args.prereg, args.candidates, out, start, end, args.universe,
                                     progress)  # fmt: skip
+                if "titre" in u:  # registration n° 7: the plan's own cells on the sealed period (placebo read first)
+                    print(f"\n{u['titre']}\nrapport : {u['txt']}\n          {u['json']}")
+                    for k, v in (u.get("placebo") or {}).items():
+                        bias = "SUSPECT" if v.get("suspect") else "sans biais détecté"
+                        print(f"placebo {k} : t {v.get('t_week')} → {bias}")
                 for k, v in u["verdicts"].items():
-                    print(f"{k} : {v['verdict']} (R moyen {v['mean_r']}, découverte {v['decouverte_mean_r']})")
+                    disc = f", découverte {v['decouverte_mean_r']}" if "decouverte_mean_r" in v else ""
+                    print(f"{k} : {v['verdict']} (R moyen {v.get('mean_r')}{disc})")
     except PreregError as e:
         print(f"refusé : {e}")
         return 2

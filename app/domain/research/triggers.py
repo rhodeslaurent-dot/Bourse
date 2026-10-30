@@ -15,11 +15,14 @@ from app.domain.research.panel import (
     Days,
     Features,
     IndexSeries,
+    Packing,
     Panel,
     pack,
     packed_adjusted,
     prior_any,
+    rolling_mean,
     shift,
+    true_range,
     unpack,
     unpack_bool,
 )
@@ -186,6 +189,15 @@ def t15_pre_earnings(p: Panel, f: Features, lead: int = 5) -> Bool:
     return _b(f.elig & known & unpack_bool(ahead, f.pk, p.shape[0]))
 
 
+def _near_reaction(p: Panel, f: Features, react: Bool) -> Bool:
+    """A reaction session within ± ``NEWS_WINDOW_SESSIONS`` own sessions of each row (calendar)."""
+    r = pack(react.astype(np.float64), f.pk) == 1.0
+    near = np.zeros_like(r)
+    for k in range(-NEWS_WINDOW_SESSIONS, NEWS_WINDOW_SESSIONS + 1):
+        near |= shift(r.astype(np.float64), k) == 1.0
+    return unpack_bool(near, f.pk, p.shape[0])
+
+
 def t16_shock_without_news(
     p: Panel, f: Features, k_sigma: float = 2.0, rvol_min: float = 2.0, close_top: float = 0.5
 ) -> Bool:  # fmt: skip
@@ -193,11 +205,120 @@ def t16_shock_without_news(
     span with no reaction session within ± ``NEWS_WINDOW_SESSIONS`` own sessions (the dates of the next two
     sessions' announcements assumed known, as for T15)."""
     react, known = _earnings(p)
-    r = pack(react.astype(np.float64), f.pk) == 1.0
-    near = np.zeros_like(r)
-    for k in range(-NEWS_WINDOW_SESSIONS, NEWS_WINDOW_SESSIONS + 1):
-        near |= shift(r.astype(np.float64), k) == 1.0
-    return _b(information_shock(p, f, k_sigma, rvol_min, close_top) & known & ~unpack_bool(near, f.pk, p.shape[0]))
+    return _b(information_shock(p, f, k_sigma, rvol_min, close_top) & known & ~_near_reaction(p, f, react))
+
+
+# --- opening gap down, bought at the next open (registration n° 7, docs/34 §34.14) ---------------------------
+
+GAP_TRIGGERS = frozenset({"t18"})
+GAP_EARNINGS = ("on", "off")  # t18 split: gap on an announcement's reaction session / known span, none within ± 2
+GAP_CAPS = ("small", "large")  # t18 split ``cap_class``: today's capitalisation (``Panel.small_cap``, flagged)
+GAP_REQUIRED = ("gap_min", "gap_atr", "atr_sessions", "dedup_sessions", "dividend_neutral")  # stated by the plan
+GAP_OPTIONAL = ("size_from", "size_to", "cap_class", "earnings")
+
+
+def gap_needs_earnings(params: Mapping[str, Any]) -> bool:
+    """A t18 cell split on the announcements (``earnings: on | off``) needs the announcement history."""
+    return params.get("earnings") is not None
+
+
+def cell_needs_earnings(trigger: str, params: Mapping[str, Any]) -> bool:
+    """The cell reads the announcement history (t14 / t15 / t16, or a t18 split on the announcements): it is then
+    silenced in a venue group whose coverage is under the plan's floor."""
+    return trigger in EARNINGS_TRIGGERS or (trigger in GAP_TRIGGERS and gap_needs_earnings(params))
+
+
+def check_gap_params(params: Mapping[str, Any]) -> None:
+    """The t18 parameters of a cell: the definition keys stated (never a code default), the splits in their closed
+    lists. Raises ValueError."""
+    missing = [k for k in GAP_REQUIRED if k not in params]
+    unknown = sorted(set(params) - set(GAP_REQUIRED) - set(GAP_OPTIONAL))
+    if missing or unknown:
+        raise ValueError(f"t18 : paramètres absents {missing} ou inconnus {unknown}")
+    cap, earn = params.get("cap_class"), params.get("earnings")
+    if cap not in (None, *GAP_CAPS) or earn not in (None, *GAP_EARNINGS):
+        raise ValueError(f"t18 : découpage inconnu (cap_class {cap!r}, earnings {earn!r})")
+    lo, hi = float(params.get("size_from", 0.0)), float(params.get("size_to", math.inf))
+    if not (0.0 <= lo < hi) or int(params["dedup_sessions"]) < 1 or int(params["atr_sessions"]) < 1:
+        raise ValueError("t18 : tranche de taille, délai ou ATR invalides")
+
+
+def simple_atr(p: Panel, pk: Packing, n: int) -> F64:
+    """The ATR of the causes study (``moves.atr_series``, docs/36): the plain mean of the true ranges of the ``n``
+    own sessions ending at each row, raw prices, the first own bar's true range being its high − low. It is not the
+    bench's Wilder ATR14 (``Features.atr14``, which places the stops). Calendar array, NaN before ``n`` bars."""
+    tr = true_range(pack(p.high, pk), pack(p.low, pk), pack(p.close, pk))
+    return unpack(rolling_mean(tr, n), pk, p.shape[0])
+
+
+def opening_gap(p: Panel, f: Features, dividend_neutral: bool) -> F64:
+    """Open of each own session ÷ close of the previous own session − 1 (raw prices, ``move_causes.opening_gap``).
+    ``dividend_neutral``: times the ratio of the adjustment factors of the two sessions, so that a detachment opens
+    no gap (only the ratio is used: the factors' levels embed later dividends, their ratio only this session's)."""
+    pk = f.pk
+    o, c = pack(p.open, pk), pack(p.close, pk)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        g = o / shift(c, 1)
+        if dividend_neutral:
+            fac = pack(f.adj_factor, pk)
+            g = g * (fac / shift(fac, 1))
+        return unpack(np.where((o > 0) & (shift(c, 1) > 0), g - 1.0, np.nan), pk, p.shape[0])
+
+
+def first_every(events: Bool, pk: Packing, sessions: int) -> Bool:
+    """The first event of each value, then none until ``sessions`` own sessions later (two kept events are at
+    least ``sessions`` own sessions apart, as ``move_causes`` / ``_refractory``): outcome-free. Calendar arrays."""
+    ev = pack(events.astype(np.float64), pk) == 1.0
+    keep = np.zeros_like(ev)
+    for c in np.nonzero(ev.any(axis=0))[0].tolist():
+        nxt = -1
+        for q in np.nonzero(ev[:, c])[0].tolist():
+            if q >= nxt:
+                keep[q, c] = True
+                nxt = q + sessions
+    return unpack_bool(keep, pk, events.shape[0])
+
+
+def gap_down_events(p: Panel, f: Features, gap_min: float, gap_atr: float, atr_sessions: int,
+                    dividend_neutral: bool) -> tuple[Bool, F64]:  # fmt: skip
+    """Every own session k whose opening gap is a gap **down** of at least max(``gap_min`` ; ``gap_atr`` · ATR ÷
+    close), ATR and close of the previous own session k − 1 (``move_causes.gap_threshold``: known before the open of
+    k), eligible or not; and the gap itself. Known at the open of k: bought at the open of k + 1 at the earliest."""
+    pk = f.pk
+    atr_prev = unpack(shift(pack(simple_atr(p, pk, atr_sessions), pk), 1), pk, p.shape[0])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        thr = np.maximum(gap_min, gap_atr * atr_prev / f.prev_close)
+        gap = opening_gap(p, f, dividend_neutral)
+        ev = np.isfinite(thr) & np.isfinite(gap) & (f.prev_close > 0) & (gap <= -thr)
+    return _b(ev & f.valid), gap
+
+
+def t18_gap_down(p: Panel, f: Features, params: Mapping[str, Any]) -> Bool:
+    """T18 (registration n° 7, lead of the causes study docs/36): an opening gap down of at least max(``gap_min`` ;
+    ``gap_atr`` · ATR ÷ previous close) on session k, signalled at k (the order works from the open of k + 1).
+
+    One event per value every ``dedup_sessions`` own sessions — the first one, counted on every gap down of the value
+    (eligible or not, before any split: the split cells partition the same events) —, then the cell's splits:
+    |gap| in [``size_from`` ; ``size_to``), today's capitalisation class (``cap_class``), and ``earnings``: ``on`` = the
+    gap session is an announcement's reaction session inside the known span, ``off`` = known span and no reaction
+    session within ± 2 own sessions (the next two sessions' dates assumed known, as t16; unknown is never « no
+    news »). True only on eligible bars; corporate actions (and, when the plan declares ``suspect_price_ratio``,
+    suspect prices) mask eligibility like every trigger (``pipeline.prepare_group``)."""
+    check_gap_params(params)
+    ev, gap = gap_down_events(p, f, float(params["gap_min"]), float(params["gap_atr"]), int(params["atr_sessions"]),
+                              bool(params["dividend_neutral"]))  # fmt: skip
+    m = first_every(ev, f.pk, int(params["dedup_sessions"]))
+    lo, hi = float(params.get("size_from", 0.0)), float(params.get("size_to", math.inf))
+    with np.errstate(invalid="ignore"):
+        m &= (np.abs(gap) >= lo) & (np.abs(gap) < hi)
+    cap = params.get("cap_class")
+    if cap is not None:
+        m &= p.small_cap[None, :] if cap == "small" else ~p.small_cap[None, :]
+    earn = params.get("earnings")
+    if earn is not None:
+        react, known = _earnings(p)
+        m &= (react & known) if earn == "on" else (known & ~_near_reaction(p, f, react))
+    return _b(m & f.elig)
 
 
 def t11_low_vol(f: Features) -> Bool:

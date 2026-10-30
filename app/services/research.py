@@ -50,15 +50,25 @@ from app.domain.research.prereg import (
     CELL_SEP,
     Prereg,
     PreregError,
+    check_frozen,
     check_ledger,
     check_run_start,
     check_unseal,
     check_unseal_span,
     file_sha256,
     parse_prereg,
+    r_stop_exits,
 )
 from app.domain.research.registration import run_registration
 from app.domain.research.report import assert_no_price_fields, build_report, render_fr, suppress_deep
+from app.domain.research.sealed import (
+    DESCRIPTIVE_PREFIX,
+    check_sealed_once,
+    render_sealed,
+    report_view,
+    sealed_plan,
+    sealed_verdicts,
+)
 from app.services.insider_research import check_forward_unseal, insider_context, insider_report, with_insiders
 
 log = logging.getLogger("bourse.research")
@@ -149,6 +159,9 @@ def resolve_settings(config: LoadedConfig, prereg: Prereg, universe: str) -> tup
             if prereg.thresholds.get("min_earnings_coverage") is not None
             else None
         ),
+        # registration n° 7: suspect prices skipped like a corporate action, only when the plan declares the ratio
+        suspect_ratio=float(a["suspect_price_ratio"]) if a.get("suspect_price_ratio") is not None else None,
+        r_stop_exits=r_stop_exits(a),
     )
     stop_p = risk.stop
     prod = {
@@ -621,6 +634,17 @@ def calibration_status(out_dir: Path, plan_sha256: str, run_id: int | None, data
     return select_calibration(_calibrations(out_dir), plan_sha256, run_id, data_end)
 
 
+def plan_calibration(calibrations: Sequence[tuple[str, Mapping[str, Any]]], plan_sha256: str) -> tuple[str, str]:
+    """Registration n° 7: the newest calibration of this plan (same sha256, any reference backtest) — its sealed
+    unseal reads data far before the calibration's end, the engine check is what matters. None → INVALIDE."""
+    ok = sorted((x for x in calibrations if x[1].get("plan_sha256") == plan_sha256), key=lambda x: x[0])
+    if not ok:
+        return "INVALIDE", CALIBRATION_MISSING + " (research calibrate --prereg <plan> --run N)"
+    name, d = ok[-1]
+    verdict = "VALIDE" if d.get("verdict") == "VALIDE" else "INVALIDE"
+    return verdict, f"{verdict} (concordance {d.get('concordance')}, run {d.get('run')}, {name})"
+
+
 def freeze_candidates(
     out_dir: Path, name: str, prereg: Prereg, res: Mapping[str, Any], calibration_verdict: str
 ) -> tuple[str, list[str]] | None:  # fmt: skip
@@ -744,7 +768,14 @@ def earnings_limits(prereg: Prereg) -> list[str]:
         "± 2 séances du contrôle t16 ; une publication imprévue (avertissement) la contredit",
         "séance de réaction : jour de publication (avant l'ouverture, en séance, heure inconnue) ou séance suivante "
         "(après la clôture) ; sources contradictoires sur l'heure : les deux séances marquées (comptées)",
-    ]
+    ] + (
+        [
+            "t18 (découpage « hors publication ») : aucune séance de réaction à ± 2 séances du saut — les dates des deux "
+            "séances suivantes sont supposées connues (calendrier financier), comme pour t16"
+        ]
+        if any(c.trigger == "t18" and c.params.get("earnings") == "off" for c in prereg.cells)
+        else []
+    )
 
 
 # --- commands --------------------------------------------------------------------------------------
@@ -758,6 +789,7 @@ def run(
 ) -> dict[str, Any]:  # fmt: skip
     t0 = time.time()
     prereg = load_prereg(prereg_path)
+    check_frozen(prereg)  # registration n° 7: a BROUILLON is never run
     check_run_start(prereg, start)  # registration n° 3: no bar of the sealed old replication period is read
     ledger = read_ledger(out_dir)
     check_ledger(ledger, prereg)
@@ -782,9 +814,11 @@ def run(
     header = _header(meta, universe, cal, st, config, prereg, rid, t0)
     report = build_report(prereg, res, header)
     report, insider_txt = insider_report(report, res, prereg.thresholds, insider_cov)  # n° 5: coverage, A1 abstention
+    if prereg.sealed_confirmation:  # registration n° 7: the discovery was read before the plan — descriptive only
+        report["A_resume"]["titre"] = f"{DESCRIPTIVE_PREFIX} — {report['A_resume']['titre']}"
     name = _stamp()
     j, t = _write(out_dir, name, report, render_fr(report) + insider_txt)
-    frozen = freeze_candidates(out_dir, name, prereg, res, cal[0])
+    frozen = None if prereg.sealed_confirmation else freeze_candidates(out_dir, name, prereg, res, cal[0])
     append_ledger(out_dir, run_ledger_row(name, prereg, res, universe, j.name, frozen, cal[0]))
     return {"json": str(j), "txt": str(t), "titre": report["A_resume"]["titre"], "candidats": res.get("candidats") or [],
             "candidats_figes": frozen is not None, "calibration": cal[0], "duree_s": round(time.time() - t0, 1)}  # fmt: skip
@@ -868,6 +902,7 @@ def calibrate(s: Session, config: LoadedConfig, calendars: MarketCalendars, run_
               out_dir: Path, progress: Progress | None = None) -> dict[str, Any]:  # fmt: skip
     """Golden replay: the vectorised engine in run-2 conventions against the stored run-2 trades."""
     prereg = load_prereg(prereg_path)
+    check_frozen(prereg)  # registration n° 7: a BROUILLON is never calibrated (its sha256 is not the frozen one)
     run2, rid = load_run2(s, run_id)
     if not run2:
         return {"verdict": "INVALIDE", "erreur": "aucun backtest enregistré"}
@@ -899,6 +934,11 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
            out_dir: Path, start: date, end: date, universe: str = "all", progress: Progress | None = None) -> dict[str, Any]:  # fmt: skip
     """The single opening of the sealed period for a frozen candidate file."""
     prereg = load_prereg(prereg_path)
+    check_frozen(prereg)
+    if prereg.sealed_confirmation:  # registration n° 7: the plan's own cells, no candidate file
+        return unseal_confirmatory(
+            s, config, calendars, prereg, candidates_path, out_dir, start, end, universe, progress
+        )
     ledger = read_ledger(out_dir)
     raw, sha = None, None
     if candidates_path and Path(candidates_path).exists():
@@ -947,4 +987,51 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
     return out
 
 
-__all__ = ["PreregError", "calibrate", "decompose", "run", "unseal", "load_prereg"]
+def unseal_confirmatory(
+    s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg: Prereg, candidates_path: str | None,
+    out_dir: Path, start: date, end: date, universe: str = "all", progress: Progress | None = None,
+) -> dict[str, Any]:  # fmt: skip
+    """Registration n° 7: the single opening of the sealed old replication period **by the plan's declared cells**
+    (``replication.mode: confirmatory``) — no candidate file. Refused before any read: a candidate file, another
+    universe than ``all`` (A9 needs the point-in-time universe), an earlier unseal of the plan (sha256 or id), a span
+    without the warm-up or the last exits, no VALIDE calibration of this plan (the opening is unique: never spent on
+    an unchecked engine). Then the whole registration machinery on the period (``sealed_plan``), the verdict of each
+    confirmatory cell (``sealed_verdicts``), the full aggregated report and one ``unseal`` ledger row."""
+    t0 = time.time()
+    if universe != "all":
+        raise PreregError("descellement refusé : --universe all exigé (A9 : univers point-in-time)")
+    ledger = read_ledger(out_dir)
+    check_ledger(ledger, prereg)
+    check_sealed_once(prereg, ledger, candidates_path)
+    check_unseal_span(prereg, start, end)
+    cal = plan_calibration(_calibrations(out_dir), prereg.sha256)
+    if cal[0] != "VALIDE":
+        raise PreregError(f"descellement refusé : {cal[1]} — l'ouverture est unique, le moteur doit être calibré avant")
+    st, prod = resolve_settings(config, prereg, universe)
+    panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, None, out_dir / "cache", progress)
+    sp = sealed_plan(prereg)
+    res = run_registration(panels, sp, st, (), prod, "all", None, progress, False)
+    verdict = sealed_verdicts(res, sp)
+    res["titre"] = verdict["titre"]
+    res["candidats"] = list(verdict["confirmes"])
+    res["surveillance"] = []
+    res["segment"] = "période scellée, confirmatoire"
+    header = _header(meta, universe, cal, st, config, prereg, None, t0)
+    report = build_report(sp, res, header)
+    view = report_view(verdict, int(prereg.thresholds["report_min_n"]))  # rows under 20 masked, verdicts kept
+    report["V_verdict_periode_scellee"] = view
+    assert_no_price_fields(report)
+    name = f"descellement_{_stamp()}"
+    j, t = _write(out_dir, name, report, render_fr(report) + render_sealed(view))
+    ids = [c.id for c in prereg.confirmatory]
+    append_ledger(out_dir, {"timestamp": name, "kind": "unseal", "prereg_id": prereg.id, "prereg_sha256": prereg.sha256,
+                            "cell_set_sha256": prereg.cell_set_hash, "m_total": prereg.total_cells,
+                            "cells_run": len(res.get("cellules") or {}), "candidates": len(verdict["confirmes"]),
+                            "universe": universe, "report": j.name, "candidates_sha256": "",
+                            "candidate_cells": CELL_SEP.join(ids), "calibration": cal[0]})  # fmt: skip
+    return {"plan": prereg.id, "plan_sha256": prereg.sha256, "periode": verdict["periode"], "titre": verdict["titre"],
+            "json": str(j), "txt": str(t), "verdicts": view["confirmatoires"], "placebo": view["placebo"],
+            "duree_s": round(time.time() - t0, 1)}  # fmt: skip
+
+
+__all__ = ["PreregError", "calibrate", "decompose", "run", "unseal", "unseal_confirmatory", "load_prereg"]
