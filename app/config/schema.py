@@ -254,6 +254,8 @@ class VerdictParamsModel(_Model):
     speculative_plage_validity_sessions: int = Field(ge=1)
     speculative_time_exit_sessions: int = Field(ge=1)
     notify_speculative: bool
+    # 31/10/2026 (first preview: 50 speculative cards of 87): the first n by rank shown, the others folded; absent: all
+    speculative_shown_max: int | None = Field(default=None, ge=1)
 
 
 class LearningParams(_Model):

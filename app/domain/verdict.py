@@ -250,6 +250,7 @@ class VerdictParams:
     plage_validity_sessions: int  # D15: validity of the plage (plan n° 4, validity)
     time_exit_sessions: int  # D15: exit at the close of the n-th session (plan n° 4, cell C1: X8 at 20 sessions)
     notify_speculative: bool
+    shown_max: int | None = None  # the first n speculative cards by rank shown on the page, the others folded
 
 
 @dataclass(frozen=True)

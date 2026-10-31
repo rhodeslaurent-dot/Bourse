@@ -446,6 +446,7 @@ detectors:
 scoring:
   buy_min_ratio: 0.75                 # total / total_atteignable (F non attribué si fondamentaux indisponibles)
   buy_min_ratio_orange: 0.80
+  pinned_price_max_atr_pct: 0.006     # 31/10/2026 : ATR14 sous 0,6 % du cours = cours encadré (offre publique, retrait de cote probable) → aucune entrée, quelle que soit la source
   watch_only_detectors: ["d2_breakout", "d7_trend_quality"]   # ADR-013 (26/10/2026) : espérance négative au coût complet → surveillance seulement, sans ordre ; d3 et d4 désactivés par l'ADR-014 (detectors.*.enabled)
   d1_min_c: 12                        # [phase 3] catalyseur requis pour D1 seulement
   c_bonus_cap: 5                      # D2/D3/D4 : min(C, 5) ajouté au numérateur du ratio d'admission, pas au dénominateur
@@ -790,7 +791,8 @@ verdict:                                  # docs/37 lot L0 (ADR-016 proposé) �
   speculative_plage_cap_atr: 0.5          # D15 : limite = seuil × (1 + 0,5 × ATR14 / clôture) (plan n° 4, confirm_cap_atr)
   speculative_plage_validity_sessions: 3  # D15 : validité de la plage, en séances de la place (plan n° 4, validity)
   speculative_time_exit_sessions: 20      # D15 : sortie à la clôture de la 20e séance (plan n° 4, cellule C1 : P2 + X8 à 20 séances)
-  notify_speculative: false               # Telegram : les cartes spéculatives ne sont envoyées que si true (elles restent sur /opportunites)
+  notify_speculative: false
+  speculative_shown_max: 5            # 31/10/2026 : les 5 premières cartes spéculatives du classement affichées, les suivantes repliées               # Telegram : les cartes spéculatives ne sont envoyées que si true (elles restent sur /opportunites)
 
 learning:                                # docs/18 — retour d'expérience ; aucune optimisation automatique
   effective_from: 2026-10-22

@@ -246,3 +246,21 @@ def test_the_flag_off_demotion_keeps_no_graded_plain_line():
           "lieu d'un WATCH (learning.demote_buy_to_watch, docs/37 D9)")  # fmt: skip
     assert plain_reason(off) is None or "verdict gradué" not in (plain_reason(off) or "")
     assert "verdict gradué" in (plain_reason(on) or "")
+
+
+def test_only_the_first_speculative_cards_are_shown_the_rest_folded(config):
+    """First preview on the PC (31/10/2026): 50 speculative cards of 87 — the best by rank first, the rest folded."""
+    from types import SimpleNamespace
+
+    from app.domain.verdict import LEVEL_ORDER
+    from app.web.opportunities_routes import _folded, _verdict_groups
+
+    items = [{"p": SimpleNamespace(id=i, rank=i, details={"verdict_niveau": "speculative"}), "sig": None}
+             for i in range(1, 9)]  # fmt: skip
+    items.append({"p": SimpleNamespace(id=99, rank=None, details={"verdict_niveau": "ecartee"}), "sig": None})
+    groups = _verdict_groups(config, items)
+    assert groups is not None
+    shown = [it["p"].id for it in items if it["groupe"] == LEVEL_ORDER["speculative"]]
+    extra = [it["p"].id for it in items if it["groupe"] == len(LEVEL_ORDER)]
+    assert shown == [1, 2, 3, 4, 5] and extra == [6, 7, 8]  # verdict.speculative_shown_max: 5 in the example
+    assert set(_folded(groups)) == {LEVEL_ORDER["ecartee"], len(LEVEL_ORDER)}

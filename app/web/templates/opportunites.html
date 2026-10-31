@@ -51,13 +51,12 @@
 
 {% set groups = {0: ("Actionnables aujourd'hui", "Les ordres du carnet ci-dessus, détaillés : achats retenus et limites préparées au prix maximal. Ce sont les seules propositions sur lesquelles agir."), 1: ("À surveiller — pas d'ordre aujourd'hui", "Une condition manque (score, contexte, prix un peu trop haut…) : la raison est écrite en clair sous chaque valeur. Leur rang est celui du classement brut, avant ces filtres."), 2: ("Pour information — ne peuvent pas devenir un ordre", "Détecteur en surveillance seule (espérance négative après frais), pas d'objectif, objectif trop proche du stop, stop trop large, ou limite très en dessous du cours : repliées par défaut."), 3: ("Écartées", "Propositions refusées par une règle.")} %}
 {% if level_groups %}{% set groups = level_groups %}{% endif %}{# docs/37 L0: grouped by verdict level when graded #}
-{% set fold = fold_group if fold_group is defined else 2 %}
-{% set n_info = items|selectattr('groupe', 'equalto', fold)|list|length %}
+{% set folds = fold_groups if fold_groups is defined else [2] %}
 {% for it in items %}
 {% set p = it.p %}{% set ex = it.explain %}
-{% if not loop.first and it.groupe != loop.previtem.groupe and loop.previtem.groupe == fold %}</div></details>{% endif %}
+{% if not loop.first and it.groupe != loop.previtem.groupe and loop.previtem.groupe in folds %}</div></details>{% endif %}
 {% if loop.first or it.groupe != loop.previtem.groupe %}
-{% if it.groupe == fold %}<details class="space-y-3" data-info-group><summary class="pt-2 cursor-pointer list-none"><h2 class="inline text-base font-semibold">▸ {{ groups[fold][0] }} ({{ n_info }})</h2><p class="text-xs text-slate-500 dark:text-slate-400">{{ groups[fold][1] }}</p></summary><div class="space-y-3">
+{% if it.groupe in folds %}<details class="space-y-3" data-info-group><summary class="pt-2 cursor-pointer list-none"><h2 class="inline text-base font-semibold">▸ {{ groups[it.groupe][0] }} ({{ items|selectattr('groupe', 'equalto', it.groupe)|list|length }})</h2><p class="text-xs text-slate-500 dark:text-slate-400">{{ groups[it.groupe][1] }}</p></summary><div class="space-y-3">
 {% else %}
 <section class="pt-2"><h2 class="text-base font-semibold">{{ groups[it.groupe][0] }}</h2><p class="text-xs text-slate-500 dark:text-slate-400">{{ groups[it.groupe][1] }}</p></section>
 {% endif %}
@@ -150,7 +149,7 @@
     <button type="button" data-close-details class="mt-3 text-xs font-medium text-sky-700 dark:text-sky-300 hover:underline">▴ refermer le détail</button>
   </details>
 </section>
-{% if loop.last and it.groupe == fold %}</div></details>{% endif %}
+{% if loop.last and it.groupe in folds %}</div></details>{% endif %}
 {% else %}
 <section class="card">{{ empty("Aucune proposition ce jour : absence de proposition = résultat normal. Les signaux viennent des lettres (phase 1) puis des détecteurs D1–D4 (phase 2).", 'green') }}</section>
 {% endfor %}

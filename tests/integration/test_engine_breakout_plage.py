@@ -218,3 +218,22 @@ def test_a_proposal_to_verify_has_no_order_in_the_book(db_engine, config):
         assert len(order_book([it])) == 1
         p.to_verify = True
         assert order_book([it]) == []
+
+
+def test_a_pinned_price_is_no_entry(db_engine, config):
+    """User's PC, 30/10/2026: Exail pinned at 124.5–126.3 for three weeks (public offer probable), ATR14 ≈ 0.4 % of
+    the price, still a d7 « trend » setup. Under ``scoring.pinned_price_max_atr_pct``: WATCH, whatever the source."""
+    import copy
+
+    from app.db.models import Instrument
+
+    flat = [Bar(125.0, 125.4, 124.8, 125.0 + (0.2 if k % 2 else -0.1), 20_000) for k in range(60)]
+    with db_session() as s:
+        _seed(s, flat)
+        inst = s.get(Instrument, ISIN)
+        got = engine._pinned_price_block(s, config, inst, 125.1)
+        assert len(got) == 1 and got[0].startswith("WATCH : cours encadré — ATR14 0,")
+        off = copy.deepcopy(config)
+        off.params.scoring.pop("pinned_price_max_atr_pct", None)
+        assert engine._pinned_price_block(s, off, inst, 125.1) == []
+        assert engine._pinned_price_block(s, config, inst, 125.1 / 3) == []  # a wide range relative to the price

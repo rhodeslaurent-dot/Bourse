@@ -59,6 +59,7 @@ def params_of(g: dict[str, Any]) -> VerdictParams:
         plage_validity_sessions=int(g["speculative_plage_validity_sessions"]),
         time_exit_sessions=int(g["speculative_time_exit_sessions"]),
         notify_speculative=bool(g["notify_speculative"]),
+        shown_max=int(g["speculative_shown_max"]) if g.get("speculative_shown_max") is not None else None,
     )
 
 

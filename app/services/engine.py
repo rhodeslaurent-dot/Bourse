@@ -376,6 +376,7 @@ def evaluate(
         )
     if setup.detector == "external":
         ev.blocked += _letter_drift_block(config, setup, now)
+    ev.blocked += _pinned_price_block(s, config, inst, price)
     letter_wait = setup.kind == SetupKind.BREAKOUT and setup.detector == "external" and price < setup.entry_level
     if price <= setup.stop and not letter_wait:  # R5: the invalidation is reached — no entry (a letter's breakout
         # not crossed yet keeps its alert: its stop sits under the future seuil, not under today's price)
@@ -1092,6 +1093,26 @@ def _letter_trigger_wait(ev: Evaluation, setup: Setup, price: float) -> None:
         f"WATCH : {TRIGGER_WAIT} — cours {price:.4g} sous {setup.level_low:.4g} ({setup.level_low / price - 1:.1%}) ;"
         f" ordre à plage de déclenchement (seuil {setup.entry_level:.4g}) après une clôture au-dessus (R5, R6)"
     )
+
+
+def _pinned_price_block(s: Session, config: LoadedConfig, inst: Instrument, price: float) -> list[str]:
+    """A price pinned in a narrow range — a public offer or a squeeze-out keeps it at the offer price — is no entry:
+    the gain is capped and an ATR stop means nothing (user's PC, 30/10/2026: Exail at 124.5–126.3 for three weeks,
+    ATR14 ≈ 0.4 % of the price, still a d7 « trend » setup). ``scoring.pinned_price_max_atr_pct``; absent: no test."""
+    pin = (config.params.scoring or {}).get("pinned_price_max_atr_pct")
+    if pin is None or price <= 0:
+        return []
+    from app.domain.indicators import atr
+
+    a = atr(load_bars(s, inst.isin, limit=40), 14)
+    if a is None or a / price >= float(pin):
+        return []
+    pct = f"{a / price:.2%}".replace(".", ",")
+    return [
+        f"WATCH : cours encadré — ATR14 {pct} du cours (< {float(pin):.1%}".replace(".", ",")
+        + ", scoring.pinned_price_max_atr_pct) : offre publique ou retrait de cote probable, gain plafonné et stop "
+        "non significatif — vérifier l'actualité de la valeur"
+    ]
 
 
 def _letter_drift_block(config: LoadedConfig, setup: Setup, now: datetime) -> list[str]:

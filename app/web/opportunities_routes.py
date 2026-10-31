@@ -203,7 +203,7 @@ def opportunities_page(
             "places": sorted(places.items(), key=lambda kv: -kv[1]),
             "today": datetime.now(UTC).date(),
             **(
-                {"level_groups": level_groups, "fold_group": len(level_groups) - 1, "verdict_tones": VERDICT_TONES}
+                {"level_groups": level_groups, "fold_groups": _folded(level_groups), "verdict_tones": VERDICT_TONES}
                 if level_groups
                 else {}
             ),
@@ -231,7 +231,27 @@ def _verdict_groups(cfg: Any, items: list[dict]) -> dict[int, tuple[str, str]] |
             lvl = v.level.value
         it["niveau"] = lvl if lvl in LEVEL_ORDER else "a_surveiller"
         it["groupe"] = LEVEL_ORDER[it["niveau"]]
-    return {LEVEL_ORDER[k]: v for k, v in VERDICT_GROUPS.items()}
+    groups = {LEVEL_ORDER[k]: v for k, v in VERDICT_GROUPS.items()}
+    cap = vp.shown_max if vp is not None else None
+    spec = sorted((it for it in items if it["niveau"] == "speculative"),
+                  key=lambda it: (it["p"].rank is None, it["p"].rank or 0, it["p"].id))  # fmt: skip
+    if cap is not None and len(spec) > cap:  # first preview of 31/10/2026: 50 of 87 — the best first, the rest folded
+        extra = len(LEVEL_ORDER)
+        for it in spec[cap:]:
+            it["groupe"] = extra
+        groups[extra] = (
+            "Spéculatives suivantes",
+            f"Au-delà des {cap} premières du classement (verdict.speculative_shown_max) : repliées pour ne pas noyer "
+            "l'essentiel ; mêmes règles, même taille ½.",
+        )
+    return groups
+
+
+def _folded(groups: dict[int, tuple[str, str]]) -> list[int]:
+    """Folded groups of the graded page: the set-aside cards and the speculative ones beyond the first n."""
+    from app.domain.verdict import LEVEL_ORDER
+
+    return [g for g in groups if g == LEVEL_ORDER["ecartee"] or g >= len(LEVEL_ORDER)]
 
 
 @router.post("/opportunites/decision")
