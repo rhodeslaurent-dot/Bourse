@@ -647,7 +647,7 @@ Littérature : un choc **sans** nouvelle se retourne, un choc **avec** nouvelle 
 - Capitalisation et secteur d'aujourd'hui.
 - La période scellée est partagée avec les n° 3, 4 et 6. Chaque plan ne l'ouvre qu'une fois, pour ses propres cellules ; aucun d'eux ne lit t18.
 
-**Décisions avant le gel (D1–D7).** D1, D3 et D4 tranchées par l'utilisateur le 31/10/2026 ; D2, D5, D6 et D7 restent à décider.
+**Décisions avant le gel (D1–D8).** D1, D3 et D4 tranchées par l'utilisateur le 31/10/2026 ; D2, D5, D6, D7 et D8 restent à décider.
 1. **D1 — sortie mesurée : TRANCHÉE.** X8 (stop 2,5 ATR exécuté) en confirmatoire ; XT (la mesure de l'étude) en exploratoire X5. Placebos et exploratoires suivent X8.
 2. **D2 — dividende.** Saut neutralisé du détachement (proposé) ou cours bruts comme la découverte (X6).
 3. **D3 — durées et seuils : puissance probable faible.**
@@ -655,6 +655,7 @@ Littérature : un choc **sans** nouvelle se retourne, un choc **avec** nouvelle 
    - Le t de la découverte (2,8 et 2,9 sur ≈ 19 400 occurrences, valeurs illiquides comprises) laisse attendre t < 3 sur un univers liquide de 2007-2015 à effet égal (moins d'occurrences, survivants seuls).
    - Options : accepter un « NON CONCLUANT » probable ; ou rendre confirmatoire les 5 séances (t 4,2 en découverte : Holm sur 3) ; ou, pour les confirmatoires seulement, remplacer t ≥ 3 par le seul Holm à 5 %. **Jamais après lecture.**
    - **TRANCHÉE** : 5, 10 et 20 séances confirmatoires (C1, C2, C3), Holm sur 3, t ≥ 3 gardé. Le stop exécuté (D1) peut encore réduire l'effet mesuré : le résultat probable reste « NON CONCLUANT », accepté.
+   - **Correction du 01/11/2026 (divergence signalée dans docs/15)** : le « net » de l'étude des causes ne déduit que les frais (`round_trip_fee_fraction` : courtage, taxes, portage), pas l'écart achat-vente. Le banc compte en plus le demi-écart de Corwin–Schultz, au moins `risk.slippage_pct` par côté, soit au moins ≈ 0,56 % l'aller-retour (≈ 0,09 R). Le « +0,11 à +0,17 R net à 20 séances » ci-dessus est donc surestimé : avec le plancher d'écart du banc, la découverte elle-même donnerait au mieux ≈ +0,07 R à 20 séances, sous le seuil A2 (0,10 R).
 4. **D4 — 5 séances : TRANCHÉE**, confirmatoire (C1).
 5. **D5 — essais du DSR.** Chaque cause lue compte 10 cellules (3 durées × 3 mesures + barrière) : 8 causes = 80 au rapport `causes_20261030_150454`, 9 causes (achats de dirigeants en plus) = 90 au rapport `causes_20261031_121715`. Proposé : **90** (la seconde exécution relit les mêmes cellules sur des cours corrigés, ce ne sont pas de nouveaux essais) ; 170 si chaque lecture compte.
 6. **D6 — règle de décision** : seuils du suivi en ombre (100 signaux, 6 mois) avant l'ADR. Proposé : les garder, avec deux contrôles d'exécution (glissement réel ≤ 2 × `risk.slippage_pct`, taux d'exécution ≥ moitié de celui du banc). Le suivi vérifie que l'outil reproduit le banc ; il ne peut pas re-prouver l'effet (100 signaux : écart-type de la moyenne ≈ 0,09 R pour un effet attendu de 0,10 à 0,15 R).
@@ -662,6 +663,11 @@ Littérature : un choc **sans** nouvelle se retourne, un choc **avec** nouvelle 
    - `dsr_variance: cellules` (actuel) ;
    - `dsr_variance: nulle` : variance d'une cellule sans effet, 1 / (semaines − 1), soit une barre proche de t ≥ 4 ;
    - `min_dsr: null` : DSR imprimé seulement ; Holm sur 3 et t ≥ 3 restent. **Proposé** : sur une période jamais lue, la sélection parmi les essais de la découverte ne biaise pas l'estimation des cellules déclarées ; Holm sur les 3 cellules y suffit.
+   - Étude de puissance du 01/11/2026 (simulation par trade, 26 scénarios × 1 000 tirages, avec les fonctions du banc) : sous (a), la barre monte avec l'effet lui-même (à t ≈ 7, C3 ne passe que 39 % des fois, contre 99 % sous (b) ou (c)) ; seules (b) et (c) font dépendre le verdict de la seule cellule déclarée ; (b) relève la barre à t ≈ 4,2 sans le dire, (c) garde t ≥ 3. 80 ou 90 essais : au plus 4 points d'écart.
+8. **D8 — ce que le plan 7 confirme (nouveau, 01/11/2026).** La même étude montre que, tel qu'écrit, le plan n'a **pratiquement aucune chance** d'aboutir à « CONFIRMÉ », quelle que soit l'option D7 : P ≈ 0 pour C1, C2 et C3 dans le scénario central, au mieux 27 % pour C3 dans le coin le plus favorable. Le critère qui bloque n'est ni le t ni le DSR, mais le **résultat net brut** : A2 (moyenne ≥ 0,10 R nette, ≥ 30 € pour 300 €) et A6 (sous stress des coûts) échouent presque toujours, puis A4 (excès ≥ 0,08 R). Les coûts du banc (écart compris) mangent l'essentiel d'un effet attendu de ≈ +0,05 à +0,08 R. Options, à décider **avant le gel** :
+   - (a) garder le plan tel quel : il répond honnêtement « exploitable à nos coûts ? », très probablement par la négative ;
+   - (b) un **verdict en deux niveaux** : « effet confirmé » (A1, t ≥ 3, Holm sur 3, placebo, plis A5, sans les seuils économiques) puis « exploitable » (A2, A4, A6 en plus). Un effet confirmé mais non exploitable ne mène à aucun ordre, mais peut devenir un élément d'appréciation des cartes ;
+   - (c) ne pas ouvrir la période pour le n° 7 et le garder descriptif. La période reste alors propre pour une version mieux armée de la piste (entrée moins coûteuse, grands écarts seulement), à pré-enregistrer sans lire la période.
 
 En plus, hors plan : depuis la revue du 30/10/2026, un verrou global (`prereg.check_not_sealed`) refuse toute lecture de recherche qui commence dans la période scellée, pour tous les plans (`research run`, `calibrate`, `backtest`), sauf les descellements prévus. Une ligne `unseal_started` est écrite au registre avant la lecture : un arrêt brutal ne permet pas de rouvrir la période.
 
