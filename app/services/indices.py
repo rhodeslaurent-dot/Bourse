@@ -50,6 +50,15 @@ def max_age_days(config: Any) -> int:
     return int(r.get("index_max_age_days", 5))
 
 
+def first_eod_day(s: Session, isin: str) -> date | None:
+    """The first stored session of a series (dates only, never a price)."""
+    from sqlalchemy import func, select
+
+    from app.db.models import PriceEod
+
+    return s.scalar(select(func.min(PriceEod.day)).where(PriceEod.isin == isin))
+
+
 def index_for(config: Any, market: str) -> IndexSpec | None:
     return next((x for x in index_specs(config) if x.market == market), None)
 
@@ -61,16 +70,22 @@ def refresh_indices(
     today: date,
     first_day: date = date(2016, 1, 1),
     fallback: Any | None = None,
+    history_from: date | None = None,
 ) -> dict[str, tuple[int, str | None]]:
     """Load each index from the day after its last stored session (full history from ``first_day`` the first
     time). When EODHD fails, returns nothing or leaves the series stale, the same index is read from ``fallback``
     (Yahoo) if the spec names it. Returns {market: (bars written, error or None)}; a quota exhaustion stops
-    cleanly. A series still stale afterwards is reported as such."""
+    cleanly. A series still stale afterwards is reported as such.
+
+    ``history_from`` (``index-check --from``, docs/34 §34.14): the whole history from that day is read again,
+    whatever is stored — the old replication period of the research needs each regime index from 2005 (200 closes
+    before 2007-01-02); when EODHD's series starts more than a month after ``history_from``, the same index is
+    read from ``fallback`` for the missing start."""
     out: dict[str, tuple[int, str | None]] = {}
     stale_before = today - timedelta(days=max_age_days(config))
     for spec in index_specs(config):
         last = last_eod_day(s, spec.id)
-        start = (last + timedelta(days=1)) if last else first_day
+        start = history_from if history_from is not None else ((last + timedelta(days=1)) if last else first_day)
         if start > today:
             out[spec.market] = (0, None)
             continue
@@ -85,6 +100,19 @@ def refresh_indices(
             err = str(exc)[:160]
             log.warning("indice %s (%s) : %s", spec.name, spec.eodhd, str(exc)[:120])
         newest = last_eod_day(s, spec.id)
+        oldest = first_eod_day(s, spec.id) if history_from is not None else None
+        if (
+            spec.yahoo
+            and fallback is not None
+            and history_from is not None
+            and oldest is not None
+            and (oldest > history_from + timedelta(days=31))
+        ):  # EODHD's series starts late: the same index from Yahoo for the missing start (never another index)
+            try:
+                k = upsert_eod(s, fallback.fetch_eod([spec.yahoo], history_from, oldest), {spec.yahoo: spec.id})
+                n += k
+            except Exception as exc:  # noqa: BLE001 — the start stays missing, reported by index-check
+                log.warning("indice %s (Yahoo %s, début) : %s", spec.name, spec.yahoo, str(exc)[:120])
         if spec.yahoo and fallback is not None and (newest is None or newest < stale_before):
             try:  # the same index from another provider: never another index
                 ybars = fallback.fetch_eod([spec.yahoo], start, today + timedelta(days=1))

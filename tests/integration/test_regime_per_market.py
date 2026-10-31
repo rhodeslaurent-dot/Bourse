@@ -138,3 +138,55 @@ def test_a_stale_index_gives_no_regime_the_venue_follows_europe(db_engine, confi
     compute_and_store(JobContext(config, calendars, DAY, ("XPAR",), "normal"))
     with db_session() as s:
         assert {r.market for r in s.query(MarketRegimeRow)} == {"EU"}  # never a « today » regime from 2022 closes
+
+
+def test_index_history_is_read_again_from_a_given_day_with_yahoo_for_a_late_start(db_engine, raw):
+    """docs/34 §34.14: the old replication period needs each regime index from 2005 (200 closes before 2007-01-02),
+    while the daily job only loads from the day after the last stored session. ``history_from`` reads the whole
+    history again; a series EODHD starts late is completed from Yahoo (the same index, source on each bar)."""
+    from app.config import validate_params
+    from app.services.indices import first_eod_day
+
+    raw["regime"]["indices_by_mic"] = {
+        "XETR": {"id": "IDX.GDAXI", "eodhd": "GDAXI.INDX", "nom": "DAX"},
+        "XMIL": {"id": "IDX.FTSEMIB", "eodhd": "FTSEMIB.INDX", "yahoo": "FTSEMIB.MI", "nom": "FTSE MIB"},
+    }
+    config = validate_params(raw)
+    today, since = date(2026, 10, 23), date(2005, 1, 3)
+    starts = {"FTSEMIB.INDX": date(2010, 1, 4)}  # EODHD's series of this index starts in 2010
+
+    class Sparse:
+        """A few sessions at the start of the available history and the last ones (enough to date both ends)."""
+
+        def __init__(self, source: str) -> None:
+            self.source, self.calls = source, []  # type: ignore[var-annotated]
+
+        def fetch_eod(self, symbols, start, end):  # type: ignore[no-untyped-def]
+            self.calls.append((symbols[0], start, end))
+            lo = max(start, starts.get(symbols[0], start)) if self.source == "eodhd" else start
+            days = [lo + timedelta(days=k) for k in range(5)] + [end - timedelta(days=k) for k in range(1, 4)]
+            now = datetime.now(UTC)
+            return [
+                EodBar(source=self.source, market_perimeter=MarketPerimeter.PRIMARY, received_at=now,
+                       processed_at=now, data_status=DataStatus.EOD, symbol=symbols[0], day=d, open=100, high=101,
+                       low=99, close=100, volume=0)
+                for d in sorted(set(days)) if d.weekday() < 5 and start <= d < end
+            ]  # fmt: skip
+
+    with db_session() as s:
+        for isin in ("IDX.GDAXI", "IDX.FTSEMIB", "EU0009658202"):  # already loaded from 2016 by the daily job
+            s.add(PriceEod(isin=isin, day=date(2016, 1, 4), open=1, high=1, low=1, close=1, volume=0,
+                           source="eodhd", received_at=NOW, data_status="eod"))  # fmt: skip
+        s.flush()
+        eod, yahoo = Sparse("eodhd"), Sparse("yfinance")
+        refresh_indices(s, eod, config, today, fallback=yahoo)  # the daily load: only after the last session
+        assert {c[1] for c in eod.calls} == {date(2016, 1, 5)} and not yahoo.calls
+        eod.calls.clear()
+        out = refresh_indices(s, eod, config, today, fallback=yahoo, history_from=since)
+        assert {c[1] for c in eod.calls} == {since}  # every index read again from 2005, whatever is stored
+        assert all(err is None for _, err in out.values())
+        assert first_eod_day(s, "IDX.GDAXI") == since and first_eod_day(s, "EU0009658202") == since
+        assert yahoo.calls == [("FTSEMIB.MI", since, date(2010, 1, 4))]  # only the missing start, from Yahoo
+        assert first_eod_day(s, "IDX.FTSEMIB") == since
+        srcs = {r.day: r.source for r in s.query(PriceEod).filter(PriceEod.isin == "IDX.FTSEMIB")}
+        assert srcs[since] == "yfinance" and srcs[date(2010, 1, 4)] == "eodhd"  # the provider stays visible

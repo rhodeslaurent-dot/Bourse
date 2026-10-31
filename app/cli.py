@@ -1361,13 +1361,16 @@ def cmd_index_check(args: argparse.Namespace) -> int:
 
     from app.data.providers.yfinance_eod import YFinanceProvider
     from app.db.models import PriceEod
+    from app.services.indices import first_eod_day
 
     failed = False
+    since = date.fromisoformat(args.from_date) if getattr(args, "from_date", None) else None
     with db_session() as s:
-        out = refresh_indices(s, eodhd_from(cfg), cfg, date.today(), fallback=YFinanceProvider())
+        out = refresh_indices(s, eodhd_from(cfg), cfg, date.today(), fallback=YFinanceProvider(), history_from=since)
         for spec in index_specs(cfg):
             n, err = out.get(spec.market, (0, None))
             last = last_eod_day(s, spec.id)
+            first = first_eod_day(s, spec.id)
             src = (
                 s.scalar(select(PriceEod.source).where(PriceEod.isin == spec.id, PriceEod.day == last))
                 if last
@@ -1376,7 +1379,10 @@ def cmd_index_check(args: argparse.Namespace) -> int:
             via = f" (via {src})" if src and src != "eodhd" else ""
             state = f"ÉCHEC : {err}" if err else (f"à jour au {last}{via}" if last else "aucune donnée")
             failed = failed or bool(err) or not last
-            print(f"{spec.market:<5} {spec.name:<22} {spec.eodhd:<14} +{n:>5} séances · {state}")
+            span = f" · depuis le {first}" if since is not None and first else ""
+            late = since is not None and (first is None or first > since + timedelta(days=31))
+            print(f"{spec.market:<5} {spec.name:<22} {spec.eodhd:<14} +{n:>5} séances · {state}{span}"
+                  + (" · DÉBUT TARDIF" if late else ""))  # fmt: skip
     if failed:  # the advice only when a venue actually failed
         print(
             "Un code en échec : corriger regime.indices_by_mic dans config/params.yaml (la place suit sinon le "
@@ -1890,9 +1896,26 @@ def cmd_research(args: argparse.Namespace) -> int:
                 v = research.calibrate(s, cfg, calendars, args.run, args.prereg, out, progress)
                 print(f"calibration : {v['verdict']} (concordance {v.get('concordance')}) — {v.get('fichier')}")
                 return 0 if v["verdict"] == "VALIDE" else 1
+            elif args.action == "fingerprint":  # the freeze (docs/34): the plan file's and the bench's sha256
+                from app.domain.research.prereg import file_sha256
+
+                b = Path(args.prereg).read_bytes()
+                lf = b.replace(b"\r\n", b"\n")
+                crlf = lf.replace(b"\n", b"\r\n")
+                print(f"plan {args.prereg}\n  sha256 du fichier tel quel : {file_sha256(b)}")
+                print(f"  sha256 fins de ligne Unix : {file_sha256(lf)}")
+                print(f"  sha256 fins de ligne CRLF : {file_sha256(crlf)}")
+                print(f"banc sha256 : {research.bench_sha256()}")
             elif args.action == "unseal":
                 u = research.unseal(s, cfg, calendars, args.prereg, args.candidates, out, start, end, args.universe,
-                                    progress)  # fmt: skip
+                                    progress, args.accept_coverage, args.check_only, args.rehearsal)  # fmt: skip
+                if args.check_only:  # nothing read, nothing written
+                    print(u.get("texte") or "aucune période de réplication : pas de contrôle de couverture")
+                    print(f"cellules : {', '.join(u.get('cellules') or [])}\nbanc sha256 : {u.get('banc_sha256')}")
+                    if u.get("calibration"):
+                        noted = u.get("banc_calibre") or "non noté"
+                        print(f"calibration : {u['calibration']} (banc calibré : {noted})")
+                    return 0 if u.get("pret") else 1
                 if "titre" in u:  # registration n° 7: the plan's own cells on the sealed period (placebo read first)
                     print(f"\n{u['titre']}\nrapport : {u['txt']}\n          {u['json']}")
                     for k, v in (u.get("placebo") or {}).items():
@@ -2534,6 +2557,9 @@ def main(argv: list[str] | None = None) -> int:
     fh.set_defaults(fn=cmd_fx_history)
     ic = sub.add_parser("index-check", help="charge et contrôle l'indice de chaque place (régime par marché, docs/32)")
     ic.add_argument("--search", default=None, help="chercher un code d'indice EODHD (ex. MIB, FTSE, ISEQ)")
+    ic.add_argument(
+        "--from", dest="from_date", default=None, help="relire tout l'historique depuis ce jour (ex. 2005-01-01)"
+    )
     ic.set_defaults(fn=cmd_index_check)
     br = sub.add_parser("backtest-report", help="diagnostic du dernier backtest : coûts, sorties, excursions, régimes")
     br.add_argument("--run", type=int, default=None)
@@ -2624,7 +2650,7 @@ def main(argv: list[str] | None = None) -> int:
     er.add_argument("--research-out", dest="research_out", default="data/research", help="dossier du registre")
     er.set_defaults(fn=cmd_entry_replay)
     rs = sub.add_parser("research", help="recherche de déclencheurs pré-enregistrée (docs/31) : rapport agrégé")
-    rs.add_argument("action", choices=["run", "decompose", "calibrate", "unseal", "explain"])
+    rs.add_argument("action", choices=["run", "decompose", "calibrate", "unseal", "explain", "fingerprint"])
     rs.add_argument("--prereg", default="research/prereg/2026-10-27_reg1.yaml")
     rs.add_argument("--from", dest="from_date", default=None, help="début des données (défaut 2016-01-04)")
     rs.add_argument("--to", default=None, help="fin des données (défaut : hier)")
@@ -2641,6 +2667,20 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument("--workers", type=int, default=1, help="réservé (calcul vectorisé, un seul processus)")
     rs.add_argument("--run", type=int, default=None, help="backtest de référence (défaut : le dernier)")
     rs.add_argument("--candidates", default=None, help="fichier de candidats figé (unseal)")
+    rs.add_argument(
+        "--check-only",
+        dest="check_only",
+        action="store_true",
+        help="unseal : contrôles d'avant lecture et couverture des données seulement (rien lu, rien écrit)",
+    )
+    rs.add_argument(
+        "--accept-coverage",
+        dest="accept_coverage",
+        action="store_true",
+        help="unseal : accepter une couverture partielle après vérification (jamais un bloquant)",
+    )
+    rs.add_argument("--rehearsal", action="store_true",
+                    help="unseal (n° 7) : répétition sur la fenêtre de découverte, aucune ouverture")  # fmt: skip
     rs.add_argument("--report", default=None, help="explain : rapport .json (défaut : le dernier)")
     rs.add_argument("--top", type=int, default=8, help="explain : nombre de cellules détaillées")
     rs.add_argument("--no-cache", dest="no_cache", action="store_true")

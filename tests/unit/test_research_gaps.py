@@ -42,7 +42,14 @@ from tests.unit.test_research import bdays, settings, synthetic_panel
 ROOT = Path(__file__).resolve().parents[2]
 REG3 = ROOT / "research" / "prereg" / "2026-10-28_reg3.yaml"
 REG7 = ROOT / "research" / "prereg" / "2026-10-31_reg7.yaml"
-GAP = {"gap_min": 0.03, "gap_atr": 1.5, "atr_sessions": 14, "dedup_sessions": 10, "dividend_neutral": True}
+GAP = {
+    "gap_min": 0.03,
+    "gap_atr": 1.5,
+    "atr_sessions": 14,
+    "dedup_sessions": 10,
+    "dividend_neutral": True,
+    "max_prev_days": 7,
+}
 
 
 def _raw7() -> dict:
@@ -184,6 +191,26 @@ def test_t18_dividend_neutral_gap_ignores_a_detachment():
     neutral = _t18(p, dividend_neutral=True)
     assert raw[t, 1] and not neutral[t, 1]
     assert raw[280, 2] and neutral[280, 2]
+
+
+def test_t18_a_factor_drop_or_a_hole_in_the_history_is_no_gap():
+    """Review of 31/10/2026: only a rise of the adjustment factor is a detachment — a drop (a provider's correction,
+    the loader's 1.0 before the first known factor) never makes a gap of flat raw prices; and a session more than
+    ``max_prev_days`` calendar days after the value's previous one (a hole, a suspension) is no opening gap."""
+    p = _quiet(n_inst=3, n_days=320, seed=13)
+    p.adj_close[250:, 1] *= 0.94  # the factor drops by 6 % on row 250, raw prices flat
+    assert not _t18(p)[250, 1]
+    for k in ("open", "high", "low", "close", "adj_close", "volume"):
+        getattr(p, k)[200:210, 2] = np.nan  # value 2 without bars for ten sessions (two weeks)
+    p.open[210, 2] = p.close[199, 2] * 0.92  # it comes back 8 % lower: a gap across the hole
+    p.low[210, 2] = min(p.low[210, 2], p.open[210, 2] * 0.999)
+    p.high[210, 2] = max(p.high[210, 2], p.open[210, 2])
+    f = _feat(p)
+    hole = int((p.days[210] - p.days[199]).astype(int))
+    assert hole > 7 and T.calendar_days_since_previous(p, f.pk)[210, 2] == hole
+    assert _t18(p, max_prev_days=30)[210, 2] and not _t18(p)[210, 2]  # 7 days in the plan
+    with pytest.raises(ValueError, match="écart"):
+        _t18(p, max_prev_days=0)
 
 
 def test_t18_splits_partition_the_events_and_the_earnings_split_needs_a_known_span():
@@ -506,3 +533,58 @@ def test_no_research_read_starts_inside_the_sealed_period():
     assert "unseal_started" in UNSEAL_KINDS
     with pytest.raises(PreregError, match="déjà été ouverte"):
         check_sealed_once(p, [{"kind": "unseal_started", "prereg_id": p.id, "prereg_sha256": "x"}], None)
+
+
+# --- review of 31/10/2026: what the single opening checks before any read --------------------------------------------
+
+
+def test_the_bench_fingerprint_ignores_line_endings_and_sees_any_code_change(tmp_path):
+    from app.services.research import BENCH_DIRS, BENCH_FILES, bench_sha256
+
+    for rel in (*BENCH_FILES, f"{BENCH_DIRS[0]}/a.py", f"{BENCH_DIRS[0]}/b.py"):
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"x = 1\ny = 2\n")
+    lf = bench_sha256(tmp_path)
+    (tmp_path / BENCH_DIRS[0] / "a.py").write_bytes(b"x = 1\r\ny = 2\r\n")  # the Windows checkout
+    assert bench_sha256(tmp_path) == lf
+    (tmp_path / BENCH_DIRS[0] / "b.py").write_bytes(b"x = 1\ny = 3\n")
+    assert bench_sha256(tmp_path) != lf
+    assert len(bench_sha256()) == 64  # the repository's own bench
+
+
+def test_a_plan_frozen_before_another_opening_stays_clean():
+    from app.services.research import seen_before_freeze
+
+    p = _frozen7()
+    cals = [("calibration_20261101_080000.json", {"plan_sha256": p.sha256}),
+            ("calibration_20261031_080000.json", {"plan_sha256": "autre plan"})]  # fmt: skip
+    before = {"timestamp": "descellement_20261101_070000", "kind": "unseal", "prereg_id": "2026-10-28_reg3"}
+    after = {"timestamp": "descellement_20261101_090000", "kind": "unseal_started", "prereg_id": "2026-10-30_reg4"}
+    assert seen_before_freeze([before, after], cals, p) == ["2026-10-28_reg3"]  # n° 4 opened after n° 7 was frozen
+    assert seen_before_freeze([after], cals, p) == []
+    assert seen_before_freeze([before], [], p) == ["2026-10-28_reg3"]  # never calibrated: every earlier opening
+
+
+def test_the_dsr_of_the_sealed_verdict_follows_the_plan_and_the_decision_is_the_plans():
+    """Review of 31/10/2026: the DSR bar of C1–C3 was set by the variance of the descriptive splits. The plan states
+    it — ``dsr_variance: cellules`` (that variance) or ``nulle`` (1 / (weeks − 1)), ``min_dsr: null`` (printed only)
+    — and the printed decision rule is the plan's frozen text."""
+    p, res = _res(c1=_cell_stats(_sr=0.05))  # a weak Sharpe ratio: refused by the DSR with the cells' variance
+    assert "dsr" in sealed_verdicts(res, p)["confirmatoires"]["C1"]["manquants"]
+    se = {**p.thresholds["sealed"], "min_dsr": None}
+    q = dataclasses.replace(p, thresholds={**p.thresholds, "sealed": se})
+    v = sealed_verdicts(res, q)["confirmatoires"]["C1"]
+    assert v["verdict"] == CONFIRMED and "dsr" not in v["criteres"] and v["dsr"] is not None  # printed only
+    se = {**p.thresholds["sealed"], "dsr_variance": "nulle"}
+    q = dataclasses.replace(p, thresholds={**p.thresholds, "sealed": se})
+    _, res2 = _res(c1=_cell_stats(_sr=0.16))  # t ≈ 3.4 over 450 weeks: a DSR strictly between 0 and 1
+    d_cells = sealed_verdicts(res2, p)["confirmatoires"]["C1"]["dsr"]
+    d_null = sealed_verdicts(res2, q)["confirmatoires"]["C1"]["dsr"]
+    assert d_cells is not None and d_null is not None and d_null != d_cells
+    raw = _raw7()
+    raw["thresholds"]["sealed"]["dsr_variance"] = "autre"
+    with pytest.raises(PreregError, match="dsr_variance"):
+        _frozen7(raw)
+    v = sealed_verdicts(res2, p)
+    assert v["decision"].startswith("ordre de lecture : placebo X1") and "C1, C2 ou C3 CONFIRMÉ" in v["decision"]

@@ -76,7 +76,8 @@ from app.services.insider_research import check_forward_unseal, insider_context,
 log = logging.getLogger("bourse.research")
 GROUPS = VENUE_GROUPS
 LEDGER_FIELDS = ["timestamp", "kind", "prereg_id", "prereg_sha256", "cell_set_sha256", "m_total", "cells_run",
-                 "candidates", "universe", "report", "candidates_sha256", "candidate_cells", "calibration"]  # fmt: skip
+                 "candidates", "universe", "report", "candidates_sha256", "candidate_cells", "calibration",
+                 "bench_sha256"]  # fmt: skip
 Progress = Callable[[str], None]
 DEFAULT_MAX_F0_CANDIDATES = 20_000  # evaluations of the real detectors per venue group (F0 g/h), stratified
 
@@ -680,7 +681,7 @@ def run_ledger_row(
         "cells_run": (res.get("comptes_cellules") or {}).get("total_execute", ""),
         "candidates": len(res.get("candidats") or []), "universe": universe, "report": report,
         "candidates_sha256": frozen[0] if frozen else "", "candidate_cells": CELL_SEP.join(frozen[1]) if frozen else "",
-        "calibration": calibration_verdict,
+        "calibration": calibration_verdict, "bench_sha256": bench_sha256(),
     }  # fmt: skip
 
 
@@ -721,7 +722,8 @@ def _unseal_started(out_dir: Path, prereg: Prereg, universe: str) -> None:
     crash after the read left no row, so the period could be opened again)."""
     append_ledger(out_dir, {"timestamp": f"descellement_{_stamp()}", "kind": "unseal_started", "prereg_id": prereg.id,
                             "prereg_sha256": prereg.sha256, "cell_set_sha256": prereg.cell_set_hash,
-                            "universe": universe, "report": "(lecture commencée)"})  # fmt: skip
+                            "universe": universe, "report": "(lecture commencée)",
+                            "bench_sha256": bench_sha256()})  # fmt: skip
 
 
 def replication_label(ledger: Sequence[Mapping[str, str]], prereg: Prereg, today: str) -> str:
@@ -734,6 +736,130 @@ def replication_label(ledger: Sequence[Mapping[str, str]], prereg: Prereg, today
         if r.get("kind") in UNSEAL_KINDS and r.get("prereg_id") in shared
     }
     return "semi-propre (entrées et deux sorties vues)" if days - {today} else "propre"
+
+
+# --- the single opening of the sealed period: what is checked before any read (review of 31/10/2026) ---------------
+
+# the code a verdict depends on, outside the plan's own sha256 (units, A1–A13, power, the sealed rule)
+BENCH_FILES = ("app/domain/moves.py", "app/services/research.py", "app/services/insider_research.py")
+BENCH_DIRS = ("app/domain/research",)
+MAX_LATE_HISTORY_SHARE = 0.10  # values alive after the period whose history starts at its end: old data not loaded
+REGIME_INDEX_CLOSES = 200  # panel.index_regime: the index above its own 200-session average (A7, t13)
+
+
+def bench_sha256(root: Path | None = None) -> str:
+    """sha256 of the research bench's code (line endings normalised: the same on the Windows checkout and here).
+    Written into every calibration, run and unseal (report header and ledger); an unseal is refused when the bench
+    changed since the plan's calibration — the opening is unique, never on an engine other than the one checked."""
+    base = root or Path(__file__).resolve().parents[2]
+    files = sorted({f for d in BENCH_DIRS for f in (base / d).glob("*.py")} | {base / f for f in BENCH_FILES})
+    h = hashlib.sha256()
+    for f in files:
+        if not f.exists():
+            continue
+        h.update(f.relative_to(base).as_posix().encode())
+        h.update(b"\0" + f.read_bytes().replace(b"\r\n", b"\n") + b"\0")
+    return h.hexdigest()
+
+
+def sealed_data_coverage(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg: Prereg,
+                         start: date) -> dict[str, Any]:  # fmt: skip
+    """What the database holds for the old replication period — **dates and counts only, never a price**:
+    - per venue group, the values alive just after the period (a bar in the 124 days after its end), how many of
+      them have a history from the warm-up's start (``start`` + 31 days), and how many start only around the period's
+      end (from 60 days before it): those are values whose old history was not loaded (a backfill stopped by the
+      quota, a venue the provider does not serve), the period would then be read on a fraction of the universe;
+    - each regime index (``regime.index_isins``, a one-venue group's own index): its closes from ``start`` to the
+      period's start — under 200, its 200-session average is unknown in 2007 (A7 can never pass);
+    - each currency of the groups: the first ECB rate (after ``start`` + 31 days, the plan's static rate is used).
+    ``bloquants`` can never be accepted; ``a_accepter`` can, after a look, with ``--accept-coverage``."""
+    a, b = prereg.replication or prereg.sealed_window
+    full_by, late_from = start + timedelta(days=31), b - timedelta(days=60)
+    alive_lo, alive_hi = b + timedelta(days=1), b + timedelta(days=124)
+    by_group, _ = select_instruments(s, config, calendars, "all", None, prereg.venue_groups)
+    groups: dict[str, Any] = {}
+    hard: list[str] = []
+    soft: list[str] = []
+    for grp, insts in sorted(by_group.items()):
+        isins = [i.isin for i in insts]
+        first = dict(s.execute(select(PriceEod.isin, func.min(PriceEod.day)).where(PriceEod.isin.in_(isins))
+                               .group_by(PriceEod.isin)).all())  # fmt: skip
+        alive = set(s.scalars(select(PriceEod.isin).where(PriceEod.isin.in_(isins), PriceEod.day >= alive_lo,
+                                                          PriceEod.day <= alive_hi).distinct()))  # fmt: skip
+        full = sum(1 for x in alive if first.get(x) is not None and first[x] <= full_by)
+        late = sum(1 for x in alive if first.get(x) is not None and first[x] >= late_from)
+        groups[grp] = {"valeurs_vivantes_apres": len(alive), "historique_depuis_debut": full,
+                       "historique_commencant_fin_periode": late,
+                       "part_tardive": round(late / len(alive), 3) if alive else None}  # fmt: skip
+        if not alive or not full:
+            hard.append(f"{grp} : aucune valeur avec un historique depuis le {full_by} (cours d'avant 2016 absents)")
+        elif late / len(alive) > MAX_LATE_HISTORY_SHARE:
+            soft.append(f"{grp} : {late} valeurs sur {len(alive)} n'ont un historique qu'à partir du {late_from} ou "
+                        f"après (> {MAX_LATE_HISTORY_SHARE:.0%}) : backfill --from 2005-01-01 incomplet ?")  # fmt: skip
+    reg = getattr(config.params, "regime", None) or {}
+    ids = {str(v) for v in (reg.get("index_isins") or {}).values() if v}
+    for codes in (prereg.venue_groups or {}).values():
+        own = own_index_id(config, calendars, tuple(codes))
+        if own:
+            ids.add(own)
+    indices: dict[str, int] = {}
+    for iid in sorted(ids):
+        n = s.scalar(select(func.count(PriceEod.id)).where(PriceEod.isin == iid, PriceEod.day >= start,
+                                                           PriceEod.day < a)) or 0  # fmt: skip
+        indices[iid] = int(n)
+        if n < REGIME_INDEX_CLOSES:
+            hard.append(f"indice {iid} : {n} clôtures avant le {a} (≥ {REGIME_INDEX_CLOSES} : régime inconnu, A7 "
+                        "impossible) — index-check --from 2005-01-01")  # fmt: skip
+    currencies: dict[str, str | None] = {}
+    for cur in sorted({(i.currency or "EUR") for v in by_group.values() for i in v} - {"EUR"}):
+        base = "GBP" if cur in ("GBX", "GBp") else cur
+        first_fx = s.scalar(select(func.min(FxRate.day)).where(FxRate.pair == f"EUR{base}"))
+        currencies[cur] = first_fx.isoformat() if first_fx else None
+        if first_fx is None or first_fx > full_by:
+            soft.append(f"devise {cur} : taux BCE à partir du {first_fx or '—'} (taux statique du plan avant) — "
+                        "fx-history --from 2005-01-01")  # fmt: skip
+    return {"groupes": groups, "indices": indices, "devises": currencies, "bloquants": hard, "a_accepter": soft,
+            "debut": start.isoformat(), "pret": not hard and not soft}  # fmt: skip
+
+
+def check_sealed_data(cov: Mapping[str, Any], accept: bool) -> None:
+    """Refuse the opening before any read when the data would waste it (``sealed_data_coverage``)."""
+    if cov["bloquants"] or (cov["a_accepter"] and not accept):
+        why = list(cov["bloquants"]) + list(cov["a_accepter"])
+        hint = "" if cov["bloquants"] else " — après vérification : --accept-coverage"
+        raise PreregError("descellement refusé, données incomplètes pour la période scellée : " + " ; ".join(why)
+                          + hint)  # fmt: skip
+
+
+def coverage_text(cov: Mapping[str, Any]) -> str:
+    lines = [f"Couverture des données de la période scellée (dates et nombres seulement, depuis le {cov['debut']}) :"]
+    for g, v in cov["groupes"].items():
+        lines.append(f"  {g} : {v['valeurs_vivantes_apres']} valeurs vivantes après la période, "
+                     f"{v['historique_depuis_debut']} avec l'historique depuis le début, "
+                     f"{v['historique_commencant_fin_periode']} commençant à sa fin (part {v['part_tardive']})")  # fmt: skip
+    lines += [f"  indice {k} : {n} clôtures avant la période" for k, n in cov["indices"].items()]
+    lines += [f"  devise {k} : taux BCE depuis le {d or '—'}" for k, d in cov["devises"].items()]
+    lines += [f"  BLOQUANT : {x}" for x in cov["bloquants"]] + [f"  À ACCEPTER : {x}" for x in cov["a_accepter"]]
+    lines.append("  → PRÊT" if cov["pret"] else "  → PAS PRÊT")
+    return "\n".join(lines)
+
+
+def _first_stamp(name: str) -> str:
+    """``descellement_20261101_103000`` / ``calibration_20261101_103000.json`` → ``20261101_103000``."""
+    parts = Path(name).stem.split("_")
+    return "_".join(parts[-2:]) if len(parts) >= 3 else ""
+
+
+def seen_before_freeze(ledger: Sequence[Mapping[str, str]], calibrations: Sequence[tuple[str, Mapping[str, Any]]],
+                       prereg: Prereg) -> list[str]:  # fmt: skip
+    """Other plans that opened the old period **before this plan was frozen** (its first calibration, which an unseal
+    requires, dates the frozen file): only those could have informed it — a plan frozen before can be opened after
+    others the same night and stays clean (review of 31/10/2026)."""
+    mine = sorted(_first_stamp(n) for n, d in calibrations if d.get("plan_sha256") == prereg.sha256)
+    frozen_at = mine[0] if mine else "99999999_999999"
+    return sorted({str(r.get("prereg_id")) for r in ledger
+                   if r.get("kind") in UNSEAL_KINDS and r.get("prereg_id") and r.get("prereg_id") != prereg.id
+                   and _first_stamp(str(r.get("timestamp", ""))) < frozen_at})  # fmt: skip
 
 
 def _header(meta: PanelMeta, universe: str, calibration: tuple[str, str], st: Settings, config: LoadedConfig,
@@ -758,6 +884,7 @@ def _header(meta: PanelMeta, universe: str, calibration: tuple[str, str], st: Se
             for k in prereg.assumptions
         },  # fmt: skip
         "duree_s": round(time.time() - t0, 1),
+        "banc_sha256": bench_sha256(),
         "limites": LIMITS
         + (earnings_limits(prereg) if prereg.needs_earnings else [])
         + (ENTRY_LIMITS if prereg.is_entry_plan else [])
@@ -933,6 +1060,7 @@ def calibrate(s: Session, config: LoadedConfig, calendars: MarketCalendars, run_
     verdict["plan_sha256"] = prereg.sha256
     last_day = s.scalar(select(func.max(PriceEod.day)))
     verdict["fin_donnees"] = last_day.isoformat() if last_day else None  # price data the replay was made with
+    verdict["banc_sha256"] = bench_sha256()  # the engine this calibration checked (an unseal requires the same)
     name = f"calibration_{_stamp()}"
     text = (f"Calibration (rejeu du backtest n° {rid}) : {verdict['verdict']}\n"
             f"concordance {verdict['concordance']} sur les {verdict['trades_run2']} trades du run 2 "
@@ -945,14 +1073,20 @@ def calibrate(s: Session, config: LoadedConfig, calendars: MarketCalendars, run_
 
 
 def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_path: str, candidates_path: str | None,
-           out_dir: Path, start: date, end: date, universe: str = "all", progress: Progress | None = None) -> dict[str, Any]:  # fmt: skip
-    """The single opening of the sealed period for a frozen candidate file."""
+           out_dir: Path, start: date, end: date, universe: str = "all", progress: Progress | None = None,
+           accept_coverage: bool = False, check_only: bool = False, rehearsal: bool = False) -> dict[str, Any]:  # fmt: skip
+    """The single opening of the sealed period for a frozen candidate file. ``check_only``: every check made before
+    the read (and the data coverage), nothing read, nothing written. ``rehearsal`` (registration n° 7 only): the
+    same machinery on the discovery window, no opening."""
     prereg = load_prereg(prereg_path)
     check_frozen(prereg)
     if prereg.sealed_confirmation:  # registration n° 7: the plan's own cells, no candidate file
         return unseal_confirmatory(
-            s, config, calendars, prereg, candidates_path, out_dir, start, end, universe, progress
-        )
+            s, config, calendars, prereg, candidates_path, out_dir, start, end, universe, progress,
+            accept_coverage=accept_coverage, check_only=check_only, rehearsal=rehearsal,
+        )  # fmt: skip
+    if rehearsal:
+        raise PreregError("répétition réservée aux plans à confirmation sur la période scellée (replication.mode)")
     ledger = read_ledger(out_dir)
     raw, sha = None, None
     if candidates_path and Path(candidates_path).exists():
@@ -963,6 +1097,12 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
     check_forward_unseal(s, prereg_path, prereg, ledger, end)  # registration n° 5: the forward confirmation rule
     st, prod = resolve_settings(config, prereg, universe)
     st = with_insiders(s, st, prereg)
+    cov = sealed_data_coverage(s, config, calendars, prereg, start) if prereg.replication is not None else None
+    if check_only:
+        return {"pret": cov is None or cov["pret"], "couverture": cov, "texte": coverage_text(cov) if cov else "",
+                "cellules": list(ids), "banc_sha256": bench_sha256()}  # fmt: skip
+    if cov is not None:
+        check_sealed_data(cov, accept_coverage)  # before the provisional row: a refusal never spends the period
     _unseal_started(out_dir, prereg, universe)  # written before any read: a crash cannot reopen the period
     panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, None, out_dir / "cache", progress)
     res = run_registration(panels, prereg, st, (), prod, "0", ids, progress, False)
@@ -998,41 +1138,73 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
     append_ledger(out_dir, {"timestamp": name, "kind": "unseal", "prereg_id": prereg.id, "prereg_sha256": prereg.sha256,
                             "cell_set_sha256": prereg.cell_set_hash, "candidates": len(ids), "universe": universe,
                             "report": f"{name}.json", "candidates_sha256": sha or "",
-                            "candidate_cells": CELL_SEP.join(ids)})  # fmt: skip
+                            "candidate_cells": CELL_SEP.join(ids), "bench_sha256": bench_sha256()})  # fmt: skip
     return out
 
 
 def unseal_confirmatory(
     s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg: Prereg, candidates_path: str | None,
     out_dir: Path, start: date, end: date, universe: str = "all", progress: Progress | None = None,
+    accept_coverage: bool = False, check_only: bool = False, rehearsal: bool = False,
 ) -> dict[str, Any]:  # fmt: skip
     """Registration n° 7: the single opening of the sealed old replication period **by the plan's declared cells**
     (``replication.mode: confirmatory``) — no candidate file. Refused before any read: a candidate file, another
     universe than ``all`` (A9 needs the point-in-time universe), an earlier unseal of the plan (sha256 or id), a span
     without the warm-up or the last exits, no VALIDE calibration of this plan (the opening is unique: never spent on
     an unchecked engine). Then the whole registration machinery on the period (``sealed_plan``), the verdict of each
-    confirmatory cell (``sealed_verdicts``), the full aggregated report and one ``unseal`` ledger row."""
+    confirmatory cell (``sealed_verdicts``), the full aggregated report and one ``unseal`` ledger row.
+
+    Review of 31/10/2026, also refused before any read: data that would waste the opening (``sealed_data_coverage``:
+    old history, regime indices, ECB rates — dates and counts only) and a bench whose code changed since the
+    calibration (``bench_sha256``). ``check_only``: those checks, nothing read or written. ``rehearsal``: the same
+    machinery on the discovery window and its folds (already read, verdicts without value), no ledger opening — a
+    crash there costs nothing, a crash during the opening spends it."""
     t0 = time.time()
     if universe != "all":
         raise PreregError("descellement refusé : --universe all exigé (A9 : univers point-in-time)")
     ledger = read_ledger(out_dir)
     check_ledger(ledger, prereg)
-    check_sealed_once(prereg, ledger, candidates_path)
-    check_unseal_span(prereg, start, end)
-    cal = plan_calibration(_calibrations(out_dir), prereg.sha256)
+    if rehearsal:
+        check_not_sealed(start, "répétition")  # the rehearsal never reads the sealed period
+    else:
+        check_sealed_once(prereg, ledger, candidates_path)
+        check_unseal_span(prereg, start, end)
+    cals = _calibrations(out_dir)
+    cal = plan_calibration(cals, prereg.sha256)
     if cal[0] != "VALIDE":
         raise PreregError(f"descellement refusé : {cal[1]} — l'ouverture est unique, le moteur doit être calibré avant")
+    bench = bench_sha256()
+    cal_bench = next((d.get("banc_sha256") for n, d in sorted(cals, key=lambda x: x[0], reverse=True)
+                      if d.get("plan_sha256") == prereg.sha256), None)  # fmt: skip
+    if cal_bench and cal_bench != bench:
+        raise PreregError("descellement refusé : le code du banc a changé depuis la calibration de ce plan "
+                          f"(banc {bench[:12]}…, calibré {str(cal_bench)[:12]}…) — relancer research calibrate")  # fmt: skip
     st, prod = resolve_settings(config, prereg, universe)
-    # another plan opened the same old period before: it was seen — the verdict says so (review of 30/10/2026)
-    seen = sorted({str(r.get("prereg_id")) for r in ledger if r.get("kind") in UNSEAL_KINDS and r.get("prereg_id")
-                   and r.get("prereg_id") != prereg.id})  # fmt: skip
-    _unseal_started(out_dir, prereg, universe)  # written before any read: a crash cannot reopen the period
+    cov = None if rehearsal else sealed_data_coverage(s, config, calendars, prereg, start)
+    if check_only:
+        return {"pret": cov is None or cov["pret"], "couverture": cov, "texte": coverage_text(cov) if cov else "",
+                "cellules": [c.id for c in prereg.confirmatory], "banc_sha256": bench,
+                "calibration": cal[1], "banc_calibre": cal_bench}  # fmt: skip
+    if cov is not None:
+        check_sealed_data(cov, accept_coverage)  # before the provisional row: a refusal never spends the period
+    # another plan opened the old period before this one was frozen (its first calibration): its design could have
+    # been informed by it — the verdict says so (reviews of 30 and 31/10/2026); after the freeze it cannot
+    seen = seen_before_freeze(ledger, cals, prereg)
+    if not rehearsal:
+        _unseal_started(out_dir, prereg, universe)  # written before any read: a crash cannot reopen the period
     panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, None, out_dir / "cache", progress)
-    sp = sealed_plan(prereg)
+    if rehearsal:  # the discovery window and its own folds stand for the sealed period
+        sp = sealed_plan(replace(prereg, replication=prereg.segments.discovery,
+                                 replication_folds=prereg.segments.wf_test))  # fmt: skip
+    else:
+        sp = sealed_plan(prereg)
     res = run_registration(panels, sp, st, (), prod, "all", None, progress, False)
     verdict = sealed_verdicts(res, sp)
-    if seen:
+    if seen and not rehearsal:
         verdict["titre"] = f"SEMI-PROPRE (période déjà ouverte par {', '.join(seen)}) — {verdict['titre']}"
+    if rehearsal:
+        verdict["titre"] = ("RÉPÉTITION — aucune ouverture de la période scellée ; fenêtre de découverte déjà lue, "
+                            "verdicts SANS VALEUR — " + verdict["titre"])  # fmt: skip
     res["titre"] = verdict["titre"]
     res["candidats"] = list(verdict["confirmes"])
     res["surveillance"] = []
@@ -1042,14 +1214,15 @@ def unseal_confirmatory(
     view = report_view(verdict, int(prereg.thresholds["report_min_n"]))  # rows under 20 masked, verdicts kept
     report["V_verdict_periode_scellee"] = view
     assert_no_price_fields(report)
-    name = f"descellement_{_stamp()}"
+    name = f"{'repetition' if rehearsal else 'descellement'}_{_stamp()}"
     j, t = _write(out_dir, name, report, render_fr(report) + render_sealed(view))
     ids = [c.id for c in prereg.confirmatory]
-    append_ledger(out_dir, {"timestamp": name, "kind": "unseal", "prereg_id": prereg.id, "prereg_sha256": prereg.sha256,
+    append_ledger(out_dir, {"timestamp": name, "kind": "rehearsal" if rehearsal else "unseal", "prereg_id": prereg.id, "prereg_sha256": prereg.sha256,
                             "cell_set_sha256": prereg.cell_set_hash, "m_total": prereg.total_cells,
                             "cells_run": len(res.get("cellules") or {}), "candidates": len(verdict["confirmes"]),
                             "universe": universe, "report": j.name, "candidates_sha256": "",
-                            "candidate_cells": CELL_SEP.join(ids), "calibration": cal[0]})  # fmt: skip
+                            "candidate_cells": CELL_SEP.join(ids), "calibration": cal[0],
+                            "bench_sha256": bench_sha256()})  # fmt: skip
     return {"plan": prereg.id, "plan_sha256": prereg.sha256, "periode": verdict["periode"], "titre": verdict["titre"],
             "json": str(j), "txt": str(t), "verdicts": view["confirmatoires"], "placebo": view["placebo"],
             "duree_s": round(time.time() - t0, 1)}  # fmt: skip

@@ -113,11 +113,15 @@ def sealed_verdicts(res: Mapping[str, Any], p: Prereg) -> dict[str, Any]:
     n_trials = dsr_trials(p)
     srs = [v for c in pool if (v := _num((stats.get(c.id) or {}).get("_sr"))) is not None]
     var_sr = float(np.var(srs, ddof=1)) if len(srs) > 1 else 0.0
+    variance = str(se.get("dsr_variance") or "cellules")
+    min_dsr = se.get("min_dsr")
     placebos: dict[str, Any] = {}
     out: dict[str, Any] = {}
     for c in p.confirmatory:
         s = stats.get(c.id) or {}
-        dsr = S.deflated_sharpe(float(_num(s.get("_sr")) or math.nan), n_trials, var_sr, int(s.get("_nobs") or 0),
+        nobs = int(s.get("_nobs") or 0)
+        var_c = (1.0 / (nobs - 1) if nobs > 1 else math.nan) if variance == "nulle" else var_sr
+        dsr = S.deflated_sharpe(float(_num(s.get("_sr")) or math.nan), n_trials, var_c, nobs,
                                 float(_num(s.get("_skew")) or 0.0), float(_num(s.get("_kurt")) or 3.0))  # fmt: skip
         s["dsr"] = round(dsr, 4) if math.isfinite(dsr) else None
         s["dsr_essais"] = n_trials
@@ -127,7 +131,8 @@ def sealed_verdicts(res: Mapping[str, Any], p: Prereg) -> dict[str, Any]:
             placebos[pl.id] = pls
         crit: dict[str, bool] = dict(s.get("criteres") or {})
         crit["t_semaine"] = (_num(s.get("t_week")) or -math.inf) >= float(se["min_t_week"])
-        crit["dsr"] = (_num(s.get("dsr")) or -math.inf) >= float(se["min_dsr"])
+        if min_dsr is not None:  # ``min_dsr: null``: the DSR is printed, never a criterion
+            crit["dsr"] = (_num(s.get("dsr")) or -math.inf) >= float(min_dsr)
         crit["placebo"] = pls is not None and not pls["suspect"]
         power = _num(((res.get("familles") or {}).get(c.id) or {}).get("puissance_decision"))
         if not crit.get("A1", False):
@@ -163,8 +168,15 @@ def sealed_verdicts(res: Mapping[str, Any], p: Prereg) -> dict[str, Any]:
         "confirmes": confirmed,
         "dsr_essais": n_trials,
         "seuils": dict(se),
-        "decision": DECISION,
+        "decision": decision_text(p),
     }
+
+
+def decision_text(p: Prereg) -> str:
+    """The plan's own decision rule (key ``decision``, frozen with it), else the generic one."""
+    if not p.decision:
+        return DECISION
+    return " ; ".join(f"{k.replace('_', ' ')} : {v}" for k, v in p.decision.items())
 
 
 LABELS = ("verdict", "raison", "manquants", "placebo", "suspect")  # never statistics: kept on a masked row

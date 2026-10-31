@@ -349,8 +349,31 @@ def test_registration_7_draft_is_refused_and_its_frozen_copy_opens_the_sealed_pe
                  "--to", "2016-01-31"]) == 2  # fmt: skip
     assert main([*unseal, "--universe", "in_universe", "--from", "2005-01-03", "--to", "2016-01-31"]) == 2
     assert main([*unseal, "--universe", "all"]) == 2  # data from 2016: no warm-up, no sealed period
+    # review of 31/10/2026 — the data are checked before any read (dates and counts only): Stockholm (P1) has no
+    # history before 2016 and no ECB rate before 2017 → refused, a blocking reason that can never be accepted
+    span = ["--universe", "all", "--from", "2005-01-03", "--to", "2016-01-31"]
+    assert main([*unseal, *span, "--check-only"]) == 1
+    assert main([*unseal, *span, "--accept-coverage"]) == 2
+    assert not (tmp_path / "research" / "ledger.csv").read_text().count("unseal")  # a refusal never spends it
+    with db_session() as s:  # the old history of three Stockholm values and the ECB rates from 2005
+        for k in range(3):
+            isin = f"SE20000000{k:02d}"
+            s.add(Instrument(isin=isin, name=f"S{k}", mic="XSTO", currency="SEK", in_universe=False,
+                             market_cap_eur=3e9, pea_eligible=True, kind="stock"))  # fmt: skip
+            s.add_all(_series(isin, n_old + 30, 0.0003, seed=400 + k, start=date(2005, 1, 3)))
+        s.add(FxRate(pair="EURSEK", day=date(2005, 1, 3), rate=9.0, source="ecb"))
+    # the values of the fixture start in 2016 (more than 10 % of P0 / P1): to accept after a look, never silently
+    assert main([*unseal, *span, "--check-only"]) == 1
+    assert main([*unseal, *span]) == 2
     assert not list((tmp_path / "research").glob("descellement_*.json"))
-    assert main([*unseal, "--universe", "all", "--from", "2005-01-03", "--to", "2016-01-31"]) == 0
+    # the rehearsal: the whole machinery on the discovery window (already read), no opening, nothing spent
+    assert main([*unseal, "--universe", "all", "--rehearsal", "--to", "2018-12-31"]) == 0
+    reh = sorted((tmp_path / "research").glob("repetition_*.json"))
+    assert len(reh) == 1 and json.loads(reh[0].read_text())["V_verdict_periode_scellee"]["confirmatoires"]
+    assert "RÉPÉTITION" in reh[0].with_suffix(".txt").read_text()
+    with open(tmp_path / "research" / "ledger.csv", encoding="utf-8") as fh:
+        assert [r["kind"] for r in csv.DictReader(fh)][-1] == "rehearsal"
+    assert main([*unseal, *span, "--accept-coverage"]) == 0
     sealed = sorted((tmp_path / "research").glob("descellement_*.json"))
     assert len(sealed) == 1
     rep = json.loads(sealed[0].read_text())

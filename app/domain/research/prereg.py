@@ -52,6 +52,10 @@ SEALED_FAR_FUTURE = date(2999, 12, 31)
 REPLICATION_MODES = ("candidates", "confirmatory")
 # registration n° 7: the verdict of a plan whose confirmatory cells are declared for the sealed period
 SEALED_KEYS = ("min_t_week", "min_dsr", "dsr_prior_trials", "placebo_max_abs_t")
+# variance of the Sharpe ratios behind the DSR bar (review of 31/10/2026): « cellules » = across the plan's non-placebo
+# cells on the sealed period (their splits have fewer events a week, hence lower weekly Sharpe ratios, which raises the
+# bar), « nulle » = the estimation variance of a skill-less cell, 1 / (weeks − 1). ``min_dsr: null``: printed only.
+DSR_VARIANCES = ("cellules", "nulle")
 R_STOP_EXITS = ("X4", "X8", "XT")  # exits on an ATR stop: controls and cells in R of the trade (pipeline.primary_unit)
 # plans n° 1 to 6 were run with X4 alone in R of the trade (X8 in R_ref): kept for them, so that their replication
 # computes exactly what their discovery computed; a plan opts in with the assumption ``atr_stop_exits_in_r_stop``
@@ -159,6 +163,8 @@ class Prereg:
     sealed_confirmation: bool = False
     replication_folds: tuple[tuple[date, date], ...] = ()
     draft: bool = False  # BROUILLON: never run, calibrated nor unsealed (``check_frozen``)
+    # the plan's own decision rule (key ``decision``, in its sha256): printed by the sealed verdict as written
+    decision: dict[str, str] = dataclasses.field(default_factory=dict)
 
     @property
     def is_exit_plan(self) -> bool:
@@ -308,9 +314,12 @@ def _replication(raw: Mapping[str, Any], segments: Segments) -> tuple[Span | Non
         if not (prev < a <= b <= period[1]):
             raise PreregError("réplication confirmatoire : plis ordonnés, disjoints et dans la période exigés")
         prev = b
-    missing = [k for k in SEALED_KEYS if k not in (raw.get("thresholds") or {}).get("sealed", {})]
+    sealed = (raw.get("thresholds") or {}).get("sealed", {})
+    missing = [k for k in SEALED_KEYS if k not in sealed]
     if missing:
         raise PreregError(f"réplication confirmatoire : seuils du verdict scellé absents (thresholds.sealed) {missing}")
+    if sealed.get("dsr_variance", DSR_VARIANCES[0]) not in DSR_VARIANCES:
+        raise PreregError(f"réplication confirmatoire : dsr_variance hors de {list(DSR_VARIANCES)}")
     return period, True, folds
 
 
@@ -379,6 +388,7 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
         sealed_confirmation=sealed_conf,
         replication_folds=rep_folds,
         draft=bool(raw.get("draft", False)),
+        decision={str(k): str(v) for k, v in (raw.get("decision") or {}).items()},
     )
     if p.is_exit_plan:
         check_exit_plan(p)

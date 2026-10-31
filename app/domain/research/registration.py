@@ -470,6 +470,8 @@ def run_registration(
         families[fam].update(_power_and_mde(cs, trades, res.dense, prereg, z_rw))
     # confirmatory: Holm over the 8 — the strongest needs p ≤ alpha / 8
     z_holm = S.norm_ppf(1 - float(th["a3"]["holm_alpha"]) / max(1, len(conf)))
+    if prereg.sealed_confirmation:  # the sealed verdict also needs t ≥ min_t_week (review of 31/10/2026)
+        z_holm = max(z_holm, float(th["sealed"]["min_t_week"]))
     for c in conf:
         families[c.id] = _power_and_mde([c], trades, res.dense, prereg, z_holm)
     # permutation (top by t_week + gate passers)

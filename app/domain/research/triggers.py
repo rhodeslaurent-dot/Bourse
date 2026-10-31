@@ -213,7 +213,14 @@ def t16_shock_without_news(
 GAP_TRIGGERS = frozenset({"t18"})
 GAP_EARNINGS = ("on", "off")  # t18 split: gap on an announcement's reaction session / known span, none within ± 2
 GAP_CAPS = ("small", "large")  # t18 split ``cap_class``: today's capitalisation (``Panel.small_cap``, flagged)
-GAP_REQUIRED = ("gap_min", "gap_atr", "atr_sessions", "dedup_sessions", "dividend_neutral")  # stated by the plan
+GAP_REQUIRED = (
+    "gap_min",
+    "gap_atr",
+    "atr_sessions",
+    "dedup_sessions",
+    "dividend_neutral",
+    "max_prev_days",
+)  # stated by the plan
 GAP_OPTIONAL = ("size_from", "size_to", "cap_class", "earnings")
 
 
@@ -241,6 +248,8 @@ def check_gap_params(params: Mapping[str, Any]) -> None:
     lo, hi = float(params.get("size_from", 0.0)), float(params.get("size_to", math.inf))
     if not (0.0 <= lo < hi) or int(params["dedup_sessions"]) < 1 or int(params["atr_sessions"]) < 1:
         raise ValueError("t18 : tranche de taille, délai ou ATR invalides")
+    if int(params["max_prev_days"]) < 1:
+        raise ValueError("t18 : écart maximal entre deux séances invalide")
 
 
 def simple_atr(p: Panel, pk: Packing, n: int) -> F64:
@@ -253,15 +262,18 @@ def simple_atr(p: Panel, pk: Packing, n: int) -> F64:
 
 def opening_gap(p: Panel, f: Features, dividend_neutral: bool) -> F64:
     """Open of each own session ÷ close of the previous own session − 1 (raw prices, ``move_causes.opening_gap``).
-    ``dividend_neutral``: times the ratio of the adjustment factors of the two sessions, so that a detachment opens
-    no gap (only the ratio is used: the factors' levels embed later dividends, their ratio only this session's)."""
+    ``dividend_neutral``: times the ratio of the adjustment factors of the two sessions when it is a **rise** (a
+    detachment: the factors before it are scaled down), so that a detachment opens no gap — only the ratio is used,
+    the factors' levels embed later dividends. A factor **drop** is never a detachment (a provider's correction, the
+    loader's 1.0 before the first known factor): it is ignored, never turned into a gap (review of 31/10/2026)."""
     pk = f.pk
     o, c = pack(p.open, pk), pack(p.close, pk)
     with np.errstate(invalid="ignore", divide="ignore"):
         g = o / shift(c, 1)
         if dividend_neutral:
             fac = pack(f.adj_factor, pk)
-            g = g * (fac / shift(fac, 1))
+            ratio = fac / shift(fac, 1)
+            g = g * np.where(np.isfinite(ratio), np.maximum(ratio, 1.0), np.nan)
         return unpack(np.where((o > 0) & (shift(c, 1) > 0), g - 1.0, np.nan), pk, p.shape[0])
 
 
@@ -280,17 +292,30 @@ def first_every(events: Bool, pk: Packing, sessions: int) -> Bool:
 
 
 def gap_down_events(p: Panel, f: Features, gap_min: float, gap_atr: float, atr_sessions: int,
-                    dividend_neutral: bool) -> tuple[Bool, F64]:  # fmt: skip
+                    dividend_neutral: bool, max_prev_days: int | None = None) -> tuple[Bool, F64]:  # fmt: skip
     """Every own session k whose opening gap is a gap **down** of at least max(``gap_min`` ; ``gap_atr`` · ATR ÷
     close), ATR and close of the previous own session k − 1 (``move_causes.gap_threshold``: known before the open of
-    k), eligible or not; and the gap itself. Known at the open of k: bought at the open of k + 1 at the earliest."""
+    k), eligible or not; and the gap itself. Known at the open of k: bought at the open of k + 1 at the earliest.
+    ``max_prev_days``: a session more than that many calendar days after the value's previous one is no opening gap
+    (a hole in the history, a suspension) — never an event (review of 31/10/2026)."""
     pk = f.pk
     atr_prev = unpack(shift(pack(simple_atr(p, pk, atr_sessions), pk), 1), pk, p.shape[0])
     with np.errstate(invalid="ignore", divide="ignore"):
         thr = np.maximum(gap_min, gap_atr * atr_prev / f.prev_close)
         gap = opening_gap(p, f, dividend_neutral)
         ev = np.isfinite(thr) & np.isfinite(gap) & (f.prev_close > 0) & (gap <= -thr)
+    if max_prev_days is not None:
+        ev &= calendar_days_since_previous(p, pk) <= int(max_prev_days)
     return _b(ev & f.valid), gap
+
+
+def calendar_days_since_previous(p: Panel, pk: Packing) -> F64:
+    """Calendar days between each own session and the value's previous own session (NaN on its first bar and
+    where no bar). Calendar array."""
+    day = np.broadcast_to(p.days.astype("datetime64[D]").astype(np.float64)[:, None], p.shape).copy()
+    day[~np.isfinite(p.close)] = np.nan
+    d = pack(day, pk)
+    return unpack(d - shift(d, 1), pk, p.shape[0])
 
 
 def t18_gap_down(p: Panel, f: Features, params: Mapping[str, Any]) -> Bool:
@@ -306,7 +331,7 @@ def t18_gap_down(p: Panel, f: Features, params: Mapping[str, Any]) -> Bool:
     suspect prices) mask eligibility like every trigger (``pipeline.prepare_group``)."""
     check_gap_params(params)
     ev, gap = gap_down_events(p, f, float(params["gap_min"]), float(params["gap_atr"]), int(params["atr_sessions"]),
-                              bool(params["dividend_neutral"]))  # fmt: skip
+                              bool(params["dividend_neutral"]), int(params["max_prev_days"]))  # fmt: skip
     m = first_every(ev, f.pk, int(params["dedup_sessions"]))
     lo, hi = float(params.get("size_from", 0.0)), float(params.get("size_to", math.inf))
     with np.errstate(invalid="ignore"):

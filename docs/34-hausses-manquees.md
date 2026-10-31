@@ -576,7 +576,8 @@ Littérature : un choc **sans** nouvelle se retourne, un choc **avec** nouvelle 
 **Déclencheur t18** (`app/domain/research/triggers.py`, tous les paramètres écrits dans le plan) :
 - saut de la séance k = ouverture(k) ÷ clôture(k − 1) − 1, sur les séances propres de la valeur, cours bruts ;
 - seuil = max(3 % ; 1,5 × ATR ÷ clôture(k − 1)), ATR = **moyenne simple** des vraies amplitudes des 14 séances finissant en k − 1 : définition de l'étude (`move_causes.gap_threshold`, `moves.atr_series`), testée égale sur barres construites ; ce n'est pas l'ATR de Wilder du banc, qui place le stop ;
-- `dividend_neutral: true` : le saut est corrigé du rapport des facteurs d'ajustement de k et k − 1, un détachement n'ouvre donc aucun saut (D2) ;
+- `dividend_neutral: true` : le saut est corrigé du rapport des facteurs d'ajustement de k et k − 1 quand ce rapport **monte**, un détachement n'ouvre donc aucun saut (D2). Une **baisse** du facteur n'est jamais un détachement (correction d'un fournisseur, facteur 1 avant le premier connu) : elle est ignorée, jamais transformée en saut (relecture du 31/10/2026) ;
+- `max_prev_days: 7` : une séance à plus de 7 jours calendaires de la précédente de la valeur (trou d'historique, suspension) n'est pas un saut d'ouverture (relecture du 31/10/2026) ;
 - un événement par valeur toutes les 10 séances, le premier, compté sur tous les sauts baissiers de la valeur (éligible ou non, avant tout découpage) ;
 - signal en k sur une séance éligible, connu à l'ouverture de k ; l'ordre ne travaille qu'à partir de l'ouverture de k + 1 ;
 - opérations sur titres : éligibilité masquée 252 séances, trade traversant exclu, comme tous les déclencheurs ;
@@ -646,7 +647,7 @@ Littérature : un choc **sans** nouvelle se retourne, un choc **avec** nouvelle 
 - Capitalisation et secteur d'aujourd'hui.
 - La période scellée est partagée avec les n° 3, 4 et 6. Chaque plan ne l'ouvre qu'une fois, pour ses propres cellules ; aucun d'eux ne lit t18.
 
-**Décisions avant le gel (D1–D6).** D1, D3 et D4 tranchées par l'utilisateur le 31/10/2026 ; D2, D5 et D6 restent à décider.
+**Décisions avant le gel (D1–D7).** D1, D3 et D4 tranchées par l'utilisateur le 31/10/2026 ; D2, D5, D6 et D7 restent à décider.
 1. **D1 — sortie mesurée : TRANCHÉE.** X8 (stop 2,5 ATR exécuté) en confirmatoire ; XT (la mesure de l'étude) en exploratoire X5. Placebos et exploratoires suivent X8.
 2. **D2 — dividende.** Saut neutralisé du détachement (proposé) ou cours bruts comme la découverte (X6).
 3. **D3 — durées et seuils : puissance probable faible.**
@@ -655,15 +656,32 @@ Littérature : un choc **sans** nouvelle se retourne, un choc **avec** nouvelle 
    - Options : accepter un « NON CONCLUANT » probable ; ou rendre confirmatoire les 5 séances (t 4,2 en découverte : Holm sur 3) ; ou, pour les confirmatoires seulement, remplacer t ≥ 3 par le seul Holm à 5 %. **Jamais après lecture.**
    - **TRANCHÉE** : 5, 10 et 20 séances confirmatoires (C1, C2, C3), Holm sur 3, t ≥ 3 gardé. Le stop exécuté (D1) peut encore réduire l'effet mesuré : le résultat probable reste « NON CONCLUANT », accepté.
 4. **D4 — 5 séances : TRANCHÉE**, confirmatoire (C1).
-5. **D5 — essais du DSR** : 80 = 8 causes lues × (3 durées × 3 mesures + barrière) ; vérifier la ligne « cellules lues » du rapport `causes_20261030_150454` (90 si la ligne « résultats » était démasquée).
-6. **D6 — règle de décision** : seuils du suivi en ombre (100 signaux, 6 mois) avant l'ADR.
+5. **D5 — essais du DSR.** Chaque cause lue compte 10 cellules (3 durées × 3 mesures + barrière) : 8 causes = 80 au rapport `causes_20261030_150454`, 9 causes (achats de dirigeants en plus) = 90 au rapport `causes_20261031_121715`. Proposé : **90** (la seconde exécution relit les mêmes cellules sur des cours corrigés, ce ne sont pas de nouveaux essais) ; 170 si chaque lecture compte.
+6. **D6 — règle de décision** : seuils du suivi en ombre (100 signaux, 6 mois) avant l'ADR. Proposé : les garder, avec deux contrôles d'exécution (glissement réel ≤ 2 × `risk.slippage_pct`, taux d'exécution ≥ moitié de celui du banc). Le suivi vérifie que l'outil reproduit le banc ; il ne peut pas re-prouver l'effet (100 signaux : écart-type de la moyenne ≈ 0,09 R pour un effet attendu de 0,10 à 0,15 R).
+7. **D7 — DSR sur la période scellée** (relecture du 31/10/2026). La variance des Sharpe venait des 14 cellules non placebo du plan sur la période. Les découpages (X2, X3, X4) ont moins d'événements par semaine, donc un Sharpe hebdomadaire plus faible : cela relève la barre de C1 à C3 sans rapport avec la sélection. À effet égal partout, C2 passe DSR ≥ 0,95 environ une fois sur deux à t ≈ 4,6. Les cellules « descriptives » changeraient donc le verdict. Options écrites dans le plan (`thresholds.sealed`) :
+   - `dsr_variance: cellules` (actuel) ;
+   - `dsr_variance: nulle` : variance d'une cellule sans effet, 1 / (semaines − 1), soit une barre proche de t ≥ 4 ;
+   - `min_dsr: null` : DSR imprimé seulement ; Holm sur 3 et t ≥ 3 restent. **Proposé** : sur une période jamais lue, la sélection parmi les essais de la découverte ne biaise pas l'estimation des cellules déclarées ; Holm sur les 3 cellules y suffit.
 
 En plus, hors plan : depuis la revue du 30/10/2026, un verrou global (`prereg.check_not_sealed`) refuse toute lecture de recherche qui commence dans la période scellée, pour tous les plans (`research run`, `calibrate`, `backtest`), sauf les descellements prévus. Une ligne `unseal_started` est écrite au registre avant la lecture : un arrêt brutal ne permet pas de rouvrir la période.
 
-**Sur le PC** (une commande à la fois, après le gel) :
-1. `backfill --from 2005-01-01` pour l'Europe, puis `earnings-history --from 2005-01-01` (aucune commande de recherche entre les deux).
-2. `docker compose exec app python -m app.cli research calibrate --prereg research/prereg/2026-10-31_reg7.yaml --run N`.
-3. Facultatif, descriptif : `research run --prereg research/prereg/2026-10-31_reg7.yaml --universe all --run N`.
-4. L'ouverture unique : `research unseal --prereg research/prereg/2026-10-31_reg7.yaml --universe all --from 2005-01-03 --to 2016-01-31`. Lire les placebos X1, puis C1 / C2 / C3, puis les exploratoires. Me transmettre le `.txt` du descellement.
+**Protections du descellement unique** (relecture du 31/10/2026), toutes vérifiées **avant** la ligne `unseal_started` : un refus ne consomme jamais la période.
+- **Couverture des données** (`research.sealed_data_coverage`, dates et nombres seulement, jamais un cours), pour tout descellement d'une réplication ancienne (n° 3, 4, 6, 7) :
+  - par groupe de places, les valeurs vivantes juste après la période, celles qui ont l'historique depuis le début du préchauffage, celles dont l'historique ne commence qu'à la fin de la période (plus de 10 % : backfill incomplet) ;
+  - chaque indice de régime : au moins 200 clôtures avant 2007-01-02, sinon A7 ne peut jamais passer ;
+  - chaque devise : taux BCE depuis le début.
+  - Un indice manquant ou un groupe sans historique est **bloquant**. Une part tardive ou une devise sans taux s'accepte après vérification, avec `--accept-coverage`.
+- **Empreinte du banc** (`research.bench_sha256` : code de `app/domain/research/`, `app/domain/moves.py`, `app/services/research.py` et `insider_research.py`, fins de ligne normalisées). Elle est écrite dans chaque calibration, exécution, rapport et ligne du registre. Le descellement du n° 7 est refusé si le banc a changé depuis la calibration du plan.
+- **Contrôle seul** : `research unseal … --check-only` fait tous ces contrôles sans rien lire ni écrire (code 0 = PRÊT).
+- **Répétition** : `research unseal … --rehearsal` (n° 7) exécute la même chaîne sur la fenêtre de découverte et ses plis : déjà lue, verdicts sans valeur, aucune ouverture (registre : `rehearsal`). Un plantage n'y coûte rien ; pendant l'ouverture, il la consommerait.
+- **« SEMI-PROPRE »** : seulement si un autre plan a ouvert la période **avant le gel** de celui-ci (sa première calibration le date). Un plan gelé et calibré avant peut être ouvert après les autres le même jour : il reste propre.
+
+**Sur le PC** (une commande à la fois) :
+1. Chargements, possibles **avant** le gel (charger n'est pas lire : aucune commande de recherche ne lit la période scellée, `check_not_sealed`) : `fx-history --from 2005-01-01`, `backfill --provider eodhd --from 2005-01-01 --exchanges PA,AS,BR,XETRA,MI,MC,ST,CO,HE,OL,LS,IR,VI,WAR`, `earnings-history --from 2005-01-01`, puis `index-check --from 2005-01-01` (indices de régime depuis 2005, Yahoo pour un début manquant).
+2. Gel : retirer le bloc BROUILLON et la clé `draft`, puis `research fingerprint --prereg research/prereg/2026-10-31_reg7.yaml` (empreintes du plan Unix / CRLF et du banc), à inscrire ici et dans docs/15-status.md.
+3. `research calibrate --prereg research/prereg/2026-10-31_reg7.yaml --run N`.
+4. `research unseal --prereg research/prereg/2026-10-31_reg7.yaml --universe all --from 2005-01-03 --to 2016-01-31 --check-only` : me transmettre la sortie.
+5. `research unseal --prereg research/prereg/2026-10-31_reg7.yaml --universe all --rehearsal` : répétition.
+6. L'ouverture unique : `research unseal --prereg research/prereg/2026-10-31_reg7.yaml --universe all --from 2005-01-03 --to 2016-01-31`. Lire les placebos X1, puis C1 / C2 / C3, puis les exploratoires. Me transmettre le `.txt` du descellement.
 
 Aucun résultat ne change un paramètre ni un détecteur sans ADR.
