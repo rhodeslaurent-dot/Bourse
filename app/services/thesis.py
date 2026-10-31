@@ -145,6 +145,9 @@ def facts_for(s: Session, p: Proposal, now: datetime | None = None) -> list[dict
         facts.append(f"Contexte macro ({a['editeur']}, {a['date'][:10]}) : {a['titre']} — {a.get('resume') or ''}")
     blocked = (p.gates or {}).get("blocked") or []
     facts += [f"Règle : {b}" for b in blocked[:5]]
+    # docs/37 L0: the non-absolute reasons of a speculative card, moved off the blocks — said as such, never as blocks
+    appreciation = (p.gates or {}).get("appreciation") or []
+    facts += [f"Élément d'appréciation (pas un blocage) : {a}" for a in appreciation[:5]]
     facts.append("Fondamentaux : non attribués (aucune source gratuite qualifiée)")
     for m in s.scalars(
         select(TraderMemory).where(TraderMemory.active.is_(True)).order_by(TraderMemory.id.desc()).limit(3)

@@ -285,6 +285,7 @@ class Speculative:
     lift: bool  # a detector of verdict.speculative_detectors: ADR-013 no longer forces it to WATCH (D10)
     last_target: bool  # D12: R4 failing on the first target may use the last exploitable target
     plage: PlageP2 | str | None = None  # D15 (d7): the plan n° 4 P2 order, or why there is none
+    signal_day: date | None = None  # D15: the session of the plage's last bar (its validity counts from it)
 
 
 def _fees(config: LoadedConfig, account: str) -> FeeSchedule:
@@ -988,6 +989,8 @@ def evaluate(
         if isinstance(d15, PlageP2):  # D15: the plan n° 4 P2 (validity, cancellation, time exit)
             ev.details["entree"].update({
                 "validite_seances": d15.validite_seances,
+                # plan n° 4: valid N sessions after the signal session, the first one after it counting as the first
+                "seance_signal": spec.signal_day.isoformat() if spec is not None and spec.signal_day else None,
                 "politique": "P2 (plan n° 4)",
                 "annulation_ouverture_au_stop_structurel": d15.stop_structurel,
                 "stop_atr": d15.stop_atr,
@@ -2092,7 +2095,7 @@ def _scan(
                                  conv_why, price_source, price_ts, at, f, shown, zones, er, track, prior,
                                  (st_.get("letters") or {}).get(id(setup)), len(bars),
                                  feats.rs_rank if feats else None, q if live else None, now)  # fmt: skip
-                spec = _speculative_for(config, vp, setup, bars, f) if vp is not None else None
+                spec = _speculative_for(config, vp, setup, bars, f, last_day) if vp is not None else None
                 ev = finish(ev_of(spec=spec))
                 if vp is not None:  # docs/37 L0: the graduated verdict (never built when the scale is off)
                     ev = _graded(s, config, vp, ev, ev_of, finish, track, edges)
@@ -2172,11 +2175,11 @@ def _finish_card(
 
 
 def _speculative_for(
-    config: LoadedConfig, vp: VerdictParams, setup: Setup, bars: list[Any], f: Any
+    config: LoadedConfig, vp: VerdictParams, setup: Setup, bars: list[Any], f: Any, signal_day: date | None = None
 ) -> Speculative | None:
     """D10: a setup of a ``verdict.speculative_detectors`` detector is a speculative card from the start — ADR-013
     lifted, budget × multiplier, D12 allowed; a d7 setup with ``speculative_d7_entry: plage`` gets the plan n° 4 P2
-    order (D15) built on its signal day (the last bar of the scan)."""
+    order (D15) built on its signal day (the last bar of the scan, ``signal_day``)."""
     from app.services import verdict as verdict_svc
 
     if setup.detector not in vp.speculative_detectors:
@@ -2187,7 +2190,7 @@ def _speculative_for(
         plage = speculative_plage(last.close, last.high, f.atr14, setup.entry_level, setup.stop, tuple(setup.targets),
                                   verdict_svc.policy_params(config, vp), vp.speculative_stop_atr,
                                   vp.time_exit_sessions)  # fmt: skip
-    return Speculative(vp.speculative_size_multiplier, True, vp.speculative_last_target, plage)
+    return Speculative(vp.speculative_size_multiplier, True, vp.speculative_last_target, plage, signal_day)
 
 
 def _verdict_facts(ev: Evaluation, edge_positive: bool) -> VerdictFacts:
@@ -2391,8 +2394,10 @@ def _persist(
                     }
                 ent = e.details.get("entree") or {}
                 plage_n = ent.get("validite_seances") if ent.get("type") == PLAGE else None
-                # a breakout's plage is valid ``entry.confirm_sessions`` sessions of the venue (docs/06 §6.3)
-                expires = _expiry(s, cals, e, day, now, int(plage_n) if plage_n else expiry_sessions)
+                # a breakout's plage is valid ``entry.confirm_sessions`` sessions of the venue (docs/06 §6.3); a D15
+                # plage counts them from its signal session, as the plan n° 4 (the 07:50 scan runs on the next one)
+                since = date.fromisoformat(str(ent["seance_signal"])) if plage_n and ent.get("seance_signal") else day
+                expires = _expiry(s, cals, e, since, now, int(plage_n) if plage_n else expiry_sessions)
                 if plage_n:
                     ent["jusqu_au"] = (e.details.get("validite") or {}).get("jusqu_au")
                 sig = record_signal(

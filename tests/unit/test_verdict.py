@@ -264,3 +264,45 @@ def test_only_the_first_speculative_cards_are_shown_the_rest_folded(config):
     extra = [it["p"].id for it in items if it["groupe"] == len(LEVEL_ORDER)]
     assert shown == [1, 2, 3, 4, 5] and extra == [6, 7, 8]  # verdict.speculative_shown_max: 5 in the example
     assert set(_folded(groups)) == {LEVEL_ORDER["ecartee"], len(LEVEL_ORDER)}
+
+
+def test_thesis_assistant_and_letter_verdict_read_the_elements_of_appreciation(db_engine):
+    """Review of 31/10/2026: a speculative card's non-absolute reasons live in ``gates.appreciation`` (moved off the
+    blocks). The thesis facts, the assistant's fact pack and the letter verdict now say them — as « éléments
+    d'appréciation », never as blocks — with the stored text only (rule 3: no number the facts do not hold)."""
+    from app.db.models import Instrument, Proposal, Signal
+    from app.db.session import db_session
+    from app.services.assistant import proposal_facts, unsupported_numbers
+    from app.services.letters_verdict import sentence
+    from app.services.thesis import facts_for
+
+    now = datetime(2026, 10, 22, 6, 0, tzinfo=UTC)
+    appr = ["ratio d'admission 0.62 < 0.75 (scoring)", "confiance 2/5 < 3"]
+    with db_session() as s:
+        s.add(Instrument(isin="FR0000121014", name="LVMH", mic="XPAR", currency="EUR", in_universe=True))
+        sig = Signal(isin="FR0000121014", detector="external", source="moteur_lettre", ts=now, timeframe="eod",
+                     data_status="eod", params_version="test")  # fmt: skip
+        s.add(sig)
+        s.flush()
+        p = Proposal(signal_id=sig.id, isin="FR0000121014", action="BUY", stop=96.0, targets=[110.0],
+                     gates={"passed": [], "blocked": [], "appreciation": appr}, created_at=now,
+                     details={"p_max": 101.5, "entree": {"declencheur": 100.0, "limite": 101.5},
+                              "verdict": "entrer_maintenant",
+                              "verdict_chiffres": {"p_max": 101.5, "stop": 96.0, "objectif": 110.0}})  # fmt: skip
+        s.add(p)
+        s.flush()
+        facts = [f["texte"] for f in facts_for(s, p, now)]
+        pack = proposal_facts(p, sig)
+        phrase = sentence(p)
+    assert [f for f in facts if f.startswith("Élément d'appréciation")] == [
+        f"Élément d'appréciation (pas un blocage) : {a}" for a in appr
+    ]
+    assert not any(f.startswith("Règle : ") for f in facts)  # never written as a rule that blocks
+    assert unsupported_numbers("ratio d'admission 0,62 sous 0,75", {"faits": facts}) == []  # the guard finds them
+    assert pack["elements_d_appreciation"] == appr and "regles_bloquantes" not in pack
+    assert phrase is not None and phrase.startswith("Entrée possible : ordre limite à 101,5")
+    assert phrase.endswith(
+        "Éléments d'appréciation (pas des blocages) : ratio d'admission 0.62 < 0.75 (scoring) ; confiance 2/5 < 3."
+    )
+    p.gates = {"passed": [], "blocked": []}  # a card without any keeps its sentence unchanged
+    assert sentence(p) == phrase.split(" Éléments d'appréciation")[0]

@@ -390,6 +390,8 @@ def proposal_facts(p: Proposal, sig: Signal | None) -> dict[str, Any]:
         "stop": _d(p.stop),
         "objectifs": [_d(x) for x in (p.targets or [])],
         "regles_bloquantes": list((p.gates or {}).get("blocked") or []),
+        # docs/37 L0: a speculative card's non-absolute reasons, moved off the blocks (stored text, never a block)
+        "elements_d_appreciation": list((p.gates or {}).get("appreciation") or []),
         "couts_par_compte": {
             label("account", acc): {ACCOUNT_ROW_KEYS[k]: _d(v) for k, v in row.items() if k in ACCOUNT_ROW_KEYS}
             for acc, row in (d.get("comptes") or {}).items()

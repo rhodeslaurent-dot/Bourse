@@ -5,7 +5,9 @@ Pure and deterministic. Conservative by construction:
 - limit entry at the maximal entry price, filled at min(open, limit) when the low reaches it;
 - slipped stop ``stop × (1 − slippage)``; a bar touching stop and target counts as stopped
   (``review.same_bar_rule: stop_first``), including the fill bar;
-- a missing session on the path makes the outcome ``unavailable`` (never estimated).
+- a missing session on the path makes the outcome ``unavailable`` (never estimated);
+- a D15 card (docs/37: d7 speculative, ``PlageEntry``) is entered by its plage and exits at its stop or by time, as the
+  plan n° 4 P2 / X8 it was decided on — never as a limit exiting at target 1.
 """
 
 from __future__ import annotations
@@ -26,6 +28,21 @@ class DayBar:
 
 
 @dataclass(frozen=True)
+class PlageEntry:
+    """The plage of a D15 card (docs/37; plan n° 4, policy P2, exit X8), as its proposal stored it. Its limit is
+    ``OutcomeInput.entry_price``. A buy stop-limit: filled at the open when ``seuil ≤ open ≤ limit``, at the seuil when
+    the open is under it and the session's high reaches it (that high then comes after the fill); cancelled by an
+    open above the limit (never chased) or at or under ``cancel_at_or_below`` (the structural stop) before the fill.
+    Stop ``stop_distance`` (k × ATR14) under the fill, no target (the targets are landmarks), exit at the close of the
+    ``hold_sessions``-th session, the fill session counting as the first."""
+
+    seuil: float
+    stop_distance: float
+    hold_sessions: int
+    cancel_at_or_below: float | None = None
+
+
+@dataclass(frozen=True)
 class OutcomeInput:
     created_day: date  # session date (Paris) of creation
     created_before_open: bool
@@ -37,6 +54,7 @@ class OutcomeInput:
     horizon_sessions: int
     expires_day: date | None = None
     cost_per_share: float | None = None  # round trip, in the instrument currency
+    plage: PlageEntry | None = None  # a D15 card: its plage and time exit (``stop`` and ``target`` then unused)
 
 
 @dataclass
@@ -120,24 +138,41 @@ def evaluate(inp: OutcomeInput, sessions: list[date], bars: dict[date, DayBar]) 
             return out
         return incomplete(missing)
 
-    # 1) simulated limit entry
+    # 1) simulated entry: a limit, or the plage of a D15 card (``PlageEntry``)
+    pl = inp.plage
     fill_idx: int | None = None
+    cancelled: str | None = None
     validity = [
         i for i, d in enumerate(path[: inp.validity_sessions]) if inp.expires_day is None or d <= inp.expires_day
     ]
     for i in validity:
         if i >= len(avail):
             return incomplete(missing)
-        if avail[i].low <= inp.entry_price:
+        b = avail[i]
+        if pl is None:
+            if b.low <= inp.entry_price:
+                fill_idx = i
+                break
+            continue
+        if pl.cancel_at_or_below is not None and b.open <= pl.cancel_at_or_below:
+            cancelled = "ordre à plage annulé : ouverture au stop structurel ou dessous avant l'exécution"
+            break
+        if b.open > inp.entry_price:
+            cancelled = "ordre à plage annulé : ouverture au-dessus de sa limite (jamais poursuivi)"
+            break
+        if b.high >= pl.seuil:
             fill_idx = i
             break
     if fill_idx is None:
-        window_over = len(path) >= inp.validity_sessions or (
-            inp.expires_day is not None and path[-1] >= inp.expires_day
+        window_over = (
+            cancelled is not None
+            or len(path) >= inp.validity_sessions
+            or (inp.expires_day is not None and path[-1] >= inp.expires_day)
         )
         if not window_over:
             return out  # still within the validity window
-        out.status, out.note = "not_filled", "prix d'entrée jamais atteint"
+        never = "seuil de la plage jamais atteint" if pl is not None else "prix d'entrée jamais atteint"
+        out.status, out.note = "not_filled", cancelled or never
         # final once the ghost reaches its horizon (first open → close of the horizon-th session)
         out.ghost_ref_price = avail[0].open
         out.ghost_gap_pct = avail[0].open / inp.entry_price - 1
@@ -149,17 +184,21 @@ def evaluate(inp: OutcomeInput, sessions: list[date], bars: dict[date, DayBar]) 
             out.final = True
         return out
     fill_bar = avail[fill_idx]
-    fill = min(fill_bar.open, inp.entry_price)
+    # a limit fills at min(open, limit); a plage at the open between its seuil and its limit, else at the seuil
+    fill = min(fill_bar.open, inp.entry_price) if pl is None else max(fill_bar.open, pl.seuil)
     out.entry_day, out.entry_price = fill_bar.day, fill
 
-    stop_exec = inp.stop * (1 - inp.slippage_pct) if inp.stop else None
+    # D15: stop k × ATR14 under the fill, no target 1 (time exit)
+    stop, target = (inp.stop, inp.target) if pl is None else (fill - pl.stop_distance, None)
+    stop_exec = stop * (1 - inp.slippage_pct) if stop else None
     risk = fill - stop_exec if stop_exec is not None and fill > stop_exec else None
-    hi, lo = max(fill_bar.close, fill), fill_bar.low  # the fill bar's high may predate the fill
+    # the fill bar's high may predate a limit's fill; it follows a plage's (a buy stop-limit on the way up)
+    hi, lo = (max(fill_bar.close, fill) if pl is None else max(fill_bar.high, fill)), fill_bar.low
 
-    # 2) exits, stop first; the horizon bar is the ``horizon_sessions``-th session after the fill
-    last_idx = fill_idx + inp.horizon_sessions
+    # 2) exits, stop first; the horizon bar is the ``horizon_sessions``-th session after the fill — for a plage the
+    # ``hold_sessions``-th session, the fill session counting as the first (plan n° 4, X8)
+    last_idx = fill_idx + (inp.horizon_sessions if pl is None else max(pl.hold_sessions, 1) - 1)
     exit_px: float | None = None
-    stop, target = inp.stop, inp.target
     j = fill_idx
     while j <= last_idx:
         if j >= len(avail):

@@ -195,6 +195,24 @@ def test_a_d7_setup_becomes_a_speculative_buy_at_half_size_entered_by_the_plan_4
         assert rows and rows[0]["seuil"] == pytest.approx(seuil) and not rows[0]["blocked"]
 
 
+def test_the_d7_plage_validity_counts_from_its_signal_session_as_plan_4(db_engine, on):
+    """Plan n° 4 (``exits.simulate``: sessions k = 1 … validity after the signal session): the scheduled 07:50 scan
+    runs on the session AFTER the last bar (``run_date`` = today), and its plage is valid that session and the next
+    two — not one session more (review of 31/10/2026). « valable 3 séances » and the date to type then agree."""
+    from app.services.explain import entry_order_line
+
+    with db_session() as s:
+        _seed_value(s, ISIN_D7, "LVMH", d7_bars())  # last bar: Wednesday 21/10/2026
+        engine.scan(s, on, DAY + timedelta(days=1), now=NOW)  # Thursday 22/10, 07:50 Paris, as opportunity_scan
+        p = _d7(s)
+        ent, exp = p.details["entree"], p.expires_at
+    assert p.action == "BUY" and ent["politique"] == "P2 (plan n° 4)" and ent["seance_signal"] == DAY.isoformat()
+    assert ent["validite_seances"] == 3
+    assert ent["jusqu_au"] == "2026-10-26" == p.details["validite"]["jusqu_au"]  # Thu 22, Fri 23, Mon 26 (not Tue 27)
+    assert (exp if exp.tzinfo else exp.replace(tzinfo=UTC)).date().isoformat() == "2026-10-26"  # the proposal too
+    assert "valable 3 séances (jusqu'au 26/10/2026)" in entry_order_line(ent)
+
+
 def test_half_size_is_half_the_budget_of_the_same_card(raw):
     half = _run(_cfg(raw, verdict=ON), seed=lambda s: _seed_value(s, ISIN_D7, "LVMH", d7_bars()))
     full = _run(_cfg(raw, verdict={**ON, "speculative_size_multiplier": 1.0}),

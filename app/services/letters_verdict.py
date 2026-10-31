@@ -1,9 +1,10 @@
 """The verdict of a letter proposal in one sentence (docs/20 §20.10) — shared by the opportunities card, the
 « Préconisations » of ``/lettres``, ``letters-trace`` and the Telegram alert of the letters review.
 
-Written by rules from ``details.verdict``, ``details.verdict_motif`` (a gate line, verbatim) and
-``details.verdict_chiffres`` (numbers computed by the engine in Python): never by the LLM, never with a number that
-is not in the proposal's details."""
+Written by rules from ``details.verdict``, ``details.verdict_motif`` (a gate line, verbatim),
+``details.verdict_chiffres`` (numbers computed by the engine in Python) and, for a speculative card (docs/37 L0), the
+elements of appreciation of ``gates.appreciation`` (stored engine text, said as such — never as blocks): never by the
+LLM, never with a number that is not stored on the proposal."""
 
 from __future__ import annotations
 
@@ -76,8 +77,24 @@ def failed_checks(p: Any) -> list[dict[str, Any]]:
     return [c for c in _details(p).get("controle") or [] if isinstance(c, dict) and not c.get("ok")]
 
 
+def appreciation(p: Any) -> list[str]:
+    """docs/37 L0: the elements of appreciation of a speculative card (``gates.appreciation``, moved off the blocks
+    by the engine) — not blocks; [] for a details dict or a proposal without any."""
+    gates = {} if isinstance(p, dict) else (getattr(p, "gates", None) or {})
+    return [w for w in (_why(a) for a in gates.get("appreciation") or []) if w]
+
+
 def sentence(p: Any) -> str | None:
-    """The verdict in one sentence, or None for a proposal without a letter verdict."""
+    """The verdict in one sentence, or None for a proposal without a letter verdict; a speculative card's elements of
+    appreciation follow it, named as such (docs/37 L0)."""
+    text = _sentence(p)
+    appr = appreciation(p)
+    if text is None or not appr:
+        return text
+    return f"{text} Éléments d'appréciation (pas des blocages) : {' ; '.join(appr)}."
+
+
+def _sentence(p: Any) -> str | None:
     d = _details(p)
     v = d.get("verdict")
     if not v:

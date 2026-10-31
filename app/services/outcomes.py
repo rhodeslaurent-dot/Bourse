@@ -25,7 +25,7 @@ from app.db.models import (
 )
 from app.domain.calendar import MarketCalendars, VenueCalendar
 from app.domain.learning import Sample, TrackRecord, track_record
-from app.domain.outcomes import DayBar, OutcomeInput, evaluate
+from app.domain.outcomes import DayBar, OutcomeInput, PlageEntry, evaluate
 from app.domain.timeutil import PARIS
 
 CLOSE_PARIS = time(17, 40)
@@ -58,6 +58,24 @@ def entry_limit(p: Proposal, sig: Signal | None) -> float | None:
     if sig is not None:
         return sig.entry_high or sig.entry_low
     return None
+
+
+def d15_plage(p: Proposal) -> PlageEntry | None:
+    """A D15 card (docs/37: d7 speculative, plan n° 4 P2) as its proposal stored it at the decision (rule 10: the
+    entry and the stop are never rewritten): seuil, cancellation at the structural stop, time exit, and the stop's
+    distance under the fill (k × ATR14 = seuil − the stored stop, which is the stop of a fill at the seuil). Its
+    limit and validity are ``entry_zone.limite`` / ``validite_seances``. None for every other card."""
+    ez = p.entry_zone or {}
+    seuil, limite, n, hold = (ez.get(k) for k in ("seuil", "limite", "validite_seances", "sortie_au_temps_seances"))
+    if not str(ez.get("politique") or "").startswith("P2") or not all(
+        isinstance(x, int | float) for x in (seuil, limite, n, hold, p.stop)
+    ):
+        return None
+    if not (0 < float(p.stop or 0) < float(seuil) <= float(limite)) or int(n) < 1 or int(hold) < 1:
+        return None
+    cancel = ez.get("annulation_ouverture_au_stop_structurel")
+    return PlageEntry(float(seuil), float(seuil) - float(p.stop or 0), int(hold),
+                      float(cancel) if isinstance(cancel, int | float) else None)  # fmt: skip
 
 
 def _cost_per_share(p: Proposal) -> float | None:
@@ -103,17 +121,20 @@ def outcome_for(
     )
     bars = {r.day: DayBar(r.day, r.open, r.high, r.low, r.close) for r in rows if r.official}
     targets = p.targets or (sig.targets if sig else None) or []
+    pl = d15_plage(p)  # D15: the plage it was decided on, its stop and time exit; every other card: a limit
+    ez = p.entry_zone or {}
     inp = OutcomeInput(
         created_day=created.date(),
         created_before_open=_before_open(cal, p.created_at),
-        entry_price=entry_limit(p, sig),
+        entry_price=float(ez["limite"]) if pl else entry_limit(p, sig),
         stop=p.stop or (sig.stop_initial if sig else None),
-        target=float(targets[0]) if targets and isinstance(targets[0], int | float) else None,
+        target=None if pl else float(targets[0]) if targets and isinstance(targets[0], int | float) else None,
         slippage_pct=config.params.risk.slippage_pct,
-        validity_sessions=lp.entry_validity_sessions if lp else 5,
-        horizon_sessions=lp.horizon_sessions if lp else 20,
+        validity_sessions=int(ez["validite_seances"]) if pl else lp.entry_validity_sessions if lp else 5,
+        horizon_sessions=pl.hold_sessions if pl else lp.horizon_sessions if lp else 20,
         expires_day=_paris(p.expires_at).date() if p.expires_at else None,
         cost_per_share=_cost_per_share(p),
+        plage=pl,
     )
     o = evaluate(inp, sessions, bars)
     row = s.scalar(select(SignalOutcome).where(SignalOutcome.proposal_id == p.id)) or SignalOutcome(
