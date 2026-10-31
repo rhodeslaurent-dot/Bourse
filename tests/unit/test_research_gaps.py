@@ -1,8 +1,9 @@
 # ruff: noqa: E501
 """Registration n° 7 (docs/34 §34.14, draft): the opening-gap-down trigger t18 on constructed bars (the causes study's
 definition, point-in-time, one event per value every 10 sessions, splits), suspect prices skipped like a corporate
-action, the XT exit (time exit sized on a never-executed 2.5 ATR stop), the draft plan and its confirmatory cells
-declared for the sealed old replication period (once only, mechanical verdict, placebo first)."""
+action, the XT exit (time exit sized on a never-executed 2.5 ATR stop, descriptive) against the X8 exit (the same stop
+executed, confirmatory at 5 / 10 / 20 sessions since the decisions of 31/10/2026), the draft plan and its confirmatory
+cells declared for the sealed old replication period (once only, mechanical verdict, placebo first)."""
 
 from __future__ import annotations
 
@@ -130,8 +131,11 @@ def test_t18_signals_on_the_gap_session_and_the_order_fills_at_the_next_open():
     _gap(p, 300, 2, -0.06)
     st = settings()
     g = prepare_group(0, p, st)
-    c1 = _frozen7().confirmatory[0]
+    plan = _frozen7()
+    c1 = next(c for c in plan.cells if c.id == "X5.t18.h10")  # the study's measure (XT), descriptive
     assert (c1.trigger, c1.exit, c1.h, c1.unit) == ("t18", "XT", 10, "r_stop")
+    c2 = plan.confirmatory[1]  # the same trigger, the stop executed (X8), confirmatory
+    assert (c2.trigger, c2.exit, c2.h, c2.max_hold, c2.unit, c2.params) == ("t18", "X8", 10, 10, "r_stop", GAP)
     sig = cell_signals(g, c1, st, (0, p.shape[0] - 1))
     assert list(zip(sig.ts.tolist(), sig.cols.tolist(), strict=True)) == [(300, 2)]
     model = cell_model(c1)
@@ -241,9 +245,10 @@ def test_suspect_prices_match_the_study_and_are_skipped_like_a_corporate_action(
     g = prepare_group(0, p, st)
     assert g.bars.ca[300, 1] and g.bars.ca[301, 1] and g.bars.ca[500, 2] and g.quality["seances_suspectes"] == 3
     assert not g.f.elig[300:552, 1].any() and not g.f.elig[500:752, 2].any() and g.f.elig[560:, 1].any()
-    # a trade held across a suspect session is excluded (status « opération sur titres »), counted
-    c1 = _frozen7().confirmatory[0]
-    model = cell_model(c1)
+    # a trade held across a suspect session is excluded (status « opération sur titres »), counted — the XT cell
+    # (never stopped), so that the trade from 295 reaches the suspect session 300
+    xt = next(c for c in _frozen7().cells if c.id == "X5.t18.h10")
+    model = cell_model(xt)
     ts, cols = np.array([294, 250], dtype=np.int64), np.array([1, 0], dtype=np.int64)
     sim = simulate(g.bars, make_orders(g.p, g.f, ts, cols, model, 1, 1.0), model.spec, st.slippage)
     assert sim.status[0] == CORPORATE_ACTION and sim.status[1] == CLOSED
@@ -256,10 +261,11 @@ def test_xt_is_a_time_exit_sized_on_a_never_executed_atr_stop():
         getattr(p, k)[303:, 3] *= 0.98 ** np.minimum(np.arange(303, 400) - 302, 8)
     st = settings()
     g = prepare_group(0, p, st)
-    c1 = _frozen7().confirmatory[0]
-    x5 = next(c for c in _frozen7().cells if c.id == "X5.t18.h10")
-    assert (x5.exit, x5.max_hold, x5.unit) == ("X8", 10, "r_stop")
-    sig = cell_signals(g, c1, st, (0, p.shape[0] - 1))
+    c1 = next(c for c in _frozen7().cells if c.id == "X5.t18.h10")  # XT, descriptive
+    x5 = _frozen7().confirmatory[1]  # C2: X8, confirmatory (decision of 31/10/2026)
+    assert (c1.exit, c1.max_hold, c1.unit) == ("XT", None, "r_stop")
+    assert (x5.id, x5.exit, x5.max_hold, x5.unit) == ("C2", "X8", 10, "r_stop")
+    sig = cell_signals(g, x5, st, (0, p.shape[0] - 1))
     out = {}
     for cell in (c1, x5):
         model = cell_model(cell)
@@ -300,18 +306,26 @@ def test_plan_7_is_a_draft_refused_by_every_command_until_frozen():
     p = _frozen7()
     check_frozen(p)
     assert not p.draft and p.sealed_confirmation and p.needs_earnings
-    assert p.counts() == {"confirmatoires": 2, "exploratoires_etape0": 13, "etape1_plafond": 0, "diagnostics_f0": 0,
-                          "etape2_plafond": 3, "total": 18}  # fmt: skip
-    assert [c.id for c in p.confirmatory] == ["C1", "C2"] and [c.h for c in p.confirmatory] == [10, 20]
-    assert all(c.params == GAP and c.exit == "XT" and c.unit == "r_stop" for c in p.confirmatory)
+    assert p.counts() == {"confirmatoires": 3, "exploratoires_etape0": 14, "etape1_plafond": 0, "diagnostics_f0": 0,
+                          "etape2_plafond": 3, "total": 20}  # fmt: skip
+    # decisions of 31/10/2026: the stop executed (X8) at 5 / 10 / 20 sessions, Holm on 3
+    assert [c.id for c in p.confirmatory] == ["C1", "C2", "C3"] and [c.h for c in p.confirmatory] == [5, 10, 20]
+    assert all(c.params == GAP and c.exit == "X8" and c.max_hold == c.h and c.unit == "r_stop" for c in p.confirmatory)
     ids = {c.id for c in p.cells}
-    assert {"X1.t00.h10", "X1.t00.h20", "X2a.t18.h20", "X2b.t18.h20", "X2c.t18.h20", "X3.t18.cap_classsmall.h20",
-            "X3.t18.cap_classlarge.h20", "X4.t18.earningson.h20", "X4.t18.earningsoff.h20", "X5.t18.h10",
-            "X5.t18.h20", "X6.t18.h5", "X7.t18.h20"} <= ids  # fmt: skip
+    assert ids == {"C1", "C2", "C3", "X1.t00.h5", "X1.t00.h10", "X1.t00.h20", "X2a.t18.h20", "X2b.t18.h20",
+                   "X2c.t18.h20", "X3.t18.cap_classsmall.h20", "X3.t18.cap_classlarge.h20", "X4.t18.earningson.h20",
+                   "X4.t18.earningsoff.h20", "X5.t18.h5", "X5.t18.h10", "X5.t18.h20", "X6.t18.h20"}  # fmt: skip
+    byid = {c.id: c for c in p.cells}
+    assert all(byid[f"X5.t18.h{h}"].exit == "XT" for h in (5, 10, 20))  # the study's measure: descriptive
+    assert all(c.exit == "X8" for c in p.cells if not c.id.startswith("X5."))
+    assert byid["X6.t18.h20"].params == {**GAP, "dividend_neutral": False}  # raw gap, as the discovery
+    for c in p.confirmatory:  # one placebo per confirmatory cell: same exit, same horizon
+        x = byid[f"X1.t00.h{c.h}"]
+        assert (x.exit, x.h, x.max_hold) == (c.exit, c.h, c.max_hold)
     assert p.replication == (date(2007, 1, 2), date(2015, 9, 30)) and len(p.replication_folds) == 5
     assert p.replication_folds[0][0] == date(2007, 1, 2) and p.replication_folds[-1][1] == date(2015, 9, 30)
     assert p.assumptions["suspect_price_ratio"] == 4.0 and p.thresholds["sealed"]["min_t_week"] == 3.0
-    assert dsr_trials(p) == p.thresholds["sealed"]["dsr_prior_trials"] + 13  # every non-placebo cell counted
+    assert dsr_trials(p) == p.thresholds["sealed"]["dsr_prior_trials"] + 14  # every non-placebo cell counted
     sp = sealed_plan(p)
     assert sp.segments.discovery == p.replication and sp.segments.wf_test == p.replication_folds
     assert sp.sha256 == p.sha256 and sp.cells == p.cells
@@ -366,26 +380,27 @@ def _cell_stats(**kw):
     return s
 
 
+PLACEBOS = ("X1.t00.h5", "X1.t00.h10", "X1.t00.h20")
+
+
 def _res(c1=None, c2=None, placebo_t=0.4, power=0.9):
     p = _frozen7()
     # the gap cells of a real effect have Sharpe ratios close to each other: their dispersion sets the DSR bar
     cells = {c.id: _cell_stats(_sr=0.30 + 0.01 * (k % 5), t_week=3.1) for k, c in enumerate(p.cells)}
     cells["C1"] = c1 or _cell_stats()
     cells["C2"] = c2 or _cell_stats(_sr=0.33)
-    for pid in ("X1.t00.h10", "X1.t00.h20"):
+    cells["C3"] = _cell_stats(_sr=0.34)
+    for pid in PLACEBOS:
         cells[pid] = _cell_stats(t_week=placebo_t, mean_excess=0.01)
-    return p, {
-        "cellules": cells,
-        "familles": {"C1": {"puissance_decision": power}, "C2": {"puissance_decision": power}},
-    }
+    return p, {"cellules": cells, "familles": {c: {"puissance_decision": power} for c in ("C1", "C2", "C3")}}
 
 
 def test_sealed_verdict_confirms_only_with_every_criterion_and_reads_the_placebo_first():
     p, res = _res()
     v = sealed_verdicts(res, p)
-    assert v["confirmatoires"]["C1"]["verdict"] == CONFIRMED and v["confirmes"] == ["C1", "C2"]
-    assert v["ordre_de_lecture"][:4] == ["X1.t00.h10", "X1.t00.h20", "C1", "C2"]  # the placebo is read first
-    assert v["confirmatoires"]["C1"]["placebo"] == "X1.t00.h10" and v["confirmatoires"]["C2"]["placebo"] == "X1.t00.h20"
+    assert v["confirmatoires"]["C1"]["verdict"] == CONFIRMED and v["confirmes"] == ["C1", "C2", "C3"]
+    assert v["ordre_de_lecture"][:6] == [*PLACEBOS, "C1", "C2", "C3"]  # the placebos are read first
+    assert [v["confirmatoires"][c]["placebo"] for c in ("C1", "C2", "C3")] == list(PLACEBOS)
     assert v["dsr_essais"] == dsr_trials(p) and res["cellules"]["C1"]["dsr"] >= 0.95
     assert "suivi en ombre" in v["titre"]
     # t under 3: not confirmed (power fine)
@@ -395,14 +410,14 @@ def test_sealed_verdict_confirms_only_with_every_criterion_and_reads_the_placebo
     # one A criterion missing (e.g. A7 regime): not confirmed
     p, res = _res(c1=_cell_stats(criteres={**ALL_A, "A7": False}))
     assert sealed_verdicts(res, p)["confirmatoires"]["C1"]["verdict"] == NOT_CONFIRMED
-    # a weak Sharpe against N = 93 trials: the DSR refuses
+    # a weak Sharpe against N = 94 trials: the DSR refuses
     p, res = _res(c1=_cell_stats(_sr=0.05))
     v = sealed_verdicts(res, p)["confirmatoires"]["C1"]
     assert v["verdict"] == NOT_CONFIRMED and "dsr" in v["manquants"]
     # A1 missing → inconclusive, never « no edge »
     p, res = _res(c1=_cell_stats(criteres={**ALL_A, "A1": False}))
     assert sealed_verdicts(res, p)["confirmatoires"]["C1"]["verdict"] == INCONCLUSIVE
-    # the placebo shows an excess (|t| ≥ 3): the measure is suspect → inconclusive for both
+    # the placebo shows an excess (|t| ≥ 3): the measure is suspect → inconclusive for all three
     p, res = _res(placebo_t=-3.4)
     v = sealed_verdicts(res, p)
     assert {x["verdict"] for x in v["confirmatoires"].values()} == {INCONCLUSIVE} and v["placebo"]["X1.t00.h10"][
@@ -443,18 +458,18 @@ def _sealed_panel(edge: float, n_inst=120, events=900, seed=41):
 
 def test_sealed_run_reads_the_replication_period_only_and_confirms_a_planted_reversal():
     plan = _frozen7()
-    cells = [c for c in plan.cells if c.id in ("C1", "C2", "X1.t00.h10", "X1.t00.h20")]
+    cells = [c for c in plan.cells if c.id in ("C2", "C3", "X1.t00.h10", "X1.t00.h20")]
     sp = _light(sealed_plan(plan), cells)
     st = dataclasses.replace(settings(), universe_label="all", suspect_ratio=4.0)
     p, planted, row = _sealed_panel(edge=0.03)
     res = run_registration([p], sp, st, stages="all", f0=False)
     a, b = row["2007-01-02"], row["2015-09-30"]
     inside = sum(1 for t, _ in planted if a <= t <= b)
-    c1 = res["cellules"]["C1"]
-    assert res["segment"] == "decouverte" and 0.9 * inside <= c1["signaux"] <= inside  # the window is the sealed period
-    assert len(c1["plis"]) == 5 and c1["plis"][0]["annee"] == 2007 and c1["pli_min_n"] >= 40
+    c2 = res["cellules"]["C2"]
+    assert res["segment"] == "decouverte" and 0.9 * inside <= c2["signaux"] <= inside  # the window is the sealed period
+    assert len(c2["plis"]) == 5 and c2["plis"][0]["annee"] == 2007 and c2["pli_min_n"] >= 40
     v = sealed_verdicts(res, sp)
-    assert v["confirmatoires"]["C1"]["verdict"] == CONFIRMED, v["confirmatoires"]["C1"]["manquants"]
+    assert v["confirmatoires"]["C2"]["verdict"] == CONFIRMED, v["confirmatoires"]["C2"]["manquants"]
     assert not v["placebo"]["X1.t00.h10"]["suspect"]
     # the same gaps without the reversal: never confirmed
     q, _, _ = _sealed_panel(edge=0.0)

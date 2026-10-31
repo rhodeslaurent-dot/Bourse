@@ -342,7 +342,7 @@ def test_registration_7_draft_is_refused_and_its_frozen_copy_opens_the_sealed_pe
     assert main(run_args) == 0
     rep = json.loads(sorted(p for p in (tmp_path / "research").glob("2*.json") if "candidates" not in p.name)[-1]
                      .read_text())  # fmt: skip
-    assert rep["A_resume"]["titre"].startswith("DESCRIPTIF") and rep["entete"]["cellules_enregistrees"]["total"] == 18
+    assert rep["A_resume"]["titre"].startswith("DESCRIPTIF") and rep["entete"]["cellules_enregistrees"]["total"] == 20
     assert not list((tmp_path / "research").glob("*_candidates.yaml"))  # descriptive: nothing frozen
     unseal = [*base, "unseal", "--prereg", fp, "--out", out]
     assert main([*unseal, "--universe", "all", "--candidates", "x_candidates.yaml", "--from", "2005-01-03",
@@ -357,12 +357,13 @@ def test_registration_7_draft_is_refused_and_its_frozen_copy_opens_the_sealed_pe
     assert_no_price_fields(rep)
     v = rep["V_verdict_periode_scellee"]
     assert v["periode"] == ["2007-01-02", "2015-09-30"] and len(v["plis"]) == 5
-    assert set(v["confirmatoires"]) == {"C1", "C2"} and set(v["placebo"]) == {"X1.t00.h10", "X1.t00.h20"}
+    assert set(v["confirmatoires"]) == {"C1", "C2", "C3"}
+    assert set(v["placebo"]) == {"X1.t00.h5", "X1.t00.h10", "X1.t00.h20"}
     assert all(x["verdict"] in ("CONFIRMÉ", "NON CONFIRMÉ", "NON CONCLUANT") for x in v["confirmatoires"].values())
     assert rep["A_resume"]["titre"].startswith("PÉRIODE SCELLÉE 2007-01-02 → 2015-09-30")
     assert rep["entete"]["calibration_verdict"] == "VALIDE" and rep["entete"]["debut_donnees"] < "2006-01-01"
     assert "V — Verdict de la période scellée" in sealed[0].with_suffix(".txt").read_text()
     with open(tmp_path / "research" / "ledger.csv", encoding="utf-8") as fh:
         last = list(csv.DictReader(fh))[-1]
-    assert last["kind"] == "unseal" and last["prereg_id"] == "2026-10-31_reg7" and last["candidate_cells"] == "C1;C2"
+    assert last["kind"] == "unseal" and last["prereg_id"] == "2026-10-31_reg7" and last["candidate_cells"] == "C1;C2;C3"
     assert main([*unseal, "--universe", "all", "--from", "2005-01-03", "--to", "2016-01-31"]) == 2  # once only
