@@ -306,3 +306,34 @@ def test_thesis_assistant_and_letter_verdict_read_the_elements_of_appreciation(d
     )
     p.gates = {"passed": [], "blocked": []}  # a card without any keeps its sentence unchanged
     assert sentence(p) == phrase.split(" Éléments d'appréciation")[0]
+
+
+def test_the_thesis_of_a_d15_card_never_claims_a_gain_risk_ratio(db_engine):
+    """docs/37 D15: R4 (gain/risk ≥ 2 on the first target) is not applied to a speculative d7 card entered by the
+    plan n° 4 P2 plage — its thesis says so instead of the breakout's « ratio d'au moins 2 »."""
+    from app.db.models import Instrument, Proposal, Signal
+    from app.db.session import db_session
+    from app.services.thesis import facts_for
+
+    now = datetime(2026, 10, 22, 6, 0, tzinfo=UTC)
+    with db_session() as s:
+        s.add(Instrument(isin="FR0000121014", name="LVMH", mic="XPAR", currency="EUR", in_universe=True))
+        sig = Signal(isin="FR0000121014", detector="d7_sector_rs_compression", source="moteur", ts=now,
+                     timeframe="eod", data_status="eod", params_version="test")  # fmt: skip
+        s.add(sig)
+        s.flush()
+        entree = {"type": "plage", "seuil": 100.0, "limite": 100.4, "validite_seances": 3,
+                  "politique": "P2 (plan n° 4)", "sortie_au_temps_seances": 20}  # fmt: skip
+        p = Proposal(signal_id=sig.id, isin="FR0000121014", action="BUY", stop=95.0, targets=[],
+                     gates={"passed": [], "blocked": [], "appreciation": []}, created_at=now,
+                     details={"p_max": 100.4, "entree": entree})  # fmt: skip
+        s.add(p)
+        s.flush()
+        line = next(f["texte"] for f in facts_for(s, p, now) if f["texte"].startswith("Entrée"))
+        p.details = {"p_max": 100.4, "entree": {**entree, "politique": None}}  # a docs/06 breakout plage
+        s.flush()
+        breakout = next(f["texte"] for f in facts_for(s, p, now) if f["texte"].startswith("Entrée"))
+    assert (
+        "aucun ratio gain/risque exigé" in line and "au temps après 20 séances" in line and "d'au moins 2" not in line
+    )
+    assert breakout.endswith("(ratio gain/risque d'au moins 2 net de frais)")

@@ -50,11 +50,21 @@ def facts_for(s: Session, p: Proposal, now: datetime | None = None) -> list[dict
     entree = d.get("entree") or {}
     if "seuil" in entree:  # a breakout (docs/06 §6.3): its order à plage de déclenchement
         n = entree.get("validite_seances")
+        # D15 (docs/37): a speculative d7 card enters by the plan n° 4 P2 plage without a fixed first target — R4
+        # (gain/risk ≥ 2) is not applied to it, the thesis must not say it is
+        d15 = str(entree.get("politique") or "").startswith("P2")
+        hold = entree.get("sortie_au_temps_seances")
         facts.append(
             f"Entrée : ordre à plage de déclenchement J+1, seuil {_fmt(entree.get('seuil'))}, limite (prix maximal) "
             f"{_fmt(d.get('p_max'))}"
             + (f", valable {n} séances" if n else "")
-            + " (ratio gain/risque d'au moins 2 net de frais)"
+            + (
+                " (carte spéculative, plan n° 4 : sans objectif 1 fixe, sortie au stop"
+                + (f" ou au temps après {hold} séances" if hold else " ou au temps")
+                + ", aucun ratio gain/risque exigé)"
+                if d15
+                else " (ratio gain/risque d'au moins 2 net de frais)"
+            )
         )
     else:
         facts.append(
