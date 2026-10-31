@@ -126,6 +126,8 @@ Pour aligner ce format sur celui que vous utilisez dans votre projet Claude, un 
 
 ## 37.6 Décisions demandées
 
+> **Décisions de l'utilisateur du 31/10/2026** (après `verdict-preview` du 30/10) : **D9 oui, D10 oui (demi-taille), D12 oui, D15 oui** ; D11 : d3 et d4 restent désactivés (statu quo). D13 et D14 restent ouverts. ADR-016 accepté.
+
 | # | Question | Recommandation |
 |---|---|---|
 | D9 | Remplacer les portes non absolues par l'échelle de verdict du §37.2 | oui |

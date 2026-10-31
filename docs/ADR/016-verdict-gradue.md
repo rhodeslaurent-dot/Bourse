@@ -1,6 +1,6 @@
 # ADR-016 — Verdict gradué : les portes non absolues deviennent des éléments d'appréciation (docs/37, lot L0)
 
-- **Statut** : **proposé, en attente de décision (D9–D15)**. Le lot L0 est **construit et désactivé par défaut** (`verdict.enabled: false`) : tant que l'utilisateur n'a pas tranché, le moteur se comporte exactement comme avant (test `test_absent_disabled_or_future_scale_changes_nothing`).
+- **Statut** : **accepté le 31/10/2026** (décisions de l'utilisateur : D9 oui, D10 oui — d2 et d7 en spéculative à demi-taille —, D12 oui, D15 oui ; D11 inchangé : d3 et d4 restent désactivés). Activation : `params-init --update --set verdict.enabled=true`. Avant la décision : **proposé**. Le lot L0 est **construit et désactivé par défaut** (`verdict.enabled: false`) : tant que l'utilisateur n'a pas tranché, le moteur se comporte exactement comme avant (test `test_absent_disabled_or_future_scale_changes_nothing`).
 - **Contexte** : demande de l'utilisateur du 30/10/2026 (docs/37) — « la démarche ne peut pas être binaire », « l'investissement à risque zéro n'existe pas », « je prendrai la décision finale ». Le scanner technique ne peut produire aucun achat : d2 et d7 en surveillance seule (ADR-013), d3 et d4 désactivés (ADR-014), portes binaires empilées sur le reste (docs/37 §37.1). La mesure reste vraie et doit être **montrée** : d7 −0,137 R par trade au coût complet (backtest n° 2), plans n° 4 et 6 sans confirmation.
 
 ## Décision proposée

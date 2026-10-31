@@ -1,6 +1,6 @@
 # ADR-013 — Détecteurs d2, d3, d4 et d7 en surveillance seulement
 
-- **Statut** : **accepté le 26/10/2026** (décision de l'utilisateur : option B).
+- **Statut** : **accepté le 26/10/2026** (décision de l'utilisateur : option B). **Levée pour d2 et d7 le 31/10/2026 par l'ADR-016 (D10)** quand `verdict.enabled` : cartes « spéculatives » à demi-taille, historique mesuré affiché ; d3 et d4 restent désactivés (ADR-014).
 - **Contexte** : backtest n° 2 (docs/27 §27.8) sur 2018-10 → 2026-10, au coût complet. En production, l'espérance est **négative** :
   - d7 −0,137 R (n 2 716, t −2,9) ; d4 −0,382 R ; d3 −0,342 R ; d2 −0,246 R (n 17) ;
   - sur la période de contrôle, l'intervalle de confiance de d4 et de d7 est entièrement négatif.
