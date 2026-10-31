@@ -422,3 +422,18 @@ def test_the_opportunities_page_groups_by_level(db_engine, on, calendars, monkey
     assert "Entrée à plage du plan n° 4 (P2)" in html
     assert ">Spéculative<" in html  # the group header and the badge (docs/37 §37.2, amber)
     assert "Actionnables aujourd'hui" not in html  # the level groups replace the former ones
+
+
+def test_a_d7_plage_on_an_old_last_bar_is_never_born_expired(db_engine, on):
+    """Review of 01/11/2026: counted from an old signal session (a suspension, a missed import), the plage's last
+    session could be before the scan — the validity is then counted from the scan day, and said so."""
+    with db_session() as s:
+        _seed_value(s, ISIN_D7, "LVMH", d7_bars())  # last bar: Wednesday 21/10/2026
+        later = NOW + timedelta(days=7)
+        engine.scan(s, on, DAY + timedelta(days=7), now=later)  # a week later, the same last bar
+        p = _d7(s)
+        if p is None or p.expires_at is None:
+            pytest.skip("no plage card on an old last bar (the data guard stops it before)")
+        exp = p.expires_at if p.expires_at.tzinfo else p.expires_at.replace(tzinfo=UTC)
+    assert exp > later
+    assert p.details["entree"].get("validite_depuis", "").startswith("jour du scan")

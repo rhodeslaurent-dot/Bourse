@@ -246,6 +246,10 @@ def test_the_unseal_verdict_and_the_shared_replication_label(reg6):
     assert replication_label(rows, reg6, "20270312") == "propre"  # the same day: one session
     assert replication_label(rows, reg6, "20270313").startswith("semi-propre")
     assert replication_label([{**rows[0], "kind": "run"}], reg6, "20270313") == "propre"
+    # review of 01/11/2026: the real ledger rows are « descellement_YYYYMMDD_HHMMSS » ([:8] read « descelle »)
+    real = [{"timestamp": "descellement_20270312_101500", "kind": "unseal_started", "prereg_id": "2026-10-30_reg4"}]
+    assert replication_label(real, reg6, "20270312") == "propre"
+    assert replication_label(real, reg6, "20270313").startswith("semi-propre")
 
 
 # --- 3. the plan end to end on synthetic data ------------------------------------------------------------------------

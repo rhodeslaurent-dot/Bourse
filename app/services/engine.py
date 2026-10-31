@@ -2398,6 +2398,10 @@ def _persist(
                 # plage counts them from its signal session, as the plan n° 4 (the 07:50 scan runs on the next one)
                 since = date.fromisoformat(str(ent["seance_signal"])) if plage_n and ent.get("seance_signal") else day
                 expires = _expiry(s, cals, e, since, now, int(plage_n) if plage_n else expiry_sessions)
+                if since != day and expires <= now:  # a last bar several sessions old: never a card born expired
+                    since = day
+                    expires = _expiry(s, cals, e, day, now, int(plage_n) if plage_n else expiry_sessions)
+                    ent["validite_depuis"] = "jour du scan (dernière barre ancienne)"
                 if plage_n:
                     ent["jusqu_au"] = (e.details.get("validite") or {}).get("jusqu_au")
                 sig = record_signal(

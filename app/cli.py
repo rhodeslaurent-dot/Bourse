@@ -1910,6 +1910,8 @@ def cmd_research(args: argparse.Namespace) -> int:
                 u = research.unseal(s, cfg, calendars, args.prereg, args.candidates, out, start, end, args.universe,
                                     progress, args.accept_coverage, args.check_only, args.rehearsal)  # fmt: skip
                 if args.check_only:  # nothing read, nothing written
+                    for why in u.get("problemes") or []:
+                        print(f"PAS PRÊT : {why}")
                     print(u.get("texte") or "aucune période de réplication : pas de contrôle de couverture")
                     print(f"cellules : {', '.join(u.get('cellules') or [])}\nbanc sha256 : {u.get('banc_sha256')}")
                     if u.get("calibration"):
@@ -2406,6 +2408,8 @@ def cmd_backfill(args: argparse.Namespace) -> int:
         args.isin.split(",") if args.isin else None,
         [x.strip() for x in args.exchanges.split(",")] if args.exchanges else None,
         args.missing_only,
+        include_inactive=args.include_inactive,
+        inactive_only=args.inactive_only,
     )
     print(f"{n} barres EOD insérées/mises à jour")
     return 0
@@ -2736,6 +2740,10 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="seulement les valeurs dont l'historique ne remonte pas à --from",
     )
+    bf.add_argument("--include-inactive", dest="include_inactive", action="store_true",
+                    help="aussi les valeurs inactives (radiées depuis) : historique de la période scellée")  # fmt: skip
+    bf.add_argument("--inactive-only", dest="inactive_only", action="store_true",
+                    help="seulement les valeurs inactives (radiées depuis)")  # fmt: skip
     bf.set_defaults(fn=cmd_backfill)
     pi = sub.add_parser("params-init", help="créer config/params.yaml depuis l'exemple (user.* renseignés)")
     pi.add_argument("--email", default=None)

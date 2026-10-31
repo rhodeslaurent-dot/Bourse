@@ -564,6 +564,10 @@ def test_a_plan_frozen_before_another_opening_stays_clean():
     assert seen_before_freeze([before, after], cals, p) == ["2026-10-28_reg3"]  # n° 4 opened after n° 7 was frozen
     assert seen_before_freeze([after], cals, p) == []
     assert seen_before_freeze([before], [], p) == ["2026-10-28_reg3"]  # never calibrated: every earlier opening
+    holdout = {"timestamp": "descellement_20261101_060000", "kind": "unseal", "prereg_id": "2026-10-27_reg1"}
+    assert seen_before_freeze([holdout], cals, p) == []  # plan n° 1 opens its recent holdout, not 2007-2015
+    unknown = {**holdout, "prereg_id": "plan-inconnu"}
+    assert seen_before_freeze([unknown], cals, p) == ["plan-inconnu"]  # unknown plan: counted (the safe side)
 
 
 def test_the_dsr_of_the_sealed_verdict_follows_the_plan_and_the_decision_is_the_plans():

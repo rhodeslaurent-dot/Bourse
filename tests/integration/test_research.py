@@ -314,6 +314,8 @@ def test_registration_7_draft_is_refused_and_its_frozen_copy_opens_the_sealed_pe
     assert main([*base, "calibrate", "--run", str(research_db), "--prereg", plan, "--out", out]) == 2
     assert main([*base, "run", "--prereg", plan, "--universe", "all", "--out", out]) == 2
     assert main([*base, "unseal", "--prereg", plan, "--universe", "all", "--out", out]) == 2
+    # the draft can be checked (nothing read, nothing written): not ready — BROUILLON, no calibration, no rehearsal
+    assert main([*base, "unseal", "--prereg", plan, "--universe", "all", "--out", out, "--check-only"]) == 1
     assert not (tmp_path / "research").exists() or not list((tmp_path / "research").glob("*.json"))
     frozen = tmp_path / "reg7_gele.yaml"
     text = open(plan, encoding="utf-8").read()
@@ -365,6 +367,7 @@ def test_registration_7_draft_is_refused_and_its_frozen_copy_opens_the_sealed_pe
     # the values of the fixture start in 2016 (more than 10 % of P0 / P1): to accept after a look, never silently
     assert main([*unseal, *span, "--check-only"]) == 1
     assert main([*unseal, *span]) == 2
+    assert main([*unseal, *span, "--accept-coverage"]) == 2  # still refused: no rehearsal of this plan and bench
     assert not list((tmp_path / "research").glob("descellement_*.json"))
     # the rehearsal: the whole machinery on the discovery window (already read), no opening, nothing spent
     assert main([*unseal, "--universe", "all", "--rehearsal", "--to", "2018-12-31"]) == 0

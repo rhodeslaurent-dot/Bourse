@@ -13,6 +13,7 @@ import csv
 import hashlib
 import json
 import logging
+import re
 import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
@@ -48,7 +49,9 @@ from app.domain.research.panel import (
 from app.domain.research.pipeline import VENUE_GROUPS, Settings, prepare_group
 from app.domain.research.prereg import (
     CELL_SEP,
+    REPLICATION_WARMUP_DAYS,
     UNSEAL_KINDS,
+    Cell,
     Prereg,
     PreregError,
     check_frozen,
@@ -71,6 +74,7 @@ from app.domain.research.sealed import (
     sealed_plan,
     sealed_verdicts,
 )
+from app.domain.research.triggers import cell_needs_earnings
 from app.services.insider_research import check_forward_unseal, insider_context, insider_report, with_insiders
 
 log = logging.getLogger("bourse.research")
@@ -238,7 +242,9 @@ def _fx_series(
     static_days: dict[str, np.ndarray] = {}
     for cur in sorted(currencies - {"EUR"}):
         base, div = ("GBP", 100.0) if cur in ("GBX", "GBp") else (cur, 1.0)
-        rows = s.execute(select(FxRate.day, FxRate.rate).where(FxRate.pair == f"EUR{base}").order_by(FxRate.day)).all()
+        lo = date.fromisoformat(str(days[0])[:10]) - timedelta(days=31) if days.size else date.min
+        rows = s.execute(select(FxRate.day, FxRate.rate).where(FxRate.pair == f"EUR{base}", FxRate.day >= lo)
+                         .order_by(FxRate.day)).all()  # fmt: skip
         rows = [r for r in rows if r[1]]
         d = np.array([np.datetime64(r[0], "D") for r in rows], dtype="datetime64[D]")
         v = np.array([1.0 / float(r[1]) / div for r in rows], dtype=np.float64)
@@ -255,7 +261,9 @@ def _index_series(s: Session, isin: str | None, start: date, end: date) -> Index
     if not isin:
         return None
     rows = s.execute(
-        select(PriceEod.day, PriceEod.close).where(PriceEod.isin == isin, PriceEod.day <= end).order_by(PriceEod.day)
+        select(PriceEod.day, PriceEod.close)
+        .where(PriceEod.isin == isin, PriceEod.day >= start, PriceEod.day <= end)  # never before the panel's start
+        .order_by(PriceEod.day)
     ).all()
     if not rows:
         return None
@@ -730,8 +738,8 @@ def replication_label(ledger: Sequence[Mapping[str, str]], prereg: Prereg, today
     """Registration n° 6: « propre » unless a plan sharing its old replication (``replication_shared_with``) was
     unsealed on another day than ``today`` (YYYYMMDD) — its entries and exits were then seen on that period."""
     shared = {str(x) for x in prereg.assumptions.get("replication_shared_with") or []}
-    days = {
-        str(r.get("timestamp", ""))[:8]
+    days = {  # ledger rows are « descellement_YYYYMMDD_HHMMSS » (review of 01/11/2026: [:8] read « descelle »)
+        _first_stamp(str(r.get("timestamp", "")))[:8]
         for r in ledger
         if r.get("kind") in UNSEAL_KINDS and r.get("prereg_id") in shared
     }
@@ -740,10 +748,11 @@ def replication_label(ledger: Sequence[Mapping[str, str]], prereg: Prereg, today
 
 # --- the single opening of the sealed period: what is checked before any read (review of 31/10/2026) ---------------
 
-# the code a verdict depends on, outside the plan's own sha256 (units, A1–A13, power, the sealed rule)
-BENCH_FILES = ("app/domain/moves.py", "app/services/research.py", "app/services/insider_research.py")
-BENCH_DIRS = ("app/domain/research",)
-MAX_LATE_HISTORY_SHARE = 0.10  # values alive after the period whose history starts at its end: old data not loaded
+# the code a verdict depends on, outside the plan's own sha256 (units, A1–A13, power, the sealed rule, the portfolio
+# replay, costs, calendars, the detectors the calibration replays): the whole domain layer and the research services
+BENCH_FILES = ("app/services/research.py", "app/services/insider_research.py")
+BENCH_DIRS = ("app/domain",)
+NEVER_LOADED_SHARE = 0.01  # values alive after the period, all starting on one day after it: old data never loaded
 REGIME_INDEX_CLOSES = 200  # panel.index_regime: the index above its own 200-session average (A7, t13)
 
 
@@ -752,7 +761,7 @@ def bench_sha256(root: Path | None = None) -> str:
     Written into every calibration, run and unseal (report header and ledger); an unseal is refused when the bench
     changed since the plan's calibration — the opening is unique, never on an engine other than the one checked."""
     base = root or Path(__file__).resolve().parents[2]
-    files = sorted({f for d in BENCH_DIRS for f in (base / d).glob("*.py")} | {base / f for f in BENCH_FILES})
+    files = sorted({f for d in BENCH_DIRS for f in (base / d).rglob("*.py")} | {base / f for f in BENCH_FILES})
     h = hashlib.sha256()
     for f in files:
         if not f.exists():
@@ -762,8 +771,15 @@ def bench_sha256(root: Path | None = None) -> str:
     return h.hexdigest()
 
 
+def settings_sha256(st: Settings) -> str:
+    """sha256 of every value the bench resolved from params.yaml and the fee schedules (``resolve_settings``): a fee
+    band, the slippage or a liquidity floor changed after the calibration changes it (the insiders' rows excluded:
+    data, not parameters)."""
+    return hashlib.sha256(repr(replace(st, insiders=None)).encode()).hexdigest()
+
+
 def sealed_data_coverage(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg: Prereg,
-                         start: date) -> dict[str, Any]:  # fmt: skip
+                         start: date, decisive: Sequence[Cell] | None = None) -> dict[str, Any]:  # fmt: skip
     """What the database holds for the old replication period — **dates and counts only, never a price**:
     - per venue group, the values alive just after the period (a bar in the 124 days after its end), how many of
       them have a history from the warm-up's start (``start`` + 31 days), and how many start only around the period's
@@ -772,11 +788,19 @@ def sealed_data_coverage(s: Session, config: LoadedConfig, calendars: MarketCale
     - each regime index (``regime.index_isins``, a one-venue group's own index): its closes from ``start`` to the
       period's start — under 200, its 200-session average is unknown in 2007 (A7 can never pass);
     - each currency of the groups: the first ECB rate (after ``start`` + 31 days, the plan's static rate is used).
+    - when the plan reads announcements, their share of the period per group (dates only). It only refuses when a
+      ``decisive`` cell (the confirmatory cells, or the frozen candidates) reads them: every group under the plan's
+      floor is then blocking (the opening would be spent on silenced cells), some groups under it to accept; for
+      descriptive cells only (plan n° 7: X4), it is printed.
     ``bloquants`` can never be accepted; ``a_accepter`` can, after a look, with ``--accept-coverage``."""
     a, b = prereg.replication or prereg.sealed_window
-    full_by, late_from = start + timedelta(days=31), b - timedelta(days=60)
+    full_by = a - timedelta(days=REPLICATION_WARMUP_DAYS) + timedelta(days=31)  # the warm-up the bench needs
     alive_lo, alive_hi = b + timedelta(days=1), b + timedelta(days=124)
     by_group, _ = select_instruments(s, config, calendars, "all", None, prereg.venue_groups)
+    active = {i.isin: bool(i.active) for v in by_group.values() for i in v}
+    floor = prereg.thresholds.get("min_earnings_coverage")
+    decides = any(cell_needs_earnings(c.trigger, c.params)
+                  for c in (prereg.confirmatory if decisive is None else decisive))  # fmt: skip
     groups: dict[str, Any] = {}
     hard: list[str] = []
     soft: list[str] = []
@@ -787,15 +811,40 @@ def sealed_data_coverage(s: Session, config: LoadedConfig, calendars: MarketCale
         alive = set(s.scalars(select(PriceEod.isin).where(PriceEod.isin.in_(isins), PriceEod.day >= alive_lo,
                                                           PriceEod.day <= alive_hi).distinct()))  # fmt: skip
         full = sum(1 for x in alive if first.get(x) is not None and first[x] <= full_by)
-        late = sum(1 for x in alive if first.get(x) is not None and first[x] >= late_from)
+        # values whose history starts after the period: listings, or a history never loaded — the latter all start on
+        # the first day of the earlier load (a spike on one date), listings are spread over the months
+        after = [x for x in alive if first.get(x) is not None and first[x] > b]
+        spike_day, spike = (Counter(first[x] for x in after).most_common(1) or [(None, 0)])[0]
+        missing = [x for x in after if first[x] == spike_day] if spike > max(5, NEVER_LOADED_SHARE * len(alive)) else []
+        n_inactive = sum(1 for x in missing if not active.get(x, True))
         groups[grp] = {"valeurs_vivantes_apres": len(alive), "historique_depuis_debut": full,
-                       "historique_commencant_fin_periode": late,
-                       "part_tardive": round(late / len(alive), 3) if alive else None}  # fmt: skip
+                       "historique_commencant_apres": len(after),
+                       "historique_jamais_charge": len(missing), "dont_inactives": n_inactive,
+                       "premier_jour_commun": spike_day.isoformat() if missing and spike_day else None}  # fmt: skip
         if not alive or not full:
             hard.append(f"{grp} : aucune valeur avec un historique depuis le {full_by} (cours d'avant 2016 absents)")
-        elif late / len(alive) > MAX_LATE_HISTORY_SHARE:
-            soft.append(f"{grp} : {late} valeurs sur {len(alive)} n'ont un historique qu'à partir du {late_from} ou "
-                        f"après (> {MAX_LATE_HISTORY_SHARE:.0%}) : backfill --from 2005-01-01 incomplet ?")  # fmt: skip
+        elif missing:
+            hint = ("backfill --from 2005-01-01 --exchanges … (relancer : reprise du quota)" if len(missing) > n_inactive
+                    else "")  # fmt: skip
+            hint += (" ; " if hint else "") + ("backfill --from 2005-01-01 --exchanges … --inactive-only"
+                                               if n_inactive else "")  # fmt: skip
+            soft.append(f"{grp} : {len(missing)} valeurs vivantes après la période ({n_inactive} inactives) n'ont un "
+                        f"historique qu'à partir du {spike_day} — jamais chargé avant : {hint}")  # fmt: skip
+        if prereg.needs_earnings:  # registration n° 3: a group under the plan's floor gives no earnings signal
+            share = _announcement_share(s, sorted(alive), a, b, prereg)
+            groups[grp]["part_couverte_publications"] = round(share, 3)
+            if decides and floor is not None and share < float(floor):
+                soft.append(f"{grp} : publications couvrant ≈ {share:.0%} de la période (seuil du plan {float(floor):.0%}) "
+                            "— earnings-history --from 2005-01-01 ; sous le seuil, ses cellules de publications se "
+                            "taisent")  # fmt: skip
+    if (
+        decides
+        and floor is not None
+        and groups
+        and all((v.get("part_couverte_publications") or 0.0) < float(floor) for v in groups.values())
+    ):
+        hard.append("publications : aucun groupe au seuil de couverture du plan — ses cellules décisives se tairaient "
+                    "partout, l'ouverture serait perdue")  # fmt: skip
     reg = getattr(config.params, "regime", None) or {}
     ids = {str(v) for v in (reg.get("index_isins") or {}).values() if v}
     for codes in (prereg.venue_groups or {}).values():
@@ -822,6 +871,30 @@ def sealed_data_coverage(s: Session, config: LoadedConfig, calendars: MarketCale
             "debut": start.isoformat(), "pret": not hard and not soft}  # fmt: skip
 
 
+def _announcement_share(s: Session, isins: Sequence[str], a: date, b: date, prereg: Prereg) -> float:
+    """Dates only: the mean share of the period's calendar days within the plan's margin of one of each value's
+    stored announcements (the « known span » of ``earnings_flags``, read without any price) — an approximation of
+    the bench's coverage, which weighs each eligible session."""
+    if not isins:
+        return 0.0
+    margin = int(prereg.assumptions.get("earnings_known_margin_days", EARNINGS_MARGIN_DAYS))
+    lo, hi = a - timedelta(days=margin), b + timedelta(days=margin)
+    by: dict[str, list[date]] = defaultdict(list)
+    for isin, day in s.execute(select(EarningsEvent.isin, EarningsEvent.day).where(
+            EarningsEvent.isin.in_(list(isins)), EarningsEvent.day >= lo, EarningsEvent.day <= hi)):  # fmt: skip
+        by[isin].append(day)
+    span = (b - a).days + 1
+    shares = []
+    for x in isins:
+        covered = np.zeros(span, dtype=bool)
+        for d in by.get(x, []):
+            k0, k1 = max(0, (d - a).days - margin), min(span, (d - a).days + margin + 1)
+            if k0 < k1:
+                covered[k0:k1] = True
+        shares.append(float(covered.mean()))
+    return float(np.mean(shares))
+
+
 def check_sealed_data(cov: Mapping[str, Any], accept: bool) -> None:
     """Refuse the opening before any read when the data would waste it (``sealed_data_coverage``)."""
     if cov["bloquants"] or (cov["a_accepter"] and not accept):
@@ -834,9 +907,12 @@ def check_sealed_data(cov: Mapping[str, Any], accept: bool) -> None:
 def coverage_text(cov: Mapping[str, Any]) -> str:
     lines = [f"Couverture des données de la période scellée (dates et nombres seulement, depuis le {cov['debut']}) :"]
     for g, v in cov["groupes"].items():
+        pub = (f", publications ≈ {v['part_couverte_publications']:.0%} de la période"
+               if v.get("part_couverte_publications") is not None else "")  # fmt: skip
         lines.append(f"  {g} : {v['valeurs_vivantes_apres']} valeurs vivantes après la période, "
-                     f"{v['historique_depuis_debut']} avec l'historique depuis le début, "
-                     f"{v['historique_commencant_fin_periode']} commençant à sa fin (part {v['part_tardive']})")  # fmt: skip
+                     f"{v['historique_depuis_debut']} avec l'historique du préchauffage, "
+                     f"{v['historique_commencant_apres']} commençant après la période, dont "
+                     f"{v['historique_jamais_charge']} jamais chargées ({v['dont_inactives']} inactives){pub}")  # fmt: skip
     lines += [f"  indice {k} : {n} clôtures avant la période" for k, n in cov["indices"].items()]
     lines += [f"  devise {k} : taux BCE depuis le {d or '—'}" for k, d in cov["devises"].items()]
     lines += [f"  BLOQUANT : {x}" for x in cov["bloquants"]] + [f"  À ACCEPTER : {x}" for x in cov["a_accepter"]]
@@ -845,9 +921,27 @@ def coverage_text(cov: Mapping[str, Any]) -> str:
 
 
 def _first_stamp(name: str) -> str:
-    """``descellement_20261101_103000`` / ``calibration_20261101_103000.json`` → ``20261101_103000``."""
-    parts = Path(name).stem.split("_")
-    return "_".join(parts[-2:]) if len(parts) >= 3 else ""
+    """``descellement_20261101_103000`` / ``calibration_20261101_103000.json`` / ``20261101_103000`` →
+    ``20261101_103000`` ("" without a stamp)."""
+    m = _STAMP_RE.search(str(name))
+    return m.group(0) if m else ""
+
+
+_STAMP_RE = re.compile(r"\d{8}_\d{6}")
+
+
+def opened_old_period(row: Mapping[str, str], prereg_dir: Path = Path("research/prereg")) -> bool:
+    """A ledger opening (``unseal`` / ``unseal_started``) of the old sealed period — not a holdout unseal (plans
+    n° 1, 2, 5 open their recent holdout): its plan file declares a ``replication``. An unknown plan counts."""
+    pid = str(row.get("prereg_id") or "")
+    f = prereg_dir / f"{pid}.yaml"
+    if not pid or not f.exists():
+        return True
+    try:
+        raw = yaml.safe_load(f.read_bytes()) or {}
+    except (OSError, yaml.YAMLError):
+        return True
+    return bool(raw.get("replication"))
 
 
 def seen_before_freeze(ledger: Sequence[Mapping[str, str]], calibrations: Sequence[tuple[str, Mapping[str, Any]]],
@@ -859,7 +953,8 @@ def seen_before_freeze(ledger: Sequence[Mapping[str, str]], calibrations: Sequen
     frozen_at = mine[0] if mine else "99999999_999999"
     return sorted({str(r.get("prereg_id")) for r in ledger
                    if r.get("kind") in UNSEAL_KINDS and r.get("prereg_id") and r.get("prereg_id") != prereg.id
-                   and _first_stamp(str(r.get("timestamp", ""))) < frozen_at})  # fmt: skip
+                   and _first_stamp(str(r.get("timestamp", ""))) < frozen_at
+                   and opened_old_period(r)})  # fmt: skip
 
 
 def _header(meta: PanelMeta, universe: str, calibration: tuple[str, str], st: Settings, config: LoadedConfig,
@@ -1061,6 +1156,7 @@ def calibrate(s: Session, config: LoadedConfig, calendars: MarketCalendars, run_
     last_day = s.scalar(select(func.max(PriceEod.day)))
     verdict["fin_donnees"] = last_day.isoformat() if last_day else None  # price data the replay was made with
     verdict["banc_sha256"] = bench_sha256()  # the engine this calibration checked (an unseal requires the same)
+    verdict["parametres_sha256"] = settings_sha256(resolve_settings(config, prereg, "all")[0])  # and its values
     name = f"calibration_{_stamp()}"
     text = (f"Calibration (rejeu du backtest n° {rid}) : {verdict['verdict']}\n"
             f"concordance {verdict['concordance']} sur les {verdict['trades_run2']} trades du run 2 "
@@ -1079,7 +1175,8 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
     the read (and the data coverage), nothing read, nothing written. ``rehearsal`` (registration n° 7 only): the
     same machinery on the discovery window, no opening."""
     prereg = load_prereg(prereg_path)
-    check_frozen(prereg)
+    if not check_only:  # a draft may be checked (nothing read, nothing written), never opened
+        check_frozen(prereg)
     if prereg.sealed_confirmation:  # registration n° 7: the plan's own cells, no candidate file
         return unseal_confirmatory(
             s, config, calendars, prereg, candidates_path, out_dir, start, end, universe, progress,
@@ -1094,10 +1191,17 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
         raw, sha = yaml.safe_load(b), file_sha256(b)
     ids = check_unseal(raw, sha, prereg, ledger)
     check_unseal_span(prereg, start, end)  # an old replication period needs its warm-up and its whole span
+    froze = next((r for r in ledger if r.get("kind") == "run" and sha and r.get("candidates_sha256") == sha), None)
+    if froze and froze.get("bench_sha256") and froze["bench_sha256"] != bench_sha256():
+        raise PreregError("descellement refusé : le code du banc a changé depuis l'exécution qui a figé ces candidats "
+                          f"({froze.get('timestamp')}) — la réplication ne mesurerait pas la même chose")  # fmt: skip
     check_forward_unseal(s, prereg_path, prereg, ledger, end)  # registration n° 5: the forward confirmation rule
     st, prod = resolve_settings(config, prereg, universe)
     st = with_insiders(s, st, prereg)
-    cov = sealed_data_coverage(s, config, calendars, prereg, start) if prereg.replication is not None else None
+    decisive = [c for c in prereg.cells if c.id in set(ids)]
+    cov = (
+        sealed_data_coverage(s, config, calendars, prereg, start, decisive) if prereg.replication is not None else None
+    )
     if check_only:
         return {"pret": cov is None or cov["pret"], "couverture": cov, "texte": coverage_text(cov) if cov else "",
                 "cellules": list(ids), "banc_sha256": bench_sha256()}  # fmt: skip
@@ -1160,29 +1264,56 @@ def unseal_confirmatory(
     machinery on the discovery window and its folds (already read, verdicts without value), no ledger opening — a
     crash there costs nothing, a crash during the opening spends it."""
     t0 = time.time()
+    problems: list[str] = []
+
+    def refuse(why: str) -> None:  # ``check_only``: every reason listed, nothing raised
+        if not check_only:
+            raise PreregError(f"descellement refusé : {why}")
+        problems.append(why)
+
     if universe != "all":
-        raise PreregError("descellement refusé : --universe all exigé (A9 : univers point-in-time)")
+        refuse("--universe all exigé (A9 : univers point-in-time)")
+    if prereg.draft:
+        refuse("plan BROUILLON : le geler (retirer la clé draft, empreinte) avant toute ouverture")
     ledger = read_ledger(out_dir)
     check_ledger(ledger, prereg)
-    if rehearsal:
+    if rehearsal and not check_only:
         check_not_sealed(start, "répétition")  # the rehearsal never reads the sealed period
-    else:
-        check_sealed_once(prereg, ledger, candidates_path)
-        check_unseal_span(prereg, start, end)
+    elif not rehearsal:
+        for check in (lambda: check_sealed_once(prereg, ledger, candidates_path),
+                      lambda: check_unseal_span(prereg, start, end)):  # fmt: skip
+            try:
+                check()
+            except PreregError as e:
+                refuse(str(e).removeprefix("descellement refusé : "))
     cals = _calibrations(out_dir)
     cal = plan_calibration(cals, prereg.sha256)
     if cal[0] != "VALIDE":
-        raise PreregError(f"descellement refusé : {cal[1]} — l'ouverture est unique, le moteur doit être calibré avant")
+        refuse(f"{cal[1]} — l'ouverture est unique, le moteur doit être calibré avant")
     bench = bench_sha256()
-    cal_bench = next((d.get("banc_sha256") for n, d in sorted(cals, key=lambda x: x[0], reverse=True)
-                      if d.get("plan_sha256") == prereg.sha256), None)  # fmt: skip
-    if cal_bench and cal_bench != bench:
-        raise PreregError("descellement refusé : le code du banc a changé depuis la calibration de ce plan "
-                          f"(banc {bench[:12]}…, calibré {str(cal_bench)[:12]}…) — relancer research calibrate")  # fmt: skip
+    newest = next((d for n, d in sorted(cals, key=lambda x: x[0], reverse=True)
+                   if d.get("plan_sha256") == prereg.sha256), {})  # fmt: skip
+    cal_bench, cal_params = newest.get("banc_sha256"), newest.get("parametres_sha256")
     st, prod = resolve_settings(config, prereg, universe)
+    params = settings_sha256(resolve_settings(config, prereg, "all")[0])
+    if cal[0] == "VALIDE" and (not cal_bench or not cal_params):
+        refuse("calibration sans empreinte du banc ou des paramètres (antérieure au 01/11/2026) — relancer "
+               "research calibrate")  # fmt: skip
+    elif cal_bench and cal_bench != bench:
+        refuse(f"le code du banc a changé depuis la calibration de ce plan (banc {bench[:12]}…, calibré "
+               f"{str(cal_bench)[:12]}…) — relancer research calibrate")  # fmt: skip
+    elif cal_params and cal_params != params:
+        refuse("les paramètres du banc (params.yaml, frais) ont changé depuis la calibration de ce plan — relancer "
+               "research calibrate")  # fmt: skip
+    rehearsed = any(r.get("kind") == "rehearsal" and r.get("prereg_sha256") == prereg.sha256
+                    and r.get("bench_sha256") == bench for r in ledger)  # fmt: skip
+    if not rehearsal and not rehearsed:
+        refuse("répétition absente pour ce plan et ce banc — research unseal … --rehearsal d'abord (un plantage "
+               "pendant l'ouverture la consommerait)")  # fmt: skip
     cov = None if rehearsal else sealed_data_coverage(s, config, calendars, prereg, start)
     if check_only:
-        return {"pret": cov is None or cov["pret"], "couverture": cov, "texte": coverage_text(cov) if cov else "",
+        ready = not problems and (cov is None or cov["pret"])
+        return {"pret": ready, "problemes": problems, "couverture": cov, "texte": coverage_text(cov) if cov else "",
                 "cellules": [c.id for c in prereg.confirmatory], "banc_sha256": bench,
                 "calibration": cal[1], "banc_calibre": cal_bench}  # fmt: skip
     if cov is not None:
