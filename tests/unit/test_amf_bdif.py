@@ -174,3 +174,5 @@ def test_the_real_layout_date_venue_nature_then_instrument_and_an_english_copy()
     assert f is not None and f["nature"] == "acquisition" and f["n_transactions"] == 1
     assert f["tx_date"] == date(2025, 5, 15) and f["venue"] == "Euronext Paris"
     assert f["volume"] == 200 and f["price"] == 10.5 and f["amount"] == 2100
+    # the « NOM /FONCTION » label on two lines (PC archive of 31/10/2026: no role was read)
+    assert f["role"] == "directeur général" and f["linked_person"] is False

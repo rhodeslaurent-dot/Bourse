@@ -190,8 +190,12 @@ def archive(
         done = select(InsiderDeclaration.doc_id).where(
             InsiderDeclaration.source == SOURCE, InsiderDeclaration.parse_status == "parsed"
         )
-        if reparse:
-            done = done.where(InsiderDeclaration.nature.is_not(None), InsiderDeclaration.nature != "mixte")
+        if reparse:  # nature not recognised (fixed 30/10) or no role read (fixed 31/10): read again
+            done = done.where(
+                InsiderDeclaration.nature.is_not(None),
+                InsiderDeclaration.nature != "mixte",
+                InsiderDeclaration.role.is_not(None),
+            )
         parsed_ids = set(s.scalars(done))  # their PDF is never downloaded again
         received_at = datetime.now(UTC)
         res = fetch_declarations(

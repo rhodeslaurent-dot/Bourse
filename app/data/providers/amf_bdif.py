@@ -222,7 +222,9 @@ def classify_nature(text: str | None) -> str | None:
 # PDF text (AMF form)
 
 _LABELS = {
-    "who": r"NOM[ \t]*/[ \t]*FONCTION[^:\n]*",
+    # the real form writes this label on two lines (« … OU DE LA » / « PERSONNE ETROITEMENT LIEE : ») — the PC
+    # archive of 31/10/2026 had no role read on any of its 24 393 declarations: the label may span lines
+    "who": r"NOM[ \t]*/[ \t]*FONCTION[^:]*",
     "instrument": r"DESCRIPTION DE L.INSTRUMENT FINANCIER",
     "isin": r"CODE D.IDENTIFICATION[^:\n]*",
     "nature": r"NATURE DE LA TRANSACTION",
