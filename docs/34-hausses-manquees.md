@@ -468,6 +468,15 @@ X8 = stop 2,5 ATR sous l'exécution, sans objectif, sortie au temps h ; XP = sto
 3. `research calibrate --prereg research/prereg/2026-10-30_reg5.yaml --run N`.
 4. `research run --prereg research/prereg/2026-10-30_reg5.yaml --universe all --from 2020-06-01 --run N`. Lire d'abord le placebo X1, puis C1 / C2, puis les contrôles X2 et X3.
 
+**Lecture du 01/11/2026** (rapport `20261031_221434`, après la relecture des fonctions ; calibration VALIDE, concordance 0,997) :
+- **Archive** : 24 393 déclarations, toutes analysées ; les fonctions sont enfin lues (10 442 écartées par la fonction, contre aucune avant le correctif) ; 551 retenues par la règle de C1, 418 placées, 100 signaux sur 296 valeurs parisiennes.
+- **Placebo X1** : excès +0,002 et +0,010 R, t −0,26 et +0,59 — la mesure est saine.
+- **C1** (dirigeants, 10 séances) : n 100, R −0,140, excès −0,157, t −1,93 ; **C2** (20 séances) : n 100, R −0,195, excès −0,120, t −1,04. **NON CONCLUANT** : A1 manque (n 100 / 300, 76 semaines / 100, pli le plus petit 15 / 40). Les deux estimations sont **négatives**.
+- **X5** (toute fonction) : n 674, excès −0,036 R, t −1,06 ; X2 n 221, −0,045 ; X3 n 98, +0,041 (t 0,70) ; X4 n 12, masqué. Aucun avantage détecté.
+- Cohérent avec l'étude des causes (docs/36 : achats de toute fonction, excès sur la place +0,51 % à 5 séances, mais net CTO ≈ 0) : contre des contrôles appariés, en R du trade et net de coûts, il ne reste rien.
+- **Conséquence** : aucun déclencheur « achat de dirigeant ». L'information reste affichable telle quelle sur une carte (fait daté, source AMF), jamais comme un signal de force.
+- **Confirmation vers l'avant** : au rythme observé (≈ 100 signaux de C1 en 5 ans), les 100 signaux en ombre exigés prendraient bien plus que le plafond de 36 mois ; elle finira « non concluant » sans ouverture, sauf hausse nette du nombre de déclarations.
+
 Aucun résultat ne change un paramètre ni un détecteur sans ADR.
 
 ## 34.13 Enregistrement n° 6 : règles de sortie
