@@ -145,7 +145,7 @@ D2 (risque « élevé » → demi-taille) et D6 (double pénalité orange) de do
 | Lot | Contenu | Dépend de |
 |---|---|---|
 | **L0** | échelle de verdict, ADR-013 bis, cartes et Telegram ; règles absolues inchangées ; tests — **construit, désactivé par défaut** (30/10/2026, §37.8) | D9 à D12, D15 |
-| **L1** | causes des hausses : étape 1 (en cours), étape 2 avec les nouvelles | source de nouvelles |
+| **L1** | causes des hausses : étape 1 (en cours), étape 2 avec les nouvelles — archive des communiqués officiels AMF construite le 01/11/2026 (docs/36 §36.9, ADR-017), chargement sur le PC à faire | source de nouvelles : flux AMF (API info-financiere + paquets DILA) |
 | **L2** | préconisation explicite (§37.5) sur chaque carte ≥ « spéculative » | L0, D14 |
 | **L3** | dossier d'analyse globale + comité étendu à ces cartes (coût estimé avant de coder, plafond journalier inchangé sauf décision) | L2 |
 | **L4** | module de recherche proactive (§37.4) et liste d'anticipation | L1, L3 |

@@ -1683,6 +1683,39 @@ def cmd_insider_archive(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_filings_archive(args: argparse.Namespace) -> int:
+    """Lot L1 (docs/36 §36.9, ADR-017) — regulated releases of the AMF flow: the API of info-financiere.gouv.fr
+    month by month (``--source api``, default) or the DILA packages of a period (``--source dila``, e.g. 2022, the
+    hole of the API), then the coverage per month. Metadata only; nothing before 2015-10-01."""
+    from app.data.base import ProviderUnavailable
+    from app.db.session import db_session
+    from app.services import filings
+
+    cfg = load_params(args.params)
+    st = filings.settings(cfg)
+    end = date.fromisoformat(args.to) if args.to else date.today()
+    start = date.fromisoformat(args.from_date) if args.from_date else st["history_from"]
+    why = filings.refusal(start, end)
+    if why:
+        print(why)
+        return 2
+    with db_session() as s:
+        if not args.coverage_only:
+            say = lambda m: print(f"  {m}", flush=True)  # noqa: E731
+            try:
+                if args.source == "dila":
+                    rep = filings.archive_dila(s, cfg, start, end, progress=say, again=args.again,
+                                               max_packages=args.max_packages)  # fmt: skip
+                else:
+                    rep = filings.archive_api(s, cfg, start, end, progress=say)
+            except ProviderUnavailable as exc:
+                print(f"source indisponible : {exc}")
+                return 1
+            print(rep.line())
+        print(filings.coverage(s, cfg))
+    return 0
+
+
 def cmd_moves_study(args: argparse.Namespace) -> int:
     """docs/34 — the rises the tool missed: episodes, replay of the production rules, why not, control sample.
     Exploratory; European venues only (New York, London, Zurich stay unread until registration n° 2 has run).
@@ -2604,6 +2637,25 @@ def main(argv: list[str] | None = None) -> int:
         "--reparse", action="store_true", help="relit les PDF dont la nature n'a pas été reconnue (correctif du 30/10)"
     )
     ia.set_defaults(fn=cmd_insider_archive)
+    fa = sub.add_parser(
+        "filings-archive", help="communiqués officiels AMF (info-financiere, DILA) : archive, couverture"
+    )
+    fa.add_argument(
+        "--from",
+        dest="from_date",
+        default=None,
+        help="début (défaut : data.filings.history_from ; jamais avant 2015-10-01)",
+    )
+    fa.add_argument("--to", default=None, help="fin (défaut : aujourd'hui)")
+    fa.add_argument(
+        "--source", choices=("api", "dila"), default="api", help="api (défaut) ou dila (paquets, pour combler un trou)"
+    )
+    fa.add_argument("--again", action="store_true", help="dila : relit aussi les paquets déjà lus")
+    fa.add_argument(
+        "--max-packages", dest="max_packages", type=int, default=None, help="dila : au plus N paquets (essai)"
+    )
+    fa.add_argument("--coverage-only", dest="coverage_only", action="store_true", help="couverture seulement")
+    fa.set_defaults(fn=cmd_filings_archive)
     mv = sub.add_parser("moves-study", help="hausses manquées (docs/34) : rejeu de l'outil, pourquoi pas, contrôle")
     mv.add_argument("--from", dest="from_date", default="2017-01-02", help="début (pas avant 2017-01-02)")
     mv.add_argument("--to", default=None, help="fin (défaut : hier)")

@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<UniteInformation UIN_VER_FIN="FI_v1.1_20120515" UIN_VER_LOV="LV_01.09_20180501" UIN_IDT_UIN="083574_20261028" UIN_DAT_AMF="2026-10-30T22:00:37+02:00" UIN_DAT_MAR="2026-10-28T08:00:09+02:00">
+  <identificationDiffuseur IDI_COD_DIF="ECO"/>
+  <identificationSociete ISO_PAY_SS="FR" ISO_NOM_SOC="EDENRED" ISO_CD_ISI="FR0010908533" ISO_CD_AMF="" ISO_CD_LEI="9695006LOD5B2D7Y0N70" ISO_URL_INT="" ISO_URL_IRG="" ISO_URL_LOG="">
+    <ISO_CODE_TKR ISO_CD_TKR="EDEN" ISO_CD_MCH="99"/>
+  </identificationSociete>
+  <InformationDeposee INF_DAT_EMT="2026-10-30T22:00:37+02:00" INF_STP_PRI="001006" INF_TIT_INF="Edenred successfully raises &#x20AC;800 million in a dual-tranche bond offering" INF_LNG_INF="EN" INF_COD_DIF="OBL">
+    <INF_UPG_INF INF_UPG_STS="NEW" INF_UPG_REL=""/>
+    <INF_STP_INF>001006</INF_STP_INF>
+    <INF_LST_DIF>AMF</INF_LST_DIF>
+    <INF_LST_DIF>Euronext</INF_LST_DIF>
+  </InformationDeposee>
+  <FichierDeContenu INF_FIC_NOM="ECO/2026/10/FCECO083574_20261028.pdf"/>
+</UniteInformation>

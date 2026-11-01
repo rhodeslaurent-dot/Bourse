@@ -107,7 +107,7 @@ Les sceaux sont repris de docs/34 §34.1 :
 ## 36.5 Ce que l'étude ne couvre pas, et ses limites
 
 **Non couvert** (écrit en tête du rapport) :
-- l'historique des nouvelles (étape 2) ;
+- l'historique des nouvelles (étape 2 : les communiqués officiels sont archivés depuis le 01/11/2026, §36.9 ; ils ne sont pas encore lus par l'étude) ;
 - les changements de recommandations et d'objectifs d'analystes : aucune source datée à l'époque (docs/34 §34.8) ;
 - les déclarations de dirigeants hors de France ;
 - les podcasts, vidéos et réseaux sociaux : aucun historique ;
@@ -172,6 +172,38 @@ Options :
 - la couverture de chaque source par année est imprimée en tête du rapport.
 
 **À me transmettre** : le `.md`. Une fois les plans n° 3 et n° 5 exécutés, relancer la commande pour lire les deux lignes masquées de la partie B.
+
+## 36.9 Étape 2 : historique daté des communiqués officiels (lot L1, ADR-017)
+
+**Source** : le flux AMF des informations réglementées, diffusé par la DILA. Ce sont les communiqués officiels des sociétés cotées en France, avec leur type, leur titre, leur heure et leur ISIN.
+- L'**API d'info-financiere.gouv.fr** est lue mois par mois (539 690 fiches au 01/11/2026).
+- Les **paquets de la DILA** comblent 2022 : l'API n'en a que 10 001 fiches, contre environ 25 000 les autres années.
+- Seules les métadonnées sont gardées, dans la table `official_filings`. Aucun PDF n'est téléchargé.
+
+**Heure** : l'heure écrite par la source est l'heure de Paris, et son étiquette de fuseau est fausse.
+- L'API affiche « +00:00 ».
+- Les paquets écrivent encore « +02:00 » après le changement d'heure du 25/10/2026.
+- Le code lit donc l'heure de Paris et la convertit lui-même en UTC (ADR-017). L'heure retenue est celle de la diffusion au marché ; à défaut, celle du dépôt à l'AMF.
+
+**Familles** (liste fermée, d'après le code de type) : résultats, chiffre d'affaires, acquisition ou cession, autre information privilégiée, rapport financier, mise à disposition d'un document, droits de vote et capital, offre publique, rachat d'actions et contrat de liquidité, gouvernance, déclaration sur une rumeur, autre.
+
+**Couverture** : un mois sous 50 % de la médiane du même mois des autres années est « non couvert ». L'étude y lira « inconnu », jamais « aucun communiqué ».
+
+**Sceau** : rien avant le 01/10/2015 ; le chargement commence par défaut le 01/01/2016.
+
+**Commandes sur le PC :**
+
+```
+docker compose exec -T app python -m app.cli filings-archive --from 2016-01-01
+docker compose exec -T app python -m app.cli filings-archive --source dila --from 2022-01-01 --to 2022-12-31
+docker compose exec -T app python -m app.cli filings-archive --coverage-only
+```
+
+- `--max-packages 3` : un essai sur quelques paquets ;
+- `--again` : relit des paquets déjà lus.
+- La sortie est faite d'agrégats seulement : le tableau mois par mois, les sources et leur accord sur l'heure, les heures, les ISIN, les familles et les codes de type.
+
+**Ensuite** : le communiqué officiel, par famille et par moment, devient une cause de §36.2, mesurée contre les baisses et le groupe témoin.
 
 ## 36.x Suite donnée aux pistes (01/11/2026)
 

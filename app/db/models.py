@@ -584,6 +584,61 @@ class InsiderDeclaration(Base):
     __table_args__ = (UniqueConstraint("source", "doc_id", name="uq_insider_declarations_source_doc"),)
 
 
+class OfficialFiling(Base):
+    """Lot L1 (docs/36 §36.9, ADR-017) — regulated releases of the AMF flow (API info-financiere.gouv.fr and
+    DILA packages): metadata only, no PDF. One row per (diffuser, number), whichever source read it first
+    (``also_in``: the other one when it read it too). ``market_timestamp`` is the release to the market
+    (``UIN_DAT_MAR``; the filing time when it is missing, ``time_source``), the Paris wall clock of the source
+    localised in Europe/Paris — its offset label is only checked (``tz_label_ok``). Kept apart from ``news_items``:
+    never classified by the LLM, never shown as a news item. Archive for the causes study (docs/36), no signal."""
+
+    __tablename__ = "official_filings"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(16))  # info_financiere | dila
+    also_in: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    also_in_time_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # both sources give the same time
+    diffuser: Mapped[str] = mapped_column(String(8))
+    uin_id: Mapped[str] = mapped_column(String(32))
+    issuer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    isin: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    lei: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ticker: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    type_code: Mapped[str | None] = mapped_column(String(6), nullable=True)
+    type_codes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    family: Mapped[str] = mapped_column(String(20), index=True)  # app.domain.filings.FAMILIES
+    subtype_label: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    language: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    disclosure: Mapped[str | None] = mapped_column(String(4), nullable=True)  # OBL | OPT | AMF
+    update_status: Mapped[str | None] = mapped_column(String(4), nullable=True)  # NEW | REC | ADD
+    update_ref: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    market_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    amf_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    time_source: Mapped[str | None] = mapped_column(String(8), nullable=True)  # marche | amf
+    time_precision: Mapped[str] = mapped_column(String(10))  # seconde | jour | illisible
+    raw_market_time: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    tz_label: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    tz_label_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    pdf_path: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    data_status: Mapped[str] = mapped_column(String(12), default="eod")
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("diffuser", "uin_id", name="uq_official_filings_diffuser_uin"),)
+
+
+class OfficialFilingPackage(Base):
+    """A DILA package read (lot L1): a package is never downloaded twice unless asked (``--again``)."""
+
+    __tablename__ = "official_filing_packages"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    name: Mapped[str] = mapped_column(String(40), unique=True)
+    n_xml: Mapped[int] = mapped_column(Integer, default=0)
+    n_new: Mapped[int] = mapped_column(Integer, default=0)
+    n_unreadable: Mapped[int] = mapped_column(Integer, default=0)
+    size_bytes: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), default=0)
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 # ---------------------------------------------------------------------------------------------
 # Phase 1 (D) — news, newsletters, signaux externes, propositions, décisions, instantanés
 # ---------------------------------------------------------------------------------------------

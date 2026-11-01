@@ -620,6 +620,12 @@ data:
     read_pdf: true                         # lire les chiffres dans le PDF si pypdf est installé ; sinon adresse du PDF seule, chiffres vides
     lookback_days: 7                       # la tâche relit les 7 derniers jours (publication tardive, PDF illisible la veille)
     window_days: 31                        # découpage d'une longue période (la liste ne pagine pas au-delà de 10 000 éléments)
+  filings:                                 # lot L1 (docs/36 §36.9, ADR-017) : communiqués officiels du flux AMF (API info-financiere.gouv.fr, paquets DILA) — métadonnées seulement (type, titre, heure, ISIN), aucun PDF téléchargé ; archive pour l'étude des causes, aucun signal
+    api_base_url: "https://www.info-financiere.gouv.fr"
+    dila_base_url: "https://echanges.dila.gouv.fr/OPENDATA/AMF/"
+    min_interval_s: 1.0                    # au moins 1 s entre deux requêtes (plancher imposé par le code)
+    history_from: "2016-01-01"             # début par défaut de filings-archive ; jamais avant 2015-10-01 (période 2007-2015 réservée, docs/34)
+    coverage_min_share: 0.5                # un mois sous 50 % de la médiane du même mois des autres années est « non couvert » (l'étude y lit « inconnu »)
   fundamentals: {max_items: 800, min_interval_s: 1.0}   # Yahoo (gratuit, non officiel) : débit limité, source et date affichées
   quote_at_each_analysis: true             # [comportement codé] R19 : cours relevé au moment de chaque analyse, horodatage de marché et statut enregistrés
   plausibility_max_gap_pct: 0.05           # écart entre sources ou vs dernière clôture sans nouvelle → « à vérifier »
