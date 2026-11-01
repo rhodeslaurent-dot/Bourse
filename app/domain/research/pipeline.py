@@ -824,6 +824,7 @@ def cell_stats(tr_all: Trades, cell: Cell, prereg: Prereg, st: Settings) -> dict
         folds.append({"annee": a.year, "n": int(w.sum()), "mean_r": _f(_mean(r[w])), "mean_excess": _f(_mean(ex[w]))})
     out["plis"] = folds
     out["plis_positifs"] = int(sum(1 for x in folds if (x["mean_r"] or 0) > 0))
+    out["plis_exces_positifs"] = int(sum(1 for x in folds if (x["mean_excess"] or 0) > 0))  # the effect, fold by fold
     out["pli_min_n"] = int(min(x["n"] for x in folds)) if folds else 0
     o = tr.select(oos)
     out["oos"] = _summary(o)

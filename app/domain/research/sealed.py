@@ -17,6 +17,9 @@ Verdict of each confirmatory cell (``thresholds.sealed``), mechanical, in this o
 - **CONFIRMÉ** when A1–A13 are all met **and** the weekly Newey–West t of the excess ≥ ``min_t_week`` **and** the
   deflated Sharpe ratio ≥ ``min_dsr`` with N = ``dsr_prior_trials`` (cells already read by the exploratory study)
   + every non-placebo cell of the plan (all of them are read on the sealed period);
+- with ``effect_level`` (decision D8 of 01/11/2026): **EFFET CONFIRMÉ, NON EXPLOITABLE** when the effect
+  itself is (A1, placebo, t and Holm on the excess, the excess positive in enough folds, the DSR when required)
+  but not every economic criterion — no order, an element of appreciation of the cards at most (ADR);
 - otherwise **NON CONCLUANT** when the planted-edge power at the decision edge is under ``power_min``, else **NON
   CONFIRMÉ**.
 
@@ -37,6 +40,7 @@ from app.domain.research import stats as S
 from app.domain.research.prereg import UNSEAL_KINDS, Cell, Prereg, PreregError
 
 CONFIRMED = "CONFIRMÉ"
+EFFECT_ONLY = "EFFET CONFIRMÉ, NON EXPLOITABLE"  # D8 (user decision of 01/11/2026): the effect without the economics
 NOT_CONFIRMED = "NON CONFIRMÉ"
 INCONCLUSIVE = "NON CONCLUANT"
 PLACEBO_TRIGGER = "t00"
@@ -115,6 +119,7 @@ def sealed_verdicts(res: Mapping[str, Any], p: Prereg) -> dict[str, Any]:
     var_sr = float(np.var(srs, ddof=1)) if len(srs) > 1 else 0.0
     variance = str(se.get("dsr_variance") or "cellules")
     min_dsr = se.get("min_dsr")
+    effect_level = bool(se.get("effect_level", False))
     placebos: dict[str, Any] = {}
     out: dict[str, Any] = {}
     for c in p.confirmatory:
@@ -134,13 +139,26 @@ def sealed_verdicts(res: Mapping[str, Any], p: Prereg) -> dict[str, Any]:
         if min_dsr is not None:  # ``min_dsr: null``: the DSR is printed, never a criterion
             crit["dsr"] = (_num(s.get("dsr")) or -math.inf) >= float(min_dsr)
         crit["placebo"] = pls is not None and not pls["suspect"]
+        # D8 (``effect_level``): the effect itself — A1, the placebo, t ≥ min_t_week and Holm on the excess over the
+        # matched controls, the excess positive in ≥ a5.min_positive_folds folds, the DSR when required — without the
+        # economic thresholds (A2, A4's size, A6 …)
+        effect: dict[str, bool] = {k: crit[k] for k in ("A1", "placebo", "t_semaine") if k in crit}
+        p_holm = _num(s.get("p_holm"))  # 0.0 is a p-value, never « missing »
+        effect["holm"] = p_holm is not None and p_holm <= float(th["a3"]["holm_alpha"])
+        effect["plis_exces"] = (_num(s.get("plis_exces_positifs")) or 0) >= float(th["a5"]["min_positive_folds"])
+        if "dsr" in crit:
+            effect["dsr"] = crit["dsr"]
         power = _num(((res.get("familles") or {}).get(c.id) or {}).get("puissance_decision"))
         if not crit.get("A1", False):
             verdict, why = INCONCLUSIVE, "échantillon sous A1 (n, semaines ou trades par pli)"
         elif not crit["placebo"]:
             verdict, why = INCONCLUSIVE, "placebo suspect ou absent : la mesure elle-même est en cause"
-        elif all(crit.values()):
+        elif all(crit.values()) and (not effect_level or all(effect.values())):
             verdict, why = CONFIRMED, "suivi en ombre, puis ADR à 50 % du risque par trade"
+        elif effect_level and all(effect.values()):
+            verdict, why = EFFECT_ONLY, ("l'effet existe, pas à nos coûts — aucun ordre ; élément d'appréciation "
+                                         "possible des cartes (ADR) ; manquent : "
+                                         + ", ".join(k for k, v in crit.items() if not v))  # fmt: skip
         elif power is not None and power < float(th["power_min"]):
             verdict, why = INCONCLUSIVE, f"puissance {power} < {th['power_min']} à l'effet de décision"
         else:
@@ -153,13 +171,19 @@ def sealed_verdicts(res: Mapping[str, Any], p: Prereg) -> dict[str, Any]:
             "plis_positifs": s.get("plis_positifs"), "dsr": s.get("dsr"), "dsr_essais": n_trials,
             "puissance_decision": power, "placebo": pl.id if pl is not None else None,
             "criteres": crit, "manquants": [k for k, v in crit.items() if not v],
+            **({"criteres_effet": effect, "plis_exces_positifs": s.get("plis_exces_positifs")} if effect_level else {}),
             "pea": (s.get("pea") or {}).get("mean_r"),
         }  # fmt: skip
     a, b = p.replication or (None, None)
     confirmed = [cid for cid, v in out.items() if v["verdict"] == CONFIRMED]
+    effects = [cid for cid, v in out.items() if v["verdict"] == EFFECT_ONLY]
     title = f"PÉRIODE SCELLÉE {a} → {b} — " + " ; ".join(f"{cid} : {v['verdict']}" for cid, v in out.items())
+    tail = (" → suivi en ombre, puis ADR" if confirmed
+            else " → aucun ordre ; effet à verser aux éléments d'appréciation (ADR)" if effects
+            else " → rien ne change")  # fmt: skip
     return {
-        "titre": title + (" → suivi en ombre, puis ADR" if confirmed else " → rien ne change"),
+        "titre": title + tail,
+        "effets_confirmes": effects,
         "periode": [str(a), str(b)],
         "plis": [f"{x} → {y}" for x, y in p.replication_folds],
         "ordre_de_lecture": [*placebos, *out, "exploratoires (descriptives, jamais une conséquence)"],

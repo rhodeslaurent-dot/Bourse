@@ -2099,6 +2099,8 @@ def _scan(
                 ev = finish(ev_of(spec=spec))
                 if vp is not None:  # docs/37 L0: the graduated verdict (never built when the scale is off)
                     ev = _graded(s, config, vp, ev, ev_of, finish, track, edges)
+                if last_day is not None:  # the validity of its order counts from this session (decision of 01/11)
+                    ev.details.setdefault("seance_signal", last_day.isoformat())
                 evals.append(ev)
         except Exception as exc:  # noqa: BLE001 — one bad instrument never stops the scan
             rep.errors.append(f"{inst.isin}: {exc.__class__.__name__}")
@@ -2395,8 +2397,12 @@ def _persist(
                 ent = e.details.get("entree") or {}
                 plage_n = ent.get("validite_seances") if ent.get("type") == PLAGE else None
                 # a breakout's plage is valid ``entry.confirm_sessions`` sessions of the venue (docs/06 §6.3); a D15
-                # plage counts them from its signal session, as the plan n° 4 (the 07:50 scan runs on the next one)
-                since = date.fromisoformat(str(ent["seance_signal"])) if plage_n and ent.get("seance_signal") else day
+                # plage counts them from its signal session, as the plan n° 4 (the 07:50 scan runs on the next one).
+                # User decision of 01/11/2026: every order counts its validity from its signal session (the last stored
+                # bar), so that « valable n séances » covers n sessions from the first one it can work — the 07:50 scan
+                # runs the session after that bar, the evening scan on it
+                sig_day = (ent.get("seance_signal") if plage_n else None) or e.details.get("seance_signal")
+                since = min(date.fromisoformat(str(sig_day)), day) if sig_day else day
                 expires = _expiry(s, cals, e, since, now, int(plage_n) if plage_n else expiry_sessions)
                 if since != day and expires <= now:  # a last bar several sessions old: never a card born expired
                     since = day

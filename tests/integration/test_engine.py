@@ -354,3 +354,17 @@ def test_a_proposal_expires_after_three_sessions_of_its_venue(db_engine, config)
             assert p.details["validite"] == {"seances": 3, "jusqu_au": "2026-10-26", "place": "XPAR"}
             exp = p.expires_at.replace(tzinfo=UTC) if p.expires_at.tzinfo is None else p.expires_at
             assert exp == datetime(2026, 10, 26, 16, 30, tzinfo=UTC)  # 17:30 Paris, winter time
+
+
+def test_the_morning_scan_counts_the_validity_from_the_last_bar_as_the_evening_one(db_engine, config):
+    """User decision of 01/11/2026: an order counts its validity from its signal session (the last stored bar). The
+    07:50 scan runs the session after that bar: « valable 3 séances » covers Thu 22, Fri 23 and Mon 26 — the same
+    as the evening scan of Wed 21, never one session more (it said 27/10 before)."""
+    with db_session() as s:
+        _seed(s, breakout_bars())  # last bar: Wednesday 21/10/2026
+        engine.scan(s, config, DAY + timedelta(days=1), now=NOW)  # Thursday 22/10, as opportunity_scan
+        props = s.query(Proposal).filter(Proposal.isin == ISIN, Proposal.deleted_at.is_(None)).all()
+        assert props
+        for p in props:
+            assert p.details["seance_signal"] == DAY.isoformat()
+            assert p.details["validite"]["jusqu_au"] == "2026-10-26"

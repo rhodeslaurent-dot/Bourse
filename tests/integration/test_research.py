@@ -385,7 +385,8 @@ def test_registration_7_draft_is_refused_and_its_frozen_copy_opens_the_sealed_pe
     assert v["periode"] == ["2007-01-02", "2015-09-30"] and len(v["plis"]) == 5
     assert set(v["confirmatoires"]) == {"C1", "C2", "C3"}
     assert set(v["placebo"]) == {"X1.t00.h5", "X1.t00.h10", "X1.t00.h20"}
-    assert all(x["verdict"] in ("CONFIRMÉ", "NON CONFIRMÉ", "NON CONCLUANT") for x in v["confirmatoires"].values())
+    assert all(x["verdict"] in ("CONFIRMÉ", "EFFET CONFIRMÉ, NON EXPLOITABLE", "NON CONFIRMÉ", "NON CONCLUANT")
+               for x in v["confirmatoires"].values())  # fmt: skip
     assert rep["A_resume"]["titre"].startswith("PÉRIODE SCELLÉE 2007-01-02 → 2015-09-30")
     assert rep["entete"]["calibration_verdict"] == "VALIDE" and rep["entete"]["debut_donnees"] < "2006-01-01"
     assert "V — Verdict de la période scellée" in sealed[0].with_suffix(".txt").read_text()

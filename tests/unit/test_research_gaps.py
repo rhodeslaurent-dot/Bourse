@@ -28,6 +28,7 @@ from app.domain.research.prereg import PreregError, check_frozen, file_sha256, p
 from app.domain.research.registration import run_registration
 from app.domain.research.sealed import (
     CONFIRMED,
+    EFFECT_ONLY,
     INCONCLUSIVE,
     NOT_CONFIRMED,
     check_sealed_once,
@@ -402,7 +403,8 @@ ALL_A = {f"A{k}": True for k in range(1, 14)}
 def _cell_stats(**kw):
     s = {"n": 900, "semaines": 400, "mean_r": 0.2, "mean_eur_300": 60.0, "profit_factor": 1.4, "mean_pct_notionnel": 0.01,
          "mean_excess": 0.15, "excess_ctrl_ic": [0.05, 0.25], "t_week": 4.5, "p_holm": 0.0001, "plis_positifs": 5,
-         "criteres": dict(ALL_A), "_sr": 0.35, "_nobs": 450, "_skew": 0.0, "_kurt": 3.0}  # fmt: skip
+         "criteres": dict(ALL_A), "_sr": 0.35, "_nobs": 450, "_skew": 0.0, "_kurt": 3.0,
+         "plis_exces_positifs": 5}  # fmt: skip
     s.update(kw)
     return s
 
@@ -434,9 +436,9 @@ def test_sealed_verdict_confirms_only_with_every_criterion_and_reads_the_placebo
     p, res = _res(c1=_cell_stats(t_week=2.6))
     v = sealed_verdicts(res, p)["confirmatoires"]["C1"]
     assert v["verdict"] == NOT_CONFIRMED and v["manquants"] == ["t_semaine"]
-    # one A criterion missing (e.g. A7 regime): not confirmed
+    # one A criterion missing (e.g. A7 regime): not confirmed — the effect alone (decision D8 of 01/11/2026)
     p, res = _res(c1=_cell_stats(criteres={**ALL_A, "A7": False}))
-    assert sealed_verdicts(res, p)["confirmatoires"]["C1"]["verdict"] == NOT_CONFIRMED
+    assert sealed_verdicts(res, p)["confirmatoires"]["C1"]["verdict"] == EFFECT_ONLY
     # a weak Sharpe against N = 94 trials: the DSR refuses
     p, res = _res(c1=_cell_stats(_sr=0.05))
     v = sealed_verdicts(res, p)["confirmatoires"]["C1"]
@@ -592,3 +594,26 @@ def test_the_dsr_of_the_sealed_verdict_follows_the_plan_and_the_decision_is_the_
         _frozen7(raw)
     v = sealed_verdicts(res2, p)
     assert v["decision"].startswith("ordre de lecture : placebo X1") and "C1, C2 ou C3 CONFIRMÉ" in v["decision"]
+
+
+def test_d8_an_effect_that_is_real_but_not_tradable_is_said_so():
+    """Decision D8 of 01/11/2026 (``effect_level``): the effect itself (A1, placebo, t ≥ 3 and Holm on the excess over
+    the matched controls, the excess positive in ≥ 4 folds) without the economic thresholds is « EFFET CONFIRMÉ, NON
+    EXPLOITABLE » — never an order; with them all, CONFIRMÉ as before; without the effect, as before."""
+    p, res = _res(c1=_cell_stats(criteres={**ALL_A, "A2": False, "A6": False}))
+    assert p.thresholds["sealed"]["effect_level"] is True
+    v = sealed_verdicts(res, p)
+    c1 = v["confirmatoires"]["C1"]
+    assert c1["verdict"] == EFFECT_ONLY and set(c1["manquants"]) == {"A2", "A6"} and all(c1["criteres_effet"].values())
+    assert v["effets_confirmes"] == ["C1"] and v["confirmatoires"]["C2"]["verdict"] == CONFIRMED
+    assert "pas à nos coûts" in v["decision"] and "effet confirme non exploitable" in v["decision"]
+    # the effect not regular across the folds: not an effect, and not confirmed
+    p, res = _res(c1=_cell_stats(criteres={**ALL_A, "A2": False}, plis_exces_positifs=3))
+    assert sealed_verdicts(res, p)["confirmatoires"]["C1"]["verdict"] == NOT_CONFIRMED
+    # t under 3: neither level
+    p, res = _res(c1=_cell_stats(t_week=2.4, criteres={**ALL_A, "A2": False}))
+    assert sealed_verdicts(res, p)["confirmatoires"]["C1"]["verdict"] == NOT_CONFIRMED
+    # without the key (every earlier reading): the same cell is simply not confirmed
+    q = dataclasses.replace(p, thresholds={**p.thresholds, "sealed": {**p.thresholds["sealed"], "effect_level": False}})
+    _, res = _res(c1=_cell_stats(criteres={**ALL_A, "A2": False}))
+    assert sealed_verdicts(res, q)["confirmatoires"]["C1"]["verdict"] == NOT_CONFIRMED

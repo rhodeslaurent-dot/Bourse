@@ -2,7 +2,8 @@
 # BROUILLON — NON GELÉ. Le banc REFUSE ce plan (calibrate, run, unseal) tant que la clé « draft: true » est présente.
 # Pour le geler (docs/34 §34.14) : trancher les décisions restantes D2, D5, D6, D7 (D1, D3, D4 tranchées par
 # l'utilisateur le 31/10/2026 : stop exécuté X8 en confirmatoire, durées 5 / 10 / 20 séances confirmatoires, Holm sur 3,
-# t ≥ 3 gardé), retirer ce bloc et la clé « draft », inscrire l'empreinte sha256 du fichier dans docs/34 §34.14 et
+# t ≥ 3 gardé ; D8 le 01/11/2026 : verdict en deux niveaux, effet puis exploitabilité), retirer ce bloc et la clé
+# « draft », inscrire l'empreinte sha256 du fichier dans docs/34 §34.14 et
 # docs/15-status.md — AVANT que le moindre cours d'avant 2016 (backfill --from 2005) ne soit lu par une commande de
 # recherche.
 # ==================================================================================================================
@@ -138,9 +139,15 @@ thresholds:
   # A1–A13 (plis = replication.wf_test) ET t hebdomadaire de l'excès ≥ min_t_week ET DSR ≥ min_dsr avec N =
   # dsr_prior_trials + les 14 cellules non placebo de ce plan (min_dsr: null → DSR imprimé, jamais un critère) ;
   # sinon NON CONCLUANT si la puissance à l'effet de décision (succès : t ≥ max(Holm sur 3 ; min_t_week)) < power_min,
-  # NON CONFIRMÉ autrement
+  # NON CONFIRMÉ autrement.
+  # D8 (décision de l'utilisateur du 01/11/2026) — effect_level : un second niveau « EFFET CONFIRMÉ, NON EXPLOITABLE »
+  # quand l'effet lui-même est établi (A1, placebo, t ≥ min_t_week et Holm sur l'excès sur les contrôles appariés,
+  # excès positif dans ≥ a5.min_positive_folds plis, DSR s'il est exigé) sans tous les critères économiques (A2, A4,
+  # A6…) : aucun ordre ni suivi en ombre, au plus un élément d'appréciation des cartes, après ADR. L'étude de
+  # puissance du 01/11/2026 attend des coûts (écart achat-vente compris) qu'ils fassent échouer A2 / A6 presque toujours.
   sealed:
     min_t_week: 3.0
+    effect_level: true
     # D7 — À DÉCIDER : le DSR sur la période scellée. Variance des Sharpe « cellules » = celle des 14 cellules non
     # placebo du plan sur la période : les découpages (X2, X3, X4) ont moins d'événements par semaine, donc un Sharpe
     # hebdomadaire plus faible, ce qui relève la barre des C sans rapport avec la sélection (relecture du 31/10/2026 :
@@ -243,6 +250,9 @@ decision:
     C1, C2 ou C3 CONFIRMÉ sur la période scellée → SUIVI EN OMBRE de la cellule confirmée (shadow_signals, aucun ordre),
     puis ADR de mise en production à 50 % de risk.max_risk_per_trade_pct, avec règle de suspension, seulement après
     au moins 100 signaux en ombre et 6 mois, de même signe que la période scellée (sortie réelle protégée, celle de C)
+  effet_confirme_non_exploitable: >-
+    l'effet existe sur la période scellée mais pas à nos coûts → aucun ordre, aucun suivi en ombre ; l'effet peut
+    devenir un élément d'appréciation des cartes (jamais une porte ni un déclencheur), par un ADR
   non_confirme: >-
     NON CONFIRMÉ ou NON CONCLUANT → rien ne change ; la piste n'est re-testée ni sur 2007-2015 (ouverte une fois) ni sur
     2017-2026 (déjà lue) ; seul un suivi vers l'avant, déclaré dans un nouveau plan, pourrait la reprendre
