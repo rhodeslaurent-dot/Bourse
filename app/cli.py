@@ -1917,6 +1917,7 @@ def cmd_research(args: argparse.Namespace) -> int:
                     if u.get("calibration"):
                         noted = u.get("banc_calibre") or "non noté"
                         print(f"calibration : {u['calibration']} (banc calibré : {noted})")
+                    print("→ OUVERTURE : PRÊTE" if u.get("pret") else "→ OUVERTURE : PAS PRÊTE (raisons ci-dessus)")
                     return 0 if u.get("pret") else 1
                 if "titre" in u:  # registration n° 7: the plan's own cells on the sealed period (placebo read first)
                     print(f"\n{u['titre']}\nrapport : {u['txt']}\n          {u['json']}")

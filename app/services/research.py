@@ -916,7 +916,7 @@ def coverage_text(cov: Mapping[str, Any]) -> str:
     lines += [f"  indice {k} : {n} clôtures avant la période" for k, n in cov["indices"].items()]
     lines += [f"  devise {k} : taux BCE depuis le {d or '—'}" for k, d in cov["devises"].items()]
     lines += [f"  BLOQUANT : {x}" for x in cov["bloquants"]] + [f"  À ACCEPTER : {x}" for x in cov["a_accepter"]]
-    lines.append("  → PRÊT" if cov["pret"] else "  → PAS PRÊT")
+    lines.append("  → données : PRÊTES" if cov["pret"] else "  → données : PAS PRÊTES")
     return "\n".join(lines)
 
 
