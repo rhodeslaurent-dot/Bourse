@@ -376,6 +376,7 @@ def test_registration_7_draft_is_refused_and_its_frozen_copy_opens_the_sealed_pe
     reh = sorted((tmp_path / "research").glob("repetition_*.json"))
     assert len(reh) == 1 and json.loads(reh[0].read_text())["V_verdict_periode_scellee"]["confirmatoires"]
     assert "RÉPÉTITION" in reh[0].with_suffix(".txt").read_text()
+    assert "FENÊTRE DE DÉCOUVERTE" in json.loads(reh[0].read_text())["A_resume"]["titre"]
     with open(tmp_path / "research" / "ledger.csv", encoding="utf-8") as fh:
         assert [r["kind"] for r in csv.DictReader(fh)][-1] == "rehearsal"
     assert main([*unseal, *span, "--accept-coverage"]) == 0

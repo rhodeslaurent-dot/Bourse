@@ -702,4 +702,11 @@ En plus, hors plan : depuis la revue du 30/10/2026, un verrou global (`prereg.ch
 5. `research unseal --prereg research/prereg/2026-10-31_reg7.yaml --universe all --rehearsal` : répétition, obligatoire avant l'ouverture.
 6. L'ouverture unique : `research unseal --prereg research/prereg/2026-10-31_reg7.yaml --universe all --from 2005-01-03 --to 2016-01-31`. Lire les placebos X1, puis C1 / C2 / C3, puis les exploratoires. Me transmettre le `.txt` du descellement.
 
+**Lecture de la répétition et décision du 01/11/2026 : période NON ouverte, piste close.**
+- Calibration VALIDE (0,9983) contre le backtest n° 6, recalculé sur les cours relus cette nuit-là (le n° 4 datait des anciens cours, et le n° 5 était faussé par deux trades sur des cours aberrants, docs/27). Contrôle à blanc : données prêtes.
+- Répétition `repetition_20261101_163522` (fenêtre de découverte 2017-2026, déjà lue) : la chaîne va au bout sans erreur ; placebos nuls (t 0,00, −0,61, −0,49).
+- **Sur la découverte elle-même, l'effet est nul quand on le mesure comme le banc** : excès sur les contrôles appariés C1 −0,009 R (t +0,35, n 6 279), C2 −0,006 R (t +0,42), C3 −0,014 R (t −0,84) ; mesure de l'étude XT (X5) −0,005 à −0,007 R ; cours bruts de l'étude (X6) −0,024 R (t −1,74). R net par trade −0,08 à −0,17 R (−22 à −47 € pour 300 €), aucun pli positif.
+- Lecture : l'étude des causes mesurait l'excès sur la moitié liquide de la place ; les contrôles appariés du banc (même jour, même groupe, même tercile de liquidité et de volatilité, même tendance) l'effacent. Le « rebond » tient au profil des valeurs qui sautent (volatiles, en baisse), pas au saut.
+- **Décision de l'utilisateur** : la période scellée n'est pas ouverte pour le n° 7 (un « NON CONFIRMÉ » quasi certain l'aurait consommée et rendu « semi-propre » tout plan gelé ensuite). Le plan reste gelé, jamais descellé ; la piste est close. Aucun paramètre ni détecteur ne change.
+
 Aucun résultat ne change un paramètre ni un détecteur sans ADR.

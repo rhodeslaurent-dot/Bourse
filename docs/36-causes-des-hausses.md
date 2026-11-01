@@ -172,3 +172,9 @@ Options :
 - la couverture de chaque source par année est imprimée en tête du rapport.
 
 **À me transmettre** : le `.md`. Une fois les plans n° 3 et n° 5 exécutés, relancer la commande pour lire les deux lignes masquées de la partie B.
+
+## 36.x Suite donnée aux pistes (01/11/2026)
+
+- **Saut d'ouverture baissier, acheté à l'ouverture suivante** (excès +0,42 % à 5 séances, t hebdomadaire 4,6, sur la moitié liquide de la place) : pré-enregistré comme plan n° 7 (docs/34 §34.14), gelé le 01/11/2026. Mesuré par le banc sur la même découverte 2017-2026 (contrôles appariés : même jour, même groupe, même tercile de liquidité et de volatilité, même tendance), l'excès est **nul** (t +0,35, +0,42, −0,84 à 5, 10 et 20 séances ; placebos nuls). Le rebond tient au profil des valeurs qui sautent, pas au saut. Piste close ; la période scellée n'a pas été ouverte (décision de l'utilisateur).
+- **Achats de dirigeants** (excès +0,51 % à 5 séances, net CTO ≈ 0) : plan n° 5, non concluant, estimations négatives contre les contrôles appariés (docs/34 §34.12). Aucun déclencheur.
+- Leçon de méthode : un excès sur un indice de place peut n'être qu'un effet de profil (volatilité, tendance, liquidité). Toute piste de cette étude doit d'abord passer, sur la découverte elle-même, la mesure contre contrôles appariés du banc, avant de mobiliser la période scellée.

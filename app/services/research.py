@@ -1333,9 +1333,10 @@ def unseal_confirmatory(
     verdict = sealed_verdicts(res, sp)
     if seen and not rehearsal:
         verdict["titre"] = f"SEMI-PROPRE (période déjà ouverte par {', '.join(seen)}) — {verdict['titre']}"
-    if rehearsal:
+    if rehearsal:  # the stand-in window is the discovery: never named « période scellée »
         verdict["titre"] = ("RÉPÉTITION — aucune ouverture de la période scellée ; fenêtre de découverte déjà lue, "
-                            "verdicts SANS VALEUR — " + verdict["titre"])  # fmt: skip
+                            "verdicts SANS VALEUR — "
+                            + verdict["titre"].replace("PÉRIODE SCELLÉE", "FENÊTRE DE DÉCOUVERTE", 1))  # fmt: skip
     res["titre"] = verdict["titre"]
     res["candidats"] = list(verdict["confirmes"])
     res["surveillance"] = []
