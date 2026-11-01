@@ -325,10 +325,15 @@ def test_xt_is_a_time_exit_sized_on_a_never_executed_atr_stop():
 # --- 3. the draft plan -----------------------------------------------------------------------------------------------
 
 
-def test_plan_7_is_a_draft_refused_by_every_command_until_frozen():
+def test_plan_7_is_frozen_and_a_draft_copy_is_refused():
     b = REG7.read_bytes()
-    draft = parse_prereg(yaml.safe_load(b), file_sha256(b))
-    assert draft.draft and draft.id == "2026-10-31_reg7" and draft.seed == 20261031
+    frozen = parse_prereg(yaml.safe_load(b), file_sha256(b))  # frozen on 01/11/2026 (user decisions D1–D8)
+    assert not frozen.draft and frozen.id == "2026-10-31_reg7" and frozen.seed == 20261031
+    check_frozen(frozen)
+    se = frozen.thresholds["sealed"]
+    assert se["min_dsr"] is None and se["dsr_variance"] == "nulle" and se["dsr_prior_trials"] == 90
+    assert se["effect_level"] is True and "contrôles d'exécution" in frozen.decision["confirme"]
+    draft = parse_prereg({**_raw7(), "draft": True}, "sha-test-brouillon")
     with pytest.raises(PreregError, match="BROUILLON"):
         check_frozen(draft)
     p = _frozen7()
@@ -412,8 +417,14 @@ def _cell_stats(**kw):
 PLACEBOS = ("X1.t00.h5", "X1.t00.h10", "X1.t00.h20")
 
 
-def _res(c1=None, c2=None, placebo_t=0.4, power=0.9):
-    p = _frozen7()
+def _dsr_required(p):
+    """The plan with the DSR as a criterion (min_dsr 0.95, the cells' variance): the frozen plan prints it only (D7)."""
+    se = {**p.thresholds["sealed"], "min_dsr": 0.95, "dsr_variance": "cellules"}
+    return dataclasses.replace(p, thresholds={**p.thresholds, "sealed": se})
+
+
+def _res(c1=None, c2=None, placebo_t=0.4, power=0.9, dsr=True):
+    p = _dsr_required(_frozen7()) if dsr else _frozen7()
     # the gap cells of a real effect have Sharpe ratios close to each other: their dispersion sets the DSR bar
     cells = {c.id: _cell_stats(_sr=0.30 + 0.01 * (k % 5), t_week=3.1) for k, c in enumerate(p.cells)}
     cells["C1"] = c1 or _cell_stats()

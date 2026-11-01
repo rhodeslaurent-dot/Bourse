@@ -302,26 +302,28 @@ def test_registration_6_runs_through_the_command_and_guards_its_old_replication(
 
 
 def test_registration_7_draft_is_refused_and_its_frozen_copy_opens_the_sealed_period_once(research_db, tmp_path):
-    """docs/34 §34.14: the draft of registration n° 7 is refused by calibrate, run and unseal (BROUILLON). Its frozen
-    copy (« draft » removed, as the freeze will do): calibration, a DESCRIPTIVE run on the discovery (no candidate
-    file), then the single opening of the sealed old replication period by the plan's own cells — no candidate file,
-    the point-in-time universe, its warm-up and its exits, once only — with a full aggregated report and its verdict."""
+    """docs/34 §34.14: a draft of registration n° 7 is refused by calibrate, run and unseal (BROUILLON). The frozen plan
+    (01/11/2026): calibration, a DESCRIPTIVE run on the discovery (no candidate file), then the single opening of the
+    sealed old replication period by the plan's own cells — no candidate file, the point-in-time universe, its warm-up
+    and its exits, once only — with a full aggregated report and its verdict."""
     import numpy as np
 
     plan = "research/prereg/2026-10-31_reg7.yaml"
     out = str(tmp_path / "research")
     base = ["--params", PARAMS, "research"]
-    assert main([*base, "calibrate", "--run", str(research_db), "--prereg", plan, "--out", out]) == 2
-    assert main([*base, "run", "--prereg", plan, "--universe", "all", "--out", out]) == 2
-    assert main([*base, "unseal", "--prereg", plan, "--universe", "all", "--out", out]) == 2
-    # the draft can be checked (nothing read, nothing written): not ready — BROUILLON, no calibration, no rehearsal
-    assert main([*base, "unseal", "--prereg", plan, "--universe", "all", "--out", out, "--check-only"]) == 1
-    assert not (tmp_path / "research").exists() or not list((tmp_path / "research").glob("*.json"))
-    frozen = tmp_path / "reg7_gele.yaml"
     text = open(plan, encoding="utf-8").read()
-    assert "\ndraft: true" in text
-    frozen.write_text(text.replace("\ndraft: true", "\n# (clé draft retirée : copie de test)"), encoding="utf-8")
-    fp = str(frozen)
+    assert "\ndraft:" not in text and '\nregistered_on: "2026-11-01"' in text  # frozen
+    draft = tmp_path / "reg7_brouillon.yaml"  # the same file with the draft key back: refused everywhere
+    draft.write_text(text.replace('\nregistered_on: "2026-11-01"\n', '\nregistered_on: "2026-11-01"\ndraft: true\n'),
+                     encoding="utf-8")  # fmt: skip
+    dp = str(draft)
+    assert main([*base, "calibrate", "--run", str(research_db), "--prereg", dp, "--out", out]) == 2
+    assert main([*base, "run", "--prereg", dp, "--universe", "all", "--out", out]) == 2
+    assert main([*base, "unseal", "--prereg", dp, "--universe", "all", "--out", out]) == 2
+    # the draft can be checked (nothing read, nothing written): not ready — BROUILLON, no calibration, no rehearsal
+    assert main([*base, "unseal", "--prereg", dp, "--universe", "all", "--out", out, "--check-only"]) == 1
+    assert not (tmp_path / "research").exists() or not list((tmp_path / "research").glob("*.json"))
+    fp = plan
     # old prices (2005 → early 2016) for 15 more values and the two indices, with a gap down every 120 sessions
     n_old = int(np.busday_count("2005-01-03", "2016-01-01"))
     with db_session() as s:

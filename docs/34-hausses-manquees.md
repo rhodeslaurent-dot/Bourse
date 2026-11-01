@@ -563,10 +563,10 @@ Rien ici ne rend d7 actionnable : c'est la décision (b) du n° 4.
 
 Aucun résultat ne change un paramètre, une sortie ni un détecteur sans ADR.
 
-## 34.14 Enregistrement n° 7 (brouillon) : rebond après un saut d'ouverture baissier
+## 34.14 Enregistrement n° 7 : rebond après un saut d'ouverture baissier
 
-> Plan `research/prereg/2026-10-31_reg7.yaml`, **BROUILLON du 31/10/2026, non gelé** (clé `draft: true` : `research calibrate`, `run` et `unseal` le refusent, code 2). Empreinte à inscrire ici au gel (celle du brouillon ne vaut rien : retirer la clé change le fichier). Graine 20261031.
-> - **À geler avant que le moindre cours d'avant 2016 (`backfill --from 2005-01-01` ou `--from 2006`) ne soit lu par une commande de recherche** : trancher D2, D5 et D6 (D1, D3 et D4 tranchées le 31/10/2026, ci-dessous), retirer le bloc « BROUILLON » et la clé `draft`, inscrire l'empreinte sha256 ici et dans docs/15-status.md (fins de ligne Unix ; noter aussi l'empreinte CRLF du PC Windows, comme aux n° 4 à 6).
+> Plan `research/prereg/2026-10-31_reg7.yaml`, **GELÉ le 01/11/2026**, empreinte sha256 `1b1f3542f7fe5ded3c6f41300fd179dacee38f4cb3d11d622f19800bd39d51b2` (fins de ligne Unix ; même fichier sur le PC Windows, fins de ligne CRLF : `4418faf7da2419844d191b5afa65a5382c034bafeb097a0268d47086afb9e284`). Graine 20261031. Décisions de l'utilisateur : D1, D3, D4 le 31/10/2026 ; D2, D5, D6, D7, D8 le 01/11/2026 (ci-dessous).
+> - Gelé avant toute lecture de la période scellée par une commande de recherche (les cours d'avant 2016 ont été chargés la nuit du 31/10, aucune commande de recherche ne les a lus : `check_not_sealed`). Le code du banc est fixé par la calibration (`bench_sha256`, `settings_sha256`) : un changement après elle impose de recalibrer avant l'ouverture.
 > - Seuils A1–A13, inférence, clés de paramètres, hypothèses communes, entrée E_open(1) validité 1, compte CTO pour le verdict et PEA en seconde vue, groupes européens P0 / P1 / P2 et plancher de couverture des publications (0,50) repris à l'identique du n° 3.
 
 **Origine.** Seule piste de l'étude exploratoire des causes (docs/36, rapport `causes_20261030_150454`, 2017-01-02 → 2026-10-29) :
@@ -656,9 +656,9 @@ Littérature : un choc **sans** nouvelle se retourne, un choc **avec** nouvelle 
 - Capitalisation et secteur d'aujourd'hui.
 - La période scellée est partagée avec les n° 3, 4 et 6. Chaque plan ne l'ouvre qu'une fois, pour ses propres cellules ; aucun d'eux ne lit t18.
 
-**Décisions avant le gel (D1–D8).** D1, D3 et D4 tranchées par l'utilisateur le 31/10/2026, D8 le 01/11/2026 ; D2, D5, D6 et D7 restent à décider.
+**Décisions avant le gel (D1–D8) : toutes tranchées.** D1, D3 et D4 par l'utilisateur le 31/10/2026 ; D2, D5, D6, D7 et D8 le 01/11/2026.
 1. **D1 — sortie mesurée : TRANCHÉE.** X8 (stop 2,5 ATR exécuté) en confirmatoire ; XT (la mesure de l'étude) en exploratoire X5. Placebos et exploratoires suivent X8.
-2. **D2 — dividende.** Saut neutralisé du détachement (proposé) ou cours bruts comme la découverte (X6).
+2. **D2 — dividende : TRANCHÉE le 01/11/2026**, saut corrigé du détachement (`dividend_neutral: true` ; une baisse du facteur ignorée) ; les cours bruts de la découverte restent en X6, descriptive.
 3. **D3 — durées et seuils : puissance probable faible.**
    - Rapporté au stop de 2,5 ATR14 (≈ 5 à 7,5 % après un saut), l'effet de la découverte vaut ≈ +0,08 à +0,11 R d'excès à 10 séances et ≈ +0,10 à +0,14 R à 20 séances, soit ≈ +0,11 à +0,17 R net à 20 séances. A4 (≥ +0,08 R) et A2 (≥ +0,10 R, ≥ 30 € pour 300 €) sont donc **au niveau de l'effet attendu**, surtout à 10 séances.
    - Le t de la découverte (2,8 et 2,9 sur ≈ 19 400 occurrences, valeurs illiquides comprises) laisse attendre t < 3 sur un univers liquide de 2007-2015 à effet égal (moins d'occurrences, survivants seuls).
@@ -666,9 +666,9 @@ Littérature : un choc **sans** nouvelle se retourne, un choc **avec** nouvelle 
    - **TRANCHÉE** : 5, 10 et 20 séances confirmatoires (C1, C2, C3), Holm sur 3, t ≥ 3 gardé. Le stop exécuté (D1) peut encore réduire l'effet mesuré : le résultat probable reste « NON CONCLUANT », accepté.
    - **Correction du 01/11/2026 (divergence signalée dans docs/15)** : le « net » de l'étude des causes ne déduit que les frais (`round_trip_fee_fraction` : courtage, taxes, portage), pas l'écart achat-vente. Le banc compte en plus le demi-écart de Corwin–Schultz, au moins `risk.slippage_pct` par côté, soit au moins ≈ 0,56 % l'aller-retour (≈ 0,09 R). Le « +0,11 à +0,17 R net à 20 séances » ci-dessus est donc surestimé : avec le plancher d'écart du banc, la découverte elle-même donnerait au mieux ≈ +0,07 R à 20 séances, sous le seuil A2 (0,10 R).
 4. **D4 — 5 séances : TRANCHÉE**, confirmatoire (C1).
-5. **D5 — essais du DSR.** Chaque cause lue compte 10 cellules (3 durées × 3 mesures + barrière) : 8 causes = 80 au rapport `causes_20261030_150454`, 9 causes (achats de dirigeants en plus) = 90 au rapport `causes_20261031_121715`. Proposé : **90** (la seconde exécution relit les mêmes cellules sur des cours corrigés, ce ne sont pas de nouveaux essais) ; 170 si chaque lecture compte.
-6. **D6 — règle de décision** : seuils du suivi en ombre (100 signaux, 6 mois) avant l'ADR. Proposé : les garder, avec deux contrôles d'exécution (glissement réel ≤ 2 × `risk.slippage_pct`, taux d'exécution ≥ moitié de celui du banc). Le suivi vérifie que l'outil reproduit le banc ; il ne peut pas re-prouver l'effet (100 signaux : écart-type de la moyenne ≈ 0,09 R pour un effet attendu de 0,10 à 0,15 R).
-7. **D7 — DSR sur la période scellée** (relecture du 31/10/2026). La variance des Sharpe venait des 14 cellules non placebo du plan sur la période. Les découpages (X2, X3, X4) ont moins d'événements par semaine, donc un Sharpe hebdomadaire plus faible : cela relève la barre de C1 à C3 sans rapport avec la sélection. À effet égal partout, C2 passe DSR ≥ 0,95 environ une fois sur deux à t ≈ 4,6. Les cellules « descriptives » changeraient donc le verdict. Options écrites dans le plan (`thresholds.sealed`) :
+5. **D5 — essais du DSR : TRANCHÉE le 01/11/2026, 90.** Chaque cause lue compte 10 cellules (3 durées × 3 mesures + barrière) : 8 causes = 80 au rapport `causes_20261030_150454`, 9 causes (achats de dirigeants en plus) = 90 au rapport `causes_20261031_121715`. Proposé : **90** (la seconde exécution relit les mêmes cellules sur des cours corrigés, ce ne sont pas de nouveaux essais) ; 170 si chaque lecture compte.
+6. **D6 — règle de décision : TRANCHÉE le 01/11/2026**, seuils du suivi en ombre (100 signaux, 6 mois) avant l'ADR, avec deux contrôles d'exécution (glissement réel ≤ 2 × `risk.slippage_pct`, taux d'exécution ≥ moitié de celui du banc). Le suivi vérifie que l'outil reproduit le banc ; il ne peut pas re-prouver l'effet (100 signaux : écart-type de la moyenne ≈ 0,09 R pour un effet attendu de 0,10 à 0,15 R).
+7. **D7 — DSR sur la période scellée : TRANCHÉE le 01/11/2026, imprimé seulement** (`min_dsr: null` ; la valeur imprimée est celle d'une cellule sans effet, `dsr_variance: nulle`, N = 90 + 14 = 104). Analyse (relecture du 31/10/2026) : La variance des Sharpe venait des 14 cellules non placebo du plan sur la période. Les découpages (X2, X3, X4) ont moins d'événements par semaine, donc un Sharpe hebdomadaire plus faible : cela relève la barre de C1 à C3 sans rapport avec la sélection. À effet égal partout, C2 passe DSR ≥ 0,95 environ une fois sur deux à t ≈ 4,6. Les cellules « descriptives » changeraient donc le verdict. Options écrites dans le plan (`thresholds.sealed`) :
    - `dsr_variance: cellules` (actuel) ;
    - `dsr_variance: nulle` : variance d'une cellule sans effet, 1 / (semaines − 1), soit une barre proche de t ≥ 4 ;
    - `min_dsr: null` : DSR imprimé seulement ; Holm sur 3 et t ≥ 3 restent. **Proposé** : sur une période jamais lue, la sélection parmi les essais de la découverte ne biaise pas l'estimation des cellules déclarées ; Holm sur les 3 cellules y suffit.
@@ -696,7 +696,7 @@ En plus, hors plan : depuis la revue du 30/10/2026, un verrou global (`prereg.ch
 
 **Sur le PC** (une commande à la fois) :
 1. Chargements, possibles **avant** le gel (charger n'est pas lire : aucune commande de recherche ne lit la période scellée, `check_not_sealed`) : `fx-history --from 2005-01-01`, `backfill --provider eodhd --from 2005-01-01 --exchanges PA,AS,BR,XETRA,MI,MC,ST,CO,HE,OL,LS,IR,VI,WAR`, la même avec `--inactive-only` (valeurs radiées depuis 2016), `earnings-history --from 2005-01-01`, puis `index-check --from 2005-01-01` (indices de régime depuis 2005, Yahoo pour un début manquant). Vérifier ensuite avec `research unseal --prereg research/prereg/2026-10-31_reg7.yaml --universe all --from 2005-01-03 --to 2016-01-31 --check-only` (possible sur le brouillon).
-2. Gel : retirer le bloc BROUILLON et la clé `draft`, puis `research fingerprint --prereg research/prereg/2026-10-31_reg7.yaml` (empreintes du plan Unix / CRLF et du banc), à inscrire ici et dans docs/15-status.md.
+2. Gel : fait le 01/11/2026 (empreintes ci-dessus). Sur le PC, `research fingerprint --prereg research/prereg/2026-10-31_reg7.yaml` doit afficher l'empreinte CRLF ci-dessus pour le fichier tel quel.
 3. `research calibrate --prereg research/prereg/2026-10-31_reg7.yaml --run N`.
 4. `research unseal --prereg research/prereg/2026-10-31_reg7.yaml --universe all --from 2005-01-03 --to 2016-01-31 --check-only` : me transmettre la sortie.
 5. `research unseal --prereg research/prereg/2026-10-31_reg7.yaml --universe all --rehearsal` : répétition, obligatoire avant l'ouverture.

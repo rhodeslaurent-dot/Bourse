@@ -1,12 +1,7 @@
-# ==================================================================================================================
-# BROUILLON — NON GELÉ. Le banc REFUSE ce plan (calibrate, run, unseal) tant que la clé « draft: true » est présente.
-# Pour le geler (docs/34 §34.14) : trancher les décisions restantes D2, D5, D6, D7 (D1, D3, D4 tranchées par
-# l'utilisateur le 31/10/2026 : stop exécuté X8 en confirmatoire, durées 5 / 10 / 20 séances confirmatoires, Holm sur 3,
-# t ≥ 3 gardé ; D8 le 01/11/2026 : verdict en deux niveaux, effet puis exploitabilité), retirer ce bloc et la clé
-# « draft », inscrire l'empreinte sha256 du fichier dans docs/34 §34.14 et
-# docs/15-status.md — AVANT que le moindre cours d'avant 2016 (backfill --from 2005) ne soit lu par une commande de
-# recherche.
-# ==================================================================================================================
+# GELÉ le 2026-11-01 (empreinte sha256 inscrite dans docs/34 §34.14 et docs/15-status.md). Décisions de l'utilisateur :
+# D1, D3, D4 le 31/10/2026 (stop exécuté X8 en confirmatoire, durées 5 / 10 / 20 séances confirmatoires, Holm sur 3,
+# t ≥ 3 gardé) ; D2, D5, D6, D7, D8 le 01/11/2026 (saut corrigé du dividende, 90 essais antérieurs, suivi en ombre de
+# 100 signaux et 6 mois avec deux contrôles d'exécution, DSR imprimé seulement, verdict en deux niveaux).
 # Plan de recherche pré-enregistré — enregistrement n° 7 (docs/34 §34.14) : rebond après un saut d'ouverture baissier.
 # Ce fichier EST le plan ; son empreinte sha256 est inscrite au registre à chaque exécution ; le modifier après le gel
 # crée un NOUVEL enregistrement.
@@ -35,8 +30,7 @@
 # publications (0,50) pour les seules cellules découpées sur les publications.
 id: "2026-10-31_reg7"
 title: "Recherche de déclencheurs — enregistrement n° 7 : rebond après un saut d'ouverture baissier (confirmation sur la période scellée)"
-registered_on: "BROUILLON du 2026-10-31 (date de gel à inscrire)"
-draft: true                                  # BROUILLON : refusé par calibrate / run / unseal (prereg.check_frozen)
+registered_on: "2026-11-01"
 seed: 20261031
 
 # pas de clé venue_groups : les groupes européens P0 / P1 / P2 de params.yaml (régime CAC 40 / STOXX 600)
@@ -148,20 +142,17 @@ thresholds:
   sealed:
     min_t_week: 3.0
     effect_level: true
-    # D7 — À DÉCIDER : le DSR sur la période scellée. Variance des Sharpe « cellules » = celle des 14 cellules non
-    # placebo du plan sur la période : les découpages (X2, X3, X4) ont moins d'événements par semaine, donc un Sharpe
-    # hebdomadaire plus faible, ce qui relève la barre des C sans rapport avec la sélection (relecture du 31/10/2026 :
-    # à effet égal partout, C2 passe DSR ≥ 0,95 une fois sur deux à t ≈ 4,6) ; « nulle » = 1 / (semaines − 1), la
-    # variance d'une cellule sans effet (barre ≈ t ≥ 4) ; min_dsr: null = DSR imprimé seulement (Holm sur 3 et t ≥ 3
-    # restent) — proposé : sur une période jamais lue, la sélection parmi les essais de la découverte ne biaise pas
-    # l'estimation, Holm sur les 3 cellules déclarées y suffit
-    min_dsr: 0.95
-    dsr_variance: cellules
-    # D5 — À DÉCIDER : cellules distinctes lues par l'étude des causes (partie B : par cause, 3 durées × 3 mesures +
-    # barrière = 10) : 8 causes = 80 au rapport causes_20261030_150454 ; 9 causes (achats de dirigeants en plus) = 90
-    # au rapport causes_20261031_121715 (ligne « Tests multiples ») — proposé : 90 (la seconde exécution relit les
-    # mêmes cellules sur des cours corrigés : pas de nouveaux essais) ; 170 si chaque lecture compte
-    dsr_prior_trials: 80
+    # D7 — TRANCHÉE le 01/11/2026 : DSR IMPRIMÉ SEULEMENT (min_dsr: null), jamais un critère ; Holm sur 3 et t ≥ 3
+    # restent. Sur une période jamais lue, la sélection parmi les essais de la découverte ne biaise pas l'estimation des
+    # cellules déclarées. La variance des Sharpe des 14 cellules non placebo faisait dépendre la barre des cellules
+    # descriptives (leurs découpages ont moins d'événements par semaine) et la relevait avec l'effet lui-même (étude de
+    # puissance du 01/11/2026) ; le DSR imprimé est donc celui d'une cellule sans effet, variance 1 / (semaines − 1).
+    min_dsr: null
+    dsr_variance: nulle
+    # D5 — TRANCHÉE le 01/11/2026 : 90 essais antérieurs, les cellules distinctes lues par l'étude des causes
+    # (partie B : par cause, 3 durées × 3 mesures + barrière = 10 ; 9 causes au rapport causes_20261031_121715, ligne
+    # « Tests multiples » ; la première exécution relisait 8 de ces causes sur des cours non corrigés)
+    dsr_prior_trials: 90
     placebo_max_abs_t: 3.0
 
 inference:
@@ -176,12 +167,12 @@ inference:
 
 # Déclencheur t18 (app/domain/research/triggers.py) — définition commune, tous les paramètres écrits ici :
 # saut d'ouverture de la séance k = ouverture(k) ÷ clôture(k − 1) − 1, cours bruts, séances propres de la valeur ;
-# dividend_neutral: true → multiplié par le rapport des facteurs d'ajustement de k et k − 1 quand il MONTE (un
-# détachement n'ouvre aucun saut ; une BAISSE du facteur n'est jamais un détachement — correction d'un fournisseur,
-# facteur 1 avant le premier connu — elle est ignorée, relecture du 31/10/2026) — D2 ; max_prev_days : une séance
-# à plus de 7 jours calendaires de la précédente de la valeur (trou d'historique, suspension) n'est pas un saut
-# d'ouverture ; seuil = max(gap_min ; gap_atr × ATR ÷ clôture(k − 1)), ATR = moyenne simple des vraies amplitudes
-# des atr_sessions séances finissant en k − 1 (définition de l'étude, moves.atr_series ; ≠ ATR de Wilder du banc, qui
+# dividend_neutral: true (D2, tranchée le 01/11/2026) → multiplié par le rapport des facteurs d'ajustement de k et
+# k − 1 quand il MONTE (un détachement n'ouvre aucun saut ; une BAISSE du facteur n'est jamais un détachement —
+# correction d'un fournisseur, facteur 1 avant le premier connu — elle est ignorée, relecture du 31/10/2026) ;
+# max_prev_days : une séance à plus de 7 jours calendaires de la précédente de la valeur (trou d'historique,
+# suspension) n'est pas un saut d'ouverture ; seuil = max(gap_min ; gap_atr × ATR ÷ clôture(k − 1)), ATR = moyenne
+# simple des vraies amplitudes des atr_sessions séances finissant en k − 1 (définition de l'étude, moves.atr_series ; ≠ ATR de Wilder du banc, qui
 # place le stop) ; saut baissier ≤ − seuil ; un événement par valeur toutes les dedup_sessions séances (le premier,
 # compté sur tous les sauts baissiers de la valeur, éligible ou non, avant tout découpage) ; signal en k sur une
 # séance éligible (connu à l'ouverture de k) → ordre E_open(1) à partir de l'ouverture de k + 1 (limite clôture(k)
@@ -243,13 +234,15 @@ stage2:
 max_total_cells: 20
 expected_total_cells: 20           # 3 confirmatoires + 3 placebo + 11 exploratoires + 0 étape 1 + 0 F0 + 3 portefeuille
 
-# Règle de décision (lue par la documentation, pas par le banc ; fait partie de l'empreinte) — D6
+# Règle de décision (imprimée par le verdict scellé telle qu'écrite ; fait partie de l'empreinte) — D6, D8
 decision:
   ordre_de_lecture: "placebo X1 (h 5, h 10, h 20), puis C1, C2, C3, puis les exploratoires (descriptives)"
   confirme: >-
     C1, C2 ou C3 CONFIRMÉ sur la période scellée → SUIVI EN OMBRE de la cellule confirmée (shadow_signals, aucun ordre),
     puis ADR de mise en production à 50 % de risk.max_risk_per_trade_pct, avec règle de suspension, seulement après
-    au moins 100 signaux en ombre et 6 mois, de même signe que la période scellée (sortie réelle protégée, celle de C)
+    au moins 100 signaux en ombre et 6 mois, de même signe que la période scellée (sortie réelle protégée, celle de C),
+    avec deux contrôles d'exécution (D6, 01/11/2026) : glissement réel au plus 2 × risk.slippage_pct, taux d'exécution
+    au moins la moitié de celui du banc — le suivi vérifie que l'outil reproduit le banc, il ne re-prouve pas l'effet
   effet_confirme_non_exploitable: >-
     l'effet existe sur la période scellée mais pas à nos coûts → aucun ordre, aucun suivi en ombre ; l'effet peut
     devenir un élément d'appréciation des cartes (jamais une porte ni un déclencheur), par un ADR
