@@ -18,6 +18,7 @@ Passer de règles « raisonnables » à des règles **mesurées** : rejouer, sé
 - stop supposé touché **après** l'exécution le jour même ; si stop et objectif sont dans la même séance, **le stop d'abord** ; gap sous le stop → sortie à l'ouverture, glissée ;
 - issue inconnue (historique trop court) : **non comptée** ;
 - une opération sur titres (division…) pendant la position : trade **exclu** et compté dans les notes (cours non ajustés) ;
+- un **cours aberrant** (ouverture ou clôture ≥ `backtest.suspect_price_ratio` × ou ≤ 1/ratio de la clôture précédente, 4 par défaut : erreur de cotation ou changement d'unité que le facteur d'ajustement ne montre pas) : trade qui le traverse **exclu**, séance de signal dont la fenêtre de 280 séances le contient **ignorée**, les deux comptés dans les notes (01/11/2026 : sans cette règle, le rejeu n° 5 donnait à d7 un R net moyen de +1,79 R pour une médiane de −1,10 R, et la carte spéculative aurait affiché cette espérance) ;
 - un seul trade à la fois par valeur et par détecteur.
 
 ## 27.4 Biais connus (affichés avec chaque résultat)

@@ -32,6 +32,8 @@ from app.domain.zones import detect_zones
 log = logging.getLogger("bourse.backtest")
 HOLDING_DAYS = {"days": 5, "swing_2_6w": 20, "semaines": 40}
 CA_JUMP = 0.2  # change of the adjustment factor (adj_close / close) between two sessions → corporate action
+SUSPECT_RATIO = 4.0  # backtest.suspect_price_ratio when params.yaml omits it (move_causes / plan n° 7 rule)
+SIGNAL_WINDOW = 280  # sessions a detector reads before its signal (the window passed to ``detect``)
 
 
 @dataclass
@@ -39,9 +41,14 @@ class History:
     days: list[date]
     bars: list[Bar]
     ca_index: set[int] = field(default_factory=set)  # sessions after a split / corporate action
+    # sessions whose open or close is ≥ ratio × or ≤ 1 / ratio of the previous close (a bad tick, a unit change the
+    # adjustment factor does not show): a trade crossing one is excluded, a signal reading one is skipped
+    suspect_index: set[int] = field(default_factory=set)
 
 
-def load_history(s: Session, isins: list[str], start: date, end: date, lookback_days: int = 420) -> dict[str, History]:
+def load_history(
+    s: Session, isins: list[str], start: date, end: date, lookback_days: int = 420, suspect_ratio: float | None = None
+) -> dict[str, History]:
     out: dict[str, History] = {}
     lo = start - timedelta(days=lookback_days)
     for isin in isins:
@@ -61,6 +68,10 @@ def load_history(s: Session, isins: list[str], start: date, end: date, lookback_
             if f and prev and abs(f / prev - 1) > CA_JUMP:
                 h.ca_index.add(k)
             prev = f or prev
+        if suspect_ratio:
+            from app.domain.move_causes import suspect_sessions
+
+            h.suspect_index = set(suspect_sessions([b.open for b in h.bars], [b.close for b in h.bars], suspect_ratio))
         out[isin] = h
     return out
 
@@ -161,7 +172,9 @@ def run_backtest(
     from app.domain.research.prereg import check_not_sealed
 
     check_not_sealed(start - timedelta(days=420), "backtest")  # its 420-day look-back, too (review of 30/10/2026)
-    hist = load_history(s, list(insts), start, end)
+    bt = (config.raw or {}).get("backtest") or {}
+    suspect_ratio = float(bt.get("suspect_price_ratio") or SUSPECT_RATIO)
+    hist = load_history(s, list(insts), start, end, suspect_ratio=suspect_ratio)
     ranks = rs_ranks(hist) if hist else {}
     from app.services.indices import EUROPE, index_specs
 
@@ -176,6 +189,8 @@ def run_backtest(
     s.add(run)
     s.flush()
     excluded_ca = 0
+    excluded_suspect = 0  # trades crossing a suspect session
+    skipped_suspect = 0  # signal sessions whose detector window reads a suspect session
     trades: list[BacktestTrade] = []
     for n_done, (isin, h) in enumerate(hist.items(), 1):
         if progress:
@@ -187,6 +202,9 @@ def run_backtest(
         for i in range(259, len(h.bars) - 1):
             day = h.days[i]
             if day < start or day > end:
+                continue
+            if h.suspect_index and any(i - SIGNAL_WINDOW < k <= i for k in h.suspect_index):
+                skipped_suspect += 1  # levels, ATR and pivots computed on a bad tick: no signal (review of 01/11/2026)
                 continue
             window = h.bars[max(0, i - 279) : i + 1]
             ctx = DetectorContext(ranks.get((isin, day)), [], wick, float(stop_p.buffer_atr_mult))
@@ -230,6 +248,9 @@ def run_backtest(
                 if any(a <= k <= b for k in h.ca_index):
                     excluded_ca += 1
                     continue
+                if any(a <= k <= b for k in h.suspect_index):
+                    excluded_suspect += 1
+                    continue
                 trades.append(
                     BacktestTrade(
                         run_id=run.id, isin=isin, detector=name, signal_day=day, entry_day=h.days[a], exit_day=h.days[b],
@@ -247,6 +268,9 @@ def run_backtest(
         "sans fondamentaux, lettres ni consensus historiques : ni bloc F, ni portail des lettres, ni score d'admission",
         "objectif des analystes non disponible dans le passé : seuls les objectifs techniques sont testés",
         f"{excluded_ca} trade(s) exclu(s) : opération sur titres (division…) pendant la position, cours non ajustés",
+        f"cours suspects (ouverture ou clôture ≥ {suspect_ratio:g} × ou ≤ 1/{suspect_ratio:g} de la clôture précédente) : "
+        f"{excluded_suspect} trade(s) exclu(s), {skipped_suspect} séance(s) de signal ignorée(s) (fenêtre de "
+        f"{SIGNAL_WINDOW} séances)",
         "compte comptant (frais du CTO), avant impôt ; une règle « découverte » exige t ≥ 3 (Harvey, Liu & Zhu)",
     ]
     s.flush()

@@ -830,6 +830,13 @@ llm:
   review_max_tokens: 4000              # docs/18 §18.6 ; revue d'apprentissage (write_model), ≈ 0,06 $ au plus
   news_classify_scope: "attached"      # docs/25 L1 : Claude ne classe que les articles rattachés à une valeur et la revue de presse (attached | all | none)
 
+backtest:                                # docs/27 : rejeu hebdomadaire des détecteurs au coût complet
+  years: 8                               # profondeur du rejeu hebdomadaire (années)
+  markets: europe                        # places européennes P0 / P1 / P2 (Londres, Zurich, New York : test du n° 2)
+  # séance dont l'ouverture ou la clôture est ≥ 4 × ou ≤ ¼ de la clôture précédente : cours aberrant (règle de l'étude
+  # des causes et du plan n° 7) — trade traversant exclu, signal dont la fenêtre de 280 séances la contient ignoré
+  suspect_price_ratio: 4.0
+
 jobs:                                    # heure de Paris sauf mention tz ; market_days_only => calendrier de la place de chaque instrument traité (docs/02 §2.4)
   test_job: {cron: "5 9 * * 1-5", misfire_grace_min: 10, market_days_only: true}   # job de test de la phase 0 (A0.3)
   universe_refresh: {cron: "30 6 * * 1", misfire_grace_min: 240, market_days_only: false}

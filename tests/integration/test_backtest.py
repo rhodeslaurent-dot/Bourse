@@ -118,3 +118,32 @@ def test_the_backtest_never_reads_the_sealed_period(db_engine, config):
 
     with db_session() as s, pytest.raises(PreregError, match="période scellée"):
         run_backtest(s, config, date(2016, 6, 1), date(2017, 6, 30))
+
+
+def test_a_bad_tick_never_makes_a_backtest_trade(db_engine, config):
+    """Review of 01/11/2026 (run n° 5: d7 at +1.79 R net on average, median −1.10 R): a session at ≥ 4 × or ≤ ¼ of the
+    previous close is a bad tick — no trade crosses it, no signal reads it (its window of 280 sessions)."""
+    with db_session() as s:
+        isins = [f"FR00000000{k:02d}" for k in range(12)]
+        for k, isin in enumerate(isins):
+            s.add(Instrument(isin=isin, name=f"V{k}", mic="XPAR", currency="EUR", in_universe=True, market_cap_eur=2e9))
+            rows = _series(isin, 700, 0.0012 if k % 2 == 0 else -0.0004, seed=k)
+            if k < 6:  # a × 5 tick for one session on half of the values
+                for r in rows[450:451]:
+                    r.open, r.high, r.low, r.close, r.adj_close = (x * 5 for x in (r.open, r.high, r.low, r.close,
+                                                                                     r.adj_close))  # fmt: skip
+            s.add_all(rows)
+        s.flush()
+        bad_days = {isin: s.query(PriceEod).filter(PriceEod.isin == isin).order_by(PriceEod.day)[450].day
+                    for isin in isins[:6]}  # fmt: skip
+        run = run_backtest(s, config, date(2024, 1, 1), date(2025, 9, 30))
+        trades = s.query(BacktestTrade).filter(BacktestTrade.run_id == run.id).all()
+        for t in trades:
+            bad = bad_days.get(t.isin)
+            assert bad is None or not (t.entry_day <= bad <= t.exit_day), (t.isin, t.entry_day, t.exit_day)
+            assert t.r_gross < 20  # never a gain of dozens of R from a bad tick
+        note = next(n for n in run.notes if n.startswith("cours suspects"))
+        import re
+
+        skipped = int(re.search(r"(\d+) séance\(s\) de signal ignorée", note).group(1))
+        assert skipped >= 6 * 200  # each bad value: the sessions of the period whose 280-session window reads the tick
