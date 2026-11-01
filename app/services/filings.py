@@ -41,7 +41,15 @@ from app.data.providers.amf_flow import (
     list_packages,
 )
 from app.db.models import OfficialFiling, OfficialFilingPackage
-from app.domain.filings import FAMILY_LABELS, family_of, month_coverage, month_key, paris_wall_clock, valid_isin
+from app.domain.filings import (
+    FAMILY_LABELS,
+    family_for,
+    family_of,
+    month_coverage,
+    month_key,
+    paris_wall_clock,
+    valid_isin,
+)
 from app.domain.timeutil import from_store
 
 log = logging.getLogger("bourse.filings")
@@ -152,12 +160,10 @@ def store(s: Session, rels: Iterable[OfficialRelease], received_at: datetime, re
         when, time_source = (market, "marche") if market.utc is not None else (amf, "amf" if amf.utc else None)
         isin = valid_isin(r.isin)
         row = known.get((r.diffuser, r.uin_id))
+        fam, ok = family_for(r.type_code, r.type_codes)
         if row is None:
-            fam, ok = family_of(r.type_code)
             if not ok:
                 rep.unknown_codes[r.type_code or ""] += 1
-                # a newer primary code: the first known secondary code (INF_STP_INF) gives the family
-                fam = next((f for f, k in map(family_of, r.type_codes) if k), fam)
             if isin is None:
                 rep.bad_isin += int(bool(r.isin))
                 rep.without_isin += int(not r.isin)
@@ -193,6 +199,9 @@ def store(s: Session, rels: Iterable[OfficialRelease], received_at: datetime, re
             row.also_in_time_ok = same
             rep.same_time += int(same)
             rep.different_time += int(not same)
+            changed = True
+        if row.source == r.source and row.family != fam:  # the list of codes was completed since: re-derived
+            row.family = fam
             changed = True
         for k in _FILLABLE:
             if getattr(row, k) is None and getattr(r, k) is not None:

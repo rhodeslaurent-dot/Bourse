@@ -185,7 +185,7 @@ Options :
 - Les paquets écrivent encore « +02:00 » après le changement d'heure du 25/10/2026.
 - Le code lit donc l'heure de Paris et la convertit lui-même en UTC (ADR-017). L'heure retenue est celle de la diffusion au marché ; à défaut, celle du dépôt à l'AMF.
 
-**Familles** (liste fermée, d'après le code de type) : résultats, chiffre d'affaires, acquisition ou cession, autre information privilégiée, rapport financier, mise à disposition d'un document, droits de vote et capital, offre publique, rachat d'actions et contrat de liquidité, gouvernance, déclaration sur une rumeur, autre.
+**Familles** (liste fermée, d'après le code de type) : résultats, chiffre d'affaires, acquisition ou cession, autre information privilégiée, rapport financier, mise à disposition d'un document, droits de vote et capital, offre publique, rachat d'actions et contrat de liquidité, gouvernance, déclaration sur une rumeur, franchissement de seuil, autre. Un code inconnu prend la famille de son code secondaire, sinon celle de son type à 3 chiffres quand ce type n'a qu'une famille ; il est compté.
 
 **Couverture** : un mois sous 50 % de la médiane du même mois des autres années est « non couvert ». L'étude y lira « inconnu », jamais « aucun communiqué ».
 

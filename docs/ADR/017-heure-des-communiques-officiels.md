@@ -47,12 +47,20 @@
    - 00:00:00 = une date sans heure (`time_precision = jour`) : l'étude lira alors le moment « inconnu ».
    - `data_status = eod` (archive), avec `received_at` et `processed_at` (règle 2).
 4. **Familles** (liste fermée, `FAMILIES`) déduites du code de type.
-   - Un code inconnu passe en « autre » et est compté ; si un code secondaire est connu, il donne la famille.
+   - Un code inconnu est compté. Il prend la famille de son premier code secondaire connu, sinon celle de son type à 3 chiffres quand tous les codes connus de ce type ont la même famille (004001 → rapport financier ; jamais pour 001, qui mêle résultats, opérations et autres informations privilégiées). Sinon : « autre ».
+   - Codes ajoutés après l'essai du 01/11/2026 (octobre 2026 : 1 970 communiqués) : 023000 « décision de franchissement de seuil » (famille `franchissement_seuil`), 300005 « document de référence » (rapport financier). Une ligne déjà stockée reprend sa famille à la relecture suivante.
    - Le titre n'est jamais lu pour deviner le type.
 5. **Couverture** : chaque mois est comparé à la médiane du même mois des autres années (`data.filings.coverage_min_share`, 50 %).
    - Un mois en dessous est « non couvert » : l'étude y lit « inconnu », jamais « aucun communiqué ».
 6. **Rien avant le 01/10/2015** : la période 2007-2015 reste réservée (docs/34, plan n° 7 non ouvert). Le chargement commence par défaut le 01/01/2016 (`data.filings.history_from`).
 7. **ISIN** : gardé seulement s'il a la forme ISO 6166 et une clé de contrôle juste. Il n'est jamais deviné d'après le nom.
+
+## Essai sur le PC (01/11/2026, octobre 2026)
+
+- 1 970 communiqués, export mensuel accepté (deux requêtes).
+- 483 étiquettes de fuseau fausses, soit la dernière semaine d'octobre : l'API écrit, elle aussi, encore « 02:00 » après le changement d'heure.
+- 62 heures de marché absentes (8888) : heure de dépôt utilisée.
+- 98 % d'ISIN valides ; les 40 rejetés sont des émetteurs non cotés (« 999999999999 »).
 
 ## Conséquences
 

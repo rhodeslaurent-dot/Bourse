@@ -49,15 +49,15 @@ def _api_fetch(by_month: dict[str, list[dict]], calls: list[str]):
 def test_api_archive_stores_once_with_paris_time(db_engine, config):
     recs = _records_2016()
     bad = {**recs[0], "uin_idt_uin": "109685_20160412", "identificationsociete_iso_cd_isi": "999999999999",
-           "uin_dat_mar": "8888-01-01T00:00:00+00:00", "informationdeposee_inf_stp_pri": "300005",
-           "informationdeposee_inf_stp_inf": '["300005", "003000"]'}  # fmt: skip
+           "uin_dat_mar": "8888-01-01T00:00:00+00:00", "informationdeposee_inf_stp_pri": "004001",
+           "informationdeposee_inf_stp_inf": '["004001"]'}  # fmt: skip
     calls: list[str] = []
     fetch = _api_fetch({"2016-04": [*recs, bad, recs[0]]}, calls)
     with db_session() as s:
         rep = filings.archive_api(s, config, date(2016, 3, 15), date(2016, 4, 30), fetch=fetch, sleep=lambda x: None)
         assert calls == ["2016-03", "2016-04"]
         assert (rep.read, rep.added, rep.known) == (4, 3, 1)  # the repeated record is not stored twice
-        assert rep.unknown_codes == {"300005": 1} and rep.bad_isin == 1 and rep.amf_time_used == 1
+        assert rep.unknown_codes == {"004001": 1} and rep.bad_isin == 1 and rep.amf_time_used == 1
         rows = {r.uin_id: r for r in s.scalars(select(OfficialFiling))}
         r = rows["109683_20160412"]
         # 16:30:31 Paris (summer time) = 14:30:31 UTC, whatever « +00:00 » says
@@ -71,6 +71,11 @@ def test_api_archive_stores_once_with_paris_time(db_engine, config):
         rep2 = filings.archive_api(s, config, date(2016, 4, 1), date(2016, 4, 30), fetch=fetch, sleep=lambda x: None)
         assert (rep2.added, rep2.known) == (0, 4)
         assert s.scalar(select(func.count()).select_from(OfficialFiling)) == 3
+        # a row stored before its code was listed gets its family on the next read
+        b.family = "autre"
+        s.flush()
+        filings.archive_api(s, config, date(2016, 4, 1), date(2016, 4, 30), fetch=fetch, sleep=lambda x: None)
+        assert b.family == "rapport_financier"
 
 
 def _notice(uin: str, dif: str, mar: str) -> bytes:

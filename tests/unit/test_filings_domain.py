@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from app.domain.filings import (
     FAMILIES,
+    family_for,
     family_of,
     known_codes,
     month_coverage,
@@ -22,8 +23,19 @@ def test_every_code_maps_to_a_declared_family_and_unknown_is_autre():
     assert family_of("001002") == ("operation", True)
     assert family_of("009003") == ("opa", True)
     assert family_of("013004") == ("rachat_actions", True)
-    assert family_of("300005") == ("autre", False)  # a newer code: never guessed from the title
+    assert family_of("023000") == ("franchissement_seuil", True)
+    assert family_of("300005") == ("rapport_financier", True)  # document de référence (secondary 003000)
+    assert family_of("777000") == ("autre", False)  # an unknown code: never guessed from the title
     assert family_of(None) == ("autre", False)
+
+
+def test_unknown_code_takes_the_secondary_code_then_its_type():
+    assert family_for("999001", ["999001", "003000"]) == ("rapport_financier", False)
+    assert family_for("004001", ["004001"]) == ("rapport_financier", False)  # type 004 = half-year report only
+    assert family_for("013009", []) == ("rachat_actions", False)
+    assert family_for("001009", []) == ("autre", False)  # type 001 mixes several families: not chosen
+    assert family_for("001007", ["006000"]) == ("resultats", True)  # a known primary code wins
+    assert family_for(None, []) == ("autre", False)
 
 
 def test_isin_shape_and_check_digit():

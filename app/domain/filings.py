@@ -26,7 +26,7 @@ PARIS = ZoneInfo("Europe/Paris")
 
 FAMILIES = (
     "resultats", "chiffre_affaires", "operation", "info_privilegiee", "rapport_financier", "document",
-    "droits_de_vote", "opa", "rachat_actions", "gouvernance", "rumeur", "autre",
+    "droits_de_vote", "opa", "rachat_actions", "gouvernance", "rumeur", "franchissement_seuil", "autre",
 )  # fmt: skip
 
 FAMILY_LABELS = {
@@ -34,7 +34,7 @@ FAMILY_LABELS = {
     "info_privilegiee": "autre information privilégiée", "rapport_financier": "rapport financier",
     "document": "mise à disposition d'un document", "droits_de_vote": "droits de vote et capital",
     "opa": "offre publique", "rachat_actions": "rachat d'actions, contrat de liquidité", "gouvernance": "gouvernance",
-    "rumeur": "déclaration sur une rumeur", "autre": "autre",
+    "rumeur": "déclaration sur une rumeur", "franchissement_seuil": "franchissement de seuil", "autre": "autre",
 }  # fmt: skip
 
 # INF_STP_PRI → family (list of values of the AMF flow, LV_01.07 → LV_01.09)
@@ -58,6 +58,8 @@ _CODE_FAMILY: dict[str, str] = {
     "016000": "rachat_actions",  # contrat de liquidité (jusqu'en 2010)
     "008000": "gouvernance",
     "015000": "rumeur",
+    "023000": "franchissement_seuil",  # décision de franchissement de seuil (libellé de l'API, vu le 01/11/2026)
+    "300005": "rapport_financier",  # document de référence (code secondaire 003000), vu en 2025-2026
     "007000": "autre",  # honoraires des commissaires aux comptes
     "014000": "autre",  # État membre d'origine
     "022000": "autre",  # paiements aux gouvernements
@@ -75,6 +77,22 @@ def family_of(code: str | None) -> tuple[str, bool]:
     c = (code or "").strip()
     fam = _CODE_FAMILY.get(c)
     return (fam, True) if fam is not None else ("autre", False)
+
+
+def family_for(code: str | None, secondary: Sequence[str] = ()) -> tuple[str, bool]:
+    """(family, primary code known). An unknown primary code takes the family of its first known secondary code
+    (``INF_STP_INF``), else of its 3-digit type when every known code of that type has one family (004001 →
+    « rapport financier »; never for 001, which mixes results, operations and other privileged information)."""
+    fam, ok = family_of(code)
+    if ok:
+        return fam, True
+    for c in secondary:
+        f, k = family_of(c)
+        if k:
+            return f, False
+    prefix = (code or "").strip()[:3]
+    fams = {f for k, f in _CODE_FAMILY.items() if k[:3] == prefix} if len(prefix) == 3 else set()
+    return (fams.pop() if len(fams) == 1 else "autre"), False
 
 
 def known_codes() -> dict[str, str]:
