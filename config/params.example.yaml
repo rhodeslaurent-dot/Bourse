@@ -784,6 +784,7 @@ letters:                                  # docs/20 §20.10 — analyse détermi
   trigger_alert_pct: 0.03                 # déclencheur à moins de 3 % du cours → « déclencheur proche » sur la carte
   min_history_sessions: 60                # en dessous : « non analysable (historique) »
   stop_lookback_low: 10                   # stop de structure : plus bas de N séances − risk.stop.buffer_atr_mult × ATR14 (comme d2_breakout)
+  level_price_band: [0.5, 2.0]            # lot R3 (docs/38 §38.6) : un niveau lu dans une lettre hors de [0,5 ; 2] × la dernière clôture de la valeur est écarté (niveau d'indice lu dans la même fiche, année, nombre) et signalé
   report_line: true                       # une ligne « Lettres : … » dans le rapport du jour
 
 verdict:                                  # docs/37 lot L0 (ADR-016 proposé) — échelle de verdict graduée ; CONSTRUITE, DÉSACTIVÉE : décisions D9–D15 en attente. Groupe absent ou enabled: false → comportement actuel inchangé. Aperçu sans rien changer : `verdict-preview --date AAAA-MM-JJ`

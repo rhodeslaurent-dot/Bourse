@@ -1521,6 +1521,13 @@ def cmd_letters_trace(args: argparse.Namespace) -> int:
     with db_session() as s:
         for line in trace(s, day, reader):
             print(line)
+        if args.rules or args.fill:
+            from app.services.letter_trace import rules_reread
+            from app.services.newsletters import level_band
+
+            print()
+            for line in rules_reread(s, day, level_band(load_params(args.params)), apply=args.fill):
+                print(line)
     return 0
 
 
@@ -2513,6 +2520,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     lt.add_argument("--date", help="AAAA-MM-JJ (défaut : aujourd'hui)")
     lt.add_argument("--ia", action="store_true", help="montrer aussi la réponse de l'IA (valeurs et niveaux)")
+    lt.add_argument(
+        "--rules",
+        action="store_true",
+        help="relire les lettres avec les règles actuelles (gratuit, sans IA) : niveaux lus maintenant",
+    )
+    lt.add_argument("--fill", action="store_true",
+                    help="compléter les valeurs restées sans niveau avec les niveaux lus par les règles")  # fmt: skip
     lt.set_defaults(fn=cmd_letters_trace)
     lx = sub.add_parser(
         "letters-reextract",

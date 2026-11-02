@@ -179,3 +179,80 @@ def reread(s: Session, day: date, gateway: object) -> list[str]:
             extra = f" · noms inconnus ignorés : {', '.join(dropped)}" if dropped else ""
             out.append(f"    {v.name} · {v.direction} · {shown or 'aucun niveau'}{extra}")
     return out
+
+
+def _levels_text(lv: dict | None) -> str:
+    from app.domain.review import fmt_price
+    from app.services.letters_verdict import LEVEL_LABELS
+
+    order = ("achat", "declencheur", "support", "resistance", "objectif", "objectif_2", "objectif_3", "stop")
+    shown = [f"{LEVEL_LABELS.get(k, k)} {fmt_price(float(lv[k]))}" for k in order
+             if lv and isinstance(lv.get(k), int | float)]  # fmt: skip
+    return ", ".join(shown) or "aucun niveau"
+
+
+def rules_reread(
+    s: Session, day: date, band: tuple[float, float] | None = None, apply: bool = False, now: datetime | None = None
+) -> list[str]:
+    """Lot R3 (docs/38 §38.6): the letters of ``day`` read again by the current rules — free, no LLM. Per value
+    stored: the levels stored and the levels the rules read now (closed list of names, then ``band`` × the value's
+    last close). ``apply``: a stored value **without any level** gets the rules' levels; a value that has levels keeps
+    them, and a value linked to a proposal keeps its proposal and decision snapshot (rule 10) — the engine's next
+    analysis reads the new levels. Values the rules find but the reception did not store are listed, not added. The
+    letter's text is never printed."""
+    from app.data.providers.imap_gmail import extract_values
+    from app.domain.letter_levels import canonical_levels, within_band
+    from app.domain.timeutil import from_store
+    from app.services.news import alias_index
+    from app.services.newsletters import _prev_close, session_day_for
+
+    start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS)
+    items = list(
+        s.scalars(
+            select(NewsletterItem)
+            .where(NewsletterItem.received_at >= start, NewsletterItem.received_at < start + timedelta(days=1))
+            .order_by(NewsletterItem.received_at)
+        )
+    )
+    aliases = alias_index(s)
+    out = [f"Relecture par les règles actuelles (sans IA, gratuite) — lettres du {day:%d/%m/%Y} : {len(items)}"]
+    filled = 0
+    for it in items:
+        body = it.body_text or ""
+        received = from_store(it.received_at)
+        sday = session_day_for(received)
+        out.append(f"· {it.source} {received.astimezone(PARIS):%H:%M} Paris — « {it.subject[:80]} » ({len(body)} car.)")
+        read = {v.isin: v for v in extract_values(body, aliases) if v.isin}
+        rows = list(
+            s.scalars(select(NewsletterValue).where(NewsletterValue.item_id == it.id).order_by(NewsletterValue.id))
+        )
+        n_fill = 0
+        for row in rows:
+            v = read.pop(row.isin, None) if row.isin else None
+            lv, _ = canonical_levels(v.levels if v is not None else {})
+            lv, far = within_band(lv, _prev_close(s, row.isin, sday), band) if row.isin else (lv, [])
+            stored = row.levels or {}
+            line = f"    {row.name or '?'} ({row.isin or 'ISIN non reconnu'}) · enregistrés : {_levels_text(stored)}"
+            line += f" · règles actuelles : {_levels_text(lv)}"
+            if far:
+                line += f" · écartés (trop loin du cours) : {', '.join(far)}"
+            if apply and lv and not stored:
+                row.levels = dict(lv)
+                n_fill += 1
+                line += " → enregistrés"
+            out.append(line)
+        for v in read.values():
+            lv, _ = canonical_levels(v.levels)
+            out.append(f"    {v.name} ({v.isin}) · lue par les règles, absente des valeurs enregistrées · "
+                       f"{_levels_text(lv)} (non ajoutée)")  # fmt: skip
+        if n_fill:
+            parsed = dict(it.parsed or {})  # reassigned: the JSON column is not mutation-tracked
+            parsed["rules_fill"] = {"at": (now or datetime.now(PARIS)).isoformat(timespec="seconds"), "values": n_fill}
+            it.parsed = parsed
+            filled += n_fill
+    if apply:
+        out.append(f"{filled} valeur(s) sans niveau complétée(s) par les règles ; les autres sont inchangées.")
+        s.flush()
+    else:
+        out.append("Aperçu : rien n'est enregistré (ajouter --fill pour compléter les valeurs restées sans niveau).")
+    return out

@@ -19,7 +19,7 @@ from app.data.dto import Quote
 from app.data.providers.imap_gmail import NewsletterMail, extract_values
 from app.db.models import Instrument, NewsletterItem, NewsletterValue, PriceEod, WatchlistRow
 from app.domain.indicators import gap_open as gap_fn
-from app.domain.letter_levels import canonical_levels, recalculable
+from app.domain.letter_levels import canonical_levels, recalculable, within_band
 from app.domain.names import resolve
 from app.llm.gateway import ClaudeGateway, LlmUnavailable
 from app.llm.schemas import NewsletterExtraction
@@ -49,6 +49,17 @@ def _eod(s: Session, isin: str, day) -> PriceEod | None:  # type: ignore[no-unty
 def _prev_close(s: Session, isin: str, day) -> float | None:  # type: ignore[no-untyped-def]
     row = s.scalar(select(PriceEod).where(PriceEod.isin == isin, PriceEod.day < day).order_by(PriceEod.day.desc()))
     return row.close if row else None
+
+
+def level_band(config: LoadedConfig) -> tuple[float, float] | None:
+    """``letters.level_price_band`` (lot R3): a level read in a letter must lie within [lo, hi] × the value's last
+    close. Absent (or the ``letters`` group absent) → no check, as before."""
+    g = getattr(config.params, "letters", None)
+    raw = g.get("level_price_band") if isinstance(g, dict) else None
+    if not isinstance(raw, list | tuple) or len(raw) != 2:
+        return None
+    lo, hi = float(raw[0]), float(raw[1])
+    return (lo, hi) if 0 < lo < 1 < hi else None
 
 
 def _number_in_text(value: float, text: str) -> bool:
@@ -146,20 +157,28 @@ def ingest_mail(
             rep.parsed_by_llm = 1
         except LlmUnavailable as exc:
             log.warning("LLM indisponible (%s) : extraction par règles", exc)
+    day = session_day_for(mail.received_at, calendars)  # noqa: F821
+    band = level_band(config)
     dropped_keys: list[str] = []
+    out_of_band: list[str] = []
     for v in values:  # one closed list of level names (« entrée » → achat, « invalidation » → stop…)
         v.levels, dropped = canonical_levels(v.levels or {})
         dropped_keys += [f"{v.name}:{k}" for k in dropped]
+        if v.isin and v.levels and band:  # lot R3: a level far from the value's price is not this value's
+            v.levels, far = within_band(v.levels, _prev_close(s, v.isin, day), band)
+            out_of_band += [f"{v.name}:{x}" for x in far]
     if dropped_keys:
         log.warning("niveaux de nom inconnu, ignorés : %s", dropped_keys)
+    if out_of_band:
+        log.warning("niveaux trop loin du cours de la valeur, ignorés : %s", out_of_band)
     item.parsed = {
         "values": [{"isin": v.isin, "name": v.name, "direction": v.direction, "levels": v.levels} for v in values],
         "rejected_llm_levels": rejected_levels,
         "unknown_level_names": dropped_keys,
+        **({"levels_out_of_band": out_of_band} if out_of_band else {}),
         **({"page_liee": mail.linked} if getattr(mail, "linked", None) else {}),
     }
     item.parsed_by, item.llm_prompt_version = parsed_by, version
-    day = session_day_for(mail.received_at, calendars)  # noqa: F821
     max_drift = float(
         ((config.params.detectors or {}).get("d5_external") or {}).get("drift_since_open_max_for_buy", 0.02)
     )

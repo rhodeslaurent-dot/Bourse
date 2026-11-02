@@ -52,7 +52,7 @@ def test_parse_eml_html_momentum_and_unrelated():
         asml.direction == "buy"
         and asml.levels["achat"] == 640.0
         and asml.levels["objectif"] == 700.0
-        and asml.levels["invalidation"] == 600.0
+        and asml.levels["stop"] == 600.0  # lot R3: rules give the closed list of names (« invalidation » → stop)
     )
     assert parse_eml((FX / "imap" / "unrelated_sample.eml").read_bytes(), SENDERS) is None
     assert source_for("Foo <x@marketscreener.com>", SENDERS) == "zonebourse"

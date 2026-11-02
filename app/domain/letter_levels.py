@@ -74,3 +74,20 @@ def recalculable(levels: dict[str, float] | None) -> bool:
     lv = levels or {}
     entry = lv.get("achat") is not None or lv.get("support") is not None or lv.get("declencheur") is not None
     return lv.get("stop") is not None and lv.get("objectif") is not None and entry
+
+
+def within_band(
+    levels: dict[str, float], ref: float | None, band: tuple[float, float] | None
+) -> tuple[dict[str, float], list[str]]:
+    """(levels within ``band`` × the value's last close, levels dropped as « key value »). A level outside is not
+    this value's (an index level read in the same fiche, a year, a count): dropped and said, never corrected. The
+    targets left are numbered again. No band or no close: nothing is dropped."""
+    if not band or not ref or ref <= 0:
+        return dict(levels), []
+    lo, hi = band
+    kept = {k: v for k, v in levels.items() if lo * ref <= v <= hi * ref}
+    dropped = [f"{k} {v:g}" for k, v in levels.items() if k not in kept]
+    targets = [kept.pop(k) for k in ("objectif", "objectif_2", "objectif_3") if k in kept]
+    for key, val in zip(("objectif", "objectif_2", "objectif_3"), targets, strict=False):
+        kept[key] = val
+    return kept, dropped

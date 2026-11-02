@@ -18,11 +18,16 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 from app.data.providers.rss import strip_html
+from app.domain.letter_rules import merge_levels, read_levels, sentences
 from app.domain.names import find_mentions
 
 ISIN_RE = re.compile(r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b")
-LEVEL_RE = re.compile(
-    r"(?P<kind>objectif|cible|stop|support|r[ée]sistance|achat|entr[ée]e|invalidation|seuil)\s*(?:de|à|a|:|=)?\s*(?P<value>\d{1,5}(?:[.,]\d{1,3})?)\s*(?:€|EUR|euros)?",
+# paragraphs naming no value that still belong to the fiche of the value named just before (lot R3, docs/38 §38.6)
+CONTINUATION_PARAGRAPHS = 3
+# a paragraph about the market (an index, a rate, a commodity) ends the fiche: its levels are never the value's
+MARKET_RE = re.compile(
+    r"\b(?:cac\s*40|sbf\s*120|euro\s*stoxx|stoxx\s*600|dax|ftse|s&p\s*500|nasdaq|dow\s*jones|nikkei|bund|oat|brent"
+    r"|wti|bitcoin|eur\s*/\s*usd|euro\s*/\s*dollar)\b",
     re.I,
 )
 
@@ -158,30 +163,94 @@ def direction_of(text: str) -> str:
     return "neutral"
 
 
+def _mentions(text: str, aliases: dict[str, str]) -> list[tuple[str | None, str | None]]:
+    """(ISIN, name key) of the values written in ``text``: ISINs, then known names (never tickers); one per value."""
+    found: list[tuple[str | None, str | None]] = [(m, None) for m in ISIN_RE.findall(text)]
+    found += [(isin, key) for isin, key in find_mentions(text, aliases)]
+    out: list[tuple[str | None, str | None]] = []
+    keys: set[str] = set()
+    for isin, name in found:
+        k = isin or name or ""
+        if k and k not in keys:
+            keys.add(k)
+            out.append((isin, name))
+    return out
+
+
+def _sentence_levels(para: str, aliases: dict[str, str]) -> tuple[dict[str, dict[str, float]], str | None]:
+    """A paragraph naming several values: each sentence's levels go to the value it names, or to the last value
+    named before it in the paragraph; a sentence naming several values gives its levels to none (never shared).
+    Returns the levels by value key and the value the paragraph ends on (None when ambiguous)."""
+    by: dict[str, dict[str, float]] = {}
+    owner: str | None = None
+    for sent in sentences(para):
+        named = _mentions(sent, aliases)
+        if len(named) == 1:
+            owner = named[0][0] or named[0][1]
+        elif len(named) > 1:
+            owner = None
+            continue
+        lv = read_levels(sent)
+        if owner and lv:
+            by[owner] = merge_levels(by.get(owner, {}), lv)
+    return by, owner
+
+
 def extract_values(body: str, aliases: dict[str, str] | None = None) -> list[ExtractedValue]:
     """Rule-based extraction: ISINs and known names (aliases: normalized name → ISIN, ``news.alias_index``) with the
-    direction and price levels found in the surrounding paragraph. The LLM refines afterwards."""
+    direction of the paragraph and the price levels written for each value (``app.domain.letter_rules``: a cue such
+    as « objectif », « vise », « clôture au-dessus de », « invalidation » gives its kind to the numbers after it).
+
+    - A paragraph naming one value gives it its levels; one naming several shares them out sentence by sentence.
+    - A fiche often names its value in a title and writes its levels in the next paragraphs: up to
+      ``CONTINUATION_PARAGRAPHS`` paragraphs naming no value still give their levels to the value named just before
+      (an index's levels caught this way are dropped at the reception by ``letters.level_price_band``).
+    - A value named again later is completed by the new levels; its first direction is kept unless it was neutral
+      (a fiche's title, then the paragraph that recommends).
+    - A paragraph about the market (CAC 40, Bund, Brent…) ends the fiche.
+    The LLM refines afterwards; every level it adds must be written in the letter (``newsletters._number_in_text``)."""
     aliases = aliases or {}
     out: list[ExtractedValue] = []
-    seen: set[str] = set()
+    by_key: dict[str, ExtractedValue] = {}
+    owner: ExtractedValue | None = None  # the value whose fiche the next unnamed paragraphs continue
+    gap = 0
+    keys_of: dict[str, list[str]] | None = None  # ISIN → its names, built at the first paragraph naming several
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n|\r\n\r\n", body) if p.strip()]
     for para in paragraphs:
-        found: list[tuple[str | None, str | None]] = [(m, None) for m in ISIN_RE.findall(para)]
-        found += [(isin, key) for isin, key in find_mentions(para, aliases)]  # names only, never tickers
-        levels: dict[str, float] = {}
-        for m in LEVEL_RE.finditer(para):
-            kind = m.group("kind").lower().replace("é", "e")
-            key = {"cible": "objectif", "entree": "achat", "seuil": "stop"}.get(kind, kind)
-            try:
-                levels.setdefault(key, float(m.group("value").replace(",", ".")))
-            except ValueError:
-                continue
+        found = _mentions(para, aliases)
+        if not found:
+            gap += 1
+            if MARKET_RE.search(para):
+                owner = None
+            elif owner is not None and gap <= CONTINUATION_PARAGRAPHS:
+                lv = read_levels(para)
+                if lv:
+                    owner.levels = merge_levels(owner.levels, lv)
+            continue
+        gap = 0
+        if len(found) == 1:
+            k = found[0][0] or found[0][1] or ""
+            shares, last = {k: read_levels(para)}, k
+        else:  # sentence by sentence, among the names of this paragraph's values only (a referential has 10⁴ names)
+            if keys_of is None:
+                keys_of = {}
+                for name_key, isin_of in aliases.items():
+                    keys_of.setdefault(isin_of, []).append(name_key)
+            sub = {k: i for i, _ in found if i for k in keys_of.get(i, [])}
+            shares, last = _sentence_levels(para, sub)
+        direction = direction_of(para)
         for isin, name in found:
             key = isin or name or ""
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(ExtractedValue(isin, name, direction_of(para), levels, para[:240]))
+            v = by_key.get(key)
+            if v is None:
+                v = ExtractedValue(isin, name, direction, {}, para[:240])
+                by_key[key] = v
+                out.append(v)
+            elif v.direction == "neutral" and direction != "neutral":
+                v.direction, v.snippet = direction, para[:240]  # a title first, the recommendation after
+            if shares.get(key):
+                v.levels = merge_levels(v.levels, shares[key])
+        owner = by_key.get(last) if last else None
     return out
 
 

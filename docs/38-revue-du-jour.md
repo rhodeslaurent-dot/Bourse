@@ -59,10 +59,48 @@ Le job `brief_premarket` (08:45 Paris) envoie la revue :
 
 Le rapport en 10 rubriques reste archivé (`daily_reports`) et consultable sur `/rapport`.
 
-## 38.5 Ce que R1 et R2 ne font pas encore
+## 38.5 Ce que R1 et R2 ne faisaient pas encore
 
-- **R3** :
-  - lire les niveaux des fiches Momentum / Next Momentum (le 02/11/2026, déclencheur 1,87 / cible 2,05–2,15 / stop 1,76 pour Elior, et invalidation 93,14 pour Publicis, n'ont pas été lus) ;
-  - afficher les achats des gérants même sans relevé de la semaine ;
-  - vérifier pourquoi « C'est votre argent » du 30/10 n'est pas remonté.
+- Lire les niveaux des fiches Momentum / Next Momentum : fait par R3 (§38.6).
 - **Pas de rédaction par l'IA dans R1.** Le texte est déterministe. Une synthèse rédigée (règle 3 : chiffres absents des faits refusés) pourra venir ensuite si l'utilisateur la souhaite.
+
+## 38.6 Lot R3 : lire les fiches et les gérants
+
+**Constat du 02/11/2026.** Les fiches écrivaient leurs niveaux en toutes lettres :
+- « On visera dans un premier temps le sommet historique à 105,20 euros » ;
+- « une clôture au-dessus de 1,87 € », « pour cible la zone 2,05 – 2,15 € », « un stop d'invalidation sous 1,76 € ».
+
+L'outil affichait pourtant « Aucun niveau chiffré dans la lettre ». La règle ne lisait qu'un nombre écrit juste après le mot (« objectif 60 »), et seulement dans le paragraphe qui nomme la valeur. L'IA, quand elle tourne, complète ; elle ne doit pas être indispensable.
+
+**Lecture par règles** (`app/domain/letter_rules.py`, sans IA, testée) :
+- un **mot-repère** donne son sens aux nombres qui le suivent dans la même phrase, à 60 caractères au plus :
+  - objectif : objectif, cible, vise / visera, en ligne de mire ;
+  - déclencheur : déclencheur, clôture au-dessus de, cassure de, franchissement de, au-delà de ;
+  - invalidation (stop) : stop, invalidation, invalidé ;
+  - support, résistance, achat / entrée ;
+- le **repère le plus proche** l'emporte : « achat sur repli, objectif de 60 » donne un objectif ;
+- une **liste d'objectifs** est numérotée dans l'ordre écrit (« 105,20 puis 106,45, 110,05 », « zone 2,05 – 2,15 ») ;
+- « cassure de la résistance des X » donne un déclencheur ;
+- ne sont **jamais des prix** : un pourcentage, un nombre de titres ou de séances, le jour d'une date, une heure, les chiffres d'un ISIN ou de « MM50 ».
+
+**Attribution à la valeur** :
+- un paragraphe qui nomme une seule valeur lui donne ses niveaux ;
+- un paragraphe qui en nomme plusieurs répartit ses niveaux phrase par phrase ; une phrase qui nomme deux valeurs ne donne rien ;
+- une fiche dont le titre nomme la valeur et dont le texte suit : les trois paragraphes suivants qui ne nomment aucune valeur restent à elle ;
+- un paragraphe de marché (CAC 40, Bund, Brent…) arrête la fiche ;
+- un titre « neutre » puis un paragraphe « achat » : la valeur prend le sens « achat ».
+
+**Garde-fou** (`letters.level_price_band`, daté) : un niveau hors de [0,5 ; 2] × la dernière clôture de la valeur est écarté. Ce peut être un niveau d'indice lu dans la même fiche, une année ou un nombre. Il est signalé dans `newsletter_items.parsed.levels_out_of_band`, jamais corrigé. Sans clôture connue, rien n'est écarté.
+
+**Conséquence sur la revue** : une fois le déclencheur lu, le moteur calcule son prix maximal. S'il est sous le déclencheur publié, la revue affiche « INEXPLOITABLE » (§38.2). Un test de bout en bout part du texte de la lettre et arrive à cette décision.
+
+**Gérants** (« C'est votre argent ») :
+- leurs achats et ventes des 10 derniers jours sont affichés (R1), qu'ils viennent de l'émission ou du relevé hebdomadaire ;
+- la revue dit en plus, pour chaque source, son dernier épisode ou relevé (date d'émission), et s'il a été lu, avec ses achats et ventes ;
+- si rien n'a été lu, elle le dit : pas d'épisode, pas encore lu (IA indisponible ou page illisible), ou lu sans valeur citée.
+
+**Commandes** (lecture seule sauf `--fill`) :
+- `letters-trace --date AAAA-MM-JJ --ia --rules` : ce que l'IA a lu, et ce que les règles actuelles lisent dans les lettres stockées (gratuit, aucun texte affiché) ;
+- `letters-trace --date AAAA-MM-JJ --fill` : complète les valeurs restées **sans aucun niveau**. Une valeur qui a déjà des niveaux les garde ; propositions et instantanés ne changent pas (règle 10). La prochaine analyse du moteur lit les nouveaux niveaux.
+
+**Limite** : une fiche entièrement derrière un lien (capital.fr) n'est pas lue. Le suivi des liens « Lire la suite » ne vaut que pour Zonebourse (docs/19 §19.6). À décider après le diagnostic sur le PC.

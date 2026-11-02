@@ -107,6 +107,7 @@
     {% for e in r.experts %}<li class="py-1"><b>{{ e.qui or e.source }}</b> · {{ badge(e.sens, 'green' if e.sens == 'achat' else 'red') }} {{ e.valeur }}{% if e.pea is not none %} <span class="text-xs text-slate-500">({{ 'PEA' if e.pea else 'hors PEA' }})</span>{% endif %} <span class="text-xs text-slate-400">{{ e.date.strftime('%d/%m') }}</span><br><span class="text-xs text-slate-600 dark:text-slate-300">{{ e.traitement }}</span></li>{% endfor %}
   </ul>
   {% else %}{{ empty('Aucun achat ni vente de gérant relevé ces 10 derniers jours.', 'slate') }}{% endif %}
+  {% if r.etat_experts %}<ul class="mt-2 text-xs text-slate-500 dark:text-slate-400 space-y-0.5" data-review-expert-state>{% for x in r.etat_experts %}<li>· {{ x }}</li>{% endfor %}</ul>{% endif %}
 </section>
 
 <section class="card">

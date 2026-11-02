@@ -34,6 +34,7 @@ from app.db.models import (
     Instrument,
     MacroPoint,
     MediaMention,
+    NewsItem,
     NewsletterItem,
     PriceEod,
     Proposal,
@@ -246,6 +247,52 @@ def _experts(s: Session, day: date, today_isins: set[str], held: set[str]) -> li
     return out
 
 
+EXPERT_LABELS = {
+    "cest_votre_argent": "C'est votre argent (émission BFM)",
+    "cva_portefeuille_gerants": "C'est votre argent — relevé hebdomadaire des gérants",
+}
+EXPERT_STATE_DAYS = 14
+
+
+def _expert_state(s: Session, config: LoadedConfig, day: date) -> list[str]:
+    """Lot R3 (docs/38 §38.6): for each managers' source (media « confirmation »), its last item and what came out
+    of it — so that an empty « Sources expertes » is explained (no episode, not read yet, read with no value)."""
+    from app.services.media import broadcast_day
+
+    feeds = [f for f in (config.params.data.rss_feeds or []) if isinstance(f, dict)]
+    feeds = [f for f in feeds if f.get("kind") == "media_conseil" and f.get("usage") == "confirmation"
+             and f.get("url") and "renseigner" not in str(f.get("url"))]  # fmt: skip
+    since = datetime.combine(day - timedelta(days=EXPERT_STATE_DAYS), datetime.min.time(), tzinfo=PARIS)
+    out: list[str] = []
+    for f in feeds:
+        name = str(f.get("name"))
+        label = EXPERT_LABELS.get(name, name.replace("_", " "))
+        rows = list(
+            s.scalars(select(NewsItem).where(NewsItem.source == name, NewsItem.fetched_at >= since.astimezone(UTC)))
+        )
+        if not rows:
+            out.append(f"{label} : aucun épisode ni relevé reçu depuis {EXPERT_STATE_DAYS} jours")
+            continue
+        last = max(rows, key=lambda r: from_store(r.published_at or r.fetched_at))
+        pub = from_store(last.published_at or last.fetched_at)
+        shown = broadcast_day(last.title, pub)
+        when = f"émission du {shown:%d/%m}" if shown else f"publié le {pub.astimezone(PARIS):%d/%m}"
+        cls = last.classification or {}
+        if "media" not in cls:
+            what = "pas encore lu (IA indisponible ou page illisible) : nouvel essai au prochain passage"
+        else:
+            vals = cls.get("media") or []
+            buys = sum(1 for v in vals if v.get("stance") == "achat")
+            sells = sum(1 for v in vals if v.get("stance") == "vente")
+            what = (
+                f"lu : {buys} achat(s), {sells} vente(s) de gérants"
+                if vals
+                else "lu : aucune valeur citée dans le texte disponible"
+            )
+        out.append(f"{label} : dernier {'relevé' if f.get('parser') == 'gerants' else 'épisode'} ({when}) {what}")
+    return out
+
+
 def _sources(s: Session, day: date, now: datetime) -> list[str]:
     since = now - timedelta(hours=30)
     out = []
@@ -358,6 +405,7 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         "carnet": book,
         "portefeuille": pf,
         "experts": _experts(s, day, {i["isin"] for i in ideas}, held),
+        "etat_experts": _expert_state(s, config, day),
         "sources": _sources(s, day, now),
     }
 
@@ -411,10 +459,11 @@ def as_text(r: dict[str, Any]) -> str:
         ]
         or ["  aucune position"]
     )
-    if r["experts"]:
+    if r["experts"] or r.get("etat_experts"):
         out += ["", "SOURCES EXPERTES"] + [
             f"  {e['qui'] or e['source']} : {e['sens']} {e['valeur']} — {e['traitement']}" for e in r["experts"]
         ]
+        out += [f"  état : {x}" for x in r.get("etat_experts") or []]
     out += [
         "",
         "Sources : " + ("; ".join(r["sources"]) or "—"),
