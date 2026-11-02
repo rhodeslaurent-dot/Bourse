@@ -186,10 +186,13 @@ def test_reread_rederives_times_and_agreement_and_refamily_needs_no_network(db_e
         row.market_timestamp = datetime(2016, 4, 12, 14, 30, 31, tzinfo=UTC)
         row.other_market_timestamp, row.also_in, row.also_in_time_ok = good, "dila", False
         row.family, row.type_code = "autre", "015000"
+        legacy = s.scalar(select(OfficialFiling).where(OfficialFiling.uin_id == "109684_20160412"))
+        legacy.also_in, legacy.also_in_time_ok = "dila", False  # compared before 02/11/2026, other time not kept
         s.flush()
         rep = filings.archive_api(s, config, date(2016, 4, 1), date(2016, 4, 30), fetch=fetch, sleep=lambda x: None)
         assert rep.rederived == 1 and rep.added == 0
         assert from_store(row.market_timestamp) == good and row.also_in_time_ok is True
+        assert legacy.also_in_time_ok is None  # cannot be checked again: unknown, never « different »
         # the family follows the code read again (006000); refamily alone re-derives from stored codes
         assert row.family == "droits_de_vote"
         row.family = "autre"
@@ -200,3 +203,4 @@ def test_reread_rederives_times_and_agreement_and_refamily_needs_no_network(db_e
         text = filings.coverage(s, config, date(2016, 1, 1), date(2016, 4, 15))
         assert "mois partiels : 2016-04" in text and "mois non couverts : aucun" in text
         assert "écart d'heure entre sources" in text and "+0 ×1" in text
+        assert "lus par les deux 2 (heure comparée 1 : identique 1, différente 0 ; comparés avant" in text

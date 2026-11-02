@@ -233,6 +233,9 @@ def store(s: Session, rels: Iterable[OfficialRelease], received_at: datetime, re
                 if row.also_in_time_ok != agree:
                     row.also_in_time_ok = agree
                     changed = True
+            elif row.also_in_time_ok is not None:  # compared before 02/11/2026 without keeping the other time
+                row.also_in_time_ok = None  # cannot be checked again: unknown, never « different »
+                changed = True
         else:
             if row.also_in is None:
                 rep.also_in += 1
@@ -428,11 +431,18 @@ def coverage(s: Session, config: LoadedConfig, start: date | None = None, end: d
         return [(k, int(n)) for k, n in s.execute(select(col, func.count()).group_by(col)).all()]
 
     src = dict(grouped(OfficialFiling.source))
-    both = dict(grouped(OfficialFiling.also_in_time_ok))
-    same, diff = both.get(True, 0), both.get(False, 0)
+    both_n = s.scalar(select(func.count()).select_from(OfficialFiling).where(OfficialFiling.also_in.is_not(None))) or 0
+    kept = OfficialFiling.other_market_timestamp.is_not(None)
+    cmp = dict(
+        s.execute(
+            select(OfficialFiling.also_in_time_ok, func.count()).where(kept).group_by(OfficialFiling.also_in_time_ok)
+        ).all()
+    )
+    same, diff = int(cmp.get(True, 0)), int(cmp.get(False, 0))
     lines.append(
-        f"  sources : API {src.get('info_financiere', 0)} · DILA {src.get('dila', 0)} · lus par les deux "
-        f"{same + diff} (heure identique {same}, différente {diff})"
+        f"  sources : API {src.get('info_financiere', 0)} · DILA {src.get('dila', 0)} · lus par les deux {both_n} "
+        f"(heure comparée {same + diff} : identique {same}, différente {diff} ; "
+        f"comparés avant le 02/11/2026 sans heure conservée {both_n - same - diff})"
     )
     gaps: Counter[int] = Counter()
     for own, other in s.execute(
