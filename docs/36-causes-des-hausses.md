@@ -215,6 +215,19 @@ docker compose exec -T app python -m app.cli filings-archive --coverage-only
 - **Priorité** : les communiqués viennent après les autres informations. Une hausse que l'étape 1 expliquait garde sa cause principale ; seules les hausses restées « sans information » peuvent en recevoir une.
 - **Partie B** : chaque famille est un événement acheté à l'ouverture suivante. Les résultats et le chiffre d'affaires restent **masqués** tant que l'enregistrement n° 3 (réaction aux résultats) n'a pas tourné, comme les publications de résultats.
 
+**Première lecture (rapport `causes_20261102_152510`, 2017 → 2026, 1 500 hausses, 1 500 baisses, 1 500 contrôles)** :
+- **Couverture** : les communiqués ne couvrent que les valeurs françaises cotées à Paris, soit environ 15 % des unités (≈ 230 hausses). Avant 2019, les résultats sont presque tous codés « autre information privilégiée » (35 communiqués « résultats » retenus en 2017, 114 en 2018, contre ≈ 1 500 par an ensuite) : la famille « résultats » est incomplète en 2017-2018.
+- **Partie A** : aucune famille ne distingue nettement une hausse d'une baisse ou d'une séance ordinaire.
+  - Résultats : 10,1 % des hausses, 7,8 % des baisses, 6,7 % des contrôles (lift 1,51, hausse/baisse 1,29), avec des intervalles qui se chevauchent.
+  - Chiffre d'affaires : plus fréquent avant les baisses (hausse/baisse 0,37), sur un petit effectif.
+  - Acquisition ou cession, franchissement de seuil, autre information privilégiée : aussi fréquents dans les trois groupes.
+  - Comme cause principale, les communiqués expliquent 4,4 % des hausses et 4,8 % des contrôles. 73,5 % des hausses restent sans information ni mouvement de marché.
+- **Partie B** (acheté à l'ouverture qui suit le communiqué) : aucun excès positif.
+  - L'excès sur la place est négatif après les résultats (−0,44 % à −0,87 % de 5 à 20 séances, t hebdomadaire −1,3 à −2,3) et après le chiffre d'affaires (−0,37 % à −0,44 %, t > −2).
+  - Il est **nettement négatif après une « autre information privilégiée »** : −0,25 %, −0,52 %, −0,65 % à 5, 10 et 20 séances, t hebdomadaire −4,5, −5,4, −5,0, sur 18 274 occurrences.
+  - Barrière de docs/34 plus souvent atteinte (lift 1,37 à 1,44) après résultats, chiffre d'affaires et opérations : plus de grands mouvements, dans les deux sens.
+- **Lecture** : un communiqué officiel n'est pas un déclencheur d'achat. La dérive négative après une information privilégiée générique peut n'être qu'un **effet de profil** (petites valeurs, augmentations de capital), comme l'excès du plan n° 7 (§36.x). Il faut d'abord la mesurer contre les contrôles appariés du banc, avant toute règle de prudence.
+
 ## 36.x Suite donnée aux pistes (01/11/2026)
 
 - **Saut d'ouverture baissier, acheté à l'ouverture suivante** (excès +0,42 % à 5 séances, t hebdomadaire 4,6, sur la moitié liquide de la place) : pré-enregistré comme plan n° 7 (docs/34 §34.14), gelé le 01/11/2026. Mesuré par le banc sur la même découverte 2017-2026 (contrôles appariés : même jour, même groupe, même tercile de liquidité et de volatilité, même tendance), l'excès est **nul** (t +0,35, +0,42, −0,84 à 5, 10 et 20 séances ; placebos nuls). Le rebond tient au profil des valeurs qui sautent, pas au saut. Piste close ; la période scellée n'a pas été ouverte (décision de l'utilisateur).
