@@ -587,9 +587,10 @@ class InsiderDeclaration(Base):
 class OfficialFiling(Base):
     """Lot L1 (docs/36 §36.9, ADR-017) — regulated releases of the AMF flow (API info-financiere.gouv.fr and
     DILA packages): metadata only, no PDF. One row per (diffuser, number), whichever source read it first
-    (``also_in``: the other one when it read it too). ``market_timestamp`` is the release to the market
-    (``UIN_DAT_MAR``; the filing time when it is missing, ``time_source``), the Paris wall clock of the source
-    localised in Europe/Paris — its offset label is only checked (``tz_label_ok``). Kept apart from ``news_items``:
+    (``also_in``: the other one when it read it too, ``other_market_timestamp`` its time). ``market_timestamp`` is
+    the release to the market (``UIN_DAT_MAR``; the filing time when it is missing, ``time_source``): the Paris wall
+    clock (DILA as written; API: UTC instant + its offset label) localised in Europe/Paris — the label itself is
+    only checked (``tz_label_ok``), ADR-017. Kept apart from ``news_items``:
     never classified by the LLM, never shown as a news item. Archive for the causes study (docs/36), no signal."""
 
     __tablename__ = "official_filings"
@@ -597,6 +598,7 @@ class OfficialFiling(Base):
     source: Mapped[str] = mapped_column(String(16))  # info_financiere | dila
     also_in: Mapped[str | None] = mapped_column(String(16), nullable=True)
     also_in_time_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # both sources give the same time
+    other_market_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     diffuser: Mapped[str] = mapped_column(String(8))
     uin_id: Mapped[str] = mapped_column(String(32))
     issuer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -617,6 +619,7 @@ class OfficialFiling(Base):
     time_source: Mapped[str | None] = mapped_column(String(8), nullable=True)  # marche | amf
     time_precision: Mapped[str] = mapped_column(String(10))  # seconde | jour | illisible
     raw_market_time: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    raw_amf_time: Mapped[str | None] = mapped_column(String(40), nullable=True)
     tz_label: Mapped[str | None] = mapped_column(String(8), nullable=True)
     tz_label_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     pdf_path: Mapped[str | None] = mapped_column(String(200), nullable=True)

@@ -23,6 +23,10 @@ def test_every_code_maps_to_a_declared_family_and_unknown_is_autre():
     assert family_of("001002") == ("operation", True)
     assert family_of("009003") == ("opa", True)
     assert family_of("013004") == ("rachat_actions", True)
+    assert family_of("015000") == ("info_privilegiee", True)  # official list of the API, 02/11/2026
+    assert family_of("300007") == ("rapport_financier", True)
+    assert "rumeur" not in FAMILIES
+    assert family_of("020000") == ("autre", False)  # in no official list: counted, never guessed
     assert family_of("023000") == ("franchissement_seuil", True)
     assert family_of("300005") == ("rapport_financier", True)  # document de référence (secondary 003000)
     assert family_of("777000") == ("autre", False)  # an unknown code: never guessed from the title
@@ -47,11 +51,24 @@ def test_isin_shape_and_check_digit():
     assert valid_isin(None) is None and valid_isin("") is None
 
 
-def test_api_wall_clock_with_separate_label():
-    # API: the Paris wall clock printed as « +00:00 », the real offset in timezone_uin_dat_amf
-    t = paris_wall_clock("2012-04-12T16:30:31+00:00", "02:00")
-    assert t.utc == datetime(2012, 4, 12, 14, 30, 31, tzinfo=UTC)
-    assert (t.label, t.paris_offset, t.label_ok, t.precision) == ("+02:00", "+02:00", True, "seconde")
+def test_api_utc_instant_is_brought_back_to_the_paris_wall_clock():
+    """The three records checked on 02/11/2026 against the DILA notices (Paris wall clock written by the DILA)."""
+    from app.domain.filings import paris_time_from_utc
+
+    jan = paris_time_from_utc("2026-01-15T06:00:00+00:00", "01:00")  # DILA: 07:00 Paris
+    jul = paris_time_from_utc("2025-07-15T05:55:18+00:00", "02:00")  # DILA: 07:55:18 Paris
+    oct_ = paris_time_from_utc("2026-10-28T06:00:09+00:00", "02:00")  # DILA: 08:00:09 Paris, label stale
+    assert jan.utc == datetime(2026, 1, 15, 6, 0, tzinfo=UTC) and jan.label_ok is True
+    assert jul.utc == datetime(2025, 7, 15, 5, 55, 18, tzinfo=UTC) and jul.label_ok is True
+    # the source converted with +02:00 while Paris was at +01:00: one hour too early, put right
+    assert oct_.utc == datetime(2026, 10, 28, 7, 0, 9, tzinfo=UTC)
+    assert (oct_.label, oct_.paris_offset, oct_.label_ok) == ("+02:00", "+01:00", False)
+    assert oct_.utc == paris_wall_clock("2026-10-28T08:00:09+02:00").utc  # same instant as the DILA's
+    # without a label the instant is kept; sentinel and date-only as for the DILA
+    assert paris_time_from_utc("2026-01-15T06:00:00+00:00", None).utc == datetime(2026, 1, 15, 6, 0, tzinfo=UTC)
+    assert paris_time_from_utc("8888-01-01T00:00:00+00:00", "01:00").precision == "illisible"
+    assert paris_time_from_utc("2026-03-03T23:00:00+00:00", "01:00").precision == "jour"  # 00:00 Paris
+    assert paris_time_from_utc("garbage", "01:00").utc is None
 
 
 def test_dila_labels_right_in_january_and_july_wrong_after_the_october_change():

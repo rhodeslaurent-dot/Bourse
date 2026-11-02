@@ -60,8 +60,9 @@ def test_api_archive_stores_once_with_paris_time(db_engine, config):
         assert rep.unknown_codes == {"004001": 1} and rep.bad_isin == 1 and rep.amf_time_used == 1
         rows = {r.uin_id: r for r in s.scalars(select(OfficialFiling))}
         r = rows["109683_20160412"]
-        # 16:30:31 Paris (summer time) = 14:30:31 UTC, whatever « +00:00 » says
-        assert from_store(r.market_timestamp) == datetime(2016, 4, 12, 14, 30, 31, tzinfo=UTC)
+        # the API gives a UTC instant computed with its label (02:00, right in April): 16:30:31 UTC = 18:30:31 Paris
+        assert from_store(r.market_timestamp) == datetime(2016, 4, 12, 16, 30, 31, tzinfo=UTC)
+        assert r.raw_amf_time == "2016-04-12T16:30:31+00:00"
         assert (r.source, r.family, r.isin, r.time_source, r.tz_label, r.tz_label_ok) == (
             "info_financiere", "droits_de_vote", "FR0000120107", "marche", "+02:00", True)  # fmt: skip
         assert r.data_status == "eod" and r.received_at and r.processed_at and r.also_in is None
@@ -102,7 +103,7 @@ def test_dila_marks_the_api_rows_checks_the_time_and_reads_each_package_once(db_
                             fetch=_api_fetch({"2016-04": _records_2016()}, []), sleep=lambda x: None)  # fmt: skip
         packages = {
             "amf-gz_12042016_1905.tar.gz": _tar({
-                "x/xml/CNS/2016/04/a.xml": _notice("109683_20160412", "CNS", "2016-04-12T16:30:31+02:00"),
+                "x/xml/CNS/2016/04/a.xml": _notice("109683_20160412", "CNS", "2016-04-12T18:30:31+02:00"),
                 "x/xml/CNS/2016/04/b.xml": _notice("109684_20160412", "CNS", "2016-04-12T18:33:07+02:00"),
                 "x/pdf/CNS/2016/04/a.pdf": b"%PDF",
             }),
@@ -126,10 +127,13 @@ def test_dila_marks_the_api_rows_checks_the_time_and_reads_each_package_once(db_
         rep = filings.archive_dila(s, config, date(2016, 4, 12), date(2016, 4, 13), **kw)
         assert got == ["amf-gz_12042016_1905.tar.gz", "amf-gz_13042016_0800.tar.gz", "amf-gz_14042016_0800.tar.gz"]
         assert (rep.read, rep.added, rep.also_in, rep.same_time, rep.different_time) == (3, 1, 2, 1, 1)
+        assert rep.time_gaps == {-60: 1}  # 18:33 Paris against 17:33 UTC (19:33 Paris)
         assert rep.packages_read == 2 and rep.packages_failed == ["amf-gz_14042016_0800.tar.gz"]
         rows = {r.uin_id: r for r in s.scalars(select(OfficialFiling))}
         assert rows["109683_20160412"].also_in == "dila" and rows["109683_20160412"].also_in_time_ok is True
-        assert rows["109684_20160412"].also_in_time_ok is False  # 18:33 against 17:33: the rule would be wrong
+        assert rows["109684_20160412"].also_in_time_ok is False
+        other = from_store(rows["109684_20160412"].other_market_timestamp)
+        assert other == datetime(2016, 4, 12, 16, 33, 7, tzinfo=UTC)
         assert rows["109684_20160412"].source == "info_financiere"  # the first reader keeps the row
         new = rows["000001_20160413"]
         assert new.source == "dila" and new.lei == "9695006LOD5B2D7Y0N70" and new.tz_label_ok is True
@@ -169,3 +173,30 @@ def test_coverage_flags_a_poor_month(db_engine, config):
     assert "     1!" in text and "18 communiqué(s) en base" in text
     assert "résultats 18" in text and "étiquette de fuseau fausse 0 sur 18" in text
     assert "BONGRAIN" not in text  # aggregates only
+
+
+def test_reread_rederives_times_and_agreement_and_refamily_needs_no_network(db_engine, config):
+    recs = _records_2016()
+    fetch = _api_fetch({"2016-04": recs}, [])
+    with db_session() as s:
+        filings.archive_api(s, config, date(2016, 4, 1), date(2016, 4, 30), fetch=fetch, sleep=lambda x: None)
+        row = s.scalar(select(OfficialFiling).where(OfficialFiling.uin_id == "109683_20160412"))
+        good = from_store(row.market_timestamp)
+        # as stored by the first rule (wall clock read as Paris), with the DILA's time kept beside it
+        row.market_timestamp = datetime(2016, 4, 12, 14, 30, 31, tzinfo=UTC)
+        row.other_market_timestamp, row.also_in, row.also_in_time_ok = good, "dila", False
+        row.family, row.type_code = "autre", "015000"
+        s.flush()
+        rep = filings.archive_api(s, config, date(2016, 4, 1), date(2016, 4, 30), fetch=fetch, sleep=lambda x: None)
+        assert rep.rederived == 1 and rep.added == 0
+        assert from_store(row.market_timestamp) == good and row.also_in_time_ok is True
+        # the family follows the code read again (006000); refamily alone re-derives from stored codes
+        assert row.family == "droits_de_vote"
+        row.family = "autre"
+        row.type_code, row.type_codes = "015000", ["015000"]
+        s.flush()
+        moves = filings.refamily(s)
+        assert moves == {"autre → info_privilegiee": 1} and row.family == "info_privilegiee"
+        text = filings.coverage(s, config, date(2016, 1, 1), date(2016, 4, 15))
+        assert "mois partiels : 2016-04" in text and "mois non couverts : aucun" in text
+        assert "écart d'heure entre sources" in text and "+0 ×1" in text

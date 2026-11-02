@@ -2,13 +2,14 @@
 
 * **family** of a release from its 6-digit type code (``INF_STP_PRI``: 3 digits of type, 3 of subtype), closed list
   ``FAMILIES``; an unknown code goes to « autre » and is counted by the caller, never guessed from the title;
-* **release time**: the source writes the **Paris wall clock**, but its offset label cannot be trusted — the API
-  of info-financiere.gouv.fr prints the wall clock with « +00:00 » and the real offset in a separate field; the
-  DILA packages still wrote « +02:00 » after the clock change of 25/10/2026, while the releases kept falling at
-  07:00, 07:30 and 18:00 Paris (9 packages checked on 01/11/2026: January « +01:00 », July « +02:00 », late October
-  « +02:00 »). The wall clock is therefore read and localised in Europe/Paris; the label is only compared and the
-  mismatches are counted (ADR-017). A wall clock of exactly 00:00:00 is a date without an hour (« jour »);
-  a sentinel year (8888 in the 2008-2013 records) or an unreadable value gives no time at all;
+* **release time**: the DILA packages write the **Paris wall clock**, but its offset label cannot be trusted — they
+  still wrote « +02:00 » after the clock change of 25/10/2026, while the releases kept falling at 07:00, 07:30 and
+  18:00 Paris (9 packages checked on 01/11/2026: January « +01:00 », July « +02:00 », late October « +02:00 »).
+  The API of info-financiere.gouv.fr gives a UTC instant computed with that label, the label in a separate field
+  (checked on 02/11/2026). Both are brought back to the wall clock and localised in Europe/Paris; the label is only
+  compared and the mismatches are counted (ADR-017, revised on 02/11/2026). A wall clock of exactly 00:00:00 is
+  a date without an hour (« jour »); a sentinel year (8888 in the 2008-2013 records) or an unreadable value gives
+  no time at all;
 * **coverage** of each month against the median of the same calendar month over the other years: a month below
   ``min_share`` of it is « non couvert », so that the study reads « inconnu » there, never « aucun communiqué ».
 """
@@ -26,7 +27,7 @@ PARIS = ZoneInfo("Europe/Paris")
 
 FAMILIES = (
     "resultats", "chiffre_affaires", "operation", "info_privilegiee", "rapport_financier", "document",
-    "droits_de_vote", "opa", "rachat_actions", "gouvernance", "rumeur", "franchissement_seuil", "autre",
+    "droits_de_vote", "opa", "rachat_actions", "gouvernance", "franchissement_seuil", "autre",
 )  # fmt: skip
 
 FAMILY_LABELS = {
@@ -34,10 +35,11 @@ FAMILY_LABELS = {
     "info_privilegiee": "autre information privilégiée", "rapport_financier": "rapport financier",
     "document": "mise à disposition d'un document", "droits_de_vote": "droits de vote et capital",
     "opa": "offre publique", "rachat_actions": "rachat d'actions, contrat de liquidité", "gouvernance": "gouvernance",
-    "rumeur": "déclaration sur une rumeur", "franchissement_seuil": "franchissement de seuil", "autre": "autre",
+    "franchissement_seuil": "franchissement de seuil", "autre": "autre",
 }  # fmt: skip
 
-# INF_STP_PRI → family (list of values of the AMF flow, LV_01.07 → LV_01.09)
+# INF_STP_PRI → family (list of values of the AMF flow, LV_01.07 → LV_01.09; the official list of the API,
+# dataset « sous-type-dinformation », read on 02/11/2026, has 20 codes and wins over any other reading)
 _CODE_FAMILY: dict[str, str] = {
     "001001": "resultats",  # comptes, résultats, chiffre d'affaires (jusqu'en 2016)
     "001007": "resultats",  # information privilégiée — comptes et résultats (depuis 2016)
@@ -57,9 +59,11 @@ _CODE_FAMILY: dict[str, str] = {
     **{f"013{k:03d}": "rachat_actions" for k in range(1, 8)},
     "016000": "rachat_actions",  # contrat de liquidité (jusqu'en 2010)
     "008000": "gouvernance",
-    "015000": "rumeur",
+    "015000": "info_privilegiee",  # « Informations privilégiées » (réglementée continue), liste officielle
+    "000010": "autre",  # dépôt effectué sur la banque des communiqués
     "023000": "franchissement_seuil",  # décision de franchissement de seuil (libellé de l'API, vu le 01/11/2026)
     "300005": "rapport_financier",  # document de référence (code secondaire 003000), vu en 2025-2026
+    "300007": "rapport_financier",  # « Document de référence » (information sur opération), liste officielle
     "007000": "autre",  # honoraires des commissaires aux comptes
     "014000": "autre",  # État membre d'origine
     "022000": "autre",  # paiements aux gouvernements
@@ -161,6 +165,36 @@ def paris_wall_clock(raw: str | None, label: str | None = None) -> ReleaseTime:
     real = _fmt_offset(local.utcoffset())
     precision = "jour" if (hh, mi, ss) == (0, 0, 0) else "seconde"
     return ReleaseTime(local.astimezone(UTC), lab, real, (lab == real) if lab is not None else None, precision)
+
+
+def _offset_delta(label: str) -> timedelta:
+    sign = -1 if label.startswith("-") else 1
+    return sign * timedelta(hours=int(label[1:3]), minutes=int(label[4:6]))
+
+
+def paris_time_from_utc(raw: str | None, label: str | None) -> ReleaseTime:
+    """API of info-financiere.gouv.fr: ``raw`` is a **UTC instant** the source computed from the wall clock and its
+    offset label (checked on 02/11/2026 against three DILA notices: 07:00 Paris on 15/01/2026 → « 06:00+00:00 »,
+    label 01:00; 07:55 on 15/07/2025 → « 05:55 », label 02:00; 08:00 on 28/10/2026 → « 06:00 », label 02:00 while
+    Paris was back at +01:00 — one hour too early). The wall clock is rebuilt (instant + label) and read as Paris
+    time, like the DILA's (ADR-017), so a wrong label no longer moves the time; without a label the instant is kept
+    as it is (``label_ok`` None)."""
+    m = _TS.match(raw or "")
+    lab = _norm_offset(label)
+    if not m or not MIN_YEAR <= int(m.group(1)) <= MAX_YEAR:
+        return ReleaseTime(None, lab, None, None, "illisible")
+    y, mo, d, hh, mi, ss = (int(m.group(i)) for i in range(1, 7))
+    suffix = _norm_offset(m.group(7)) or "+00:00"
+    try:
+        instant = datetime(y, mo, d, hh, mi, ss, tzinfo=UTC) - _offset_delta(suffix)
+    except ValueError:
+        return ReleaseTime(None, lab, None, None, "illisible")
+    if lab is None:
+        local = instant.astimezone(PARIS)
+        precision = "jour" if (local.hour, local.minute, local.second) == (0, 0, 0) else "seconde"
+        return ReleaseTime(instant, None, _fmt_offset(local.utcoffset()), None, precision)
+    wall = (instant + _offset_delta(lab)).replace(tzinfo=None)
+    return paris_wall_clock(wall.isoformat(), lab)
 
 
 def month_key(ts_utc: datetime) -> str:

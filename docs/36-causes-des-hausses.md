@@ -177,15 +177,16 @@ Options :
 
 **Source** : le flux AMF des informations réglementées, diffusé par la DILA. Ce sont les communiqués officiels des sociétés cotées en France, avec leur type, leur titre, leur heure et leur ISIN.
 - L'**API d'info-financiere.gouv.fr** est lue mois par mois (539 690 fiches au 01/11/2026).
-- Les **paquets de la DILA** comblent 2022 : l'API n'en a que 10 001 fiches, contre environ 25 000 les autres années.
+- Les **paquets de la DILA** servent à recouper l'heure et à combler mars-juin 2020. Juillet-octobre 2018 manque aux deux sources : ces mois restent « non couverts ». 2022 n'était pas incomplet : le décompte par année de l'API était faux.
 - Seules les métadonnées sont gardées, dans la table `official_filings`. Aucun PDF n'est téléchargé.
 
-**Heure** : l'heure écrite par la source est l'heure de Paris, et son étiquette de fuseau est fausse.
-- L'API affiche « +00:00 ».
-- Les paquets écrivent encore « +02:00 » après le changement d'heure du 25/10/2026.
-- Le code lit donc l'heure de Paris et la convertit lui-même en UTC (ADR-017). L'heure retenue est celle de la diffusion au marché ; à défaut, celle du dépôt à l'AMF.
+**Heure** : l'étiquette de fuseau de la source n'est pas fiable. Les paquets écrivent encore « +02:00 » après le changement d'heure du 25/10/2026.
+- La DILA écrit l'heure de Paris.
+- L'API donne un instant UTC calculé avec cette étiquette, donc faux d'une heure quand l'étiquette est fausse.
+- Le code retrouve l'heure de Paris (pour l'API : instant + étiquette) et la convertit lui-même en UTC (ADR-017, révisé le 02/11/2026). L'heure retenue est celle de la diffusion au marché ; à défaut, celle du dépôt à l'AMF.
+- Les deux sources sont recoupées : l'écart est imprimé en minutes.
 
-**Familles** (liste fermée, d'après le code de type) : résultats, chiffre d'affaires, acquisition ou cession, autre information privilégiée, rapport financier, mise à disposition d'un document, droits de vote et capital, offre publique, rachat d'actions et contrat de liquidité, gouvernance, déclaration sur une rumeur, franchissement de seuil, autre. Un code inconnu prend la famille de son code secondaire, sinon celle de son type à 3 chiffres quand ce type n'a qu'une famille ; il est compté.
+**Familles** (liste fermée, d'après le code de type) : résultats, chiffre d'affaires, acquisition ou cession, autre information privilégiée, rapport financier, mise à disposition d'un document, droits de vote et capital, offre publique, rachat d'actions et contrat de liquidité, gouvernance, franchissement de seuil, autre (dont le code 020000, absent de la liste officielle). Un code inconnu prend la famille de son code secondaire, sinon celle de son type à 3 chiffres quand ce type n'a qu'une famille ; il est compté.
 
 **Couverture** : un mois sous 50 % de la médiane du même mois des autres années est « non couvert ». L'étude y lira « inconnu », jamais « aucun communiqué ».
 
@@ -200,7 +201,8 @@ docker compose exec -T app python -m app.cli filings-archive --coverage-only
 ```
 
 - `--max-packages 3` : un essai sur quelques paquets ;
-- `--again` : relit des paquets déjà lus.
+- `--again` : relit des paquets déjà lus ;
+- `--refamily` : reclasse les familles d'après les codes stockés, sans réseau.
 - La sortie est faite d'agrégats seulement : le tableau mois par mois, les sources et leur accord sur l'heure, les heures, les ISIN, les familles et les codes de type.
 
 **Ensuite** : le communiqué officiel, par famille et par moment, devient une cause de §36.2, mesurée contre les baisses et le groupe témoin.

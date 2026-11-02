@@ -1700,7 +1700,11 @@ def cmd_filings_archive(args: argparse.Namespace) -> int:
         print(why)
         return 2
     with db_session() as s:
-        if not args.coverage_only:
+        if args.refamily:
+            moves = filings.refamily(s, progress=lambda m: print(f"  {m}", flush=True))
+            moved = ", ".join(f"{k} ×{n}" for k, n in moves.most_common()) if moves else "aucun changement"
+            print(f"familles recalculées (sans réseau) : {moved}")
+        elif not args.coverage_only:
             say = lambda m: print(f"  {m}", flush=True)  # noqa: E731
             try:
                 if args.source == "dila":
@@ -2655,6 +2659,7 @@ def main(argv: list[str] | None = None) -> int:
         "--max-packages", dest="max_packages", type=int, default=None, help="dila : au plus N paquets (essai)"
     )
     fa.add_argument("--coverage-only", dest="coverage_only", action="store_true", help="couverture seulement")
+    fa.add_argument("--refamily", action="store_true", help="recalcule les familles d'après les codes, sans réseau")
     fa.set_defaults(fn=cmd_filings_archive)
     mv = sub.add_parser("moves-study", help="hausses manquées (docs/34) : rejeu de l'outil, pourquoi pas, contrôle")
     mv.add_argument("--from", dest="from_date", default="2017-01-02", help="début (pas avant 2017-01-02)")

@@ -31,6 +31,7 @@ from app.config import LoadedConfig
 from app.data.providers.amf_flow import (
     API_BASE,
     DILA_BASE,
+    SOURCE_API,
     Download,
     Fetch,
     OfficialRelease,
@@ -43,10 +44,12 @@ from app.data.providers.amf_flow import (
 from app.db.models import OfficialFiling, OfficialFilingPackage
 from app.domain.filings import (
     FAMILY_LABELS,
+    ReleaseTime,
     family_for,
     family_of,
     month_coverage,
     month_key,
+    paris_time_from_utc,
     paris_wall_clock,
     valid_isin,
 )
@@ -90,8 +93,10 @@ class FilingsReport:
     added: int = 0
     known: int = 0  # already stored by the same source
     also_in: int = 0  # already stored by the other source: marked
+    rederived: int = 0  # read again by its own source: times, label check or family changed
     same_time: int = 0
     different_time: int = 0
+    time_gaps: Counter[int] = field(default_factory=Counter)  # minutes, other source − stored, when they differ
     skipped: int = 0  # records or XML members that are not a release notice
     without_isin: int = 0
     bad_isin: int = 0  # an ISIN written but invalid (shape or check digit): not kept
@@ -113,9 +118,15 @@ class FilingsReport:
     def line(self) -> str:
         src = "API info-financiere" if self.source == "info_financiere" else "paquets DILA"
         parts = [
-            f"{src} : {self.read} communiqué(s) lu(s), {self.added} ajouté(s), {self.known} déjà connu(s)",
-            f"{self.also_in} déjà lu(s) par l'autre source (heure identique {self.same_time}, "
-            f"différente {self.different_time})",
+            f"{src} : {self.read} communiqué(s) lu(s), {self.added} ajouté(s), {self.known} déjà connu(s), "
+            f"{self.rederived} recalculé(s)",
+            f"{self.also_in} déjà lu(s) par l'autre source ; comparaisons d'heure : identique {self.same_time}, "
+            f"différente {self.different_time}"
+            + (
+                " (écarts en minutes : " + ", ".join(f"{g:+d} ×{n}" for g, n in self.time_gaps.most_common(5)) + ")"
+                if self.time_gaps
+                else ""
+            ),
             f"étiquette de fuseau fausse {self.label_wrong} sur {self.label_checked}",
             f"heure de dépôt à défaut {self.amf_time_used}, date sans heure {self.day_only}, sans heure {self.no_time}",
             f"ISIN absent {self.without_isin}, invalide {self.bad_isin}",
@@ -147,38 +158,58 @@ def _existing(s: Session, rels: list[OfficialRelease]) -> dict[tuple[str, str], 
     return out
 
 
+def _times(r: OfficialRelease) -> tuple[ReleaseTime, ReleaseTime, ReleaseTime, str | None]:
+    """(market, filing, retained, time source) — the API gives UTC instants computed with the label, the DILA the
+    Paris wall clock (ADR-017, revised 02/11/2026)."""
+    read = paris_time_from_utc if r.source == SOURCE_API else paris_wall_clock
+    market = read(r.market_raw, r.tz_label)
+    amf = read(r.amf_raw, r.tz_label)
+    if market.utc is not None:
+        return market, amf, market, "marche"
+    return market, amf, amf, ("amf" if amf.utc is not None else None)
+
+
+def _same(a: Any, b: Any) -> bool:
+    if isinstance(a, datetime) and isinstance(b, datetime):
+        return from_store(a) == from_store(b)
+    return bool(a == b)
+
+
 def store(s: Session, rels: Iterable[OfficialRelease], received_at: datetime, rep: FilingsReport) -> int:
-    """Each release stored once per (diffuser, number); returns the number added."""
+    """Each release stored once per (diffuser, number); returns the number added. A release read again by the source
+    that stored it re-derives its times, label check and family from what is read (a corrected rule applies on the
+    next read); read by the other source, it keeps that source's time (``other_market_timestamp``) and whether both
+    agree (``also_in_time_ok``)."""
     batch = list(rels)
     known = _existing(s, batch)
     added = 0
     for r in batch:
         rep.read += 1
         now = datetime.now(UTC)
-        market = paris_wall_clock(r.market_raw, r.tz_label)
-        amf = paris_wall_clock(r.amf_raw, r.tz_label)
-        when, time_source = (market, "marche") if market.utc is not None else (amf, "amf" if amf.utc else None)
+        _market, amf, when, time_source = _times(r)
         isin = valid_isin(r.isin)
         row = known.get((r.diffuser, r.uin_id))
         fam, ok = family_for(r.type_code, r.type_codes)
+        derived = {
+            "market_timestamp": when.utc, "amf_timestamp": amf.utc, "time_source": time_source,
+            "time_precision": when.precision, "raw_market_time": r.market_raw, "raw_amf_time": r.amf_raw,
+            "tz_label": when.label, "tz_label_ok": when.label_ok, "family": fam,
+        }  # fmt: skip
         if row is None:
             if not ok:
                 rep.unknown_codes[r.type_code or ""] += 1
             if isin is None:
                 rep.bad_isin += int(bool(r.isin))
                 rep.without_isin += int(not r.isin)
-            checked = when.label_ok
-            rep.label_checked += int(checked is not None)
-            rep.label_wrong += int(checked is False)
+            rep.label_checked += int(when.label_ok is not None)
+            rep.label_wrong += int(when.label_ok is False)
             rep.amf_time_used += int(time_source == "amf")
             rep.day_only += int(when.precision == "jour")
             rep.no_time += int(when.utc is None)
             row = OfficialFiling(
                 source=r.source, diffuser=r.diffuser, uin_id=r.uin_id, isin=isin, type_code=r.type_code,
-                type_codes=r.type_codes or None, family=fam, market_timestamp=when.utc, amf_timestamp=amf.utc,
-                time_source=time_source, time_precision=when.precision, raw_market_time=r.market_raw,
-                tz_label=when.label, tz_label_ok=checked, data_status="eod", received_at=received_at,
-                processed_at=now, **{k: getattr(r, k) for k in _FILLABLE},
+                type_codes=r.type_codes or None, data_status="eod", received_at=received_at, processed_at=now,
+                **derived, **{k: getattr(r, k) for k in _FILLABLE},
             )  # fmt: skip
             s.add(row)
             known[(r.diffuser, r.uin_id)] = row
@@ -189,19 +220,31 @@ def store(s: Session, rels: Iterable[OfficialRelease], received_at: datetime, re
                 rep.added_per_month[month_key(first_ts)] += 1
             continue
         changed = False
-        if row.source == r.source or row.also_in == r.source:
+        if row.source == r.source:
             rep.known += 1
+            moved = [k for k, v in derived.items() if not _same(getattr(row, k), v)]
+            for k in moved:
+                setattr(row, k, derived[k])
+            if moved:
+                rep.rederived += 1
+                changed = True
+            if row.other_market_timestamp is not None:
+                agree = when.utc is not None and _same(row.other_market_timestamp, when.utc)
+                if row.also_in_time_ok != agree:
+                    row.also_in_time_ok = agree
+                    changed = True
         else:
-            rep.also_in += 1
-            row.also_in = r.source
+            if row.also_in is None:
+                rep.also_in += 1
+            else:
+                rep.known += 1
             prev = from_store(row.market_timestamp) if row.market_timestamp is not None else None
             same = prev is not None and when.utc is not None and prev == when.utc
-            row.also_in_time_ok = same
+            row.also_in, row.other_market_timestamp, row.also_in_time_ok = r.source, when.utc, same
             rep.same_time += int(same)
             rep.different_time += int(not same)
-            changed = True
-        if row.source == r.source and row.family != fam:  # the list of codes was completed since: re-derived
-            row.family = fam
+            if not same and prev is not None and when.utc is not None:
+                rep.time_gaps[round((when.utc - prev).total_seconds() / 60)] += 1
             changed = True
         for k in _FILLABLE:
             if getattr(row, k) is None and getattr(r, k) is not None:
@@ -214,6 +257,29 @@ def store(s: Session, rels: Iterable[OfficialRelease], received_at: datetime, re
             row.processed_at = now
     s.flush()
     return added
+
+
+def refamily(s: Session, progress: Progress | None = None) -> Counter[str]:
+    """Families derived again from the stored type codes, without any network read (after the list of codes has
+    been completed). Returns the moves « old → new »."""
+    moves: Counter[str] = Counter()
+    last = 0
+    while True:
+        rows = list(
+            s.scalars(select(OfficialFiling).where(OfficialFiling.id > last).order_by(OfficialFiling.id).limit(5000))
+        )
+        if not rows:
+            break
+        for row in rows:
+            fam, _ok = family_for(row.type_code, row.type_codes or [])
+            if fam != row.family:
+                moves[f"{row.family} → {fam}"] += 1
+                row.family, row.processed_at = fam, datetime.now(UTC)
+        last = rows[-1].id
+        s.commit()
+        if progress:
+            progress(f"{last} ligne(s) relues, {sum(moves.values())} famille(s) changée(s)")
+    return moves
 
 
 def _months(start: date, end: date) -> list[tuple[int, int]]:
@@ -344,17 +410,19 @@ def coverage(s: Session, config: LoadedConfig, start: date | None = None, end: d
     ]
     by_year: dict[str, list[str]] = {}
     for c in cov:
-        mark = "!" if c.covered is False else ("~" if fractions.get(c.month, 1.0) < 1.0 else " ")
+        partial = fractions.get(c.month, 1.0) < 1.0  # a month begun or not ended inside the period
+        mark = "~" if partial else ("!" if c.covered is False else " ")
         by_year.setdefault(c.month[:4], []).append(f"{c.n:>6}{mark}")
     for y, cells in by_year.items():
         pad = [" " * 7] * (lo.month - 1) if y == lo.strftime("%Y") else []
         row = pad + cells + [" " * 7] * (12 - len(pad) - len(cells))
         yr_total = sum(counts.get(f"{y}-{k:02d}", 0) for k in range(1, 13))
         lines.append(f"  {y}  " + "".join(row) + f" {yr_total:>7}")
-    missing = [c.month for c in cov if c.covered is False]
+    missing = [c.month for c in cov if c.covered is False and fractions.get(c.month, 1.0) >= 1.0]
     lines.append(f"  « ! » : moins de {st['coverage_min_share']:.0%} de la médiane du même mois des autres années ;"
                  " « ~ » : mois partiel")  # fmt: skip
-    lines.append("  mois non couverts : " + (", ".join(missing) if missing else "aucun"))
+    lines.append("  mois non couverts : " + (", ".join(missing) if missing else "aucun")
+                 + " · mois partiels : " + ", ".join(k for k, v in fractions.items() if v < 1.0))  # fmt: skip
 
     def grouped(col: Any) -> list[tuple[Any, int]]:
         return [(k, int(n)) for k, n in s.execute(select(col, func.count()).group_by(col)).all()]
@@ -366,6 +434,16 @@ def coverage(s: Session, config: LoadedConfig, start: date | None = None, end: d
         f"  sources : API {src.get('info_financiere', 0)} · DILA {src.get('dila', 0)} · lus par les deux "
         f"{same + diff} (heure identique {same}, différente {diff})"
     )
+    gaps: Counter[int] = Counter()
+    for own, other in s.execute(
+        select(OfficialFiling.market_timestamp, OfficialFiling.other_market_timestamp).where(
+            OfficialFiling.other_market_timestamp.is_not(None), OfficialFiling.market_timestamp.is_not(None)
+        )
+    ):
+        gaps[round((from_store(other) - from_store(own)).total_seconds() / 60)] += 1
+    if gaps:
+        lines.append("  écart d'heure entre sources (minutes, autre − base) : "
+                     + " · ".join(f"{g:+d} ×{n}" for g, n in gaps.most_common(6)))  # fmt: skip
     tsrc = dict(grouped(OfficialFiling.time_source))
     prec = dict(grouped(OfficialFiling.time_precision))
     lab = dict(grouped(OfficialFiling.tz_label_ok))
