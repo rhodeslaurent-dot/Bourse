@@ -368,3 +368,16 @@ def test_the_morning_scan_counts_the_validity_from_the_last_bar_as_the_evening_o
         for p in props:
             assert p.details["seance_signal"] == DAY.isoformat()
             assert p.details["validite"]["jusqu_au"] == "2026-10-26"
+
+
+def test_a_crypto_etp_is_blocked_while_the_pocket_is_closed(db_engine, config):
+    """docs/39 §4 (lot M2): the same breakout on a crypto ETP gives no buy, never an SRD account."""
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        s.get(Instrument, ISIN).kind = "crypto_etp"
+        s.flush()
+        engine.scan(s, config, DAY, now=NOW)
+        props = s.query(Proposal).filter(Proposal.isin == ISIN).all()
+        assert props and all(p.action != "BUY" for p in props)
+        assert all(any("poche crypto fermée" in b for b in (p.gates or {}).get("blocked", [])) for p in props)
+        assert all("cto_srd" not in ((p.details or {}).get("comptes") or {}) for p in props)

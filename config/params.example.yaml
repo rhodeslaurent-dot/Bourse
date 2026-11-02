@@ -289,10 +289,23 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
     pump_min_messages: 5                # emballement (petite capitalisation, peu de comptes ou promotion) : à partir de 5 messages
     summaries_max: 3                    # résumés neutres conservés (sans pseudonyme ni citation)
 
+allocation:                             # docs/39, ADR-018 (proposé) — cœur et partie active : mesure « partie active contre le cœur », rappel d'achat, bandes
+  effective_from: "2026-11-02"
+  enabled: true                         # mesure affichée seulement (revue du jour, core-compare) : ne change aucune proposition, taille ni verdict
+  core_cost_pct: 0.005                  # coût d'achat du cœur dans le contrefactuel (plafond PEA de 0,5 % par ordre, brokers.boursobank.pea_cap_pct) : prudent
+  proxy_series: "msci_world"            # cœur sans cours stocké (pockets.dca.isins vide) → série macro (URTH, en USD converti), « proxy déclaré », hors dividendes
+  tax_estimate: true                    # PFU en vigueur (tax.pfu_total_rate) sur les plus-values réalisées au CTO, pertes reportées 10 ans ; PEA : rien avant retrait
+  core_target_pct: null                 # décision D2 (docs/39) : part du cœur que VOUS fixez ; null → ni bandes ni rappel de rééquilibrage
+  rebalance_band_pts: 5                 # écart toléré (points) avant un rappel ; l'argent nouveau va d'abord à la poche sous sa cible ; jamais de vente du cœur
+  core_monthly_reminder: true           # rappel « achat mensuel du cœur » le premier jour de bourse du mois (XPAR), seulement si pockets.dca.isins est renseigné
+  crypto_max_weight: 0.0                # décision D5 : poche crypto (ETP bitcoin au CTO, sans levier) ; 0 → aucune proposition crypto admise
+  unvalidated_cards: "achat"            # décision D3 : "information" range les fiches des détecteurs et des lettres non validés (ADR-012) dans une section repliée de la revue
+  validated_sources: []                 # détecteurs ou sources validés par la mesure (seuils ADR-012) : leurs fiches restent parmi les idées du jour ; aucun à ce jour
+
 pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
   dca:
     isins: []                           # ETF de l'investissement progressif (à renseigner dans params.yaml)
-    acceleration_index: "MSCI World"   # [non codé]
+    acceleration_index: "MSCI World"   # [non codé] : ce nom n'est pas lu ; la baisse est mesurée sur la série macro msci_world (URTH, proxy déclaré) depuis son plus haut sur 260 séances (portfolio_review)
     acceleration_drawdown_pct: 0.15
   tax_harvest: []                       # R18 — ex. [{isin: "FR00…", target_date: "2026-11-27"}] : hors plafonds, rappel de cession
 
@@ -753,7 +766,7 @@ availability:
 
 config_validation:
   required_groups: ["timezones", "capital", "risk", "accounts", "notifications", "data", "jobs"]
-  optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers", "learning", "letters_review", "letters", "admission", "market_gate", "conjuncture", "events", "entry", "zones", "ranking", "pockets", "verdict"]   # manquant → fonctionnalité désactivée, mention sur /sante
+  optional_groups: ["tax", "llm", "availability.schedule", "detectors.d1_gap_catalyst", "subscriptions", "brokers", "learning", "letters_review", "letters", "admission", "market_gate", "conjuncture", "events", "entry", "zones", "ranking", "pockets", "verdict", "allocation"]   # manquant → fonctionnalité désactivée, mention sur /sante
 
 review:
   human_delay_minutes: 5              # [non codé] délai humain appliqué en rejeu entre alerte et ordre
@@ -787,7 +800,7 @@ letters:                                  # docs/20 §20.10 — analyse détermi
   level_price_band: [0.5, 2.0]            # lot R3 (docs/38 §38.6) : un niveau lu dans une lettre hors de [0,5 ; 2] × la dernière clôture de la valeur est écarté (niveau d'indice lu dans la même fiche, année, nombre) et signalé
   report_line: true                       # une ligne « Lettres : … » dans le rapport du jour
 
-verdict:                                  # docs/37 lot L0 (ADR-016 proposé) — échelle de verdict graduée ; CONSTRUITE, DÉSACTIVÉE : décisions D9–D15 en attente. Groupe absent ou enabled: false → comportement actuel inchangé. Aperçu sans rien changer : `verdict-preview --date AAAA-MM-JJ`
+verdict:                                  # docs/37 lot L0 (ADR-016 accepté le 31/10/2026) — échelle de verdict graduée ; activation par enabled: true (décisions D9–D15 de l'utilisateur). Groupe absent ou enabled: false → comportement actuel inchangé. Aperçu sans rien changer : `verdict-preview --date AAAA-MM-JJ`
   effective_from: 2026-10-30
   enabled: false                          # D9 : true = les portes non absolues deviennent des éléments d'appréciation (conviction forte / à considérer / spéculative / à surveiller / écartée)
   speculative_detectors: ["d2_breakout", "d7_trend_quality"]   # D10 : ces détecteurs ne sont plus forcés en WATCH par l'ADR-013 ; carte « spéculative », espérance mesurée affichée ([] = ADR-013 inchangé)

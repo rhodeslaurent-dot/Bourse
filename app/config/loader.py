@@ -46,6 +46,7 @@ OPTIONAL_FEATURES: dict[str, tuple[str, Any]] = {
         "Échelle de verdict graduée (docs/37, lot L0 ; active seulement si verdict.enabled)",
         VerdictParamsModel,
     ),
+    "allocation": ("Cœur et partie active : mesure, rappel d'achat, bandes (docs/39, ADR-018)", None),
 }
 
 

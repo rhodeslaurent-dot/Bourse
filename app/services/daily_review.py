@@ -36,6 +36,7 @@ from app.db.models import (
     MediaMention,
     NewsItem,
     NewsletterItem,
+    PositionRow,
     PriceEod,
     Proposal,
     Signal,
@@ -138,10 +139,12 @@ def _ideas(s: Session, day: date) -> list[dict[str, Any]]:
         idea = idea_from(p, quote)
         price, seuil, targets = idea.price, idea.plage_threshold, idea.targets
         v = idea_verdict(idea)
-        who, written, citation = _source_text(p, sigs.get(p.signal_id))
+        sig = sigs.get(p.signal_id)
+        who, written, citation = _source_text(p, sig)
         inst = insts.get(p.isin)
         out.append({
             "proposal_id": p.id, "isin": p.isin, "nom": name_of(p.isin), "devise": inst.currency if inst else None,
+            "origine": sorted({x for x in ((sig.detector, sig.source) if sig is not None else ()) if x}),
             "pea": bool(inst.pea_eligible) if inst is not None and inst.pea_eligible is not None else None,
             "source": who, "niveaux_source": written, "citation": citation,
             "decision": v.decision, "libelle": v.label, "ton": v.tone, "raison": v.reason, "que_faire": v.todo,
@@ -150,6 +153,21 @@ def _ideas(s: Session, day: date) -> list[dict[str, Any]]:
             "objectifs": target_rows(price, idea.stop, targets),
         })  # fmt: skip
     return out
+
+
+def split_unvalidated(
+    ideas: list[dict[str, Any]], config: LoadedConfig
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """docs/39, decision D3 (``allocation.unvalidated_cards``): « achat » (default) keeps every card among the day's
+    ideas, as before; « information » moves the cards of a source no measure validated (ADR-012: none so far — the
+    detectors and the letters measured ≤ 0 after costs) to a folded section « à titre d'information ». A source is
+    validated when its detector or source name is in ``allocation.validated_sources``."""
+    g = getattr(config.params, "allocation", None) or {}
+    if not isinstance(g, dict) or not g.get("enabled", True) or g.get("unvalidated_cards") != "information":
+        return ideas, []
+    ok = {str(x) for x in (g.get("validated_sources") or [])}
+    keep = [i for i in ideas if set(i.get("origine") or []) & ok]
+    return keep, [i for i in ideas if not (set(i.get("origine") or []) & ok)]
 
 
 def _market(s: Session, config: LoadedConfig, day: date) -> dict[str, Any]:
@@ -294,6 +312,93 @@ def _expert_state(s: Session, config: LoadedConfig, day: date) -> list[str]:
     return out
 
 
+def _core_asks(s: Session, config: LoadedConfig, day: date) -> list[dict[str, Any]]:
+    """docs/39 §5 (lot M2): on the first session of the month at Euronext Paris, the core's monthly purchase (R17) and,
+    when the user set ``allocation.core_target_pct``, the core's weight against its band. Nothing while
+    ``pockets.dca.isins`` is empty. The core is never sold: new money goes to the pocket under its target."""
+    import os
+
+    from app.domain.allocation import first_session_of_month, rebalance_check
+    from app.domain.calendar import load_market_calendars
+    from app.services.allocation import _pockets, allocation_params, satellite_holdings
+    from app.services.market_data import fx_to_eur
+
+    g = allocation_params(config)
+    core, _ = _pockets(config)
+    if g is None or not core:
+        return []
+    try:
+        venue = load_market_calendars(os.environ.get("MARKET_CALENDARS_PATH", "config/market_calendars.yaml")).get(
+            "XPAR"
+        )
+    except (OSError, KeyError, ValueError):
+        return []
+    if venue is None or not first_session_of_month(day, venue.is_open):
+        return []
+    inst = s.get(Instrument, core[0])
+    name = inst.name if inst is not None and inst.name else core[0]
+    out: list[dict[str, Any]] = []
+    if g.get("core_monthly_reminder", True):
+        out.append({
+            "urgence": 2,
+            "texte": f"Achat mensuel du cœur (R17) : {name} ({core[0]}) — ordre à cours limité, jamais au marché ; "
+                     "le cœur n'est jamais vendu sur un signal ni après une baisse",
+            "lien": "/positions",
+        })  # fmt: skip
+    target = g.get("core_target_pct")
+    if target is None:
+        return out
+    core_value = 0.0
+    for row in s.scalars(select(PositionRow).where(PositionRow.qty_held > 0, PositionRow.isin.in_(core))):
+        bar = s.scalar(
+            select(PriceEod).where(PriceEod.isin == row.isin, PriceEod.day <= day).order_by(PriceEod.day.desc())
+        )
+        ins = s.get(Instrument, row.isin)
+        fx = fx_to_eur(s, (ins.currency if ins else None) or "EUR", day)
+        if bar is None or fx is None:
+            return out + [
+                {
+                    "urgence": 3,
+                    "texte": f"Poids du cœur indisponible : cours de {row.isin} inconnu",
+                    "lien": "/positions",
+                }
+            ]
+        core_value += row.qty_held * bar.close * fx
+    sat = satellite_holdings(s, config, day)
+    if any(h.price_eur is None for h in sat):
+        return out + [
+            {
+                "urgence": 3,
+                "texte": "Poids du cœur indisponible : un cours de la partie active manque",
+                "lien": "/positions",
+            }
+        ]
+    total = core_value + sum(h.qty * (h.price_eur or 0.0) for h in sat)
+    if total <= 0:
+        return out
+    w = core_value / total
+    for d in rebalance_check({"coeur": w}, {"coeur": float(target)}, float(g.get("rebalance_band_pts", 5))):
+        where = "le cœur" if d.gap_pts < 0 else "la partie active"
+        out.append({
+            "urgence": 3,
+            "texte": f"Le cœur pèse {d.weight:.0%} pour une cible de {d.target:.0%} ({d.gap_pts:+.1f} points) : "
+                     f"orienter l'argent nouveau vers {where} — jamais de vente du cœur",
+            "lien": "/positions",
+        })  # fmt: skip
+    return out
+
+
+def _cap(s: Session, config: LoadedConfig, day: date) -> str | None:
+    """docs/39, ADR-018: the active part against the same money placed in the core, in one sentence (display only);
+    None when the ``allocation`` group is absent or disabled."""
+    from app.services.allocation import allocation_params, compare, line
+
+    if allocation_params(config) is None:
+        return None
+    res, series = compare(s, config, day)
+    return line(res, series)
+
+
 def _sources(s: Session, day: date, now: datetime) -> list[str]:
     since = now - timedelta(hours=30)
     out = []
@@ -316,6 +421,7 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
 
     now = now or datetime.now(UTC)
     ideas = _ideas(s, day)
+    ideas, info = split_unvalidated(ideas, config)
     market = _market(s, config, day)
     try:
         with s.begin_nested():
@@ -325,6 +431,11 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
     head, reasons = day_verdict(
         [i["decision"] for i in ideas], bool(circuit is not None and circuit.tripped), market["portail"]
     )
+    if info:  # docs/39, decision D3: the cards no measure validated are shown apart, for information
+        if not ideas:
+            head = "Aucun achat validé par la mesure aujourd'hui"
+        reasons = [f"{len(info)} fiche(s) non validée(s) par la mesure, à titre d'information (docs/39)"] + reasons
+        reasons = reasons[:4]
     pf = _portfolio(s, config, day, now)
     held = {ln["isin"] for ln in pf}
     asks: list[dict[str, Any]] = []
@@ -347,6 +458,7 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
                     "lien": "/sante",
                 }
             )
+    asks += _core_asks(s, config, day)
     for i in ideas:
         if i["decision"] == "acheter":
             asks.append({"urgence": 2, "texte": f"{i['nom']} : {i['que_faire']}", "lien": "/opportunites"})
@@ -403,10 +515,12 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
         "marche": market,
         "evenements": events,
         "fiches": ideas,
+        "fiches_information": info,
         "carnet": book,
         "portefeuille": pf,
         "experts": _experts(s, day, {i["isin"] for i in ideas}, held),
         "etat_experts": _expert_state(s, config, day),
+        "cap": _cap(s, config, day),
         "sources": _sources(s, day, now),
     }
 
@@ -446,6 +560,10 @@ def as_text(r: dict[str, Any]) -> str:
         out.append(f"    que faire : {i['que_faire']}")
     if not r["fiches"]:
         out.append("  aucune idée aujourd'hui")
+    if r.get("fiches_information"):
+        out += ["", "À TITRE D'INFORMATION (sources non validées par la mesure)"] + [
+            f"  {i['nom']} — {i['libelle']} : {i['raison']}" for i in r["fiches_information"]
+        ]
     out += ["", "CARNET D'ORDRES"] + (
         [
             f"  {b['nom']} : limite {_num(b['limite'])}, stop {_num(b['stop'])}, {b['titres'] or '—'} titres, {b['statut']} (écart {_pct(b['ecart'])})"
@@ -453,12 +571,16 @@ def as_text(r: dict[str, Any]) -> str:
         ]
         or ["  aucun ordre"]
     )
-    out += ["", "PORTEFEUILLE"] + (
-        [
-            f"  {p['nom']} : {p.get('quantite')} titres, stop {p.get('stop') or '—'}, cours {p.get('cours', '—')} ({p['dernier_cours_jour'] or '—'}) → {p.get('verdict', '—')}"
-            for p in r["portefeuille"]
-        ]
-        or ["  aucune position"]
+    out += (
+        ["", "PORTEFEUILLE"]
+        + ([f"  {r['cap']}"] if r.get("cap") else [])
+        + (
+            [
+                f"  {p['nom']} : {p.get('quantite')} titres, stop {p.get('stop') or '—'}, cours {p.get('cours', '—')} ({p['dernier_cours_jour'] or '—'}) → {p.get('verdict', '—')}"
+                for p in r["portefeuille"]
+            ]
+            or ["  aucune position"]
+        )
     )
     if r["experts"] or r.get("etat_experts"):
         out += ["", "SOURCES EXPERTES"] + [
@@ -482,4 +604,4 @@ def telegram_lines(r: dict[str, Any]) -> list[str]:
     return out[:12]
 
 
-__all__ = ["as_text", "build", "idea_from", "telegram_lines"]
+__all__ = ["as_text", "build", "idea_from", "split_unvalidated", "telegram_lines"]

@@ -145,3 +145,24 @@ def test_the_morning_job_sends_the_review_first(config, calendars, db_engine, mo
     subject, body = sent[0]
     assert "1 achat(s) possible(s)" in subject
     assert body.index("VERDICT") < body.index("Rapport du")  # the review first, the 10 rubrics after
+
+
+def test_unvalidated_cards_can_be_shown_for_information_only(config, db_engine):
+    """docs/39, decision D3: « information » moves the cards of sources no measure validated out of the day's ideas
+    (folded section, same decision and reason); the default « achat » changes nothing."""
+    import copy
+
+    _seed()
+    day = datetime.now(PARIS).date()
+    with db_session() as s:
+        assert daily_review.build(s, config, day)["fiches_information"] == []  # default: unchanged
+        c = copy.deepcopy(config)
+        c.params.allocation["unvalidated_cards"] = "information"
+        r = daily_review.build(s, c, day)
+        assert r["fiches"] == [] and len(r["fiches_information"]) == 3
+        assert r["verdict"]["titre"] == "Aucun achat validé par la mesure aujourd'hui" and r["carnet"] == []
+        assert r["verdict"]["raisons"][0].startswith("3 fiche(s) non validée(s) par la mesure")
+        assert "À TITRE D'INFORMATION" in daily_review.as_text(r)
+        c.params.allocation["validated_sources"] = ["d7"]  # the technical card's detector validated: it comes back
+        r = daily_review.build(s, c, day)
+        assert [i["nom"] for i in r["fiches"]] == ["TotalEnergies SE"] and len(r["fiches_information"]) == 2

@@ -319,7 +319,10 @@ def _account_options(inst: Instrument, config: LoadedConfig) -> list[str]:
     out.append("cto_cash")
     if inst.srd_status in ("complet", "long_only") and inst.mic == "XPAR":
         out.append("cto_srd")
-    return out
+    from app.domain.allocation import crypto_gates
+
+    alloc = getattr(config.params, "allocation", None) or {}
+    return crypto_gates(inst.kind or "stock", out, alloc.get("crypto_max_weight"))[0]  # docs/39: no leverage
 
 
 def _tax(config: LoadedConfig) -> dict[str, Any]:
@@ -415,6 +418,11 @@ def evaluate(
         ev.blocked.append(f"BLOQUÉ : taux de change {inst.currency} indisponible (fx_refresh)")
         ev.action = "NO_TRADE"
         return ev
+    if (inst.kind or "stock") == "crypto_etp":  # docs/39 §4: the crypto pocket (decision D5), never with leverage
+        from app.domain.allocation import crypto_gates
+
+        alloc = getattr(config.params, "allocation", None) or {}
+        ev.blocked += crypto_gates("crypto_etp", [], alloc.get("crypto_max_weight"))[1]
     if circuit is not None:  # docs/07 §7.3: losses of the week / month beyond the limit → no new entry,
         ev.details["coupe_circuit"] = circuit.as_dict()  # limits waiting for a pullback included
         if circuit.tripped:

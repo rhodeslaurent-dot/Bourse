@@ -1050,6 +1050,21 @@ def cmd_radar_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_core_compare(args: argparse.Namespace) -> int:
+    """docs/39, ADR-018 — the active part of the portfolio against the same money placed in the core ETF (public
+    market equivalent), net of costs and of the estimated tax. Read-only; amounts are printed here only."""
+    from app.db.session import db_session
+    from app.services.allocation import compare, report_lines
+
+    cfg = load_params(args.params)
+    end = date.fromisoformat(args.to) if args.to else date.today()
+    with db_session() as s:
+        res, series = compare(s, cfg, end)
+        for ln in report_lines(res, series):
+            print(ln)
+    return 0
+
+
 def cmd_media_check(args: argparse.Namespace) -> int:
     """docs/23 §23.7 — why media opinions show up or not: for each media feed of the example, whether it is in
     params.yaml, its last read, the episodes of the last 7 days stored, those read by the LLM and the values
@@ -2563,6 +2578,9 @@ def main(argv: list[str] | None = None) -> int:
     sd.add_argument("url", nargs="?", default=None, help="page à examiner (défaut : sources « à renseigner »)")
     sd.add_argument("--name", default=None, help="une seule source du catalogue")
     sd.set_defaults(fn=cmd_sources_discover)
+    cc = sub.add_parser("core-compare", help="partie active contre le même argent placé dans le cœur (docs/39)")
+    cc.add_argument("--to", default=None, help="AAAA-MM-JJ : date de fin (défaut : aujourd'hui)")
+    cc.set_defaults(fn=cmd_core_compare)
     mc = sub.add_parser(
         "media-check", help="podcasts et médias : flux présents, épisodes lus, valeurs citées (docs/23)"
     )
