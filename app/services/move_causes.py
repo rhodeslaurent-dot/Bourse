@@ -8,7 +8,9 @@ On the history stored on the PC (European venue groups P0 / P1 / P2, 2017 → en
 2. **causes** of each one in the window [t0 − 5, t0 + 1] (``app.domain.move_causes``), with their timing (known
    before, before the open of t0, during): earnings (``earnings_events`` + confirmed past calendar rows),
    managers' purchases (AMF archive, rule X5 of registration n° 5, French values listed in Paris), letters'
-   recommendations (``letters_study._collect``: buy / watch, name written in the letter), stored news, market and
+   recommendations (``letters_study._collect``: buy / watch, name written in the letter), stored news, the official
+   releases of the AMF flow by family (step 2, docs/36 §36.9: French values listed in Paris, months of the archive
+   covered, results and revenue masked in part B like the earnings), market and
    sector equal-weighted moves, opening gap, abnormal volume before, production detector setups (``DETECTORS`` with
    production parameters, d8 excepted), dividend detachments; a source that does not cover a unit leaves it
    « unknown », never « absent »;
@@ -45,7 +47,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import LoadedConfig
-from app.db.models import EarningsCalendarRow, EarningsEvent, InsiderDeclaration, NewsItem, NewsletterItem
+from app.db.models import (
+    EarningsCalendarRow,
+    EarningsEvent,
+    InsiderDeclaration,
+    NewsItem,
+    NewsletterItem,
+    OfficialFiling,
+)
 from app.domain import move_causes as mc
 from app.domain.calendar import MarketCalendars, VenueCalendar
 from app.domain.detectors import DETECTORS, DetectorContext
@@ -65,13 +74,23 @@ FORWARD_DAYS = 45  # calendar days read after the period (20 sessions of outcome
 PARIS = ZoneInfo("Europe/Paris")
 REG3 = "research/prereg/2026-10-28_reg3.yaml"
 REG5 = "research/prereg/2026-10-30_reg5.yaml"
-REGISTERED = {mc.EV_EARNINGS: (REG3, "n° 3"), mc.EV_INSIDER: (REG5, "n° 5")}
+# the results and revenue releases ask registration n° 3's question (reaction to the results): masked like earnings
+REGISTERED = {
+    mc.EV_EARNINGS: (REG3, "n° 3"),
+    mc.EV_INSIDER: (REG5, "n° 5"),
+    mc.FILING_PREFIX + "resultats": (REG3, "n° 3"),
+    mc.FILING_PREFIX + "chiffre_affaires": (REG3, "n° 3"),
+}
 NOT_COVERED = (
-    "historique des nouvelles (seule la couverture récente de l'outil est lue : étape 2)",
+    "historique de la presse (seuls les communiqués officiels AMF sont historisés, depuis 2016 : étape 2 ; "
+    "les nouvelles stockées ne couvrent que la collecte récente de l'outil)",
+    "communiqués officiels des valeurs non françaises ou cotées hors de Paris (le flux AMF ne les couvre pas), "
+    "et des mois absents de l'archive (juillet à octobre 2018 notamment)",
     "changements de recommandations et d'objectifs d'analystes (aucune source datée à l'époque)",
     "déclarations de dirigeants hors de France (AMF seulement, archive depuis 2021-11)",
     "podcasts, vidéos et réseaux sociaux (aucun historique)",
-    "indices d'entrée en indice, rachats d'actions, annonces d'OPA hors nouvelles stockées",
+    "entrées en indice ; rachats d'actions, droits de vote, mises à disposition de documents et gouvernance "
+    "(communiqués de routine, non comptés comme causes)",
 )
 
 
@@ -203,6 +222,8 @@ class Sources:
     news_span: tuple[date, date] | None = None
     insider_span: tuple[date, date] | None = None
     insider_months: set[tuple[int, int]] = field(default_factory=set)
+    filings: dict[str, dict[str, list[datetime]]] = field(default_factory=dict)  # cause → ISIN → market times
+    filing_months: set[tuple[int, int]] = field(default_factory=set)  # Paris months the archive covers
     meta: dict[str, Any] = field(default_factory=dict)
     loaded_by_year: dict[str, Counter[int]] = field(default_factory=dict)
 
@@ -211,7 +232,74 @@ def _span(lo: datetime | None, hi: datetime | None) -> tuple[date, date] | None:
     return (_aware(lo).date(), _aware(hi).date()) if lo is not None and hi is not None else None
 
 
-def _sources(s: Session, isins: set[str], start: date, end: date, last_day: date) -> Sources:
+def _filings(s: Session, src: Sources, isins: set[str], last_day: date, min_share: float, meta: dict[str, Any]) -> None:
+    """docs/36 §36.9 — official releases of the kept families (French ISINs of the perimeter), first notices only
+    (rectifications and additions excluded); a release dated without an hour is placed after the close of its day
+    (never assumed known earlier). Covered months: those whose count reaches ``min_share`` of the median of the same
+    month in the other years (``app.domain.filings.month_coverage``); the month of ``last_day`` only when complete."""
+    from app.domain.filings import month_coverage, month_key
+
+    counts: Counter[str] = Counter()
+    for amf_ts, mkt_ts in s.execute(select(OfficialFiling.amf_timestamp, OfficialFiling.market_timestamp)):
+        ts = amf_ts if amf_ts is not None else mkt_ts
+        if ts is not None:
+            counts[month_key(_aware(ts))] += 1
+    if not counts:
+        meta["communiques"] = {"indisponible": "archive vide (filings-archive non lancé)"}
+        return
+    y, m = (int(x) for x in min(counts).split("-"))
+    months: list[str] = []
+    while (y, m) <= (last_day.year, last_day.month):
+        months.append(f"{y}-{m:02d}")
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    nxt = date(last_day.year + (last_day.month == 12), last_day.month % 12 + 1, 1)
+    partial = {months[-1]: 1.0 if last_day == nxt - timedelta(days=1) else 0.5}
+    cov = month_coverage(counts, months, min_share, partial)
+    src.filing_months = {
+        (int(c.month[:4]), int(c.month[5:])) for c in cov if c.covered and partial.get(c.month, 1.0) >= 1.0
+    }
+    kept = {mc.FILING_PREFIX + f: f for f in mc.FILING_FAMILIES}
+    fam_cause = {f: c for c, f in kept.items()}
+    per: Counter[str] = Counter()
+    excl: Counter[str] = Counter()
+    years: dict[str, Counter[int]] = {c: Counter() for c in kept}
+    q = select(OfficialFiling.isin, OfficialFiling.family, OfficialFiling.market_timestamp,
+               OfficialFiling.time_precision, OfficialFiling.update_status).where(
+        OfficialFiling.isin.is_not(None), OfficialFiling.family.in_(list(fam_cause))
+    )  # fmt: skip
+    for isin, fam, ts, precision, status in s.execute(q):
+        if isin not in isins or not str(isin).startswith("FR"):
+            continue
+        if status in ("REC", "ADD"):
+            excl["rectificatif_ou_complement"] += 1
+            continue
+        if ts is None:
+            excl["sans_heure"] += 1
+            continue
+        when = _aware(ts)
+        if precision == "jour":  # a date without an hour: after the close of that Paris day (prudent)
+            local = when.astimezone(PARIS)
+            when = datetime(local.year, local.month, local.day, 23, 59, tzinfo=PARIS).astimezone(UTC)
+            excl["date_sans_heure_placee_apres_cloture"] += 1
+        cause = fam_cause[fam]
+        src.filings.setdefault(cause, {}).setdefault(str(isin), []).append(when)
+        per[cause] += 1
+        years[cause][when.astimezone(PARIS).year] += 1
+    for cause, ys in years.items():
+        src.loaded_by_year[cause] = ys
+    meta["communiques"] = {
+        "regle": "flux AMF (info-financiere.gouv.fr, DILA), familles retenues, ISIN français, premier communiqué ; "
+                 "valeurs françaises cotées à Paris seulement ; heure de diffusion au marché (ADR-017)",
+        "retenus_par_famille": {mc.CAUSE_FR[c]: n for c, n in sorted(per.items())},
+        "ecartes": dict(sorted(excl.items())),
+        "mois_couverts": len(src.filing_months),
+        "mois_non_couverts": [c.month for c in cov if not (c.covered and partial.get(c.month, 1.0) >= 1.0)],
+        "seuil_couverture": min_share,
+    }  # fmt: skip
+
+
+def _sources(s: Session, isins: set[str], start: date, end: date, last_day: date,
+             filing_min_share: float = 0.5) -> Sources:  # fmt: skip
     src = Sources()
     meta: dict[str, Any] = {}
     # earnings: history (earnings_events) + confirmed calendar rows already past; conflicting hours → unknown
@@ -305,6 +393,7 @@ def _sources(s: Session, isins: set[str], start: date, end: date, last_day: date
     meta["nouvelles"] = {"mentions_dans_le_perimetre": n_news,
                          "collecte": [str(x) for x in src.news_span] if src.news_span else None}  # fmt: skip
     src.loaded_by_year[mc.NEWS] = ny
+    _filings(s, src, isins, last_day, filing_min_share, meta)
     src.meta = meta
     return src
 
@@ -351,6 +440,8 @@ def _codes(v: Value, mic: str, src: Sources, calendars: MarketCalendars, p: mc.C
     out[mc.INSIDER] = sorted(ins)
     out[mc.LETTER] = sorted(c for ts in src.letters.get(v.isin, []) if (c := at(ts)) is not None)
     out[mc.NEWS] = sorted(c for ts in src.news.get(v.isin, []) if (c := at(ts)) is not None)
+    for cause in mc.FILING_CAUSES:
+        out[cause] = sorted(c for ts in src.filings.get(cause, {}).get(v.isin, []) if (c := at(ts)) is not None)
     return out
 
 
@@ -446,6 +537,10 @@ def _unit(c: Ctx, v: Value, codes: dict[str, list[int]], eidx: EarningsIndex | N
                                            and (v.days[t0].year, v.days[t0].month) in c.src.insider_months)  # fmt: skip
     flags[mc.LETTER] = mc.flag_from_codes(codes[mc.LETTER], t0, p, _within(c.src.letters_span, d_lo, d_hi))
     flags[mc.NEWS] = mc.flag_from_codes(codes[mc.NEWS], t0, p, _within(c.src.news_span, d_lo, d_hi))
+    # official releases: French values listed in Paris, every month of the window covered by the archive
+    filed = paris_fr and all((d.year, d.month) in c.src.filing_months for d in (d_lo, v.days[t0], d_hi))
+    for cause in mc.FILING_CAUSES:
+        flags[cause] = mc.flag_from_codes(codes[cause], t0, p, filed)
     # market / sector over the first sessions of the move (controls: same span, descriptive only)
     m = p.first_sessions if move is None else min(p.first_sessions, move.sessions)
     end_s = min(t0 + m - 1, n - 1)
@@ -532,7 +627,7 @@ def _events_of(c: Ctx, v: Value, codes: dict[str, list[int]], lo_k: int, hi_k: i
         rv = v.rvol[k]
         if rv is not None and rv >= p.rvol_min:
             raw[mc.EV_RVOL].append(k + 1)  # known at the close of k
-    for cause in (mc.EV_EARNINGS, mc.EV_INSIDER, mc.EV_LETTER):
+    for cause in (mc.EV_EARNINGS, mc.EV_INSIDER, mc.EV_LETTER, *mc.FILING_CAUSES):
         for code in codes[cause]:
             e = mc.entry_session(code)
             if lo_k <= e - 1 <= hi_k:
@@ -605,8 +700,10 @@ def run_study(
         f"{len(insts)} valeur(s) des places européennes (groupes {', '.join(sorted(by_group))}) ; chargement des cours…"
     )
     pn = _panel(s, sorted(insts), first, last, p)
-    say(f"{len(pn.cols)} valeur(s) avec des cours ; sources (résultats, dirigeants, lettres, nouvelles)…")
-    src = _sources(s, set(pn.cols), start, end, last)
+    say(f"{len(pn.cols)} valeur(s) avec des cours ; sources (résultats, dirigeants, lettres, nouvelles, communiqués)…")
+    from app.services.filings import settings as filing_settings
+
+    src = _sources(s, set(pn.cols), start, end, last, filing_settings(config)["coverage_min_share"])
     mic_cols: dict[str, list[int]] = defaultdict(list)
     sector_cols: dict[str, list[int]] = defaultdict(list)
     for j, isin in enumerate(pn.cols):
@@ -804,7 +901,8 @@ def _coverage(units: Sequence[mc.Unit], src: Sources, p: mc.CauseParams) -> dict
     source covers the window, and the events loaded that year."""
     years = sorted({u.year for u in units})
     out: dict[str, Any] = {}
-    for cause in (mc.EARNINGS, mc.INSIDER, mc.LETTER, mc.NEWS, mc.CORPORATE, mc.MARKET, mc.SECTOR, mc.GAP, mc.RVOL):
+    for cause in (mc.EARNINGS, mc.INSIDER, mc.LETTER, mc.NEWS, *mc.FILING_CAUSES, mc.CORPORATE, mc.MARKET, mc.SECTOR,
+                  mc.GAP, mc.RVOL):  # fmt: skip
         per: dict[str, Any] = {}
         for y in years:
             us = [u for u in units if u.year == y and not (cause in mc.NO_CONTROL and u.group == mc.CONTROLS)]

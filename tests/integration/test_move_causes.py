@@ -213,3 +213,83 @@ def test_an_empty_base_gives_an_empty_report(db_engine, example_raw, calendars):
     with pytest.raises(ValueError):
         with db_session() as s:
             move_causes.run_study(s, validate_params(example_raw), calendars, date(2016, 6, 1), date(2017, 6, 30))
+
+
+def _filing(isin: str, uin: str, fam: str, ts: datetime, precision: str = "seconde", status: str = "NEW"):
+    from app.db.models import OfficialFiling
+
+    return OfficialFiling(source="info_financiere", diffuser="ACT", uin_id=uin, isin=isin, family=fam,
+                          type_code="001002", market_timestamp=ts, amf_timestamp=ts, time_source="marche",
+                          time_precision=precision, update_status=status, tz_label_ok=True, data_status="eod",
+                          received_at=NOW, processed_at=NOW)  # fmt: skip
+
+
+def test_official_releases_are_a_cause_per_family_with_coverage_and_masking(study):
+    """docs/36 §36.9 — step 2: the kept families placed on the values' sessions (07:30 Paris → before the open), the
+    routine ones ignored, rectifications excluded, a date without an hour after the close, a month the archive lacks
+    « unknown »; the results releases masked in part B until registration n° 3 has run, the operations measured."""
+    config, calendars, days = study
+    hole = (2024, 3)
+    with db_session() as s:
+        n = 0
+        for v, isin in enumerate(sorted({f"FR00000002{k:02d}" for k in range(12)})):
+            for k in range(2, len(days) - 25):
+                d = days[k]
+                if (d.year, d.month) == hole:
+                    continue
+                at_0730 = datetime(d.year, d.month, d.day, 6, 30, tzinfo=UTC)  # 07:30 Paris in winter, 08:30 summer
+                if (k + v) % 23 == 0:
+                    s.add(_filing(isin, f"op{v}-{k}", "operation", at_0730))
+                    s.add(_filing(isin, f"rec{v}-{k}", "operation", at_0730, status="REC"))  # rectification: excluded
+                    n += 1
+                if (k + v) % 63 == 0:
+                    s.add(_filing(isin, f"res{v}-{k}", "resultats", at_0730 + timedelta(hours=10)))
+                if (k + v) % 41 == 0:
+                    s.add(
+                        _filing(
+                            isin,
+                            f"day{v}-{k}",
+                            "franchissement_seuil",
+                            datetime(d.year, d.month, d.day, tzinfo=UTC) - timedelta(hours=1),
+                            precision="jour",
+                        )
+                    )
+                if k % 5 == 0:
+                    s.add(_filing(isin, f"vote{v}-{k}", "droits_de_vote", at_0730))  # routine: never a cause
+    rep = _run(config, calendars, days)
+    meta = rep["meta"]["sources"]["communiques"]
+    assert meta["ecartes"]["rectificatif_ou_complement"] == n
+    assert meta["ecartes"]["date_sans_heure_placee_apres_cloture"] > 0
+    assert "2024-03" in meta["mois_non_couverts"] and meta["mois_couverts"] > 12
+    att = rep["attribution"]["causes"]
+    op = mc.FILING_PREFIX + "operation"
+    assert att[op]["hausses"]["n"] > 0 and att[op]["hausses"]["n"] < rep["attribution"]["unites"]["hausses"]
+    assert "avant_ouverture" in json.dumps(att[op], default=str)
+    assert not any(k.startswith(mc.FILING_PREFIX + "droits") for k in att)
+    cov = rep["couverture"][op]
+    assert any(x["k"] < x["n"] for x in cov.values())  # units of March 2024 unknown, never « absent »
+    ev = rep["evenements"]
+    assert "masque_registre" in ev[mc.FILING_PREFIX + "resultats"]  # registration n° 3 not run
+    assert ev[op]["etudiees"] > 0 and "barriere" in ev[op]
+    text = move_causes.render_md(rep)
+    assert "communiqué officiel : acquisition ou cession" in text and "FR00000002" not in text
+
+
+def test_a_release_without_an_hour_is_placed_after_the_close(db_engine):
+    from app.services.move_causes import PARIS, Sources, _filings
+
+    with db_session() as s:
+        midnight = datetime(2024, 5, 13, 22, 0, tzinfo=UTC)  # 00:00 Paris on 14/05/2024
+        for y in (2023, 2024, 2025):
+            s.add(_filing("FR0000120107", f"x{y}", "resultats", midnight.replace(year=y), precision="jour"))
+        s.add(_filing("NL0000235190", "nl", "resultats", midnight))  # not a French ISIN: not read
+        s.flush()
+        src, meta = Sources(), {}
+        _filings(s, src, {"FR0000120107", "NL0000235190"}, date(2025, 12, 31), 0.5, meta)
+    when = src.filings[mc.FILING_PREFIX + "resultats"]["FR0000120107"]
+    assert [w.astimezone(PARIS).strftime("%Y-%m-%d %H:%M") for w in when] == [
+        "2023-05-14 23:59", "2024-05-14 23:59", "2025-05-14 23:59"]  # fmt: skip
+    assert "NL0000235190" not in src.filings[mc.FILING_PREFIX + "resultats"]
+    assert (2024, 5) in src.filing_months and meta["communiques"]["ecartes"][
+        "date_sans_heure_placee_apres_cloture"
+    ] == 3

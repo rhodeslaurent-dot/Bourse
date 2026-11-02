@@ -107,7 +107,7 @@ Les sceaux sont repris de docs/34 §34.1 :
 ## 36.5 Ce que l'étude ne couvre pas, et ses limites
 
 **Non couvert** (écrit en tête du rapport) :
-- l'historique des nouvelles (étape 2 : les communiqués officiels sont archivés depuis le 01/11/2026, §36.9 ; ils ne sont pas encore lus par l'étude) ;
+- l'historique de la presse : seuls les communiqués officiels AMF des valeurs françaises cotées à Paris sont lus (étape 2, §36.9), les nouvelles stockées ne couvrant que la collecte récente de l'outil ;
 - les changements de recommandations et d'objectifs d'analystes : aucune source datée à l'époque (docs/34 §34.8) ;
 - les déclarations de dirigeants hors de France ;
 - les podcasts, vidéos et réseaux sociaux : aucun historique ;
@@ -205,7 +205,15 @@ docker compose exec -T app python -m app.cli filings-archive --coverage-only
 - `--refamily` : reclasse les familles d'après les codes stockés, sans réseau.
 - La sortie est faite d'agrégats seulement : le tableau mois par mois, les sources et leur accord sur l'heure, les heures, les ISIN, les familles et les codes de type.
 
-**Ensuite** : le communiqué officiel, par famille et par moment, devient une cause de §36.2, mesurée contre les baisses et le groupe témoin.
+**Dans l'étude (étape 2, décision de l'utilisateur du 02/11/2026)** : `moves-causes` lit l'archive. Chaque famille retenue devient une cause de §36.2, mesurée contre les baisses et le groupe témoin.
+- **Familles retenues** : résultats, chiffre d'affaires, acquisition ou cession, offre publique, franchissement de seuil, autre information privilégiée.
+- **Routine écartée** : droits de vote, rachats d'actions, mises à disposition de documents, gouvernance, code 020000.
+- **Valeurs** : françaises (ISIN FR) cotées à Paris. Ailleurs, la cause est « inconnue ».
+- **Mois** : chaque mois de la fenêtre [t0 − 5, t0 + 1] doit être couvert par l'archive (§ ci-dessus). Sinon, « inconnu ».
+- **Premier communiqué seulement** : les rectificatifs et compléments sont exclus.
+- **Moment** : heure de diffusion au marché, placée sur les séances de la valeur comme les lettres (avant 9 h → avant l'ouverture ; pendant la séance ; après la clôture → avant l'ouverture suivante). Une date sans heure est placée après la clôture de son jour, jamais plus tôt.
+- **Priorité** : les communiqués viennent après les autres informations. Une hausse que l'étape 1 expliquait garde sa cause principale ; seules les hausses restées « sans information » peuvent en recevoir une.
+- **Partie B** : chaque famille est un événement acheté à l'ouverture suivante. Les résultats et le chiffre d'affaires restent **masqués** tant que l'enregistrement n° 3 (réaction aux résultats) n'a pas tourné, comme les publications de résultats.
 
 ## 36.x Suite donnée aux pistes (01/11/2026)
 

@@ -63,12 +63,19 @@ GAP = "saut_ouverture"
 RVOL = "volume_anormal_avant"
 SETUP = "configuration_technique"
 NO_CAUSE = "aucune_cause"
+# official regulated releases of the AMF flow (docs/36 §36.9, step 2): one cause per family kept (decision of the user
+# of 02/11/2026); the routine families (voting rights, buybacks, documents, governance, unknown code 020000) are not
+# causes. French values listed in Paris only; a month the archive does not cover is « unknown » for every family.
+FILING_PREFIX = "communique_"
+FILING_FAMILIES = ("resultats", "chiffre_affaires", "operation", "opa", "franchissement_seuil", "info_privilegiee")
+FILING_CAUSES = tuple(FILING_PREFIX + f for f in FILING_FAMILIES)
 # the fixed priority of the primary cause: information first (what happened to the company), then the systematic
 # moves (market, then sector: a sector move that the market explains is the market's), then the price and volume
-# observables, which describe a move more than they cause it
-CAUSES = (CORPORATE, EARNINGS, INSIDER, LETTER, NEWS, MARKET, SECTOR, GAP, RVOL, SETUP)
+# observables, which describe a move more than they cause it. The official releases come last among the information
+# causes: a unit step 1 explained keeps its primary cause, step 2 only explains what was left without one
+CAUSES = (CORPORATE, EARNINGS, INSIDER, LETTER, NEWS, *FILING_CAUSES, MARKET, SECTOR, GAP, RVOL, SETUP)
 PRIMARY = (*CAUSES, NO_CAUSE)
-INFORMATION = (CORPORATE, EARNINGS, INSIDER, LETTER, NEWS)
+INFORMATION = (CORPORATE, EARNINGS, INSIDER, LETTER, NEWS, *FILING_CAUSES)
 NO_CONTROL = frozenset({MARKET, SECTOR})  # explanations of a move: a control has no move to explain → sans objet
 CAUSE_FR = {
     CORPORATE: "opération sur titres ou détachement de dividende",
@@ -76,6 +83,12 @@ CAUSE_FR = {
     INSIDER: "achat de dirigeant (AMF)",
     LETTER: "recommandation d'une lettre",
     NEWS: "nouvelle stockée",
+    FILING_PREFIX + "resultats": "communiqué officiel : résultats",
+    FILING_PREFIX + "chiffre_affaires": "communiqué officiel : chiffre d'affaires",
+    FILING_PREFIX + "operation": "communiqué officiel : acquisition ou cession",
+    FILING_PREFIX + "opa": "communiqué officiel : offre publique",
+    FILING_PREFIX + "franchissement_seuil": "communiqué officiel : franchissement de seuil",
+    FILING_PREFIX + "info_privilegiee": "communiqué officiel : autre information privilégiée",
     MARKET: "mouvement de marché",
     SECTOR: "mouvement de secteur",
     GAP: "saut d'ouverture (non capturable à l'ouverture)",
@@ -108,6 +121,7 @@ EVENT_FR = {
     EV_GAP_DOWN: "saut d'ouverture baissier",
     EV_RVOL: "volume anormal (RVOL ≥ seuil) à la clôture",
 }
+EVENT_FR.update({c: CAUSE_FR[c] + " (premier communiqué, rectificatifs exclus)" for c in FILING_CAUSES})
 
 
 @dataclass(frozen=True)
@@ -737,6 +751,9 @@ def discoveries(events: Mapping[str, Mapping[str, Any]], horizons: Sequence[int]
 __all__ = [
     "CAUSES",
     "CAUSE_FR",
+    "FILING_CAUSES",
+    "FILING_FAMILIES",
+    "FILING_PREFIX",
     "CauseParams",
     "Flag",
     "Move",
