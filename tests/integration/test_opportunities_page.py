@@ -144,3 +144,19 @@ def test_blocked_or_to_verify_disables_order_entered(client):
 
 def test_empty_day_is_a_normal_result(client):
     assert "absence de proposition = résultat normal" in client.get("/opportunites?day=2026-01-05").text
+
+
+def test_a_card_shows_one_decision_its_reason_and_what_to_do_first(client):
+    """Lot R2 (docs/38, user feedback of 02/11/2026): one label, « Pourquoi » and « Que faire » before the folded
+    analysis; the former labels stay inside the fold."""
+    import html as h
+
+    with db_session() as s:
+        s.add(Instrument(isin="FR0000120271", name="TotalEnergies", ticker_local="TTE", mic="XPAR"))
+        _proposal(s, blocked=True)
+    page = h.unescape(client.get("/opportunites").text)
+    card = page[page.index('<section id="p') :]
+    assert "REFUS" in card
+    why, todo, fold = card.index("Pourquoi :"), card.index("Que faire :"), card.index("data-card-analysis")
+    assert why < todo < fold and "Rien à faire" in card[todo:fold]
+    assert "À surveiller" in card[fold:]  # the engine's own label, folded

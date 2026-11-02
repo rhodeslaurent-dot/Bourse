@@ -42,7 +42,16 @@ Elles s'appliquent dans cet ordre :
 
 Les raisons suivent un ordre fixe : blocage absolu, coupe-circuit, plafond, annonce, stop trop large, pas d'objectif, objectif trop proche, gain / risque, résultats, détecteur en surveillance, risque élevé, score, déclencheur, repli. Une raison inconnue est donnée telle qu'écrite, jamais omise.
 
-## 38.3 Envois
+## 38.3 Fiches de la page Opportunités (lot R2)
+
+Chaque fiche montre d'abord :
+- **une seule étiquette**, la décision de §38.2 ;
+- **Pourquoi**, en une phrase chiffrée ;
+- **Que faire**, en une phrase.
+
+Tout le reste est replié derrière « analyse complète » : le niveau du verdict gradué, l'action du moteur, le statut, « à vérifier », les lettres qui confirment ou contredisent, l'historique comparable, la source, les niveaux, les prix, les objectifs et les contrôles. Les boutons de décision et le détail de l'instantané ne changent pas.
+
+## 38.4 Envois
 
 Le job `brief_premarket` (08:45 Paris) envoie la revue :
 - sur Telegram (P3, ≤ 12 lignes : le verdict, deux raisons, trois choses à faire, quatre fiches) ;
@@ -50,9 +59,8 @@ Le job `brief_premarket` (08:45 Paris) envoie la revue :
 
 Le rapport en 10 rubriques reste archivé (`daily_reports`) et consultable sur `/rapport`.
 
-## 38.4 Ce que R1 ne fait pas encore
+## 38.5 Ce que R1 et R2 ne font pas encore
 
-- **R2** : la page Opportunités garde ses fiches détaillées (une seule étiquette et « que faire » à y reporter).
 - **R3** :
   - lire les niveaux des fiches Momentum / Next Momentum (le 02/11/2026, déclencheur 1,87 / cible 2,05–2,15 / stop 1,76 pour Elior, et invalidation 93,14 pour Publicis, n'ont pas été lus) ;
   - afficher les achats des gérants même sans relevé de la semaine ;

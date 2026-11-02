@@ -21,6 +21,7 @@ LLM here.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -90,6 +91,21 @@ def _source_text(p: Proposal, sig: Signal | None) -> tuple[str, list[str], str |
     return "outil", [], None
 
 
+def idea_from(p: Proposal, quote: Mapping[str, Any] | None) -> Idea:
+    """The review's view of one proposal (the engine's stored output and the quote of its snapshot)."""
+    d = p.details or {}
+    acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
+    ent = d.get("entree") or {}
+    levels = (d.get("lettre") or {}).get("niveaux") or {}
+    return Idea(
+        action=p.action, blocked=tuple(str(b) for b in (p.gates or {}).get("blocked") or []),
+        to_verify=bool(p.to_verify), price=_f((quote or {}).get("last")), p_max=_f(d.get("p_max")), stop=_f(p.stop),
+        targets=_targets(p), letter_trigger=_f(levels.get("declencheur")), shares=acc.get("titres"),
+        plage_threshold=_f(ent.get("seuil")) if ent.get("type") == "ordre à plage de déclenchement" else None,
+        expiry=ent.get("jusqu_au") or (d.get("validite") or {}).get("jusqu_au"),
+    )  # fmt: skip
+
+
 def _ideas(s: Session, day: date) -> list[dict[str, Any]]:
     from app.services.engine import todays_ranked
 
@@ -116,21 +132,10 @@ def _ideas(s: Session, day: date) -> list[dict[str, Any]]:
         if p.isin in seen or p.action not in ("BUY", "WATCH", "NO_TRADE"):
             continue
         seen.add(p.isin)
-        d = p.details or {}
         snap = snaps.get(p.id)
         quote = ((snap.quotes or {}).get(p.isin) if snap is not None else None) or {}
-        price = _f(quote.get("last"))
-        acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
-        ent = d.get("entree") or {}
-        seuil = _f(ent.get("seuil")) if ent.get("type") == "ordre à plage de déclenchement" else None
-        levels = (d.get("lettre") or {}).get("niveaux") or {}
-        targets = _targets(p)
-        blocked = tuple(str(b) for b in (p.gates or {}).get("blocked") or [])
-        idea = Idea(
-            action=p.action, blocked=blocked, to_verify=bool(p.to_verify), price=price, p_max=_f(d.get("p_max")),
-            stop=_f(p.stop), targets=targets, letter_trigger=_f(levels.get("declencheur")), shares=acc.get("titres"),
-            plage_threshold=seuil, expiry=ent.get("jusqu_au") or (d.get("validite") or {}).get("jusqu_au"),
-        )  # fmt: skip
+        idea = idea_from(p, quote)
+        price, seuil, targets = idea.price, idea.plage_threshold, idea.targets
         v = idea_verdict(idea)
         who, written, citation = _source_text(p, sigs.get(p.signal_id))
         inst = insts.get(p.isin)
@@ -427,4 +432,4 @@ def telegram_lines(r: dict[str, Any]) -> list[str]:
     return out[:12]
 
 
-__all__ = ["as_text", "build", "telegram_lines"]
+__all__ = ["as_text", "build", "idea_from", "telegram_lines"]

@@ -101,13 +101,19 @@ def opportunities_page(
         from app.services.reevaluations import latest_by_proposal, summary
 
         reevals = latest_by_proposal(s, [p.id for p in props])
+        from app.domain.review import idea_verdict
+        from app.services.daily_review import idea_from
+
         items = []
         for p in props:
             sig = sigs.get(p.signal_id)
             inst = insts.get(p.isin)
+            snap_quote = (snaps.get(p.id).quotes or {}).get(p.isin) if snaps.get(p.id) else None
             items.append(
                 {
                     "p": p,
+                    # lot R2 (docs/38): one decision, its reason and what to do, first on the card
+                    "decision": idea_verdict(idea_from(p, snap_quote)),
                     "sig": sig,
                     "comite": committee.get(p.id),
                     "name": name_of(p.isin),

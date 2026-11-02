@@ -68,6 +68,15 @@
         {% if p.rank %}{% if (it.niveau and it.niveau in ('conviction_forte', 'a_considerer', 'speculative')) or (not it.niveau and it.groupe == 0) %}<span class="rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-2 py-0.5 text-xs font-bold tabular" title="rang du jour (docs/22 §22.4)">#{{ p.rank }}</span>{% else %}<span class="rounded-full ring-1 ring-slate-300 dark:ring-slate-700 text-slate-400 px-2 py-0.5 text-xs tabular" title="rang brut, avant les filtres qui empêchent un ordre aujourd'hui">rang brut {{ p.rank }}</span>{% endif %}{% endif %}
         <h2 class="text-lg font-semibold"><a href="/valeur/{{ p.isin }}" class="hover:underline">{{ it.name }}</a></h2>
         <a href="/assistant?isin={{ p.isin }}" data-ai-isin="{{ p.isin }}" data-ai-name="{{ it.name }}" class="inline-flex items-center gap-1 rounded-full border border-sky-200 dark:border-sky-800 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-500/10" title="Poser une question sur cette valeur"><svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Demander</a>
+        {% set dv = it.decision %}{{ badge(dv.label, {'ok': 'green', 'info': 'blue', 'warn': 'amber', 'bad': 'red', 'muted': 'slate'}.get(dv.tone, 'slate')) }}
+        {% if p.account_recommended %}<span class="text-xs text-slate-500 dark:text-slate-400">{{ label('account', p.account_recommended) }}</span>{% endif %}
+      </div>
+      {% if it.place or it.secteur %}<p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{{ it.place or 'place inconnue' }}{% if it.devise %} · {{ it.devise }}{% endif %} · {{ it.secteur or 'secteur non renseigné' }}</p>{% endif %}
+      <p class="mt-1 text-sm" data-card-why><b>Pourquoi :</b> {{ it.decision.reason }}</p>
+      <p class="mt-0.5 text-sm" data-card-todo><b>Que faire :</b> {{ it.decision.todo }}</p>
+      <details class="mt-2" data-card-analysis>
+      <summary class="list-none cursor-pointer select-none text-xs font-medium text-sky-700 dark:text-sky-300">▸ analyse complète : source, niveaux, prix, contrôles</summary>
+      <div class="mt-1 flex flex-wrap items-center gap-2">
         {% if it.niveau %}{{ badge(label('verdict_niveau', it.niveau), verdict_tones[it.niveau], help_of('verdict_niveau')) }}{% endif %}
         {{ badge(label('action', p.action), 'green' if p.action == 'BUY' else 'blue' if p.action == 'WATCH' else 'slate') }}
         {{ badge(label('proposal_status', p.status), 'slate', p.status) }}
@@ -75,9 +84,7 @@
         {% if it.letters.get('confirme') %}{{ badge('confirmée par ' ~ it.letters.confirme ~ ' lettre(s)', 'green', 'revue des lettres (docs/20)') }}{% endif %}
         {% if it.letters.get('contredit') %}{{ badge('contredite par les lettres', 'red', 'revue des lettres (docs/20)') }}{% endif %}
         {% set tr = ex.track or {} %}{% if tr.get('verdict') in ('favorable', 'defavorable') %}{{ badge('historique ' ~ label('track_verdict', tr.verdict), 'green' if tr.verdict == 'favorable' else 'red', tr.n ~ ' cas comparables, espérance rétrécie ' ~ tr.shrunk_r ~ ' R') }}{% endif %}
-        {% if p.account_recommended %}{{ badge(label('account', p.account_recommended), 'slate') }}{% endif %}
-      </div>
-      {% if it.place or it.secteur %}<p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{{ it.place or 'place inconnue' }}{% if it.devise %} · {{ it.devise }}{% endif %} · {{ it.secteur or 'secteur non renseigné' }}</p>{% endif %}
+              </div>
       {% if it.pitch %}<p class="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">{{ it.pitch }}</p>{% endif %}
       <p class="mt-1 text-sm">{{ ex.headline }}</p>
       {% set dd = p.details or {} %}{% set acc = (dd.comptes or {}).get(p.account_recommended or '', {}) %}
@@ -108,6 +115,7 @@
       {% for b in ex.blocked %}<p class="mt-1 text-sm font-semibold text-rose-700 dark:text-rose-300 [overflow-wrap:anywhere]">{{ b }}</p>{% endfor %}
       {% set dm = (p.details or {}).donnees_manquantes or [] %}{% if dm %}<p class="mt-1 text-xs text-slate-500 dark:text-slate-400" title="Ce que le score n'a pas pu utiliser et ce que chaque absence coûte (points du bloc laissés à 0) ; jamais estimé">Données manquantes : {% for m in dm %}<span title="{{ m.note }}">{{ m.donnee }}{% if m.points %} −{{ '%g'|format(m.points) }} pt {{ m.bloc }}{% elif m.donnee == 'fondamentaux' %} {{ (m.note or '').split(' ')[0] }}{% endif %}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
       {% if not it.verdict %}{% for w in it.pourquoi %}<p class="mt-1 text-xs text-slate-600 dark:text-slate-300">En clair : {{ w }}</p>{% endfor %}{% endif %}
+      </details>
     </div>
     <div class="shrink-0 sm:text-right text-xs text-slate-500 dark:text-slate-400"><span class="font-mono">{{ p.isin }}</span><br>{{ p.created_at|dual }}{% if p.expires_at %}<br>expire le {{ p.expires_at|dual_dated }}{% endif %}</div>
   </div>
