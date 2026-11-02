@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
@@ -49,7 +49,10 @@ templates.env.globals.update(
 )
 from app.services.letters_verdict import LEVEL_LABELS, MODES  # noqa: E402
 
-templates.env.globals.update(level_labels=LEVEL_LABELS, letter_modes=MODES)  # docs/20 §20.10 (letter cards)
+templates.env.globals.update(level_labels=LEVEL_LABELS, letter_modes=MODES)
+from app.domain.review import fmt_price  # noqa: E402
+
+templates.env.filters["px"] = fmt_price  # lot R1: prices with their useful decimals  # docs/20 §20.10 (letter cards)
 
 
 def _regimes_by_market(s, cfg, day):  # type: ignore[no-untyped-def]
@@ -68,8 +71,20 @@ def _regimes_by_market(s, cfg, day):  # type: ignore[no-untyped-def]
 
 
 @router.get("/", response_class=HTMLResponse)
+def review_of_the_day(request: Request, day: date | None = None) -> HTMLResponse:
+    """Lot R1 (docs/38) — « Revue du jour », the home page since 02/11/2026: the day's decisions first."""
+    from app.services.daily_review import build as build_review
+
+    day = day or datetime.now(PARIS).date()
+    with db_session() as s:
+        review = build_review(s, request.app.state.config, day)
+    return templates.TemplateResponse(request, "revue_jour.html", {"request": request, "r": review, "day": day})
+
+
+@router.get("/decisions", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
-    """« Trois décisions du jour » — phase 1: positions / protections / risques (docs/09 §9.5)."""
+    """« Trois décisions du jour » — phase 1: positions / protections / risques (docs/09 §9.5); the detailed
+    dashboard since the « Revue du jour » became the home page (lot R1, 02/11/2026)."""
     from app.services.risk_view import build_risk_view
 
     cfg = request.app.state.config

@@ -33,7 +33,7 @@ def test_home_shows_three_decisions_and_risk(client):
         declare_stop(s, r.position_id, 40.6, "seuil", 60, "initial", "web")
         declare_execution(s, accs["pea"].id, "FR0000120073", "buy", 12, 171.45, T, "web")
         declare_order(s, accs["cto_cash"].id, "NL0010273215", "buy", 3, "plage", 650.0, 640.0, "day", "web")
-    html = client.get("/").text
+    html = client.get("/decisions").text
     assert "Trois décisions du jour" in html
     assert "40 titres non protégés" in html and "FR0000120073" in html
     assert "réservé (ordres en attente)" in html and "Scénario de gap" in html and "engagements" in html

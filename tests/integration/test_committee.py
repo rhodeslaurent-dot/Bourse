@@ -143,7 +143,7 @@ def test_home_lists_the_day_ideas_with_the_committee_verdict(db_engine, config, 
         deliberate(s, config, Gw(PM, CHAIR), p, NOW)
     app = create_app(config, calendars, start_scheduler=False, start_telegram=False)
     with TestClient(app) as c:
-        html = c.get("/").text
+        html = c.get("/decisions").text
     i = html.find("Idées du jour")
     block = html[i : i + 2500]
     assert i > 0 and "#1 TotalEnergies" in block and "reduire un cran" in block

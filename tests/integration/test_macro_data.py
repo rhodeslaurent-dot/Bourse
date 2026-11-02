@@ -203,7 +203,7 @@ def test_home_shows_macro_card(db_engine, config, calendars):
                          received_at=NOW, data_status="eod"))  # fmt: skip
     app = create_app(config, calendars, start_scheduler=False, start_telegram=False)
     with TestClient(app) as c:
-        html = c.get("/").text
+        html = c.get("/decisions").text
     assert "Contexte macro" in html and "Brent ($)" in html and "107.82" in html and "risque conjoncturel" in html
 
 

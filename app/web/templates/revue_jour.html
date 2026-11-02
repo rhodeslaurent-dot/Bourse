@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, dot, empty %}
+{% block title %}Revue du jour — BOURSE-PILOT{% endblock %}
+{% block content %}
+{# Lot R1 (docs/38) — the day's decisions first. Every number comes from the engine or the database; « — » = unknown. #}
+{% set tone = {'ok': 'green', 'info': 'blue', 'warn': 'amber', 'bad': 'red', 'muted': 'slate'} %}
+{% macro pct(x) %}{% if x is not none %}{{ '%+.1f'|format(x * 100) }} %{% else %}—{% endif %}{% endmacro %}
+{% macro num(x) %}{{ x|px }}{% endmacro %}
+
+<section class="card" data-review-verdict>
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <h1 class="text-lg font-semibold">{{ r.verdict.titre }}</h1>
+    <span class="text-xs text-slate-500 dark:text-slate-400">Revue du {{ day.strftime('%d/%m/%Y') }}</span>
+  </div>
+  {% if r.verdict.raisons %}<ul class="mt-2 text-sm space-y-0.5">{% for x in r.verdict.raisons %}<li>· {{ x }}</li>{% endfor %}</ul>{% endif %}
+  <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Aucun ordre n'est passé par l'outil : vous décidez chez le courtier.</p>
+</section>
+
+<section class="card" data-review-asks>
+  <h2 class="font-semibold">Ce que j'attends de toi</h2>
+  {% if r.attentes %}
+  <ol class="mt-2 text-sm space-y-1">
+    {% for a in r.attentes %}<li class="flex gap-2"><span>{{ badge(['', 'urgent', 'aujourd\'hui', 'à vérifier'][a.urgence], ['slate', 'red', 'amber', 'blue'][a.urgence]) }}</span><span>{{ a.texte }}{% if a.lien %} <a href="{{ a.lien }}" class="text-xs underline decoration-dotted text-slate-500">voir</a>{% endif %}</span></li>{% endfor %}
+  </ol>
+  {% else %}{{ empty("Rien à faire aujourd'hui.", 'green') }}{% endif %}
+</section>
+
+<section class="card" data-review-market>
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <h2 class="font-semibold">Marché</h2>
+    <div class="flex flex-wrap gap-2 text-xs">
+      {% set m = r.marche %}
+      {% if m.regime %}{{ badge('régime ' ~ label('regime', m.regime), 'green' if m.regime == 'green' else 'amber' if m.regime == 'orange' else 'red') }}{% endif %}
+      {% if m.portail %}{{ badge('portail ' ~ m.portail, 'green' if m.portail == 'ouvert' else 'amber' if m.portail == 'restreint' else 'red', m.portail_raison or '') }}{% endif %}
+      {% if m.niveau_risque %}{{ badge('niveau de risque ' ~ m.niveau_risque, 'slate', m.niveau_risque_pourquoi|join(' · ')) }}{% endif %}
+    </div>
+  </div>
+  {% if m.lignes %}
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full text-sm tabular">
+      <thead class="text-xs text-slate-500 dark:text-slate-400"><tr><th class="text-left py-1">Indicateur</th><th class="text-right">Valeur</th><th class="text-right">Séance</th><th class="text-right">5 séances</th></tr></thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+        {% for x in m.lignes %}<tr><td class="py-1">{{ x.indicateur }} <span class="text-[11px] text-slate-400">{{ x.jour.strftime('%d/%m') }}</span></td><td class="text-right">{{ num(x.valeur) }}</td><td class="text-right">{{ pct(x.var_1) }}</td><td class="text-right">{{ pct(x.var_5) }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}{{ empty('Indicateurs de marché pas encore chargés.', 'slate') }}{% endif %}
+  {% if r.evenements %}<p class="mt-2 text-xs text-slate-500 dark:text-slate-400">À venir : {{ r.evenements|join(' · ') }}</p>{% endif %}
+</section>
+
+<section class="card" data-review-ideas>
+  <h2 class="font-semibold">Fiches du jour</h2>
+  {% for i in r.fiches %}
+  <article class="mt-3 rounded-lg ring-1 ring-slate-200 dark:ring-slate-800 p-3" data-review-idea="{{ i.isin }}">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <a href="/valeur/{{ i.isin }}" class="font-semibold hover:underline">{{ i.nom }}</a>
+      {{ badge(i.libelle, tone.get(i.ton, 'slate')) }}
+    </div>
+    <p class="mt-1 text-sm"><b>Pourquoi :</b> {{ i.raison }}</p>
+    <p class="mt-0.5 text-sm"><b>Que faire :</b> {{ i.que_faire }}</p>
+    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Source : {{ i.source }}{% if i.niveaux_source %} — {{ i.niveaux_source|join(' · ') }}{% endif %}{% if i.pea is not none %} · {{ 'éligible PEA' if i.pea else 'hors PEA' }}{% endif %} · cours {{ num(i.cours) }}{% if i.cours_statut %} ({{ i.cours_statut }}){% endif %}</p>
+    {% if i.citation %}<blockquote class="mt-1 border-l-2 border-slate-300 dark:border-slate-600 pl-2 text-xs italic text-slate-600 dark:text-slate-300">« {{ i.citation }} »</blockquote>{% endif %}
+    {% if i.objectifs %}
+    <table class="mt-2 w-full text-xs tabular">
+      <thead class="text-slate-500 dark:text-slate-400"><tr><th class="text-left">Objectif</th><th class="text-right">Gain brut depuis le cours</th><th class="text-right">Gain / risque brut au cours</th></tr></thead>
+      <tbody>{% for o in i.objectifs %}<tr><td>{{ num(o.objectif) }}</td><td class="text-right">{{ pct(o.gain_brut) }}</td><td class="text-right">{% if o.rr_brut is not none %}{{ '%.2f'|format(o.rr_brut) }}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
+    </table>
+    <p class="mt-1 text-[11px] text-slate-400">Brut : avant frais, au cours de l'analyse, stop {{ num(i.stop) }}. Le prix maximal d'achat ({{ num(i.p_max) }}) est, lui, calculé net de frais.</p>
+    {% endif %}
+    <p class="mt-1 text-xs"><a href="/opportunites#p{{ i.proposal_id }}" class="underline decoration-dotted text-slate-500">détail complet des contrôles</a></p>
+  </article>
+  {% else %}{{ empty("Aucune idée aujourd'hui.", 'slate') }}{% endfor %}
+</section>
+
+<section class="card" data-review-book>
+  <h2 class="font-semibold">Carnet d'ordres</h2>
+  {% if r.carnet %}
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full text-sm tabular">
+      <thead class="text-xs text-slate-500 dark:text-slate-400"><tr><th class="text-left py-1">Valeur</th><th class="text-right">Limite</th><th class="text-right">Stop</th><th class="text-right">Titres</th><th class="text-right">Écart du cours</th><th class="text-left pl-2">Statut</th></tr></thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+        {% for b in r.carnet %}<tr><td class="py-1">{{ b.nom }}</td><td class="text-right">{{ num(b.limite) }}</td><td class="text-right">{{ num(b.stop) }}</td><td class="text-right">{{ b.titres or '—' }}</td><td class="text-right">{{ pct(b.ecart) }}</td><td class="pl-2">{{ b.statut }}{% if b.expire %} · jusqu'au {{ b.expire }}{% endif %}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}{{ empty('Aucun ordre à poser ni en attente.', 'slate') }}{% endif %}
+</section>
+
+<section class="card" data-review-portfolio>
+  <h2 class="font-semibold">Portefeuille</h2>
+  {% if r.portefeuille %}
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full text-sm tabular">
+      <thead class="text-xs text-slate-500 dark:text-slate-400"><tr><th class="text-left py-1">Valeur</th><th class="text-right">Titres</th><th class="text-right">Cours</th><th class="text-right">Stop</th><th class="text-left pl-2">Verdict</th></tr></thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+        {% for p in r.portefeuille %}<tr><td class="py-1">{{ p.nom }} <span class="text-[11px] text-slate-400">{{ p.compte }}</span></td><td class="text-right">{{ p.quantite }}</td><td class="text-right">{{ p.cours if p.cours is defined and p.cours is not none else '—' }} <span class="text-[11px] {{ 'text-rose-600' if p.cours_perime else 'text-slate-400' }}">{{ p.dernier_cours_jour.strftime('%d/%m') if p.dernier_cours_jour else 'jamais' }}</span></td><td class="text-right">{{ p.stop or '—' }}</td><td class="pl-2">{{ p.verdict or '—' }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}{{ empty('Aucune position ouverte.', 'slate') }}{% endif %}
+</section>
+
+<section class="card" data-review-experts>
+  <h2 class="font-semibold">Sources expertes (gérants, podcasts)</h2>
+  {% if r.experts %}
+  <ul class="mt-2 text-sm divide-y divide-slate-100 dark:divide-slate-800">
+    {% for e in r.experts %}<li class="py-1"><b>{{ e.qui or e.source }}</b> · {{ badge(e.sens, 'green' if e.sens == 'achat' else 'red') }} {{ e.valeur }}{% if e.pea is not none %} <span class="text-xs text-slate-500">({{ 'PEA' if e.pea else 'hors PEA' }})</span>{% endif %} <span class="text-xs text-slate-400">{{ e.date.strftime('%d/%m') }}</span><br><span class="text-xs text-slate-600 dark:text-slate-300">{{ e.traitement }}</span></li>{% endfor %}
+  </ul>
+  {% else %}{{ empty('Aucun achat ni vente de gérant relevé ces 10 derniers jours.', 'slate') }}{% endif %}
+</section>
+
+<section class="card">
+  <h2 class="font-semibold">Sources</h2>
+  <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ r.sources|join(' · ') or '—' }} · construit le {{ r.construit_le }}</p>
+  <p class="mt-1 text-xs"><a href="/decisions" class="underline decoration-dotted text-slate-500">tableau de bord détaillé (risque, positions, contexte macro)</a> · <a href="/rapport" class="underline decoration-dotted text-slate-500">rapport en 10 rubriques</a></p>
+</section>
+{% endblock %}
