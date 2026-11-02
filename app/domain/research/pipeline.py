@@ -58,6 +58,7 @@ from app.domain.research.exits import (
     bars_from,
     simulate,
 )
+from app.domain.research.filing_triggers import FILING_TRIGGERS, FilingData, t19_filing
 from app.domain.research.insider_triggers import INSIDER_TRIGGERS, InsiderData, t17_insider
 from app.domain.research.panel import (
     F64,
@@ -127,6 +128,7 @@ class Settings:
     seal_start: date | None = None  # segments.holdout_start: no data-quality exclusion crosses it
     min_earnings_coverage: float | None = None  # thresholds.min_earnings_coverage (registration n° 3)
     insiders: InsiderData | None = None  # registration n° 5: AMF declarations and the plan's insider_* rules
+    filings: FilingData | None = None  # registration n° 8: official AMF releases and the plan's filing_* rules
     # registration n° 7: the plan's ``suspect_price_ratio`` — a session at ≥ ratio × or ≤ 1/ratio of the previous close
     # is skipped like a corporate action (``move_causes.suspect_sessions``); None (every earlier plan): no check
     suspect_ratio: float | None = None
@@ -341,6 +343,8 @@ def raw_trigger(g: GroupData, cell: Cell, st: Settings) -> tuple[Bool, F64 | Non
         m = T.t09_volume_shock(p, f, float(q.get("mult", 3.0)))
     elif cell.trigger in INSIDER_TRIGGERS:  # registration n° 5 (insider_triggers)
         m = t17_insider(p, f, st.insiders, q)
+    elif cell.trigger in FILING_TRIGGERS:  # registration n° 8 (filing_triggers)
+        m = t19_filing(p, f, st.filings, q)
     elif T.cell_needs_earnings(cell.trigger, q) and not g.earn_ok:  # coverage below the plan's floor: no signal
         m = np.zeros(p.shape, dtype=np.bool_)
     elif cell.trigger == "t14":

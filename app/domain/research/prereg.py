@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Literal
 
+from app.domain.research.filing_triggers import FILING_TRIGGERS, check_filing_params
 from app.domain.research.insider_triggers import INSIDER_TRIGGERS
 from app.domain.research.triggers import GAP_TRIGGERS, cell_needs_earnings, check_gap_params
 
@@ -165,6 +166,9 @@ class Prereg:
     draft: bool = False  # BROUILLON: never run, calibrated nor unsealed (``check_frozen``)
     # the plan's own decision rule (key ``decision``, in its sha256): printed by the sealed verdict as written
     decision: dict[str, str] = dataclasses.field(default_factory=dict)
+    # registration n° 8: a hypothesis drawn from the discovery itself (key ``descriptive: true``): « run » is
+    # descriptive (title prefixed, decision rule printed, no candidate frozen), never a step towards an unseal
+    descriptive: bool = False
 
     @property
     def is_exit_plan(self) -> bool:
@@ -288,6 +292,8 @@ def expand_family(fam: Mapping[str, Any]) -> list[Cell]:
 
 KNOWN_TRIGGERS = KNOWN_TRIGGERS | INSIDER_TRIGGERS  # registration n° 5: managers' dealings (insider_triggers)
 KNOWN_TRIGGERS = KNOWN_TRIGGERS | GAP_TRIGGERS  # registration n° 7: opening gap down (triggers.t18_gap_down)
+KNOWN_TRIGGERS = KNOWN_TRIGGERS | FILING_TRIGGERS  # registration n° 8: official AMF releases (filing_triggers)
+FILING_ASSUMPTIONS = ("filing_close_cutoff_paris", "filing_max_gap_days")
 
 
 Span = tuple[date, date]
@@ -352,10 +358,19 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
                 check_gap_params(c.params)
             except ValueError as e:
                 raise PreregError(f"cellule {c.id} : {e}") from e
+        if c.trigger in FILING_TRIGGERS:
+            try:
+                check_filing_params(c.params)
+            except ValueError as e:
+                raise PreregError(f"cellule {c.id} : {e}") from e
     replication, sealed_conf, rep_folds = _replication(raw, segments)
     assumptions = {
         k: (v["value"] if isinstance(v, Mapping) and "value" in v else v) for k, v in raw["assumptions"].items()
     }
+    if any(c.trigger in FILING_TRIGGERS for c in cells):
+        missing = [k for k in FILING_ASSUMPTIONS if k not in assumptions]
+        if missing:
+            raise PreregError(f"t19 : hypothèses du plan absentes {missing} (le plan est la seule source)")
     # the E_open cap of the momentum cells is a registered assumption of the plan (never a code default)
     mom_cap = assumptions.get("momentum_entry_cap_atr")
     for k, c in enumerate(cells):
@@ -389,6 +404,7 @@ def parse_prereg(raw: Mapping[str, Any], sha256: str) -> Prereg:
         replication_folds=rep_folds,
         draft=bool(raw.get("draft", False)),
         decision={str(k): str(v) for k, v in (raw.get("decision") or {}).items()},
+        descriptive=bool(raw.get("descriptive", False)),
     )
     if p.is_exit_plan:
         check_exit_plan(p)

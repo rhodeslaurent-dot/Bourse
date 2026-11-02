@@ -1,0 +1,165 @@
+# Plan de recherche pré-enregistré — enregistrement n° 8 (docs/34 §34.15) : dérive après un communiqué officiel
+# d'« autre information privilégiée » (flux AMF, lot L1). Ce fichier EST le plan : il est GELÉ le 02/11/2026 par
+# l'assistant, sur décision de l'utilisateur du 02/11/2026 (« ok » à la vérification contre des jumeaux), AVANT toute
+# exécution du banc sur ces communiqués. Son empreinte sha256 est inscrite au registre à chaque exécution ; le modifier
+# crée un NOUVEL enregistrement.
+# Origine : l'étude des causes, étape 2 (rapport causes_20261102_152510, docs/36 §36.9), a lu 18 274 communiqués
+# « autre information privilégiée » de valeurs françaises cotées à Paris, achetés à l'ouverture qui suit : excès sur la
+# moitié liquide de la place −0,25 %, −0,52 %, −0,65 % à 5, 10 et 20 séances (t hebdomadaire −4,5, −5,4, −5,0).
+# L'hypothèse vient donc des données de 2017-2026 : CE PLAN EST DESCRIPTIF. Il ne dit qu'une chose : la dérive
+# survit-elle aux contrôles appariés du banc (même jour, même groupe, même strate de liquidité, de volatilité et de
+# tendance, valeur exclue) ? Leçon du plan n° 7 (docs/36 §36.x) : un excès sur un indice de place peut n'être qu'un
+# effet de profil (petites valeurs, augmentations de capital…).
+# Aucune période scellée n'existe pour ces données : l'archive commence en 2016 (filings-archive refuse avant le
+# 01/10/2015 ; la réserve 2007-2015 reste intacte). Une dérive retenue ici ne peut fonder qu'une PROPOSITION
+# d'élément d'appréciation des cartes, par ADR et décision de l'utilisateur, jamais une porte ni un déclencheur, et sa
+# confirmation passe par un nouveau plan vers l'avant.
+# Repris des n° 5 et n° 7 : seuils A1–A13, inférence, clés de paramètres, hypothèses chiffrées communes, entrée
+# E_open(1) validité 1, sortie X3, placebo X1 lu AVANT C1 / C2 / C3, verdict sur le CTO et PEA en seconde vue des
+# coûts, cours suspects (× 4 ou ÷ 4) écartés. Un seul groupe, Paris (PA), jugé sur le CAC 40 (le flux AMF ne couvre
+# que les émetteurs suivis par l'AMF). Trous de l'archive : juillet-octobre 2018 et mars-juin 2020 (aucun communiqué
+# chargé : aucun signal ces mois-là, comptés dans l'en-tête).
+id: "2026-11-02_reg8"
+title: "Recherche — enregistrement n° 8 : dérive après un communiqué d'information privilégiée (descriptif, contrôles appariés)"
+registered_on: "2026-11-02"
+seed: 20261102
+descriptive: true                            # hypothèse tirée de la découverte : « run » descriptif, aucun candidat figé
+
+venue_groups:                                # un groupe : Paris, régime et rendement anormal sur le CAC 40
+  PA: [PA]
+
+segments:
+  warmup_sessions: 252
+  discovery: ["2017-01-02", "2026-10-30"]    # DÉJÀ LUE par l'étude des causes : « research run » y est DESCRIPTIF
+  embargo: ["2099-01-01", "2099-01-02"]      # sans objet
+  holdout_start: "2026-11-03"                # vers l'avant : jamais lue par « run »
+  end_margin_sessions: 65
+  purge_sessions: 65
+  wf_test:                                   # 5 plis de deux ans (A5 : ≥ 4 de même signe sur 5) ; le dernier finit au gel
+    - ["2017-01-02", "2018-12-31"]
+    - ["2019-01-01", "2020-12-31"]
+    - ["2021-01-01", "2022-12-31"]
+    - ["2023-01-01", "2024-12-31"]
+    - ["2025-01-01", "2026-10-30"]
+
+parameters_keys:                             # lus dans config/params.yaml (règle 8 : source unique)
+  min_price: "universe.min_price"
+  min_turnover_eur: "universe.min_adv_eur_pea"
+  min_turnover_cto_eur: "universe.min_adv_eur_cto"
+  small_cap_threshold_eur: "universe.small_cap_threshold_eur"
+  breadth_green: "regime.breadth_green"
+  index_isins: "regime.index_isins"
+  slippage_pct: "risk.slippage_pct"
+  max_risk_per_trade_pct: "risk.max_risk_per_trade_pct"
+  max_position_pct_of_capital: "risk.max_position_pct_of_capital"
+  fx_haircut: "risk.fx_haircut"
+  max_open_risk_pct: "risk.max_open_risk_pct"
+  capital_pilote_eur: "capital.capital_pilote_eur"
+  expiry_sessions: "entry.expiry_sessions"
+  ma20_exit_closes: "detectors.exits.thesis_mm20_close_below_days"
+  ttf_rate: "tax.ttf_rate"
+  ttf_cap_threshold_eur: "tax.ttf_cap_threshold_eur"
+  pfu_total_rate: "tax.pfu_total_rate"
+  ftt_by_country: "tax.ftt_by_country"
+  srd_daily_rate: "srd.crd_daily_rate"
+  brokers: "brokers.saxo, brokers.boursobank"
+
+assumptions:
+  fx_static_eur_per_unit:                    # repli quand fx_rates ne couvre pas la date (seuil de liquidité seulement)
+    value: {SEK: 0.088, DKK: 0.134, NOK: 0.086, PLN: 0.232, GBP: 1.16, GBX: 0.0116, CHF: 1.04, USD: 0.92}
+    assumption: true
+  ca_jump: {value: 0.2, assumption: true}                  # saut du facteur d'ajustement = opération sur titres (exclue)
+  dividend_min_drop: {value: 0.002, assumption: true}      # baisse minimale du facteur = dividende
+  dividend_yield_sanity: {value: [0.0, 0.12], assumption: true}   # rendement annuel implicite plausible
+  bankruptcy_hazard_small: {value: 0.03, assumption: true}  # par an, petites capitalisations
+  bankruptcy_hazard_large: {value: 0.005, assumption: true} # par an, grandes capitalisations
+  takeover_jump: {value: 0.25, assumption: true}           # OPA : +25 % (même taux annuel que la faillite)
+  capacity_pct_of_turnover: {value: 0.02, assumption: true} # capacité : notionnel ≤ 2 % du volume médian 20 séances
+  momentum_entry_cap_atr: {value: 1.0, assumption: true}   # repris du n° 2 (aucune cellule momentum ici)
+  cost_stress_multiplier: {value: 1.5, assumption: false}
+  slippage_stress_multiplier: {value: 2.0, assumption: false}
+  top_n_monthly: {value: 6, assumption: false}
+  # séance dont l'ouverture ou la clôture est ≥ 4 × ou ≤ ¼ de la clôture précédente : cours aberrant, écartée comme
+  # une opération sur titres (règle du n° 7 et de l'étude des causes)
+  suspect_price_ratio: {value: 4.0, assumption: true}
+  # --- lecture des communiqués (app/domain/research/filing_triggers.py), règle de placement du n° 5 ---
+  filing_close_cutoff_paris: {value: "17:30", assumption: true}  # diffusé après 17:30 (Paris) → séance suivante
+  filing_max_gap_days: {value: 7, assumption: true}        # séance de placement au plus 7 jours après la diffusion
+
+thresholds:
+  gate_t_week: 2.0
+  a1: {event_min_n: 300, event_min_weeks: 100, fold_min_trades: 40, rank_min_months: 60, rank_min_trades_slot: 200}
+  a2: {min_mean_r: 0.10, min_eur_per_budget: 30.0, min_profit_factor: 1.15}
+  a3: {holm_alpha: 0.05, rw_alpha: 0.05, min_t: 3.0, min_dsr: 0.95, max_pbo: 0.30}
+  a4: {min_excess: 0.08, max_perm_p: 0.01}
+  a5: {min_positive_folds: 4}
+  a9: {min_hazard_multiple: 2.0}
+  a10: {max_top10_share: 0.40}
+  a12: {max_hold_sessions: 63}
+  a13: {max_dd_ratio_vs_benchmark: 1.0, slots: 6}
+  watchlist_bh_q: 0.10
+  power_min: 0.5
+  report_min_n: 20
+  candidates_max: 5
+  stage1: {max_triggers: 4, min_delta_r: 0.05, min_positive_folds: 4, max_pbo: 0.30, max_dd_worse: 0.10}
+  existing_detectors_ci_high_max: 0.0
+
+inference:
+  bootstrap_draws: 2000
+  block_weeks: 4
+  permutation_draws: 500
+  permutation_top: 30
+  pbo_blocks: 16
+  power_edges: [0.10, 0.20]
+  power_decision_edge: 0.20
+  power_reps: 50
+
+confirmatory:                                # verdict sur le CTO, PEA en seconde vue ; LU AU SIGNE (dérive négative)
+  # C1 = t19 : communiqué « autre information privilégiée » (codes 001006 et 015000 de la liste officielle, famille
+  # info_privilegiee), premier communiqué (rectificatifs et compléments exclus), ISIN français, heure de diffusion au
+  # marché (ADR-017) ; signal sur la première séance de la valeur à partir de la diffusion (après 17:30, ou date sans
+  # heure → séance suivante) ; un signal par valeur toutes les 10 séances (le premier, comme l'étude des causes) ;
+  # valeur cotée à Paris et éligible ce jour-là. Entrée à l'ouverture suivante plafonnée (E_open(1), validité 1),
+  # stop initial standard du banc (X3), sortie à 5 séances
+  - {id: C1, trigger: t19, params: {family: info_privilegiee, dedup_sessions: 10}, gate: none, h: 5, exit: X3, cap_atr: 1.0, validity: 1, accounts: [cto, pea]}
+  # C2 = C1 à 10 séances
+  - {id: C2, trigger: t19, params: {family: info_privilegiee, dedup_sessions: 10}, gate: none, h: 10, exit: X3, cap_atr: 1.0, validity: 1, accounts: [cto, pea]}
+  # C3 = C1 à 20 séances
+  - {id: C3, trigger: t19, params: {family: info_privilegiee, dedup_sessions: 10}, gate: none, h: 20, exit: X3, cap_atr: 1.0, validity: 1, accounts: [cto, pea]}
+
+exploratory:                                 # jamais une conséquence de production ; descriptives
+  # X1 placebo, lu AVANT C1 / C2 / C3 : valeurs et dates éligibles de Paris tirées au hasard (graine du plan) au taux
+  # de C1 estimé par l'étude des causes (≈ 150 communiqués par mois pour ≈ 12 000 observations éligibles), mêmes
+  # entrées et sorties
+  - {family: X1, trigger: t00, params: {seed: 20261102, rate: 0.01}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [5, 10, 20]}}
+  # X2 : contrôle — les signaux de C2 décalés de 20 séances de la valeur (attendu ≈ 0 contre les contrôles appariés)
+  - {family: X2, trigger: t19, params: {family: info_privilegiee, dedup_sessions: 10, shift_sessions: 20}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [10]}}
+  # X3 à X6 : les autres familles retenues par l'étude des causes, à 10 séances (descriptif)
+  - {family: X3, trigger: t19, params: {family: resultats, dedup_sessions: 10}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [10]}}
+  - {family: X4, trigger: t19, params: {family: chiffre_affaires, dedup_sessions: 10}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [10]}}
+  - {family: X5, trigger: t19, params: {family: operation, dedup_sessions: 10}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [10]}}
+  - {family: X6, trigger: t19, params: {family: franchissement_seuil, dedup_sessions: 10}, gate: none, cap_atr: 1.0, validity: 1, exit: X3, accounts: [cto, pea], grid: {h: [10]}}
+
+stage1:
+  exits: [X1, X2, X3, X4, X5, X6, X7, X8]
+  max_cells: 0                               # pas d'étape 1 : aucune sortie choisie dans ce plan
+stage2:
+  max_cells: 3
+
+max_total_cells: 20
+expected_total_cells: 14           # 3 confirmatoires + 3 placebo + 5 exploratoires + 0 étape 1 + 0 F0 + 3 portefeuille
+
+# Règle de lecture (fait partie de l'empreinte) — décision de l'utilisateur du 02/11/2026
+decision:
+  ordre_de_lecture: "placebo X1 (h 5, 10, 20), puis C1, C2, C3 (excès sur les contrôles appariés), puis X2 (décalage), puis X3 à X6"
+  derive_retenue: >-
+    au moins une de C1, C2, C3 a un excès sur les contrôles appariés NÉGATIF avec un t hebdomadaire ≤ −3
+    (thresholds.a3.min_t), négatif dans au moins 4 plis sur 5 (a5), avec A1 atteint (n ≥ 300, ≥ 100 semaines), le
+    placebo X1 sain (|t| < 3 à la même durée) et le décalage X2 sans dérive de même signe (|t| < 3) → PROPOSITION
+    à l'utilisateur, par un ADR, d'un élément d'appréciation « communiqué d'information privilégiée récent » sur les
+    cartes d'achat (jamais une porte, jamais un déclencheur, jamais une vente), puis d'un plan vers l'avant pour le
+    confirmer
+  effet_de_profil: >-
+    sinon → la dérive de l'étude des causes tient au profil des valeurs qui publient (petites valeurs, augmentations
+    de capital…), pas au communiqué : rien ne change, piste close
+  pea: "aucune conclusion PEA : seconde vue des coûts seulement"

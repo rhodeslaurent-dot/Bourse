@@ -709,4 +709,42 @@ En plus, hors plan : depuis la revue du 30/10/2026, un verrou global (`prereg.ch
 - Lecture : l'étude des causes mesurait l'excès sur la moitié liquide de la place ; les contrôles appariés du banc (même jour, même groupe, même tercile de liquidité et de volatilité, même tendance) l'effacent. Le « rebond » tient au profil des valeurs qui sautent (volatiles, en baisse), pas au saut.
 - **Décision de l'utilisateur** : la période scellée n'est pas ouverte pour le n° 7 (un « NON CONFIRMÉ » quasi certain l'aurait consommée et rendu « semi-propre » tout plan gelé ensuite). Le plan reste gelé, jamais descellé ; la piste est close. Aucun paramètre ni détecteur ne change.
 
+## 34.15 Enregistrement n° 8 : dérive après un communiqué d'information privilégiée (descriptif)
+
+**Origine.** L'étude des causes, étape 2 (docs/36 §36.9), a lu 18 274 communiqués « autre information privilégiée » de valeurs françaises cotées à Paris, achetés à l'ouverture qui suit. L'excès sur la moitié liquide de la place était de −0,25 %, −0,52 % et −0,65 % à 5, 10 et 20 séances, avec un t hebdomadaire de −4,5, −5,4 et −5,0. La leçon du plan n° 7 impose de mesurer d'abord cette dérive contre les **contrôles appariés** du banc : même jour, même groupe, même strate de liquidité, de volatilité et de tendance, valeur exclue.
+
+**Décision de l'utilisateur** (02/11/2026, « ok ») : vérifier contre des jumeaux.
+
+**Plan** : `research/prereg/2026-11-02_reg8.yaml`, gelé le 02/11/2026 avant toute exécution du banc sur ces communiqués.
+- Empreinte sha256 `85f0949e370d523e129469b600af06b65a54cbf31c9d2b98229e6cdf6a2627ec`.
+- Clé `descriptive: true` : l'hypothèse vient de la découverte. Le rapport porte « DESCRIPTIF », aucun candidat n'est figé, la règle de lecture du plan est imprimée en fin de rapport.
+- Aucune période scellée n'existe pour ces données : l'archive commence en 2016, et la réserve 2007-2015 reste intacte.
+
+**Déclencheur t19** (`app/domain/research/filing_triggers.py`) :
+- communiqué de la famille de la cellule, premier communiqué (rectificatifs et compléments exclus), ISIN français, heure de diffusion au marché (ADR-017) ;
+- placé sur la séance du jour s'il est diffusé au plus tard à 17:30 (Paris), sinon sur la séance suivante ; une date sans heure va aussi à la séance suivante ;
+- au plus 7 jours entre la diffusion et la séance ; un signal par valeur toutes les 10 séances ; valeurs cotées à Paris et éligibles ; entrée à l'ouverture suivante. C'est la règle de placement du n° 5.
+
+**Cellules** :
+
+| Cellule | Contenu |
+|---|---|
+| C1, C2, C3 | « autre information privilégiée » à 5, 10 et 20 séances, sortie X3, E_open(1) |
+| X1 | placebo au taux de C1 (h 5, 10, 20), lu en premier |
+| X2 | C2 décalé de 20 séances (attendu ≈ 0) |
+| X3 à X6 | résultats, chiffre d'affaires, acquisition ou cession, franchissement de seuil, à 10 séances (descriptif) |
+
+Seuils A1–A13 et inférence repris du n° 5 ; cours suspects (× 4 ou ÷ 4) écartés ; un seul groupe, Paris. 14 cellules au total.
+
+**Règle de lecture** (écrite dans le plan) :
+- **Dérive retenue** si au moins une de C1, C2, C3 a un excès sur les contrôles appariés négatif, avec t hebdomadaire ≤ −3, négatif dans au moins 4 plis sur 5. Il faut aussi A1 atteint, le placebo sain et le décalage sans dérive. On propose alors à l'utilisateur, par ADR, un élément d'appréciation « communiqué d'information privilégiée récent » sur les cartes d'achat : jamais une porte, un déclencheur ou une vente. Un plan vers l'avant le confirmerait ensuite.
+- **Sinon, effet de profil** : rien ne change, et la piste est close.
+
+**Sur le PC** (après `git pull` et `docker compose up -d --build`) :
+1. `research calibrate --prereg research/prereg/2026-11-02_reg8.yaml --run N` (N : le dernier backtest de production, n° 6 au 02/11/2026).
+2. `research run --prereg research/prereg/2026-11-02_reg8.yaml --universe all --run N`.
+   - Lire X1, puis C1, C2, C3 : colonne « ctrl », excès sur les contrôles appariés.
+   - Puis X2, puis X3 à X6.
+   - L'en-tête imprime la couverture de l'archive par mois.
+
 Aucun résultat ne change un paramètre ni un détecteur sans ADR.

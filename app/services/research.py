@@ -36,6 +36,7 @@ from app.domain.research.classify import Tier, unseal_confirmed
 from app.domain.research.costs import Account, ttf_rates
 from app.domain.research.entry_policies import entry_unseal_verdict
 from app.domain.research.exit_rules import exit_unseal_verdict
+from app.domain.research.filing_triggers import coverage_text as filing_coverage_text
 from app.domain.research.panel import (
     EarningsRow,
     FeatureParams,
@@ -75,6 +76,7 @@ from app.domain.research.sealed import (
     sealed_verdicts,
 )
 from app.domain.research.triggers import cell_needs_earnings
+from app.services.filing_research import filing_context, with_filings
 from app.services.insider_research import check_forward_unseal, insider_context, insider_report, with_insiders
 
 log = logging.getLogger("bourse.research")
@@ -750,7 +752,7 @@ def replication_label(ledger: Sequence[Mapping[str, str]], prereg: Prereg, today
 
 # the code a verdict depends on, outside the plan's own sha256 (units, A1–A13, power, the sealed rule, the portfolio
 # replay, costs, calendars, the detectors the calibration replays): the whole domain layer and the research services
-BENCH_FILES = ("app/services/research.py", "app/services/insider_research.py")
+BENCH_FILES = ("app/services/research.py", "app/services/insider_research.py", "app/services/filing_research.py")
 BENCH_DIRS = ("app/domain",)
 NEVER_LOADED_SHARE = 0.01  # values alive after the period, all starting on one day after it: old data never loaded
 REGIME_INDEX_CLOSES = 200  # panel.index_regime: the index above its own 200-session average (A7, t13)
@@ -775,7 +777,7 @@ def settings_sha256(st: Settings) -> str:
     """sha256 of every value the bench resolved from params.yaml and the fee schedules (``resolve_settings``): a fee
     band, the slippage or a liquidity floor changed after the calibration changes it (the insiders' rows excluded:
     data, not parameters)."""
-    return hashlib.sha256(repr(replace(st, insiders=None)).encode()).hexdigest()
+    return hashlib.sha256(repr(replace(st, insiders=None, filings=None)).encode()).hexdigest()
 
 
 def sealed_data_coverage(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg: Prereg,
@@ -1012,6 +1014,21 @@ def earnings_limits(prereg: Prereg) -> list[str]:
     )
 
 
+DESCRIPTIVE_ONLY = (
+    "DESCRIPTIF (hypothèse tirée de la découverte par une étude exploratoire : aucun candidat ; ce plan dit seulement "
+    "si l'effet survit aux contrôles appariés — règle de lecture en fin de rapport)"
+)
+
+
+def _decision_text(prereg: Prereg) -> str:
+    """The plan's reading rule, printed as written at the end of a descriptive report (registration n° 8)."""
+    if not prereg.decision:
+        return ""
+    lines = ["", "Règle de lecture écrite dans le plan (avant toute exécution)", ""]
+    lines += [f"  {k} : {v}" for k, v in prereg.decision.items()]
+    return "\n".join(lines) + "\n"
+
+
 # --- commands --------------------------------------------------------------------------------------
 
 
@@ -1044,6 +1061,7 @@ def run(
     panels, meta = load_panels(s, config, calendars, prereg, start, end, universe, max_instruments,
                                out_dir / "cache" if use_cache else None, progress)  # fmt: skip
     st, insider_cov = insider_context(s, st, prereg, panels)  # registration n° 5 (AMF declarations), else no-op
+    st, filing_cov = filing_context(s, st, prereg, panels)  # registration n° 8 (official AMF releases), else no-op
     res = run_registration(panels, prereg, st, run2, prod, stage, None, progress, True, max_f0_candidates)
     cal = calibration_status(out_dir, prereg.sha256, rid, meta.end)
     header = _header(meta, universe, cal, st, config, prereg, rid, t0)
@@ -1051,9 +1069,18 @@ def run(
     report, insider_txt = insider_report(report, res, prereg.thresholds, insider_cov)  # n° 5: coverage, A1 abstention
     if prereg.sealed_confirmation:  # registration n° 7: the discovery was read before the plan — descriptive only
         report["A_resume"]["titre"] = f"{DESCRIPTIVE_PREFIX} — {report['A_resume']['titre']}"
+    elif prereg.descriptive:  # registration n° 8: the hypothesis comes from the discovery itself
+        report["A_resume"]["titre"] = f"{DESCRIPTIVE_ONLY} — {report['A_resume']['titre']}"
     name = _stamp()
-    j, t = _write(out_dir, name, report, render_fr(report) + insider_txt)
-    frozen = None if prereg.sealed_confirmation else freeze_candidates(out_dir, name, prereg, res, cal[0])
+    if filing_cov is not None:
+        report["communiques"] = filing_cov
+    rule_txt = _decision_text(prereg) if prereg.descriptive else ""
+    j, t = _write(out_dir, name, report, render_fr(report) + insider_txt + filing_coverage_text(filing_cov) + rule_txt)
+    frozen = (
+        None
+        if prereg.sealed_confirmation or prereg.descriptive
+        else freeze_candidates(out_dir, name, prereg, res, cal[0])
+    )
     append_ledger(out_dir, run_ledger_row(name, prereg, res, universe, j.name, frozen, cal[0]))
     return {"json": str(j), "txt": str(t), "titre": report["A_resume"]["titre"], "candidats": res.get("candidats") or [],
             "candidats_figes": frozen is not None, "calibration": cal[0], "duree_s": round(time.time() - t0, 1)}  # fmt: skip
@@ -1197,7 +1224,7 @@ def unseal(s: Session, config: LoadedConfig, calendars: MarketCalendars, prereg_
                           f"({froze.get('timestamp')}) — la réplication ne mesurerait pas la même chose")  # fmt: skip
     check_forward_unseal(s, prereg_path, prereg, ledger, end)  # registration n° 5: the forward confirmation rule
     st, prod = resolve_settings(config, prereg, universe)
-    st = with_insiders(s, st, prereg)
+    st = with_filings(s, with_insiders(s, st, prereg), prereg)
     decisive = [c for c in prereg.cells if c.id in set(ids)]
     cov = (
         sealed_data_coverage(s, config, calendars, prereg, start, decisive) if prereg.replication is not None else None
