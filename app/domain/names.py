@@ -47,8 +47,17 @@ COMMON_WORDS = frozenset(
     income fund index market markets trading invest investment group holding services service industries
     industrie partners resources energy fed bce ecb bitcoin ethereum crypto nasdaq brent petrole euro dollar
     cac dax
+    momentum note notes evolution revolution grande grand block blocks text texte target cible week weekly news
+    today daily square trend trends pulse unity future impact nature spirit balance progress matrix quantum
+    element fusion compass horizon frontier pioneer crown union liberty fortune magic simple express direct online
+    mobile cloud network connect rapid swift clear bright light sense signals review focus insight strategy
+    strategie avenir capitale lettre letter morning meeting flash
     """.split()
 )
+# 02/11/2026 (letters-trace of the Momentum letter): « momentum » (the letter's own name) was read as Momentum
+# Group (SE), « note » as Note AB, « evolution », « grande », « block », « text », « target », « week » as companies;
+# the reader (LLM) still resolves these names on the whole referential (``resolve``), they are only never searched
+# alone in free text
 
 
 def norm(text: str) -> str:

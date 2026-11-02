@@ -139,3 +139,31 @@ def test_from_the_letters_words_to_inexploitable_by_construction(config, db_engi
         verdict = idea_verdict(idea_from(p, None))
         assert p.details["p_max"] < 100.2 and verdict.decision == "inexploitable"
         assert "100.2" in verdict.reason and verdict.todo.startswith("Rien à faire")
+
+
+def test_when_the_reader_read_the_letter_a_value_found_by_the_rules_alone_is_a_mention(config, db_engine):
+    """02/11/2026: the rules gave « achat » to every value of a paragraph with a buy word, and took « momentum » (the
+    letter's own name) for a company. The reader names the recommended values; the others stay mentions, with the
+    levels written."""
+    from pathlib import Path
+
+    from app.llm.schemas import NewsletterExtraction
+    from app.llm.schemas import NewsletterValue as Read
+
+    class Settings:
+        prompts_dir = Path(__file__).resolve().parents[2] / "app" / "llm" / "prompts"
+
+    class Reader:
+        settings = Settings()
+
+        def parse(self, s, purpose, prompt, text, schema, max_tokens=0):
+            return NewsletterExtraction(values=[Read(name="Valtera Industries", direction="buy")]), None
+
+    with db_session() as s:
+        _seed(s)
+        ingest_mail(s, _mail("r3-reader"), config, Reader())
+        rows = {v.isin: v for v in s.scalars(select(NewsletterValue)) if v.isin}
+        assert rows[ALPHA].direction == "buy" and rows[ALPHA].levels["objectif"] == 52.4  # the rules' levels kept
+        assert rows[BETA].direction == "neutral" and rows[BETA].levels["declencheur"] == 3.42  # a mention
+        item = s.scalar(select(NewsletterItem))
+        assert item.parsed["rules_only_mentions"] == ["norvane services:watch"] and item.parsed_by == "llm"

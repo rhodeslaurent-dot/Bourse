@@ -279,7 +279,8 @@ def _expert_state(s: Session, config: LoadedConfig, day: date) -> list[str]:
         when = f"émission du {shown:%d/%m}" if shown else f"publié le {pub.astimezone(PARIS):%d/%m}"
         cls = last.classification or {}
         if "media" not in cls:
-            what = "pas encore lu (IA indisponible ou page illisible) : nouvel essai au prochain passage"
+            why = cls.get("media_erreur") or "IA indisponible ou page illisible"
+            what = f"pas encore lu ({why[:90]}) : nouvel essai au prochain passage"
         else:
             vals = cls.get("media") or []
             buys = sum(1 for v in vals if v.get("stance") == "achat")

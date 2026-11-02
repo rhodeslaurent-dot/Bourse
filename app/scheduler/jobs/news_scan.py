@@ -70,17 +70,25 @@ def run(ctx: JobContext) -> int:
                 keep = [_norm_title(w) for w in f.get("title_includes") or []]
                 if keep:  # docs/23 §23.7: only the show's write-ups of a site that publishes several series
                     items = [i for i in items if any(w in _norm_title(i.title) for w in keep)]
+                media = f.get("kind") == "media_conseil"
                 with s.begin_nested():  # savepoint: a refused row of one feed never poisons the session
                     # media feeds: the episode is read once by media_extract, never classified twice (docs/25 L1)
-                    media = f.get("kind") == "media_conseil"
                     rep = ingest_rss_items(s, items, ctx.llm, max_items=max_items, scope="none" if media else scope)
-                    if f.get("kind") == "media_conseil":  # docs/23 §23.7: values cited, with their stance
-                        _media(s, name, ctx.llm, f)
                 total += rep.new
                 fresh.last_ok_at = datetime.now(UTC)
                 fresh.last_error = None
                 if not items:
                     errors.append(f"{name}: flux vide")
+                if media:  # docs/23 §23.7: values cited, with their stance — after the episodes are stored, so
+                    try:  # that a failure here never discards them (02/11/2026: 0 episode stored in 7 days)
+                        with s.begin_nested():
+                            _media(s, name, ctx.llm, f)
+                    except Exception as exc:  # noqa: BLE001 — said on /sante and by media-check
+                        log.warning(
+                            "flux %s, lecture des valeurs : %s: %s", name, exc.__class__.__name__, str(exc)[:200]
+                        )
+                        fresh.last_error = f"lecture des valeurs : {exc.__class__.__name__}: {exc}"[:300]
+                        fresh.last_error_at = datetime.now(UTC)
             except Exception as exc:  # noqa: BLE001 — one feed failing never stops the others
                 log.warning("flux %s : %s: %s", name, exc.__class__.__name__, str(exc)[:200])
                 fresh.last_error, fresh.last_error_at = f"{exc.__class__.__name__}: {exc}"[:300], datetime.now(UTC)

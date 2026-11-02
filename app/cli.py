@@ -1139,6 +1139,8 @@ def _media_feed_detail(cfg: LoadedConfig, mine: dict, name: str) -> int:
         for r in sorted(rows, key=lambda x: x.published_at or x.fetched_at, reverse=True)[:12]:
             cls = r.classification or {}
             state = "non lu" if "media" not in cls else f"{len(cls['media'])} valeur(s)"
+            if "media" not in cls and cls.get("media_erreur"):
+                state += f" ({cls['media_erreur'][:100]})"
             vals = ", ".join(f"{v['name']} ({v['stance']})" for v in cls.get("media") or [])[:120]
             rej = cls.get("media_rejetes") or []
             print(f"  {(r.published_at or r.fetched_at):%d/%m} texte {len(r.body or '')} car. · {state}"

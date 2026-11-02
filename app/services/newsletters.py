@@ -117,6 +117,7 @@ def ingest_mail(
     names = name_index(s)  # a name given by the reader is resolved on every referential name, common words too
     values = extract_values(mail.body_text, aliases)
     rejected_levels: list[str] = []
+    mentions_only: list[str] = []
     parsed_by = "rules"
     version = None
     if gateway is not None:
@@ -133,11 +134,13 @@ def ingest_mail(
 
             version = load_prompt(gateway.settings.prompts_dir, "newsletter_extract")[0]
             merged = {v.isin or (v.name or "").lower(): v for v in values}
+            named: set[str] = set()  # the values the reader names: it alone says what the letter recommends
             for lv in ext.values:
                 isin = (lv.isin if lv.isin and s.get(Instrument, lv.isin) is not None else None) or resolve(
                     lv.name, names
                 )
                 key = isin or lv.name.lower()
+                named.add(key)
                 # M16: keep only levels written in the letter; rule-extracted levels take precedence
                 verified = {k: v for k, v in lv.levels.items() if _number_in_text(v, mail.body_text)}  # noqa: F821
                 rejected_levels += [f"{lv.name}:{k}={v}" for k, v in lv.levels.items() if k not in verified]
@@ -152,6 +155,16 @@ def ingest_mail(
                         base.levels.setdefault(k, v)
             if rejected_levels:
                 log.warning("niveaux LLM absents du texte, rejetés : %s", rejected_levels)
+            # lot R3 (02/11/2026): a value found by the rules alone is a mention, never a recommendation — the rules
+            # take the paragraph's words (« achat » anywhere in it) for every value it names, and read a common word
+            # as a company (« momentum », the letter's own name); its levels stay as written
+            mentions_only = []
+            for key, v in merged.items():
+                if key not in named and v.direction != "neutral":
+                    mentions_only.append(f"{v.name}:{v.direction}")
+                    v.direction = "neutral"
+            if mentions_only:
+                log.info("valeurs lues par les règles seules, gardées comme mentions : %s", mentions_only)
             values = list(merged.values())
             parsed_by = "llm"
             rep.parsed_by_llm = 1
@@ -176,6 +189,7 @@ def ingest_mail(
         "rejected_llm_levels": rejected_levels,
         "unknown_level_names": dropped_keys,
         **({"levels_out_of_band": out_of_band} if out_of_band else {}),
+        **({"rules_only_mentions": mentions_only} if mentions_only else {}),
         **({"page_liee": mail.linked} if getattr(mail, "linked", None) else {}),
     }
     item.parsed_by, item.llm_prompt_version = parsed_by, version

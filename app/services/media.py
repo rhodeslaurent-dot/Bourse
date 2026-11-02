@@ -165,72 +165,98 @@ def extract_mentions(
 ) -> int:
     """Values cited by new media items (LLM extraction, then checks): the name must be written in the text
     and known to the referential (else kept without ISIN, never matched by guess). Each item is processed
-    once (``classification["media"]``)."""
+    once (``classification["media"]``). One episode at a time, in its own savepoint: an error on one episode is
+    written on it (``classification["media_erreur"]``, shown by ``media-check --feed`` and the review) and it is
+    retried at the next cycle — it never blocks the other episodes nor the storage of the episodes (02/11/2026)."""
     n = 0
+    names = name_matcher(aliases)
     for row in rows:
-        cls = dict(row.classification or {})
-        if "media" in cls:
+        if "media" in (row.classification or {}):
             continue
-        text = f"{row.title}\n\n{row.body or ''}"
-        if (feed or {}).get("follow_link") and row.url:  # the feed only carries an excerpt (« […] »)
-            page = (fetch or _fetch_article)(row.url, feed or {})
-            if page is None:
-                continue  # page unreadable this time: retried at the next cycle, never extracted from the excerpt
-            text = f"{row.title}\n\n{page}"
-        values: list[dict[str, Any]] = []
-        rejected: list[str] = []
-        if (feed or {}).get("parser") == "gerants":
-            values = parse_manager_writeup(text)  # fixed layout read by rules (docs/23 §23.7)
-        if not values and (gateway is None or not getattr(gateway, "enabled", True)):
-            continue  # no LLM: kept unread and retried — never marked « analysé » without having been read
-        if not values:
-            try:
-                out, _ = gateway.parse(
-                    s, "media_extract", "media_extract", text[:12000], MediaExtraction, max_tokens=3000
-                )
-                low = text.lower()
-                for v in out.values:
-                    if v.name.lower() not in low:
-                        log.info("média %s : « %s » absent du texte, rejeté", row.source, v.name)
-                        rejected.append(v.name[:60])
-                        continue
-                    values.append(v.model_dump())
-            except LlmUnavailable as exc:
-                log.warning("extraction média indisponible (%s) : épisode gardé sans valeurs", exc)
-                continue  # retried at the next cycle
-        published = _aware(row.published_at or row.fetched_at)
-        shown = broadcast_day(row.title, published)  # the show's date, not the write-up's (docs/23 §23.7.4)
-        day = shown or published.date()
-        if shown is not None:
-            published = datetime.combine(shown, time(18, 0), tzinfo=PARIS).astimezone(UTC)
-        after_close = bool((feed or {}).get("broadcast_after_close"))
-        names = name_matcher(aliases)
-        for v in values:
-            isin = resolve(v["name"], aliases) or names.get(norm_name(v["name"]))
-            ref = (close_on_or_before if after_close else close_before)(s, isin, day) if isin else None
-            exists = s.scalar(
-                select(MediaMention.id).where(
-                    MediaMention.source == row.source,
-                    MediaMention.item_guid == row.guid,
-                    MediaMention.name == v["name"],
-                )
-            )
-            if exists:
-                continue
-            s.add(
-                MediaMention(
-                    source=row.source, item_guid=row.guid[:255], published_at=published, isin=isin,
-                    name=v["name"][:128], stance=v["stance"], speaker=(v.get("speaker") or None),
-                    snippet=(v.get("snippet") or "")[:300], price_ref=ref.close if ref else None,
-                    price_ref_day=ref.day if ref else None, received_at=datetime.now(UTC),
-                )
-            )  # fmt: skip
-            n += 1
-        cls["media"] = [{k: v[k] for k in ("name", "stance", "speaker")} for v in values]
-        if rejected:  # media-check --feed shows them: a name the model wrote differently from the text
-            cls["media_rejetes"] = rejected[:10]
-        row.classification = cls
+        try:
+            with s.begin_nested():
+                n += _extract_one(s, row, gateway, aliases, names, feed, fetch)
+        except Exception as exc:  # noqa: BLE001 — one episode never stops the others
+            err = f"{exc.__class__.__name__}: {str(exc)[:160]}"
+            log.warning("média %s : épisode « %s » non lu : %s", row.source, (row.title or "")[:60], err)
+            cls = dict(row.classification or {})
+            cls["media_erreur"] = err
+            row.classification = cls
     s.flush()
+    return n
+
+
+def _extract_one(
+    s: Session,
+    row: NewsItem,
+    gateway: Any,
+    aliases: dict[str, str],
+    names: dict[str, str],
+    feed: dict[str, Any] | None,
+    fetch: Any | None,
+) -> int:
+    cls = dict(row.classification or {})
+    text = f"{row.title}\n\n{row.body or ''}"
+    if (feed or {}).get("follow_link") and row.url:  # the feed only carries an excerpt (« […] »)
+        page = (fetch or _fetch_article)(row.url, feed or {})
+        if page is None:
+            return 0  # page unreadable this time: retried at the next cycle, never extracted from the excerpt
+        text = f"{row.title}\n\n{page}"
+    values: list[dict[str, Any]] = []
+    rejected: list[str] = []
+    if (feed or {}).get("parser") == "gerants":
+        values = parse_manager_writeup(text)  # fixed layout read by rules (docs/23 §23.7)
+    if not values and (gateway is None or not getattr(gateway, "enabled", True)):
+        return 0  # no LLM: kept unread and retried — never marked « analysé » without having been read
+    if not values:
+        try:
+            out, _ = gateway.parse(s, "media_extract", "media_extract", text[:12000], MediaExtraction, max_tokens=3000)
+            low = text.lower()
+            for v in out.values:
+                if v.name.lower() not in low:
+                    log.info("média %s : « %s » absent du texte, rejeté", row.source, v.name)
+                    rejected.append(v.name[:60])
+                    continue
+                values.append(v.model_dump())
+        except LlmUnavailable as exc:
+            log.warning("extraction média indisponible (%s) : épisode gardé sans valeurs", exc)
+            cls["media_erreur"] = f"IA indisponible : {str(exc)[:140]}"
+            row.classification = cls
+            return 0  # retried at the next cycle
+    published = _aware(row.published_at or row.fetched_at)
+    shown = broadcast_day(row.title, published)  # the show's date, not the write-up's (docs/23 §23.7.4)
+    day = shown or published.date()
+    if shown is not None:
+        published = datetime.combine(shown, time(18, 0), tzinfo=PARIS).astimezone(UTC)
+    after_close = bool((feed or {}).get("broadcast_after_close"))
+    n = 0
+    for v in values:
+        isin = resolve(v["name"], aliases) or names.get(norm_name(v["name"]))
+        ref = (close_on_or_before if after_close else close_before)(s, isin, day) if isin else None
+        exists = s.scalar(
+            select(MediaMention.id).where(
+                MediaMention.source == row.source,
+                MediaMention.item_guid == row.guid[:255],
+                MediaMention.name == v["name"][:128],
+            )
+        )
+        if exists:
+            continue
+        s.add(
+            MediaMention(
+                source=row.source, item_guid=row.guid[:255], published_at=published, isin=isin,
+                name=v["name"][:128], stance=v["stance"], speaker=(v.get("speaker") or None),
+                snippet=(v.get("snippet") or "")[:300], price_ref=ref.close if ref else None,
+                price_ref_day=ref.day if ref else None, received_at=datetime.now(UTC),
+            )
+        )  # fmt: skip
+        s.flush()  # a refused row surfaces here, inside this episode's savepoint
+        n += 1
+    cls.pop("media_erreur", None)
+    cls["media"] = [{k: v[k] for k in ("name", "stance", "speaker")} for v in values]
+    if rejected:  # media-check --feed shows them: a name the model wrote differently from the text
+        cls["media_rejetes"] = rejected[:10]
+    row.classification = cls
     return n
 
 

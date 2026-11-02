@@ -14,7 +14,8 @@ def test_core_name_drops_the_legal_form_and_group_words():
 
 def test_only_safe_names_are_searched_in_free_text():
     assert mention_safe("viridien") and mention_safe("sartorius stedim biotech") and mention_safe("atos")
-    for word in ("sur", "aux", "pas", "mon", "lien", "data", "next", "orange", "total", "bce"):
+    for word in ("sur", "aux", "pas", "mon", "lien", "data", "next", "orange", "total", "bce",
+                 "momentum", "note", "evolution", "grande", "block", "text", "target", "week"):  # fmt: skip
         assert not mention_safe(word), word
 
 

@@ -103,4 +103,13 @@ L'outil affichait pourtant « Aucun niveau chiffré dans la lettre ». La règle
 - `letters-trace --date AAAA-MM-JJ --ia --rules` : ce que l'IA a lu, et ce que les règles actuelles lisent dans les lettres stockées (gratuit, aucun texte affiché) ;
 - `letters-trace --date AAAA-MM-JJ --fill` : complète les valeurs restées **sans aucun niveau**. Une valeur qui a déjà des niveaux les garde ; propositions et instantanés ne changent pas (règle 10). La prochaine analyse du moteur lit les nouveaux niveaux.
 
+**Corrections après le diagnostic du PC (02/11/2026, soir)** :
+- `letters-trace` a montré que l'IA avait bien lu la lettre Momentum (Publicis « achat », Elior « à surveiller »), mais sans relever aucun niveau, alors que la citation de Publicis contenait « 105,20 ». La lecture par règles comble ce manque.
+- **Mots courants pris pour des sociétés** : « momentum » (le nom de la lettre elle-même) était lu comme Momentum Group (Suède) et devenait une recommandation d'achat. De même « note », « evolution », « grande », « block », « text », « target », « week ». Ces mots ne sont plus cherchés seuls dans un texte libre (`app/domain/names.py`). L'IA, elle, peut toujours nommer ces sociétés.
+- **Le lecteur décide du sens** : quand l'IA a lu la lettre, une valeur trouvée par les seules règles reste une **mention**, jamais une recommandation. Les règles donnaient « achat » à toutes les valeurs d'un paragraphe contenant le mot « achat ». Ses niveaux restent tels qu'écrits ; la liste est gardée dans `newsletter_items.parsed.rules_only_mentions`. Sans IA, les règles décident, comme avant.
+- **Épisodes des gérants jamais enregistrés** : les épisodes du 30/10 étaient dans les flux, mais aucun n'était enregistré. La lecture des valeurs se faisait dans la même transaction que l'enregistrement, donc une erreur annulait les deux.
+  - Les épisodes sont désormais enregistrés d'abord.
+  - Chaque épisode est lu à part ; une erreur est écrite sur l'épisode (`media_erreur`) et l'épisode est relu au passage suivant.
+  - L'erreur apparaît dans `media-check --feed`, dans la revue, et sur la ligne de fraîcheur du flux.
+
 **Limite** : une fiche entièrement derrière un lien (capital.fr) n'est pas lue. Le suivi des liens « Lire la suite » ne vaut que pour Zonebourse (docs/19 §19.6). À décider après le diagnostic sur le PC.
