@@ -105,6 +105,9 @@ def idea_from(p: Proposal, quote: Mapping[str, Any] | None) -> Idea:
         targets=_targets(p), letter_trigger=_f(levels.get("declencheur")), shares=acc.get("titres"),
         plage_threshold=_f(ent.get("seuil")) if ent.get("type") == "ordre à plage de déclenchement" else None,
         expiry=ent.get("jusqu_au") or (d.get("validite") or {}).get("jusqu_au"),
+        speculative=d.get("verdict_niveau") == "speculative",
+        appreciation=tuple(str(a) for a in (p.gates or {}).get("appreciation") or []),
+        bet_target=_f(((d.get("speculative") or {}).get("objectif_final") or {}).get("objectif_final")),
     )  # fmt: skip
 
 
@@ -462,6 +465,10 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
     for i in ideas:
         if i["decision"] == "acheter":
             asks.append({"urgence": 2, "texte": f"{i['nom']} : {i['que_faire']}", "lien": "/opportunites"})
+        elif i["decision"] == "pari":
+            asks.append(
+                {"urgence": 3, "texte": f"{i['nom']} (pari spéculatif) : {i['que_faire']}", "lien": "/opportunites"}
+            )
     for ln in pf:
         if ln.get("stop_change"):
             asks.append(
@@ -497,11 +504,11 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
             "titres": i["titres"],
             "compte": i["compte"],
             "ecart": (i["cours"] / i["p_max"] - 1) if i["cours"] and i["p_max"] else None,
-            "statut": "à poser" if i["decision"] == "acheter" else "prête pour un repli",
+            "statut": {"acheter": "à poser", "pari": "pari spéculatif"}.get(i["decision"], "prête pour un repli"),
             "expire": i["expire"],
         }  # fmt: skip
         for i in ideas
-        if i["decision"] in ("acheter", "attendre_repli") and i["p_max"]
+        if i["decision"] in ("acheter", "pari", "attendre_repli") and i["p_max"]
     ]
     events = [
         f"{e.currency} {e.title} — {from_store(e.ts).astimezone(PARIS):%d/%m %H:%M} Paris"

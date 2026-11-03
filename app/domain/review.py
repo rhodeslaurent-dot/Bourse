@@ -22,9 +22,10 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-DECISIONS = ("acheter", "attendre_repli", "a_verifier", "inexploitable", "surveiller", "refus")
+DECISIONS = ("acheter", "pari", "attendre_repli", "a_verifier", "inexploitable", "surveiller", "refus")
 DECISION_FR = {
     "acheter": "ACHETER",
+    "pari": "PARI SPÉCULATIF",
     "attendre_repli": "ATTENDRE UN REPLI",
     "a_verifier": "À VÉRIFIER",
     "inexploitable": "INEXPLOITABLE",
@@ -33,6 +34,7 @@ DECISION_FR = {
 }
 DECISION_TONE = {
     "acheter": "ok",
+    "pari": "warn",
     "attendre_repli": "info",
     "a_verifier": "warn",
     "inexploitable": "bad",
@@ -114,6 +116,9 @@ class Idea:
     shares: int | None = None
     plage_threshold: float | None = None  # a breakout's order à plage: its seuil
     expiry: str | None = None  # the date to type at the broker
+    speculative: bool = False  # docs/37: a « spéculative » card of the graduated verdict (no measured edge)
+    appreciation: tuple[str, ...] = ()  # its elements of appreciation (gates moved off the blocks)
+    bet_target: float | None = None  # D12: the final target R4 was computed on (the first one did not pay)
 
 
 @dataclass(frozen=True)
@@ -174,6 +179,11 @@ def idea_verdict(i: Idea) -> IdeaVerdict:
             todo = f"Poser l'ordre limite à {_fmt(i.p_max)} ({qty}{stop})"
         if i.expiry:
             todo += f", valable jusqu'au {i.expiry}"
+        if i.speculative:  # 03/11/2026 (Elior): never « toutes les règles sont satisfaites » for a bet
+            why = [main_reason([a]) or a for a in i.appreciation[:2]]
+            bet = f"pari sur l'objectif final {_fmt(i.bet_target)}" if i.bet_target is not None else "carte spéculative"
+            reason = bet + (" ; " + " ; ".join(why) if why else "") + " — aucun avantage validé par la mesure"
+            return out("pari", reason, "Seulement si vous acceptez ce pari : " + todo[0].lower() + todo[1:])
         return out("acheter", "toutes les règles sont satisfaites", todo)
     waiting = any("en attente d'un repli" in str(b) for b in i.blocked)
     other = [b for b in i.blocked if "en attente d'un repli" not in str(b)]
@@ -223,7 +233,8 @@ def day_verdict(
         reasons.append("coupe-circuit déclenché : aucune nouvelle entrée")
     if gate and gate not in ("ouvert", "open"):
         reasons.append(f"portail de marché : {gate}")
-    for d, text in (("attendre_repli", "au-dessus de leur prix maximal (limites prêtes pour un repli)"),
+    for d, text in (("pari", "en pari spéculatif (aucun avantage validé par la mesure)"),
+                    ("attendre_repli", "au-dessus de leur prix maximal (limites prêtes pour un repli)"),
                     ("a_verifier", "à vérifier (cours pas assez frais)"),
                     ("inexploitable", "inexploitable(s) par construction"),
                     ("refus", "refusée(s)"), ("surveiller", "à surveiller")):  # fmt: skip

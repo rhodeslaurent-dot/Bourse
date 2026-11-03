@@ -15,7 +15,8 @@ L'ancienne page d'accueil (« Trois décisions », risque, contexte macro) reste
    - à vérifier : cours trop ancien pour décider.
 3. **Marché** : les indices (séance, 5 séances) et les indicateurs macro avec leur évolution sur 5 points, le régime, le portail de marché et sa raison, le niveau de risque du jour, les annonces à 3 jours.
 4. **Fiches du jour** : un bloc par valeur, la proposition la mieux classée.
-   - **Une seule décision**, dans une liste fermée (`app/domain/review.py`) : ACHETER, ATTENDRE UN REPLI, À VÉRIFIER, INEXPLOITABLE, SURVEILLER, REFUS.
+   - **Une seule décision**, dans une liste fermée (`app/domain/review.py`) : ACHETER, PARI SPÉCULATIF, ATTENDRE UN REPLI, À VÉRIFIER, INEXPLOITABLE, SURVEILLER, REFUS.
+   - **PARI SPÉCULATIF** (03/11/2026) : une carte « spéculative » de l'échelle de verdict (docs/37). Ses faiblesses (score, risque élevé) sont des éléments d'appréciation et non des blocages ; R4 peut être calculé sur l'objectif final (D12). La revue le dit comme tel (« pari sur l'objectif final X ; … — aucun avantage validé par la mesure »), ne le compte pas comme un achat dans le verdict du jour et le range au rang « à vérifier » de ce qu'elle attend de vous.
    - **Pourquoi** : la raison principale, en une phrase avec ses chiffres (« le dossier est trop faible au score (56 % des points, 80 % requis) »).
    - **Que faire**, en une phrase : poser l'ordre limite à X (titres, stop, validité) ; rien aujourd'hui (une limite à X n'achèterait qu'en cas de repli) ; vérifier le cours en direct ; rien.
    - La source : la lettre, son sens, les niveaux qu'elle écrit et sa citation, ou le détecteur.

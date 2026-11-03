@@ -105,6 +105,9 @@ def _sentence(p: Any) -> str | None:
     if c.get("stop") is not None and c.get("stop_retenu") == "structure" and c.get("stop_lettre") is not None:
         stop += f" (structure ; invalidation de la lettre {_n(c['stop_lettre'])})"
     tgt = f", objectif {_n(c['objectif'])}" if c.get("objectif") is not None else ""
+    if c.get("objectif_1") is not None and c.get("objectif") is not None:  # D12 (docs/37): the bet, said as such
+        tgt = (f", objectif final {_n(c['objectif'])} (l'objectif 1 {_n(c['objectif_1'])} ne paie pas assez le "
+               "risque : pari sur l'objectif final)")  # fmt: skip
     pmax = _n(c["p_max"]) if c.get("p_max") is not None else "—"
     # a crossed breakout is entered with its plage, as the card says (docs/06 §6.3; review of 30/10/2026, m7)
     plage = (d.get("entree") or {}).get("type") == "ordre à plage de déclenchement" and c.get("seuil") is not None

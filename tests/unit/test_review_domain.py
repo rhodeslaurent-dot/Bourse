@@ -86,3 +86,19 @@ def test_day_verdict_headline_and_reasons():
     assert head == "Aucun achat aujourd'hui" and why[0].startswith("coupe-circuit")
     assert day_verdict([])[0] == "Aucune idée aujourd'hui"
     assert day_verdict(["surveiller"], gate="restreint")[1][0] == "portail de marché : restreint"
+
+
+def test_a_speculative_card_is_a_bet_never_all_rules_satisfied():
+    """03/11/2026 (Elior): the graduated verdict made a « spéculative » BUY — score 0.42 < 0.80 and high risk moved to
+    elements of appreciation, R4 computed on the final target (D12). The review says it is a bet, never « toutes les
+    règles sont satisfaites », and the day's verdict does not count it as a buy."""
+    v = idea_verdict(Idea("BUY", (), price=1.887, p_max=1.899, stop=1.846, shares=1191, speculative=True,
+                          appreciation=("WATCH : ratio d'admission 0.42 < 0.80 (scoring)",
+                                        "WATCH : risque élevé (distance du stop, liquidité)"),
+                          bet_target=2.156))  # fmt: skip
+    assert v.decision == "pari" and v.label == "PARI SPÉCULATIF" and v.tone == "warn"
+    assert v.reason.startswith("pari sur l'objectif final 2.156 ; le dossier est trop faible au score (42% des points")
+    assert "aucun avantage validé par la mesure" in v.reason
+    assert v.todo.startswith("Seulement si vous acceptez ce pari : poser l'ordre limite à 1.899 (1191 titres")
+    head, why = day_verdict(["pari"])
+    assert head == "Aucun achat aujourd'hui" and why[0].startswith("1 idée(s) en pari spéculatif")

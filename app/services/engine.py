@@ -1716,6 +1716,8 @@ def _letter_verdict(config: LoadedConfig, prop: Proposal, e: Evaluation) -> None
         "titres": acc.get("titres"),
         "compte": prop.account_recommended,
     }
+    if isinstance(d.get("objectif_r4"), int | float) and st.targets and d["objectif_r4"] != st.targets[0]:
+        nums["objectif_1"], nums["objectif"] = round(st.targets[0], 4), round(float(d["objectif_r4"]), 4)  # D12 bet
     if isinstance(pmax, int | float) and pmax > 0:
         nums["ecart_limite_pct"] = round((e.price / pmax - 1) * 100, 1)
     if res.trigger and e.price > 0:
