@@ -136,16 +136,31 @@ def macro_settings(config: Any) -> dict[str, Any]:
     return dict(getattr(config.params.data, "macro", None) or {})
 
 
-def snapshot(s: Session, config: Any, today: date, fetchers: dict[str, SeriesFetcher] | None = None) -> SnapshotReport:
+def snapshot(
+    s: Session,
+    config: Any,
+    today: date,
+    fetchers: dict[str, SeriesFetcher] | None = None,
+    history_from: date | None = None,
+    only: set[str] | None = None,
+) -> SnapshotReport:
+    """Each macro series from the day after its last stored point (``history_days`` the first time). ``history_from``
+    (``macro-backfill``, docs/39): the history of the series in ``only`` is read again from that day — the core's
+    proxy (``msci_world``) needs the dates of the first orders of the active part (03/11/2026: first order in 2023,
+    400 days stored)."""
     cfg = macro_settings(config)
     fetchers = fetchers or default_fetchers(config)
     rep = SnapshotReport()
     now = datetime.now(UTC)
     for indicator, spec in (cfg.get("series") or {}).items():
+        if only is not None and indicator not in only:
+            continue
         sources = spec["sources"] if isinstance(spec, dict) else spec
         lo, hi = (spec.get("valid_range") or [None, None]) if isinstance(spec, dict) else (None, None)
         last = s.scalar(select(MacroPoint.day).where(MacroPoint.indicator == indicator).order_by(MacroPoint.day.desc()))
         start = (last - timedelta(days=7)) if last else today - timedelta(days=int(cfg.get("history_days", 400)))
+        if history_from is not None:
+            start = history_from
         for rank, src in enumerate(sources):
             fetch = fetchers.get(src["provider"])
             if fetch is None:

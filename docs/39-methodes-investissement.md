@@ -248,7 +248,8 @@ Rien de ce qui suit ne passe d'ordre (règle 1) ni ne change une proposition, un
   - méthode : équivalent marché public (Kaplan & Schoar 2005) ; coût d'achat du cœur `allocation.core_cost_pct` ; impôt estimé au CTO (PFU en vigueur, pertes reportées) ; rien au PEA avant retrait ;
   - référence : l'ETF de `pockets.dca.isins` s'il a des cours, sinon la série `msci_world` (URTH en USD converti) annoncée comme « proxy déclaré, hors dividendes » ;
   - un cours manquant donne « indisponible », jamais une estimation ;
-  - une ligne « Cap » dans la Revue du jour (section Portefeuille) et la commande `core-compare` (lecture seule).
+  - une ligne « Cap » dans la Revue du jour (section Portefeuille) et la commande `core-compare` (lecture seule) ;
+  - la série proxy doit couvrir le premier ordre : `macro-backfill --from AAAA-MM-JJ` charge son historique (03/11/2026).
 - **M2 — garde-fous et réglages en attente de vos décisions** :
   - crypto : jamais au SRD ni au PEA ; poche fermée tant que `allocation.crypto_max_weight` vaut 0 (« BLOQUÉ : poche crypto fermée ») ; ouverte au-dessus de 0, elle reste bloquée tant que l'outil ne contrôle pas le plafond de poids ;
   - `allocation.unvalidated_cards` : « achat » (par défaut, comportement actuel) ou « information » ; « information » range les fiches des sources non validées par la mesure (aucune à ce jour) dans une section repliée de la revue ;

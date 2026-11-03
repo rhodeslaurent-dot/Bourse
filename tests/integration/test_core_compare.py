@@ -77,6 +77,20 @@ def test_no_core_price_at_all_is_unavailable_and_said(config, db_engine):
     assert allocation.line(res, series).startswith("Partie active contre le cœur : indisponible (aucun cours du cœur")
 
 
+def test_a_short_core_history_says_which_command_loads_it(config, db_engine):
+    with db_session() as s:
+        _seed(s, core_bars=False, core_trade=False)
+        s.add(MacroPoint(indicator="msci_world", day=END, value=120.0, source="yfinance", symbol="URTH",
+                         received_at=datetime(2026, 10, 30, tzinfo=UTC), data_status="eod"))  # fmt: skip
+        s.add(FxRate(pair="EURUSD", day=END, rate=1.2, source="ecb"))
+        s.flush()
+        res, _ = allocation.compare(s, _cfg(config, with_core=False), END)
+    assert (
+        res.reason
+        == "cours du cœur inconnu le 02/03/2026 — charger l'historique du cœur : macro-backfill --from 2026-03-02"
+    )
+
+
 def test_the_review_shows_the_cap_and_the_command_prints_the_detail(config, db_engine, monkeypatch, capsys):
     from app import cli
     from app.services import daily_review
@@ -120,3 +134,30 @@ def test_first_session_of_the_month_brings_the_core_purchase_and_its_band(config
         assert not any(
             "cœur" in a["texte"] for a in daily_review.build(s, _cfg(config, False), date(2026, 11, 2))["attentes"]
         )
+
+
+def test_macro_backfill_loads_the_proxy_history_from_a_date(config, db_engine, monkeypatch, capsys):
+    """03/11/2026 on the PC: « cours du cœur inconnu le 12/06/2023 » — the proxy series held 400 days. The backfill
+    reads the same source from ``--from`` (same range checks) and the comparison becomes possible."""
+    from app import cli
+    from app.services import macro
+
+    asked = []
+
+    def fake_yf(symbol, start, end):
+        asked.append((symbol, start))
+        return [(D1, 100.0), (END, 120.0), (date(2026, 6, 1), 99999.0)]  # the last one is out of range
+
+    monkeypatch.setattr(macro, "default_fetchers", lambda _c: {"yfinance": fake_yf})
+    monkeypatch.setattr(cli, "load_params", lambda _p: _cfg(config, with_core=False))
+    with db_session() as s:
+        _seed(s, core_bars=False, core_trade=False)
+        for day in (D1, END):
+            s.add(FxRate(pair="EURUSD", day=day, rate=1.2, source="ecb"))
+    assert cli.main(["macro-backfill", "--from", "2023-01-01"]) == 0
+    out = capsys.readouterr().out
+    assert asked == [("URTH", date(2023, 1, 1))] and "msci_world : 2 point(s) du 2026-03-02 au 2026-10-30" in out
+    assert "hors plage" in out  # the out-of-range point is said, never stored
+    with db_session() as s:
+        res, series = allocation.compare(s, _cfg(config, with_core=False), END)
+    assert res.ok and series.proxy

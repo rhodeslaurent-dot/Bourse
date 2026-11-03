@@ -14,7 +14,7 @@ Display only: the comparison never changes a proposal, a size or a verdict (ADR-
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
@@ -135,6 +135,10 @@ def compare(s: Session, config: LoadedConfig, end: date) -> tuple[CoreComparison
     tax = _tax_rate(config) if g.get("tax_estimate", True) else 0.0
     res = compare_to_core(fills, satellite_holdings(s, config, end), series.prices, end,
                           float(g.get("core_cost_pct", 0.0)), tax)  # fmt: skip
+    if not res.ok and res.start is not None and (res.reason or "").startswith("cours du cœur inconnu le"):
+        cmd = "macro-backfill" if series.proxy else "backfill --isin <ISIN du cœur>"
+        hint = f" — charger l'historique du cœur : {cmd} --from {res.start:%Y-%m-%d}"
+        res = replace(res, reason=(res.reason or "") + hint)
     return res, series
 
 

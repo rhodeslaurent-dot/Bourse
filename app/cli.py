@@ -1342,6 +1342,32 @@ def cmd_delisted_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_macro_backfill(args: argparse.Namespace) -> int:
+    """docs/39 — the history of macro series from ``--from`` (same sources, same checks as the daily snapshot): the
+    core's proxy ``msci_world`` must cover the first orders of the active part for ``core-compare``."""
+    from sqlalchemy import func, select
+
+    from app.db.models import MacroPoint
+    from app.db.session import db_session
+    from app.services.macro import snapshot
+
+    cfg = load_params(args.params)
+    names = set(args.indicator or ["msci_world"])
+    with db_session() as s:
+        rep = snapshot(s, cfg, date.today(), history_from=date.fromisoformat(args.from_date), only=names)
+        for name in sorted(names):
+            lo, hi, n = s.execute(
+                select(func.min(MacroPoint.day), func.max(MacroPoint.day), func.count()).where(
+                    MacroPoint.indicator == name
+                )
+            ).one()
+            src = rep.sources.get(name, "aucune source n'a répondu")
+            print(f"{name} : {n} point(s) du {lo} au {hi} · source {src}" if n else f"{name} : aucun point ({src})")
+    if rep.note():
+        print(rep.note())
+    return 0
+
+
 def cmd_fx_history(args: argparse.Namespace) -> int:
     """ECB reference rates since ``--from`` (full public history, one download): the research harness and the
     euro conversions of non-euro values use the rate of each day instead of the plan's static rate (26/10/2026:
@@ -2636,6 +2662,10 @@ def main(argv: list[str] | None = None) -> int:
     dl.add_argument("--history", action="store_true", help="charger aussi l'historique des radiées retenues")
     dl.add_argument("--missing-only", dest="missing_only", action="store_true")
     dl.set_defaults(fn=cmd_delisted_load)
+    mb = sub.add_parser("macro-backfill", help="historique d'une série macro (ex. msci_world, cœur de core-compare)")
+    mb.add_argument("--from", dest="from_date", required=True, help="AAAA-MM-JJ")
+    mb.add_argument("--indicator", action="append", default=None, help="série de data.macro.series (défaut msci_world)")
+    mb.set_defaults(fn=cmd_macro_backfill)
     fh = sub.add_parser("fx-history", help="taux BCE historiques (une fois) : conversions et banc de recherche")
     fh.add_argument("--from", dest="from_date", default="2015-01-01")
     fh.set_defaults(fn=cmd_fx_history)
