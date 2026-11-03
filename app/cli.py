@@ -1342,6 +1342,18 @@ def cmd_delisted_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_regime_check(args: argparse.Namespace) -> int:
+    """03/11/2026 — where the market regime is missing: daily rows, proposals' snapshots, comparable history,
+    latest backtest. Read-only, counts and dates only."""
+    from app.db.session import db_session
+    from app.services.regime_check import regime_check
+
+    with db_session() as s:
+        for line in regime_check(s, date.today(), args.days):
+            print(line)
+    return 0
+
+
 def cmd_macro_backfill(args: argparse.Namespace) -> int:
     """docs/39 — the history of macro series from ``--from`` (same sources, same checks as the daily snapshot): the
     core's proxy ``msci_world`` must cover the first orders of the active part for ``core-compare``."""
@@ -2662,6 +2674,9 @@ def main(argv: list[str] | None = None) -> int:
     dl.add_argument("--history", action="store_true", help="charger aussi l'historique des radiées retenues")
     dl.add_argument("--missing-only", dest="missing_only", action="store_true")
     dl.set_defaults(fn=cmd_delisted_load)
+    rgc = sub.add_parser("regime-check", help="où le régime de marché manque (job, instantanés, historique, backtest)")
+    rgc.add_argument("--days", type=int, default=60, help="propositions des N derniers jours (défaut 60)")
+    rgc.set_defaults(fn=cmd_regime_check)
     mb = sub.add_parser("macro-backfill", help="historique d'une série macro (ex. msci_world, cœur de core-compare)")
     mb.add_argument("--from", dest="from_date", required=True, help="AAAA-MM-JJ")
     mb.add_argument("--indicator", action="append", default=None, help="série de data.macro.series (défaut msci_world)")
