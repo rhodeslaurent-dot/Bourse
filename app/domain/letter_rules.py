@@ -23,7 +23,12 @@ from __future__ import annotations
 
 import re
 
-CUE_WINDOW = 60  # characters between the end of a cue and its first number
+CUE_WINDOW = 60  # characters between the end of a cue and its first number (a target: « On visera … à 105,20 »)
+# a support, a resistance or a buy price is written next to its word (« support de 98,32 »): a number further away
+# describes the past (« support oblique tracé depuis le plus bas de mars à 65,58 », 03/11/2026)
+WINDOWS = {"objectif": CUE_WINDOW, "stop": 40, "declencheur": 40, "support": 25, "resistance": 25, "achat": 25}
+_UNDER = re.compile(r"(?:sous|en[- ]dessous\s+d[eu]s?)\s*(?:les?\s+|des?\s+|la\s+barre\s+des?\s+)?$", re.I)
+_INVALID_AFTER = re.compile(r"invalid|stop", re.I)
 CHAIN_GAP = 40  # characters between two numbers of one list of targets
 TARGET_KEYS = ("objectif", "objectif_2", "objectif_3")
 
@@ -85,7 +90,15 @@ def read_sentence(sentence: str) -> list[tuple[str, float]]:
             continue
         before = [c for c in cues if c[1] <= m.start()]
         cue = before[-1] if before else None
-        if cue is not None and m.start() - cue[1] <= CUE_WINDOW and (last is None or cue[1] > last[1]):
+        if _UNDER.search(s[max(0, m.start() - 20) : m.start()]) and _INVALID_AFTER.search(s[m.end() : m.end() + 45]):
+            out.append(("stop", val))  # « une clôture sous 1,76 € invaliderait le scénario »: the cue comes after
+            last = ("stop", m.end())
+            continue
+        if (
+            cue is not None
+            and m.start() - cue[1] <= WINDOWS.get(cue[2], CUE_WINDOW)
+            and (last is None or cue[1] > last[1])
+        ):
             kind = cue[2]
             prev = before[-2] if len(before) > 1 else None
             if kind in ("resistance", "support") and prev and prev[2] == "declencheur" and cue[0] - prev[1] <= 20:
@@ -137,4 +150,4 @@ def merge_levels(base: dict[str, float], extra: dict[str, float]) -> dict[str, f
     return out
 
 
-__all__ = ["CHAIN_GAP", "CUE_WINDOW", "merge_levels", "read_levels", "read_sentence", "sentences"]
+__all__ = ["CHAIN_GAP", "CUE_WINDOW", "WINDOWS", "merge_levels", "read_levels", "read_sentence", "sentences"]

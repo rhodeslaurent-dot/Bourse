@@ -86,7 +86,7 @@ def within_band(
         return dict(levels), []
     lo, hi = band
     kept = {k: v for k, v in levels.items() if lo * ref <= v <= hi * ref}
-    dropped = [f"{k} {v:g}" for k, v in levels.items() if k not in kept]
+    dropped = [f"{k} {v:.10g}" for k, v in levels.items() if k not in kept]  # never « 1.53105e+06 »
     targets = [kept.pop(k) for k in ("objectif", "objectif_2", "objectif_3") if k in kept]
     for key, val in zip(("objectif", "objectif_2", "objectif_3"), targets, strict=False):
         kept[key] = val

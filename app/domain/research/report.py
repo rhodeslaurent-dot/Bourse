@@ -450,17 +450,40 @@ def _compact(x: Any, width: int) -> str:
     return text if len(text) <= width else text[: width - 1] + "…"
 
 
+def _num(x: Any) -> str:
+    return f"{x:+.4f}" if isinstance(x, int | float) else "—"
+
+
 def explain(report: Mapping[str, Any], top: int = 8, width: int = 360) -> str:
     """``research explain``: for the ``top`` cells by weekly t, the criteria A1–A13 not met and the statistics
     behind them (controls, robustness, costs, survival, concentration), compact — what the .txt leaves out.
     Aggregates only, like the report itself."""
     rows = [r for fam in (report.get("C_etape0_par_famille") or {}).values() for r in fam if "supprime" not in r]
-    rows.sort(key=lambda r: -(r.get("t_week") if isinstance(r.get("t_week"), int | float) else -99.0))
-    lines = [f"{report.get('A_resume', {}).get('titre', '')} — {min(top, len(rows))} cellule(s) les plus fortes", ""]
+    title = str(report.get("A_resume", {}).get("titre", ""))
+    # a descriptive plan is read at the sign of its effect (registration n° 8: a negative drift): its strongest
+    # cells are the largest |t|, never only the highest t (03/11/2026: C3 and X2 were left out of the 8 shown)
+    descriptive = title.startswith("DESCRIPTIF")
+
+    def strength(r: Mapping[str, Any]) -> float:
+        t = r.get("t_week")
+        if not isinstance(t, int | float):
+            return -99.0
+        return abs(float(t)) if descriptive else float(t)
+
+    rows.sort(key=lambda r: -strength(r))
+    order = "|t| le plus grand" if descriptive else "t le plus haut"
+    lines = [f"{title} — {min(top, len(rows))} cellule(s) les plus fortes ({order})", ""]
     head = report.get("entete") or {}
     for k in ("effet_minimal_detectable", "puissance_effet_plante", "romano_wolf", "avertissements"):
         if head.get(k):
             lines.append(f"{k} : {_compact(head[k], width * 2)}")
+    lines.append(
+        "toutes les cellules (excès sur les contrôles appariés, t hebdomadaire) : "
+        + " · ".join(
+            f"{r.get('id')} n {r.get('n')} excès {_num(r.get('mean_excess_ctrl'))} t {_num(r.get('t_week'))}"
+            for r in rows
+        )
+    )  # fmt: skip — nothing silently left out
     for r in rows[:top]:
         cid = str(r.get("id"))
         crit = ((report.get("I_classement") or {}).get(cid) or {}).get("criteres") or {}

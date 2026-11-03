@@ -37,6 +37,10 @@ from app.domain.letter_rules import merge_levels, read_levels
         ("Plus haut historique à 105,20 le 16 octobre, MM50 à 98,10, le titre (FR0000000001) a perdu 32 % depuis le "
          "1er janvier ; 4 079 titres.", {}),
         ("Objectif atteint en 3 séances, potentiel de 15 %.", {}),
+        # 03/11/2026: the invalidation written after the number; a support far from its word is the past, not a level
+        ("Une clôture sous 3,21 € invaliderait ce scénario.", {"stop": 3.21}),
+        ("Objectif 3,75, une clôture en dessous de 3,21 € invaliderait le scénario.", {"objectif": 3.75, "stop": 3.21}),
+        ("La hausse s'appuie sur le support oblique tracé depuis le plus bas de mars à 41,58 €.", {}),
     ],
 )  # fmt: skip
 def test_levels_written_in_plain_words(text, levels):
