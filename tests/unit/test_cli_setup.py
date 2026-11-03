@@ -356,3 +356,27 @@ def test_the_routine_lines_of_the_15_second_job_are_filtered():
     assert f.filter(rec("apscheduler.executors.default", logging.INFO, 'Running job "position_monitor (trigger: …)"'))
     assert f.filter(rec("apscheduler.executors.default", logging.ERROR, 'Job "intraday_reeval (trigger)" raised'))
     assert f.filter(rec("bourse.jobs", logging.INFO, "intraday_reeval : 2 changements"))
+
+
+def test_every_new_group_of_the_example_is_added_by_params_update(tmp_path):
+    """03/11/2026: the ``allocation`` group (docs/39) was missing from NEW_TOP_BLOCKS, so ``params-init --update``
+    never added it and ``core-compare`` said « groupe allocation absent ». Every top-level group of the example is
+    either an original group or listed for the update; an old params.yaml gets ``allocation``."""
+    from pathlib import Path
+
+    import yaml
+
+    from app.cli import FIRST_TOP_GROUPS, NEW_TOP_BLOCKS, init_params
+
+    example = Path("config/params.example.yaml")
+    top = set(yaml.safe_load(example.read_text(encoding="utf-8")))
+    listed = {b.split(".")[0] for b in NEW_TOP_BLOCKS}
+    assert top - FIRST_TOP_GROUPS - listed == set(), "nouveau groupe à ajouter à NEW_TOP_BLOCKS"
+    old = tmp_path / "params.yaml"
+    text = example.read_text(encoding="utf-8")
+    start = text.index("\nallocation:")
+    end = text.index("\npockets:")
+    old.write_text(text[:start] + text[end:], encoding="utf-8")
+    assert "allocation:" not in old.read_text(encoding="utf-8")
+    init_params(str(example), str(old), "1", "x@example.org", update=True)
+    assert yaml.safe_load(old.read_text(encoding="utf-8"))["allocation"]["core_cost_pct"] == 0.005

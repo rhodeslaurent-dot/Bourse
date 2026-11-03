@@ -439,7 +439,15 @@ NEW_TOP_BLOCKS = [
     "pea",  # docs/26
     "committee",  # docs/24 v2
     "verdict",  # docs/37 lot L0 — échelle de verdict, livrée désactivée (enabled: false)
+    "allocation",  # docs/39 lots M1-M2 (02/11/2026) — cœur et partie active ; oublié le 02/11, ajouté le 03/11
 ]
+# top-level groups present since the first params.yaml (never appended by params-init --update): every other group
+# of the example must be in NEW_TOP_BLOCKS (tests/unit/test_cli_setup.py), so that a new group is never forgotten
+FIRST_TOP_GROUPS = frozenset(
+    """version timezones user capital risk universe regime detectors scoring accounts srd tax
+    brokers data live_quotes notifications availability config_validation review llm backtest
+    jobs subscriptions""".split()
+)
 
 
 def mapping_paths(example: str) -> list[str]:
