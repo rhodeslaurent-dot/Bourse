@@ -214,6 +214,12 @@ def build(
             "analyse de chaque recommandation désactivée (letters.analyse_every_recommendation)",
         )
     notes: list[str] = []
+    sup, inval = lv.get("support"), lv.get("stop")
+    if sup is not None and inval is not None and sup <= inval:
+        # 03/11/2026 (Publicis): a support written under the letter's own invalidation is a past level, never a
+        # pullback entry — the position would be stopped before reaching it
+        notes.append(f"support publié ({sup:.4g}) sous l'invalidation de la lettre ({inval:.4g}) : pas une entrée")
+        lv = {k: v for k, v in lv.items() if k != "support"}
     buf, above = params.trigger_buffer_pct, params.entry_max_pct_above_trigger
     trigger: float | None = None
     borrowed: Setup | None = None

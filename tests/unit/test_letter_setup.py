@@ -109,6 +109,18 @@ def test_without_an_entry_level_the_entry_is_the_price(bars, ctx):
     assert res.setup.targets[:2] == [round(c * 1.15, 2), round(c * 1.25, 2)]
 
 
+def test_a_support_under_the_letters_invalidation_is_not_an_entry(bars, ctx):
+    """Publicis, 02/11/2026: « support 65,58 », target 105,20, invalidation 93,14, price ≈ 100 — a pullback to 65,58
+    would be stopped first: the entry is the price, the support is said and left aside."""
+    c = bars[-1].close
+    res = _build(bars, ctx, {"support": round(c * 0.65, 2), "objectif": round(c * 1.05, 2),
+                             "stop": round(c * 0.93, 2)})  # fmt: skip
+    assert res.mode == "marche" and res.setup.entry_level == c
+    assert any("sous l'invalidation de la lettre" in n for n in res.notes)
+    kept = _build(bars, ctx, {"support": round(c * 0.97, 2), "objectif": round(c * 1.1, 2), "stop": round(c * 0.93, 2)})
+    assert kept.mode == "support" and kept.setup.entry_level == round(c * 0.97, 2)  # above the invalidation: kept
+
+
 def test_without_any_level_the_tool_builds_or_borrows_the_setup(bars, ctx):
     res = _build(bars, ctx, {})
     assert res.mode == "outil" and res.setup.entry_level == bars[-1].close and res.detector is None
