@@ -748,3 +748,19 @@ Seuils A1–A13 et inférence repris du n° 5 ; cours suspects (× 4 ou ÷ 4) é
    - L'en-tête imprime la couverture de l'archive par mois.
 
 Aucun résultat ne change un paramètre ni un détecteur sans ADR.
+
+**Résultat** (PC, rapport `20261102_193218`, calibration VALIDE, concordance 0,9983) — **effet de profil, piste close** :
+
+| Cellule | n | Excès sur les contrôles appariés (R) | t hebdomadaire | Plis négatifs |
+|---|---|---|---|---|
+| X1 placebo h 5 / 10 / 20 | 2 873 / 2 745 / 2 527 | +0,015 / +0,009 / −0,005 | +2,2 / +1,4 / −1,0 | — |
+| C1 (5 séances) | 7 345 | −0,002 | +0,74 | 3 sur 5 |
+| C2 (10 séances) | 7 342 | −0,009 | −0,89 | 4 sur 5 |
+| C3 (20 séances) | 5 175 | −0,008 | −1,51 | 4 sur 5 |
+| X2 (C2 décalé de 20 séances) | 7 358 | −0,015 | −1,86 | — |
+| X3 résultats / X4 chiffre d'affaires / X5 opérations / X6 seuils | 2 029 / 1 542 / 2 039 / 2 242 | −0,008 / −0,003 / +0,021 / −0,002 | −0,61 / +0,90 / +1,67 / −0,17 | — |
+
+- **Règle appliquée** : aucune de C1, C2, C3 n'atteint t ≤ −3 ; le placebo est sain (|t| < 3). La dérive de −0,25 % à −0,65 % vue sur l'indice de place (docs/36 §36.9) **ne survit pas** aux contrôles appariés.
+- **Le décalage le confirme** : vingt séances plus tard, les mêmes valeurs font aussi mal (X2 −0,015 R) que juste après le communiqué (C2 −0,009 R). C'est le profil des sociétés qui publient, pas le communiqué.
+- **En absolu, tout perd après frais** : C1 +0,021 R brut, 0,154 R de frais, −0,132 R net (PEA −0,252 R) ; aucune famille de communiqués n'est un signal d'achat.
+- **Conséquence** : rien ne change dans l'outil. Le rapport `research explain` trie désormais un plan descriptif par |t| et liste toutes les cellules (C3 et X2 n'apparaissaient pas dans les 8 premières, 03/11/2026).
