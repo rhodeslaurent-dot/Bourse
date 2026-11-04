@@ -420,3 +420,18 @@ def test_without_a_measure_or_with_the_rule_off_nothing_changes(db_engine, confi
         _seed(s, breakout_bars())
         engine.scan(s, config, DAY, now=NOW)  # no backtest stored: nothing measured, no observation
         assert not any((p.details or {}).get("observation") for p in s.query(Proposal).all())
+
+
+def test_a_close_several_sessions_old_is_to_verify_never_an_order(db_engine, config):
+    """04/11/2026 (analysis of the cards: « Humana, cours du 27/10 » on a card of 03/11) — a stored close more than
+    ``data.eod_max_missing_sessions`` sessions of its own venue old is not the day's price: « à vérifier », the
+    card says the close's day, and no order card is ever sent (rule 2)."""
+    later = DAY + timedelta(days=7)  # 22, 23, 26, 27, 28/10: five Paris sessions without a stored close
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        engine.scan(s, config, later, now=NOW + timedelta(days=7))
+        props = s.query(Proposal).filter(Proposal.isin == ISIN).all()
+        assert props and all(p.to_verify for p in props)
+        assert all("du 21/10/2026 (5 séances de la place sans clôture stockée)" in p.details["source_cours"]
+                   for p in props)  # fmt: skip
+        assert engine._close_late_sessions("XPAR", DAY, DAY + timedelta(days=1)) == 1  # the evening scan: tolerated

@@ -100,6 +100,11 @@ def home(request: Request) -> HTMLResponse:
     decisions = []
     if circuit is not None and circuit.tripped:
         decisions.append({"level": "P2", "text": f"Pas de nouvelle entrée — {circuit.reason}", "href": "/performance"})
+    elif circuit is not None and circuit.unavailable and circuit.blocks_when_unavailable:
+        why = next((n for n in circuit.notes if n.startswith("mesure indisponible")), "mesure indisponible")
+        decisions.append(
+            {"level": "P2", "text": f"Pas de nouvelle entrée — coupe-circuit : {why}", "href": "/performance"}
+        )
     for p in view["unprotected"]:
         decisions.append(
             {

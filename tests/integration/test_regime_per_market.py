@@ -190,3 +190,29 @@ def test_index_history_is_read_again_from_a_given_day_with_yahoo_for_a_late_star
         assert first_eod_day(s, "IDX.FTSEMIB") == since
         srcs = {r.day: r.source for r in s.query(PriceEod).filter(PriceEod.isin == "IDX.FTSEMIB")}
         assert srcs[since] == "yfinance" and srcs[date(2010, 1, 4)] == "eodhd"  # the provider stays visible
+
+
+def test_the_snapshot_keeps_the_regime_of_the_instruments_own_venue(db_engine):
+    """04/11/2026 (analysis of the cards: « régime inconnu ») — the snapshot stored the European regime for every
+    value; it now keeps the row of the value's own venue (the one that gated it), else the European one, and says
+    which market it is."""
+    from app.db.models import DecisionSnapshot
+    from app.services.decisions import create_proposal, record_signal
+
+    day = date(2026, 11, 3)
+    at = datetime(2026, 11, 3, 15, 0, tzinfo=UTC)
+    with db_session() as s:
+        s.add_all([Instrument(isin="SE0000000SE1", name="Suédoise fictive", mic="XSTO", currency="SEK"),
+                   Instrument(isin="DK0000000DK1", name="Danoise fictive", mic="XCSE", currency="DKK")])  # fmt: skip
+        for market, regime in (("EU", "orange"), ("XSTO", "red")):
+            s.add(MarketRegimeRow(day=day, market=market, ts=at, regime=regime))
+        s.flush()
+        got = {}
+        for isin in ("SE0000000SE1", "DK0000000DK1"):
+            sig = record_signal(s, isin, "d7", "zonebourse", at, "1d", "eod", "t")
+            p = create_proposal(s, sig, "WATCH", None, {"blocked": []}, "t", created_at=at)
+            got[isin] = s.query(DecisionSnapshot).filter(DecisionSnapshot.proposal_id == p.id).one().regime
+            back = create_proposal(s, sig, "WATCH", None, {"blocked": []}, "t", created_at=at, as_of=day)
+            assert s.query(DecisionSnapshot).filter(DecisionSnapshot.proposal_id == back.id).one().regime == got[isin]
+    assert got["SE0000000SE1"]["regime"] == "red" and got["SE0000000SE1"]["marche"] == "XSTO"
+    assert got["DK0000000DK1"]["regime"] == "orange" and got["DK0000000DK1"]["marche"] == "EU"  # said, not hidden

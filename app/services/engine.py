@@ -427,6 +427,10 @@ def evaluate(
         ev.details["coupe_circuit"] = circuit.as_dict()  # limits waiting for a pullback included
         if circuit.tripped:
             ev.blocked.append(f"BLOQUÉ : {circuit.reason}")
+        elif getattr(circuit, "unavailable", False) and getattr(circuit, "blocks_when_unavailable", True):
+            # decision of 04/11/2026 (rule 2): a guard that is not measured never lets an entry through
+            why = next((n for n in circuit.notes if n.startswith("mesure indisponible")), "mesure indisponible")
+            ev.blocked.append(f"BLOQUÉ : coupe-circuit — {why} ; aucune entrée sans ce contrôle")
     else:
         ev.details["coupe_circuit"] = {"indisponible": True}
         ev.blocked.append("WATCH : coupe-circuit indisponible (mesure en échec) — aucune entrée sans ce contrôle")
@@ -1915,6 +1919,9 @@ def _scan(
 
     book = _book(s)
     book.as_of = now
+    from app.services.portfolio import cash_freshness
+
+    cash_state = cash_freshness(s, config, now)  # 04/11/2026: old cash said on the card (a flag, not a block)
     from app.services.circuit import circuit_state
 
     try:
@@ -2070,6 +2077,10 @@ def _scan(
             price_source = q.source if live else "clôture officielle stockée"
             if in_session:
                 price_source += " (séance en cours : cours du moment non relevé)"
+            late = None if live or last_day is None else _close_late_sessions(inst.mic, last_day, day)
+            if late is not None and late > _eod_max_missing(config):  # 04/11/2026: a close of several sessions
+                status = "stale"  # ago is not the day's price — « à vérifier », no order (rule 2)
+                price_source += f" du {last_day:%d/%m/%Y} ({late} séances de la place sans clôture stockée)"
             price_ts = q.market_timestamp if live else last_day
             cm = ctx_for(inst.mic)
             for setup, source in st_["found"]:
@@ -2110,6 +2121,7 @@ def _scan(
                 if vp is not None:  # docs/37 L0: the graduated verdict (never built when the scale is off)
                     ev = _graded(s, config, vp, ev, ev_of, finish, track, edges)
                 ev = _observation(s, config, ev, track, edges)  # last: no order on a measured negative edge
+                _cash_note(ev, cash_state)
                 if last_day is not None:  # the validity of its order counts from this session (decision of 01/11)
                     ev.details.setdefault("seance_signal", last_day.isoformat())
                 evals.append(ev)
@@ -2207,6 +2219,16 @@ def _speculative_for(
 
 
 OBSERVATION = "WATCH : observation"
+
+
+def _cash_note(ev: Evaluation, cash_state: dict[str, dict[str, Any]]) -> None:
+    """The cash of the recommended account as read (04/11/2026), stored on the card; the card says when it is old
+    or unknown — to check at the broker before typing the order; the size itself is on the pilot capital (rule 7)."""
+    acc = ev.account
+    st = cash_state.get(acc or "")
+    if not acc or st is None or ev.action == "NO_TRADE":
+        return
+    ev.details["liquidites"] = {**st, "compte": acc}
 
 
 def observation_threshold(config: LoadedConfig) -> float | None:
@@ -2349,6 +2371,27 @@ def _in_session(mic: str | None, now: datetime) -> bool:
         return bool(cals.get(mic).is_open_at(now))
     except (KeyError, ValueError):
         return False
+
+
+def _eod_max_missing(config: LoadedConfig) -> int:
+    """``data.eod_max_missing_sessions`` (default 1: the evening scan may run before the day's close is loaded)."""
+    v = getattr(getattr(config.params, "data", None), "eod_max_missing_sessions", 1)
+    return int(v) if v is not None else 10**6
+
+
+def _close_late_sessions(mic: str | None, last_day: date, day: date) -> int:
+    """Sessions of the value's own venue after its last stored close, up to ``day``; without a calendar for the
+    venue or the year, the weekdays (a holiday counts: more « à vérifier », never fewer)."""
+    if last_day >= day:
+        return 0
+    cals = _calendars()
+    start = last_day + timedelta(days=1)
+    if mic and cals is not None and mic in getattr(cals, "venues", {}):
+        try:
+            return len(cals.get(mic).sessions_between(start, day))
+        except (KeyError, ValueError):
+            pass
+    return sum(1 for k in range((day - start).days + 1) if (start + timedelta(days=k)).weekday() < 5)
 
 
 @lru_cache(maxsize=1)

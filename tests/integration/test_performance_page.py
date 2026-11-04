@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -86,3 +86,26 @@ def test_performance_page_renders(client):
         snapshot_equity(s, client.app.state.config, date(2026, 10, 20))
     html = client.get("/performance").text
     assert "<polyline" in html and "La courbe apparaîtra" not in html
+
+
+def test_one_saxo_balance_on_two_accounts_is_counted_once_and_an_old_cash_is_said(db_engine, config):
+    """04/11/2026 (analysis of the cards: « accounts 2 and 3 both at 19 503 € », « cash 11 days old ») — the Saxo
+    sync writes one balance on cto_cash and cto_srd: the consolidated equity counts it once; an old cash is said."""
+    from app.services.portfolio import cash_freshness, update_portfolio_state
+
+    _seed()
+    with db_session() as s:
+        accs = {a.type: a for a in s.scalars(select(Account))}
+        for t in ("cto_cash", "cto_srd"):
+            update_portfolio_state(s, accs[t].id, 2000.0, [], [], "saxo_api", declarative=False)
+        at = accs["cto_cash"].cash_updated_at
+        accs["cto_srd"].cash_updated_at = at
+        s.flush()
+        rows = snapshot_equity(s, config, date(2026, 10, 20))
+        cons = next(r for r in rows if r.account_id is None)
+        assert cons.cash == pytest.approx(1000.0 + 2000.0)  # PEA + one Saxo balance, never 5 000
+        fresh = cash_freshness(s, config, at)
+        assert fresh["cto_srd"]["meme_solde_que"] == "cto_cash" and fresh["cto_cash"]["meme_solde_que"] is None
+        assert fresh["cto_cash"]["recent"] is True
+        old = cash_freshness(s, config, at + timedelta(days=11))
+        assert old["cto_cash"]["recent"] is False and old["cto_cash"]["age_jours"] == pytest.approx(11.0)

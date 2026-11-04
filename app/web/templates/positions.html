@@ -9,7 +9,7 @@
       <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Deux états par position : exécution et protection, suivis par quantité. Une position n'existe qu'après une exécution déclarée ou importée ; un état « déclaratif » attend la confirmation du courtier.</p>
     </div>
     <div class="flex flex-wrap gap-2 text-xs">
-      {% for k, v in cash.items() %}<span class="rounded-full border border-slate-200 dark:border-slate-700 px-2.5 py-1">{{ label('account', k) }} · liquidités <b class="tabular">{{ v.cash|eur if v.cash is not none else 'non renseignées' }}</b>{% if v.source %} <span class="text-slate-400">({{ {'saxo_api': 'Saxo', 'manual': 'saisie', 'csv': 'import CSV'}.get(v.source, v.source) }})</span>{% endif %}</span>{% endfor %}
+      {% for k, v in cash.items() %}<span class="rounded-full border border-slate-200 dark:border-slate-700 px-2.5 py-1">{{ label('account', k) }} · liquidités <b class="tabular">{{ v.cash|eur if v.cash is not none else 'non renseignées' }}</b>{% if v.source %} <span class="text-slate-400">({{ {'saxo_api': 'Saxo', 'manual': 'saisie', 'csv': 'import CSV'}.get(v.source, v.source) }})</span>{% endif %}{% if v.meme_solde_que %} <span class="text-slate-500" data-cash-shared>— même solde que {{ label('account', v.meme_solde_que) }}, compté une fois</span>{% endif %}{% if v.cash is not none and v.recent is false %} <span class="text-amber-700 dark:text-amber-300" data-cash-old>relevées il y a {{ '%g'|format(v.age_jours) }} j : à vérifier</span>{% endif %}</span>{% endfor %}
     </div>
   </div>
   {% if request.query_params.get('error') %}<p class="mt-3 rounded-lg bg-rose-50 dark:bg-rose-500/10 p-2 text-sm text-rose-800 dark:text-rose-200">⛔ {{ request.query_params.get('error') }}</p>{% endif %}

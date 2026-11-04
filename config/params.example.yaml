@@ -66,7 +66,8 @@ risk:
     peak_reduce_r: 10                 # recul depuis le plus haut des 21 séances (réalisé + latent) → niveau × 0,75
     peak_block_r: 12                  # → aucune nouvelle entrée
     peak_reduce_multiplier: 0.75
-    missing_baseline_multiplier: 0.75 # sans instantané d'équité récent : niveau × 0,75
+    missing_baseline_blocks: true     # décision du 04/11/2026 : sans instantané d'équité récent et complet, la mesure manque → BLOQUÉ, aucune entrée
+    missing_baseline_multiplier: 0.75 # seulement si missing_baseline_blocks = false : niveau × 0,75 jusqu'au prochain instantané
   risk_dial:                          # docs/28 — niveau de risque du jour, conseillé chaque matin, appliqué par défaut, modifiable sur /risque
     effective_from: "2026-10-25"
     min_level: 0.5                    # jamais en dessous : la dilution sur plusieurs lignes reste la protection
@@ -486,6 +487,7 @@ scoring:
 
 accounts:
   portfolio_state_max_age_minutes: 10  # âge max de l'état (cash, quantités, ordres) pour émettre une proposition
+  cash_flag_max_age_hours: 24          # 04/11/2026 : liquidités d'un compte synchronisé par API (Saxo) relevées il y a plus de 24 h → signalées sur la carte (un PEA déclaratif : pea.state_max_age_hours)
   pea:
     broker: "boursobank"
     order_types_stop: ["a_seuil_de_declenchement", "a_plage_de_declenchement"]   # à confirmer
@@ -645,6 +647,7 @@ data:
   plausibility_max_gap_pct: 0.05           # écart entre sources ou vs dernière clôture sans nouvelle → « à vérifier »
   paid_max_cost_pct_of_net_gains: 0.10     # [info] docs/22 §22.7 : abonnement proposé seulement si coût ≤ 10 % des gains nets annualisés
   stale_after_minutes: {realtime: 3, delayed: 20}
+  eod_max_missing_sessions: 1              # 04/11/2026 : clôture stockée en retard de plus d'1 séance de SA place (calendrier de la place) → « à vérifier », aucun ordre (règle 2)
   eodhd: {plan: "eod_intraday", daily_quota: 100000, ws_symbols_per_connection: 50}   # [phase 3 : ws_symbols_per_connection]
   declared_delay_minutes:                  # délai DÉCLARÉ par source (le statut en découle, jamais de l'heure de téléchargement) ; à confirmer par A0.7
     eodhd_ws: 0

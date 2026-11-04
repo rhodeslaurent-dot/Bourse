@@ -90,3 +90,28 @@ def test_line_reductions_are_floored_and_never_turn_a_buy_into_watch(db_engine, 
             rt = (p.details or {}).get("reductions_taille") or {}
             if rt:
                 assert rt["total"] >= 0.5 * 0.999  # level floor (× 0.5) — dilution, not immobility
+
+
+def test_a_missing_measure_blocks_every_new_entry(db_engine, config, monkeypatch):
+    """Decision of 04/11/2026 (analysis of the cards: « coupe-circuit indisponible ») — without a complete equity
+    snapshot before the week or the month, the guard is not measured: BLOQUÉ (an absolute rule of the graduated
+    verdict), never a reduced size; ``missing_baseline_blocks: false`` restores the reduction."""
+    import copy
+
+    with db_session() as s:
+        s.add(Trade(account_id=1, isin=ISIN, side="buy", qty=1, price=10, ts=datetime(2026, 9, 1, tzinfo=UTC),
+                    kind="confirmed", source="saxo"))  # fmt: skip
+        s.flush()
+        v = circuit_state(s, config, NOW_WED, current=(0.0, 0.0))
+        assert v.unavailable and v.blocks_when_unavailable and v.size_multiplier == 1.0
+        monkeypatch.setattr(circuit_mod, "circuit_state", lambda *a, **k: v)
+        _seed(s, breakout_bars())
+        engine.scan(s, config, DAY, now=NOW)
+        sized = [p for p in s.query(Proposal).filter(Proposal.isin == ISIN) if (p.details or {}).get("coupe_circuit")]
+        why = "BLOQUÉ : coupe-circuit — mesure indisponible"
+        assert sized and all(any(b.startswith(why) for b in (p.gates or {}).get("blocked", [])) for p in sized)
+        assert all(p.action != "BUY" for p in sized)
+        c = copy.deepcopy(config)
+        c.params.risk.circuit_breaker.model_extra["missing_baseline_blocks"] = False
+        old = circuit_state(s, c, NOW_WED, current=(0.0, 0.0))
+        assert old.unavailable and old.size_multiplier == 0.75 and "indisponible" in old.reason

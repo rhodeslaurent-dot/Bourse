@@ -26,6 +26,8 @@ class CircuitView:
     month_r: float | None = None
     r_unit_eur: float = 0.0
     notes: list[str] = field(default_factory=list)
+    unavailable: bool = False  # no complete equity snapshot before the week or the month: the measure is missing
+    blocks_when_unavailable: bool = True  # decision of 04/11/2026: a missing measure blocks every new entry
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -36,6 +38,7 @@ class CircuitView:
             "mois_r": None if self.month_r is None else round(self.month_r, 2),
             "r_nominal_eur": round(self.r_unit_eur, 2),
             "notes": self.notes,
+            "indisponible": self.unavailable,
         }
 
 
@@ -116,7 +119,12 @@ def circuit_state(
     if sm is not None:
         view.month_r = period_pnl_r(current[0], current[1], sm[0], sm[1], r_unit)
     if sw is None or sm is None:
-        view.notes.append("mesure indisponible : pas d'instantané d'équité avant la période (job kpi_snapshot)")
+        view.unavailable = True
+        view.notes.append(
+            "mesure indisponible : pas d'instantané d'équité complet avant la "
+            + ("semaine et le mois" if sw is None and sm is None else "semaine" if sw is None else "mois")
+            + " (job kpi_snapshot ; un latent partiel le rend incomplet)"
+        )
     prev_week = _loss(s, week0 - timedelta(days=7), week0, r_unit)
     prev_tripped = prev_week is not None and prev_week <= -params.weekly_loss_r
     if today.day <= 7:  # first week of a month after a monthly trip is also a resume week
@@ -147,7 +155,8 @@ def circuit_state(
         view.tripped, view.reason, view.size_multiplier = True, why, 0.0
     elif not view.tripped and mult < view.size_multiplier:
         view.size_multiplier, view.reason = mult, why
-    if not view.tripped and (sw is None or sm is None):  # a guard never fails open: half size until measured
+    view.blocks_when_unavailable = bool(extra.get("missing_baseline_blocks", True))
+    if not view.tripped and view.unavailable and not view.blocks_when_unavailable:  # never fails open: reduced
         miss = float(extra.get("missing_baseline_multiplier", 0.75))
         if miss < view.size_multiplier:
             view.size_multiplier = miss

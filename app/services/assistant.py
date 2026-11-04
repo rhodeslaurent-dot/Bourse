@@ -487,15 +487,20 @@ def page_facts(s: Session, page: str | None, config: Any | None, now: datetime) 
             )
         out["propositions_du_jour"] = rows[:40]
     elif page == "/positions":
-        out["liquidites"] = [
-            {
-                "compte_id": st.account_id,
-                "cash": _d(st.cash),
-                "declaratif": st.declarative,
-                "synchronise": _d(st.synced_at),
-            }
-            for st in s.scalars(select(PortfolioState))
-        ]
+        if config is not None:  # 04/11/2026: one Saxo balance on two accounts is said, never summed twice
+            from app.services.portfolio import cash_freshness
+
+            out["liquidites"] = [{"compte": k, **v} for k, v in cash_freshness(s, config, now).items()]
+        else:
+            out["liquidites"] = [
+                {
+                    "compte_id": st.account_id,
+                    "cash": _d(st.cash),
+                    "declaratif": st.declarative,
+                    "synchronise": _d(st.synced_at),
+                }
+                for st in s.scalars(select(PortfolioState))
+            ]
         out["ordres_en_attente"] = [
             {"isin": o.isin, "sens": o.side, "quantite": o.qty, "etat": label("order_state", o.state)}
             for o in s.scalars(select(Order).where(Order.state.in_(["entered", "partially_filled"])))

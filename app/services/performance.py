@@ -199,6 +199,7 @@ def snapshot_equity(s: Session, config: LoadedConfig, day: date, now: datetime |
     total_pos = 0.0
     total_lat = 0.0
     any_incomplete = bool(view.incomplete)
+    counted: set[tuple[Any, ...]] = set()  # one broker balance shared by two accounts (Saxo: cash and SRD)
     for acc in s.scalars(select(Account).order_by(Account.id)):
         lines = [ln for ln in view.open_lines if ln.account == acc.type]
         pos_value = sum(ln.qty * ln.last_price for ln in lines if ln.mode != "srd" and ln.last_price is not None)
@@ -209,11 +210,16 @@ def snapshot_equity(s: Session, config: LoadedConfig, day: date, now: datetime |
         realized = sum(t.pnl for t in view.closed if t.account == acc.type)
         rows.append(_upsert_kpi(s, day, acc.id, equity, acc.cash, pos_value, lat, realized, incomplete, now))
         any_incomplete = any_incomplete or incomplete
+        # 04/11/2026: the Saxo sync writes the same balance on cto_cash and cto_srd (one cash account at the
+        # broker) — the consolidated counts it once, never twice
+        key = (acc.broker, acc.cash, acc.cash_updated_at)
+        shared = acc.cash is not None and acc.cash_updated_at is not None and key in counted
+        counted.add(key)
         if equity is None:
             total_equity = total_equity  # unknown account cash: consolidated stays partial, flagged
         else:
-            total_equity = (total_equity or 0.0) + equity
-        total_cash += acc.cash or 0.0
+            total_equity = (total_equity or 0.0) + equity - (acc.cash if shared else 0.0)
+        total_cash += 0.0 if shared else acc.cash or 0.0
         total_pos += pos_value
         total_lat += lat
     rows.append(

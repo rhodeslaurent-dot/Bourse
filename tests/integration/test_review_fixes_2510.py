@@ -40,7 +40,8 @@ def test_a_stale_or_incomplete_baseline_is_unavailable(db_engine, config):
         _kpi(s, date(2026, 7, 1), 0, 2000)  # months old: never a week's baseline
         s.flush()
         v = circuit_state(s, config, WED, current=(0.0, 1000.0))
-        assert not v.tripped and v.week_r is None and v.size_multiplier == 0.75  # reduced until measured
+        assert not v.tripped and v.week_r is None and v.unavailable  # never estimated
+        assert v.blocks_when_unavailable and v.size_multiplier == 1.0  # 04/11/2026: blocked by the engine, not reduced
 
 
 def test_override_is_never_offered_against_the_circuit_breaker(db_engine, config, monkeypatch):

@@ -15,6 +15,7 @@ from app.db.models import (
     Decision,
     DecisionSnapshot,
     FeatureDaily,
+    Instrument,
     MarketRegimeRow,
     PortfolioState,
     Proposal,
@@ -26,6 +27,24 @@ from app.services.market_data import latest_features
 
 def _jsonable(obj: Any) -> Any:
     return json.loads(json.dumps(obj, default=str))
+
+
+def snapshot_regime(s: Session, isin: str, day: date, live: bool) -> MarketRegimeRow | None:
+    """The regime the decision saw (docs/32, 04/11/2026): the row of the instrument's own venue (``mic``) of
+    ``day`` or of the last 5 days; else the European one. ``live``: a stale European row is still the last one
+    seen (its day is stored with it); a reconstituted snapshot (``live`` False) never reads after ``day``."""
+    from app.services.macro import latest_regime
+
+    inst = s.get(Instrument, isin)
+    mic = inst.mic if inst is not None else None
+    if mic:
+        row = latest_regime(s, day, mic)
+        if row is not None:
+            return row
+    q = select(MarketRegimeRow).where(MarketRegimeRow.market == "EU")
+    if live:
+        return s.scalar(q.order_by(MarketRegimeRow.id.desc()))
+    return s.scalar(q.where(MarketRegimeRow.day <= day).order_by(MarketRegimeRow.day.desc()))
 
 
 def record_signal(
@@ -125,9 +144,9 @@ def create_proposal(
     s.flush()
     if as_of is None:
         feats = latest_features(s, [sig.isin]).get(sig.isin)
-        regime = s.scalar(
-            select(MarketRegimeRow).where(MarketRegimeRow.market == "EU").order_by(MarketRegimeRow.id.desc())
-        )
+        from app.domain.timeutil import PARIS, from_store
+
+        regime = snapshot_regime(s, sig.isin, from_store(p.created_at).astimezone(PARIS).date(), live=True)
         states = [
             {"account_id": st.account_id, "cash": st.cash, "synced_at": st.synced_at, "declarative": st.declarative}
             for st in s.scalars(select(PortfolioState))
@@ -138,11 +157,7 @@ def create_proposal(
             .where(FeatureDaily.isin == sig.isin, FeatureDaily.day <= as_of)
             .order_by(FeatureDaily.day.desc())
         )
-        regime = s.scalar(
-            select(MarketRegimeRow)
-            .where(MarketRegimeRow.market == "EU", MarketRegimeRow.day <= as_of)
-            .order_by(MarketRegimeRow.day.desc())
-        )
+        regime = snapshot_regime(s, sig.isin, as_of, live=False)
         states = []
     s.add(
         DecisionSnapshot(
@@ -176,7 +191,9 @@ def create_proposal(
                 }
             )
             or None,
-            regime=_jsonable({"day": regime.day, "regime": regime.regime, "details": regime.details})
+            regime=_jsonable(
+                {"day": regime.day, "regime": regime.regime, "details": regime.details, "marche": regime.market}
+            )
             if regime
             else None,
             portfolio_state=_jsonable(states),

@@ -8,6 +8,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,6 +29,7 @@ from app.domain.orders import (
     match_executions,
     order_state,
 )
+from app.domain.timeutil import from_store
 
 log = logging.getLogger("bourse.portfolio")
 
@@ -449,3 +451,37 @@ def unmatched_declarations_older_than(s: Session, hours: int, now: datetime | No
         select(Trade).where(Trade.kind == "declared", Trade.matched_trade_id.is_(None), Trade.deleted_at.is_(None))
     ).all()
     return [r for r in rows if (now - _utc(r.ts)).total_seconds() >= hours * 3600]
+
+
+def cash_freshness(s: Session, config: Any, now: datetime | None = None) -> dict[str, dict[str, Any]]:
+    """Per account type (04/11/2026, analysis of the cards: « cash 11 days old », « accounts 2 and 3 at the same
+    amount »): the cash, when it was read, whether it is recent — a broker API account within
+    ``accounts.cash_flag_max_age_hours`` (24 h by default), a declarative account (PEA, CSV import) within
+    ``accounts.pea.state_max_age_hours`` — and the account whose broker balance it shares (the Saxo sync writes one
+    cash balance on cto_cash and cto_srd). A flag, never a block: the size is computed on the pilot capital."""
+    now = now or datetime.now(UTC)
+    acc_p = config.params.accounts
+    api_h = float(getattr(acc_p, "cash_flag_max_age_hours", None) or 24)
+    decl_h = float(acc_p.pea.state_max_age_hours)
+    states = {st.account_id: st for st in s.scalars(select(PortfolioState))}
+    out: dict[str, dict[str, Any]] = {}
+    seen: dict[tuple[Any, ...], str] = {}
+    for a in s.scalars(select(Account).order_by(Account.id)):
+        st = states.get(a.id)
+        at = a.cash_updated_at or (st.synced_at if st else None)
+        at = from_store(at) if at is not None else None
+        declarative = st.declarative if st is not None else a.broker != "saxo"
+        limit_h = decl_h if declarative else api_h
+        age_h = (now - at).total_seconds() / 3600 if at is not None else None
+        key = (a.broker, a.cash, at)
+        shared = seen.get(key) if a.cash is not None and at is not None else None
+        seen.setdefault(key, a.type)
+        out[a.type] = {
+            "cash": a.cash,
+            "releve_le": at.isoformat() if at is not None else None,
+            "age_jours": round(age_h / 24, 1) if age_h is not None else None,
+            "recent": a.cash is not None and age_h is not None and age_h <= limit_h,
+            "limite_heures": limit_h,
+            "meme_solde_que": shared,
+        }
+    return out

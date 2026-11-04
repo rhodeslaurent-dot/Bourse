@@ -177,11 +177,17 @@ def get_positions(request: Request) -> dict[str, object]:
             }
             for o in s.scalars(select(Order).where(Order.state.in_(("entered", "partially_filled"))))
         ]
+        from app.services.portfolio import cash_freshness
+
+        fresh = cash_freshness(s, request.app.state.config, now)
         cash = {
             accounts[a].type: {
                 "cash": accounts[a].cash,
                 "updated_at": accounts[a].cash_updated_at.isoformat() if accounts[a].cash_updated_at else None,
                 "source": accounts[a].cash_source,
+                "recent": fresh.get(accounts[a].type, {}).get("recent"),
+                "age_jours": fresh.get(accounts[a].type, {}).get("age_jours"),
+                "meme_solde_que": fresh.get(accounts[a].type, {}).get("meme_solde_que"),
             }
             for a in accounts
         }
