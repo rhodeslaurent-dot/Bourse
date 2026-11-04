@@ -109,6 +109,7 @@ def test_engine_scan_creates_ranked_proposal_with_full_cost(db_engine, config):
         assert s.query(DecisionSnapshot).filter(DecisionSnapshot.proposal_id == p.id).one()
         again = engine.scan(s, config, DAY, now=NOW + timedelta(minutes=5))
         assert again.created == 0 and again.skipped_existing >= 1  # one proposal per value, detector and day
+        assert "déjà proposée(s) aujourd'hui, inchangée(s)" in again.note()  # never read as « 0 » alone
 
 
 def letter_stop_only(config):

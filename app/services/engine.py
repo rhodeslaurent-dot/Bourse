@@ -1544,8 +1544,15 @@ class ScanReport:
         places = " ; ".join(
             f"{m} {v[0]}/{v[1]}/{v[2]}" for m, v in sorted(self.by_market.items(), key=lambda kv: -kv[1][0])
         )
-        return f"{self.scanned} valeurs, {self.setups} configurations, {self.created} propositions ({acts}){err}" + (
-            f" · par place (valeurs/configurations/propositions) : {places}" if places else ""
+        kept = (
+            f" · {self.skipped_existing} déjà proposée(s) aujourd'hui, inchangée(s) (les recalculer : /risque, "
+            "« Revenir au conseil » avec « recalculer les propositions du jour »)"
+            if self.skipped_existing
+            else ""
+        )  # 04/11/2026: « 0 propositions » after the morning scan read as a failure
+        return (
+            f"{self.scanned} valeurs, {self.setups} configurations, {self.created} propositions ({acts}){kept}{err}"
+            + (f" · par place (valeurs/configurations/propositions) : {places}" if places else "")
         )
 
 
