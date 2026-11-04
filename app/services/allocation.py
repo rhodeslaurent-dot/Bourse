@@ -34,6 +34,9 @@ class CoreSeries:
     proxy: bool
 
 
+BROKER_PRICE_MAX_DAYS = 10  # a broker's last price older than this is not used (the line stays « inconnu »)
+
+
 def allocation_params(config: LoadedConfig) -> dict[str, Any] | None:
     """``allocation`` (dated, optional): absent or ``enabled: false`` → no comparison."""
     g = getattr(config.params, "allocation", None)
@@ -118,8 +121,16 @@ def satellite_holdings(s: Session, config: LoadedConfig, end: date) -> list[Hold
             select(PriceEod).where(PriceEod.isin == row.isin, PriceEod.day <= end).order_by(PriceEod.day.desc())
         )
         inst = s.get(Instrument, row.isin)
-        fx = fx_to_eur(s, (inst.currency if inst else None) or row.currency or "EUR", end) if bar else None
-        out.append(Holding(row.isin, int(row.qty_held), bar.close * fx if bar and fx is not None else None))
+        fx = fx_to_eur(s, (inst.currency if inst else None) or row.currency or "EUR", end)
+        if bar is not None and fx is not None:
+            out.append(Holding(row.isin, int(row.qty_held), bar.close * fx))
+            continue
+        # 04/11/2026: a line without stored closes (not followed by the universe) — the broker's last price, dated
+        # and recent, is a real quote; older or absent → unknown, never estimated
+        at = from_store(row.last_price_at).date() if row.last_price_at else None
+        recent = at is not None and 0 <= (end - at).days <= BROKER_PRICE_MAX_DAYS
+        price = row.last_price * fx if row.last_price and recent and fx is not None else None
+        out.append(Holding(row.isin, int(row.qty_held), price, "courtier" if price is not None else "clôture"))
     return out
 
 
@@ -135,6 +146,12 @@ def compare(s: Session, config: LoadedConfig, end: date) -> tuple[CoreComparison
     tax = _tax_rate(config) if g.get("tax_estimate", True) else 0.0
     res = compare_to_core(fills, satellite_holdings(s, config, end), series.prices, end,
                           float(g.get("core_cost_pct", 0.0)), tax)  # fmt: skip
+    if not res.ok and (res.reason or "").startswith("cours inconnu pour "):
+        isins = (res.reason or "").removeprefix("cours inconnu pour ").split(", ")
+        start = f"{res.start:%Y-%m-%d}" if res.start else "AAAA-MM-JJ"
+        hint = (f" — charger son historique : backfill --isin {','.join(isins)} --from {start} ; "
+                "ou vérifier que la ligne est encore détenue (relevé du courtier)")  # fmt: skip
+        res = replace(res, reason=(res.reason or "") + hint)
     if not res.ok and res.start is not None and (res.reason or "").startswith("cours du cœur inconnu le"):
         cmd = "macro-backfill" if series.proxy else "backfill --isin <ISIN du cœur>"
         hint = f" — charger l'historique du cœur : {cmd} --from {res.start:%Y-%m-%d}"
@@ -151,10 +168,12 @@ def line(res: CoreComparison, series: CoreSeries | None) -> str:
     verdict = "fait mieux que" if (res.diff_eur or 0) > 0 else "fait moins bien que"
     tax = ", impôt estimé déduit" if res.tax_eur else ""
     src = series.label if series else "—"
+    broker = (f" ; au dernier cours du courtier faute de clôture stockée : {', '.join(res.broker_priced)}"
+              if res.broker_priced else "")  # fmt: skip
     return (
         f"Partie active contre le cœur {since} : elle {verdict} le même argent placé dans le cœur "
         f"({'+' if (res.diff_eur or 0) >= 0 else ''}{_eur(res.diff_eur)}, rapport {pme}, {res.flows} ordre(s){tax}) "
-        f"— référence : {src}"
+        f"— référence : {src}{broker}"
     )
 
 
@@ -174,7 +193,7 @@ def report_lines(res: CoreComparison, series: CoreSeries | None) -> list[str]:
     out += [
         f"  période : {res.start:%d/%m/%Y} → {res.end:%d/%m/%Y} · {res.flows} ordre(s) exécuté(s)",
         f"  achats de la partie active : {_eur(res.contributions_eur)} · ventes : {_eur(res.distributions_eur)}",
-        f"  lignes ouvertes (dernière clôture) : {_eur(res.nav_eur)}",
+        f"  lignes ouvertes (dernière clôture, ou dernier cours du courtier s'il manque) : {_eur(res.nav_eur)}",
         f"  plus-values réalisées au CTO par année : {years or 'aucune'}",
         f"  impôt estimé (PFU, pertes reportées) : {_eur(res.tax_eur)}",
         f"  richesse de la partie active : {_eur(res.satellite_eur)} · même argent dans le cœur : {_eur(res.core_eur)}",

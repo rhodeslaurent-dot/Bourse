@@ -55,6 +55,7 @@ class Holding:
     isin: str
     qty: int
     price_eur: float | None
+    source: str = "clôture"  # « clôture » (stored close) or « courtier » (the broker's last price, dated)
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,7 @@ class CoreComparison:
     pme: float | None = None
     diff_eur: float | None = None
     realized_by_year: dict[int, float] = field(default_factory=dict)
+    broker_priced: tuple[str, ...] = ()  # open lines valued at the broker's last price (no stored close)
 
     @property
     def ok(self) -> bool:
@@ -173,6 +175,7 @@ def compare_to_core(
     return CoreComparison(
         "ok", None, start, end, len(flows), contrib, distrib, nav, tax, sat, core_w,
         sat / core_w if core_w > 0 else None, sat - core_w, by_year,
+        tuple(sorted(h.isin for h in holdings if h.qty > 0 and h.source == "courtier")),
     )  # fmt: skip
 
 

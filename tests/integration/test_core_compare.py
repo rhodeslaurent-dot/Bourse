@@ -161,3 +161,28 @@ def test_macro_backfill_loads_the_proxy_history_from_a_date(config, db_engine, m
     with db_session() as s:
         res, series = allocation.compare(s, _cfg(config, with_core=False), END)
     assert res.ok and series.proxy
+
+
+def test_a_line_without_closes_uses_a_recent_broker_price_or_says_how_to_load_it(config, db_engine):
+    """04/11/2026 on the PC: « cours inconnu pour FR0000053043 » — a held line without stored closes. A recent broker
+    price (dated, ≤ 10 days) is used and said; an old or absent one leaves the comparison unavailable, with the
+    command that loads the line's history."""
+    from app.db.models import PositionRow, PriceEod
+
+    with db_session() as s:
+        _seed(s)
+        s.query(PriceEod).filter(PriceEod.isin == STOCK).delete()
+        row = s.query(PositionRow).filter(PositionRow.isin == STOCK).one()
+        res, _ = allocation.compare(s, _cfg(config), END)
+        assert not res.ok and res.reason == (
+            f"cours inconnu pour {STOCK} — charger son historique : backfill --isin {STOCK} --from 2026-03-02 ; "
+            "ou vérifier que la ligne est encore détenue (relevé du courtier)"
+        )
+        row.last_price, row.last_price_at = 21.0, datetime(2026, 10, 29, 16, tzinfo=UTC)
+        s.flush()
+        res, series = allocation.compare(s, _cfg(config), END)
+        assert res.ok and res.nav_eur == pytest.approx(1050.0) and res.broker_priced == (STOCK,)
+        assert f"au dernier cours du courtier faute de clôture stockée : {STOCK}" in allocation.line(res, series)
+        row.last_price_at = datetime(2026, 10, 1, 16, tzinfo=UTC)  # 29 days old: not used
+        s.flush()
+        assert not allocation.compare(s, _cfg(config), END)[0].ok
