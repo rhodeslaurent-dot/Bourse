@@ -381,3 +381,42 @@ def test_a_crypto_etp_is_blocked_while_the_pocket_is_closed(db_engine, config):
         assert props and all(p.action != "BUY" for p in props)
         assert all(any("poche crypto fermée" in b for b in (p.gates or {}).get("blocked", [])) for p in props)
         assert all("cto_srd" not in ((p.details or {}).get("comptes") or {}) for p in props)
+
+
+def test_a_measured_negative_edge_gives_an_observation_never_an_order(db_engine, config):
+    """Decision of 04/11/2026 (docs/39): the latest backtest measures the detector at −0.22 R net (production): its
+    cards stay visible with their levels, but as observations — no BUY, a WATCH gate that waits for nothing (the
+    intraday re-evaluation never reopens them), the measured edge stored on the card."""
+    from app.db.models import BacktestRun
+    from app.scheduler.jobs.intraday_reeval import candidates
+
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        s.add(BacktestRun(created_at=NOW, params_version="t", start=date(2018, 11, 1), end=date(2026, 11, 1),
+                          instruments=1, summary={"segments": {
+                              "production:d2_breakout": {"n": 39, "mean_r": -0.225, "ci_low": -0.97, "ci_high": 0.65},
+                              "production:d7_trend_quality": {"n": 4407, "mean_r": -0.249, "ci_low": -0.37,
+                                                              "ci_high": -0.17}}}))  # fmt: skip
+        s.flush()
+        engine.scan(s, config, DAY, now=NOW)
+        props = [p for p in s.query(Proposal).filter(Proposal.isin == ISIN).all() if p.action != "NO_TRADE"]
+        assert props
+        for p in props:
+            assert p.action == "WATCH" and (p.details or {}).get("observation", {}).get("r") in (-0.225, -0.249)
+            assert any(b.startswith("WATCH : observation (espérance mesurée -0.2") for b in p.gates["blocked"])
+        assert not [p for p in candidates(s, NOW) if p.isin == ISIN]
+
+
+def test_without_a_measure_or_with_the_rule_off_nothing_changes(db_engine, config):
+    import copy
+
+    from app.services.engine import observation_threshold
+
+    c = copy.deepcopy(config)
+    assert observation_threshold(c) == 0.0
+    c.params.admission["observation_max_edge_r"] = None
+    assert observation_threshold(c) is None
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        engine.scan(s, config, DAY, now=NOW)  # no backtest stored: nothing measured, no observation
+        assert not any((p.details or {}).get("observation") for p in s.query(Proposal).all())

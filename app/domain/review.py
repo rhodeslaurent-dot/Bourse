@@ -22,13 +22,15 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-DECISIONS = ("acheter", "pari", "attendre_repli", "a_verifier", "inexploitable", "surveiller", "refus")
+OBSERVATION_GATE = "WATCH : observation"  # the engine's gate for a measured negative edge (engine.OBSERVATION)
+DECISIONS = ("acheter", "pari", "attendre_repli", "a_verifier", "inexploitable", "observation", "surveiller", "refus")
 DECISION_FR = {
     "acheter": "ACHETER",
     "pari": "PARI SPÉCULATIF",
     "attendre_repli": "ATTENDRE UN REPLI",
     "a_verifier": "À VÉRIFIER",
     "inexploitable": "INEXPLOITABLE",
+    "observation": "OBSERVATION",
     "surveiller": "SURVEILLER",
     "refus": "REFUS",
 }
@@ -38,6 +40,7 @@ DECISION_TONE = {
     "attendre_repli": "info",
     "a_verifier": "warn",
     "inexploitable": "bad",
+    "observation": "muted",
     "surveiller": "muted",
     "refus": "bad",
 }
@@ -45,6 +48,7 @@ DECISION_TONE = {
 # the gates' key phrases → one plain sentence, in the order a reader needs them (the first found is the reason)
 _REASONS: tuple[tuple[str, str], ...] = (
     ("coupe-circuit", "le coupe-circuit est déclenché : aucune nouvelle entrée"),
+    ("observation", "aucun avantage mesuré : c'est une observation, sans ordre"),
     ("plafond", "un plafond de risque ou d'exposition serait dépassé"),
     ("annonce", "une annonce importante tombe avant que le stop puisse protéger la ligne"),
     ("stop trop large", "le stop serait trop loin sous l'entrée"),
@@ -161,6 +165,9 @@ def idea_verdict(i: Idea) -> IdeaVerdict:
         )
     if any(str(b).startswith("BLOQUÉ") for b in i.blocked) or i.action == "NO_TRADE":
         return out("refus", reason or "écartée par une règle", "Rien à faire")
+    if any(str(b).startswith(OBSERVATION_GATE) for b in i.blocked):  # decision of 04/11/2026 (docs/39)
+        obs = main_reason([b for b in i.blocked if str(b).startswith(OBSERVATION_GATE)]) or "aucun avantage mesuré"
+        return out("observation", obs, "Rien à saisir : les niveaux restent sur la fiche pour le journal")
     if i.to_verify:
         return out(
             "a_verifier",
@@ -180,9 +187,9 @@ def idea_verdict(i: Idea) -> IdeaVerdict:
         if i.expiry:
             todo += f", valable jusqu'au {i.expiry}"
         if i.speculative:  # 03/11/2026 (Elior): never « toutes les règles sont satisfaites » for a bet
-            why = [main_reason([a]) or a for a in i.appreciation[:2]]
+            weak = [main_reason([a]) or a for a in i.appreciation[:2]]
             bet = f"pari sur l'objectif final {_fmt(i.bet_target)}" if i.bet_target is not None else "carte spéculative"
-            reason = bet + (" ; " + " ; ".join(why) if why else "") + " — aucun avantage validé par la mesure"
+            reason = bet + (" ; " + " ; ".join(weak) if weak else "") + " — aucun avantage validé par la mesure"
             return out("pari", reason, "Seulement si vous acceptez ce pari : " + todo[0].lower() + todo[1:])
         return out("acheter", "toutes les règles sont satisfaites", todo)
     waiting = any("en attente d'un repli" in str(b) for b in i.blocked)
@@ -208,8 +215,8 @@ def _blocks_order(gate: str) -> bool:
     return any(k in g for k in _NO_ORDER)
 
 
-_NO_ORDER = ("stop trop large", "pas d'objectif", "objectif trop proche", "surveillance seulement", "risque élevé",
-             "ratio d'admission", "résultats", "déclencheur non atteint")  # fmt: skip
+_NO_ORDER = ("observation", "stop trop large", "pas d'objectif", "objectif trop proche", "surveillance seulement",
+             "risque élevé", "ratio d'admission", "résultats", "déclencheur non atteint")  # fmt: skip
 
 
 def target_rows(price: float | None, stop: float | None, targets: Sequence[float]) -> list[dict[str, float | None]]:
@@ -234,6 +241,7 @@ def day_verdict(
     if gate and gate not in ("ouvert", "open"):
         reasons.append(f"portail de marché : {gate}")
     for d, text in (("pari", "en pari spéculatif (aucun avantage validé par la mesure)"),
+                    ("observation", "en observation (espérance mesurée négative : aucun ordre)"),
                     ("attendre_repli", "au-dessus de leur prix maximal (limites prêtes pour un repli)"),
                     ("a_verifier", "à vérifier (cours pas assez frais)"),
                     ("inexploitable", "inexploitable(s) par construction"),

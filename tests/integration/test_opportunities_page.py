@@ -160,3 +160,22 @@ def test_a_card_shows_one_decision_its_reason_and_what_to_do_first(client):
     why, todo, fold = card.index("Pourquoi :"), card.index("Que faire :"), card.index("data-card-analysis")
     assert why < todo < fold and "Rien à faire" in card[todo:fold]
     assert "À surveiller" in card[fold:]  # the engine's own label, folded
+
+
+def test_an_observation_card_shows_no_quantity_and_no_order_button(client):
+    """Decision of 04/11/2026 (docs/39): a measured negative edge — the card says « OBSERVATION », shows no quantity,
+    and « Ordre saisi » is disabled; the levels stay for the journal."""
+    import html as h
+
+    with db_session() as s:
+        s.add(Instrument(isin="FR0000120271", name="TotalEnergies", ticker_local="TTE", mic="XPAR"))
+        p = _proposal(s)
+        p.gates = {"passed": [], "blocked": ["WATCH : observation (espérance mesurée -0.25 R, backtest, entrée et "
+                                             "sorties de production, n 4407) — aucun ordre tant que la mesure n'est "
+                                             "pas positive (docs/39)"]}  # fmt: skip
+        p.details = {**(p.details or {}), "observation": {"r": -0.25, "n": 4407, "source": "backtest"}}
+    page = h.unescape(client.get("/opportunites").text)
+    card = page[page.index('<section id="p') :]
+    assert "OBSERVATION" in card and "data-card-observation" in card and "114 titres" not in card
+    assert "disabled" in card.split('value="order_entered"')[1][:120]
+    assert "Rien à saisir" in card

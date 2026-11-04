@@ -125,6 +125,7 @@ admission:                              # docs/07 §7.9.1 (R4, R5)
   min_reward_risk: 2.0                  # ratio gain/risque NET de frais, sur objectif exploitable ; aucune exception
   require_structure_intact: true        # [comportement codé] un P_max atteint par cassure du support n'est pas une entrée
   require_testable_letter: true         # [comportement codé] R15 : fiche de lettre = invalidation explicite + objectif chiffré
+  observation_max_edge_r: 0.0           # décision du 04/11/2026 (docs/39) : espérance MESURÉE (historique comparable, sinon backtest de production) ≤ 0 R → observation, aucun ordre (ni quantité, ni seuil, ni limite, ni date) ; null = règle désactivée
 
 market_gate:                            # docs/07 §7.9.4 (R10) — option C, sans blocage absolu (décision du 22/10/2026)
   effective_from: "2026-10-22"

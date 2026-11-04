@@ -102,3 +102,20 @@ def test_a_speculative_card_is_a_bet_never_all_rules_satisfied():
     assert v.todo.startswith("Seulement si vous acceptez ce pari : poser l'ordre limite à 1.899 (1191 titres")
     head, why = day_verdict(["pari"])
     assert head == "Aucun achat aujourd'hui" and why[0].startswith("1 idée(s) en pari spéculatif")
+
+
+def test_a_measured_negative_edge_is_an_observation_without_any_order():
+    """Decision of 04/11/2026 (docs/39): the engine's observation gate → « OBSERVATION », nothing to type at the
+    broker, even for a card that would have been a buy or a limit waiting for a pullback."""
+    obs = ("WATCH : observation (espérance mesurée -0.25 R, backtest, entrée et sorties de production, n 4407) — "
+           "aucun ordre tant que la mesure n'est pas positive (docs/39)")  # fmt: skip
+    for idea in (Idea("WATCH", (obs,), price=100.0, p_max=99.5, stop=96.0, shares=40),
+                 Idea("WATCH", (obs, PULLBACK), price=100.05, p_max=98.08, stop=97.66)):  # fmt: skip
+        v = idea_verdict(idea)
+        assert v.decision == "observation" and v.label == "OBSERVATION"
+        assert v.reason.startswith(
+            "aucun avantage mesuré : c'est une observation, sans ordre (espérance mesurée -0.25 R"
+        )
+        assert v.todo.startswith("Rien à saisir") and "ordre" not in v.todo.lower().replace("rien à saisir", "")
+    head, why = day_verdict(["observation", "observation"])
+    assert head == "Aucun achat aujourd'hui" and why[0].startswith("2 idée(s) en observation")

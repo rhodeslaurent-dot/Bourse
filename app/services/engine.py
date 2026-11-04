@@ -2109,6 +2109,7 @@ def _scan(
                 ev = finish(ev_of(spec=spec))
                 if vp is not None:  # docs/37 L0: the graduated verdict (never built when the scale is off)
                     ev = _graded(s, config, vp, ev, ev_of, finish, track, edges)
+                ev = _observation(s, config, ev, track, edges)  # last: no order on a measured negative edge
                 if last_day is not None:  # the validity of its order counts from this session (decision of 01/11)
                     ev.details.setdefault("seance_signal", last_day.isoformat())
                 evals.append(ev)
@@ -2203,6 +2204,42 @@ def _speculative_for(
                                   verdict_svc.policy_params(config, vp), vp.speculative_stop_atr,
                                   vp.time_exit_sessions)  # fmt: skip
     return Speculative(vp.speculative_size_multiplier, True, vp.speculative_last_target, plage, signal_day)
+
+
+OBSERVATION = "WATCH : observation"
+
+
+def observation_threshold(config: LoadedConfig) -> float | None:
+    """``admission.observation_max_edge_r`` (decision of 04/11/2026, docs/39); absent → 0.0, null → rule off."""
+    adm = getattr(config.params, "admission", None) or {}
+    if "observation_max_edge_r" not in adm:
+        return 0.0
+    v = adm.get("observation_max_edge_r")
+    return None if v is None else float(v)
+
+
+def _observation(s: Session, config: LoadedConfig, ev: Evaluation, track: Any, edges: dict[str, Any]) -> Evaluation:
+    """Decision of the user of 04/11/2026 (review of the cards, docs/39): a card whose MEASURED expectancy — the live
+    comparable history, else the latest backtest at full cost (production entry and exits) — is at or below
+    ``admission.observation_max_edge_r`` gives **no order**: no quantity, no threshold, no limit, no expiry. It stays
+    an observation with its levels (journal, post-mortem); a WATCH gate that waits for nothing, so that neither the
+    order book nor the intraday re-evaluation turns it into an order. An unmeasured edge is left to the other rules."""
+    from app.services import verdict as verdict_svc
+
+    thr = observation_threshold(config)
+    if thr is None or ev.action == "NO_TRADE":
+        return ev
+    edge = verdict_svc.measured_edge(s, ev.detector, track, edges)
+    if edge is None or edge.r > thr:
+        return ev
+    n = f", n {edge.n}" if edge.n else ""
+    ev.blocked.append(
+        f"{OBSERVATION} (espérance mesurée {edge.r:+.2f} R, {edge.source}{n}) — aucun ordre tant que la mesure "
+        "n'est pas positive (docs/39)"
+    )
+    ev.action = "WATCH"
+    ev.details["observation"] = verdict_svc.edge_dict(edge)
+    return ev
 
 
 def _verdict_facts(ev: Evaluation, edge_positive: bool) -> VerdictFacts:

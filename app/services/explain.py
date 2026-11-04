@@ -78,8 +78,10 @@ def explain_proposal(
     )
     stop = getattr(proposal, "stop", None)
     targets = getattr(proposal, "targets", None) or []
-    shares = getattr(proposal, "shares", None)
-    risk_eur = getattr(proposal, "risk_eur", None)
+    # docs/39 §10 (04/11/2026): an observation card (measured edge ≤ 0) carries no order — no quantity, no risk
+    observation = ((getattr(proposal, "details", None) or {}) if proposal is not None else {}).get("observation")
+    shares = None if observation else getattr(proposal, "shares", None)
+    risk_eur = None if observation else getattr(proposal, "risk_eur", None)
 
     parts: list[str] = []
     who = label("detector", detector) if detector else "signal"
@@ -117,7 +119,7 @@ def explain_proposal(
     if track and track.get("verdict") in ("favorable", "defavorable"):
         parts.append(f"historique {label('track_verdict', track['verdict'])}")
     headline = " · ".join(parts)
-    order_line = entry_order_line(entry, unit)
+    order_line = None if observation else entry_order_line(entry, unit)
     summary = headline
     if blocked:
         summary += " · " + blocked[0].split("(")[0].strip()
@@ -136,7 +138,7 @@ def explain_proposal(
         bullets.append(f"Niveau « {k} » cité par la source : {_fmt(v)} €")
     if getattr(proposal, "account_recommended", None):
         bullets.append(f"Compte conseillé : {label('account', proposal.account_recommended)}")
-    if getattr(proposal, "size_eur", None):
+    if getattr(proposal, "size_eur", None) and not observation:
         bullets.append(f"Taille {_fmt(proposal.size_eur, 0)} €")
     cost = getattr(proposal, "cost_estimate", None) or {}
     if cost and not any(isinstance(v, dict) for v in cost.values()):  # per-account costs: table of the fiche

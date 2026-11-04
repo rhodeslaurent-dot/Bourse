@@ -256,6 +256,12 @@ Rien de ce qui suit ne passe d'ordre (règle 1) ni ne change une proposition, un
   - rappel « achat mensuel du cœur » le premier jour de bourse du mois à Paris, seulement si `pockets.dca.isins` est renseigné ;
   - contrôle des bandes (±`allocation.rebalance_band_pts` points) seulement si vous fixez `allocation.core_target_pct` ; il oriente l'argent nouveau et ne propose jamais de vendre le cœur.
 
+- **Règle « observation » (décision de l'utilisateur du 04/11/2026)** : une carte dont l'espérance **mesurée** est ≤ `admission.observation_max_edge_r` (0 R) ne produit **aucun ordre** :
+  - mesure : l'historique comparable figé dans l'instantané, sinon le segment de production du backtest (la même que le verdict, docs/38) ; sans mesure, la règle ne s'applique pas ;
+  - la carte reste visible (les lettres d7/d2 restent spéculatives, choix du 04/11) avec ses niveaux pour le journal, mais sans quantité, sans risque, sans ordre à plage et sans bouton « Ordre saisi » ;
+  - la porte « WATCH : observation (espérance mesurée … R, source, n cas) » n'attend aucun fait : la réévaluation en séance ne la rouvre jamais ;
+  - dans la revue : décision « OBSERVATION », « Rien à saisir » ; `null` désactive la règle.
+
 **Pas encore fait** (à décider) :
 - bloc fiscal de fin d'année au CTO (D9) ;
 - plan n° 9 du banc : momentum 12-1 en gestion directe contre ETF (D7, données radiées à charger d'abord) ;
