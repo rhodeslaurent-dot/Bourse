@@ -21,7 +21,7 @@ from app.services.letters_verdict import label as verdict_label
 from app.services.letters_verdict import tone as verdict_tone
 from app.services.notes import notes_for
 from app.services.pitch import pitch
-from app.web.labels import VERDICT_GROUPS, VERDICT_TONES
+from app.web.labels import VERDICT_GROUPS, VERDICT_TONES, label
 from app.web.routes import templates
 
 router = APIRouter()
@@ -126,7 +126,14 @@ def opportunities_page(
                         sig.detector if sig else None, sig.evidence if sig else None, sig.source if sig else None
                     ),
                     "place": (venues[inst.mic].name if inst and inst.mic in venues else inst.mic if inst else None),
-                    "secteur": " · ".join(x for x in (inst.sector, inst.industry) if x) if inst else None,
+                    "secteur": (
+                        " · ".join(
+                            x for x in (label("sector", inst.sector) if inst.sector else None, inst.industry) if x
+                        )
+                        + " (classification TradingView)"
+                    )
+                    if inst and (inst.sector or inst.industry)
+                    else None,
                     "devise": inst.currency if inst else None,
                     "reeval": summary(reevals[p.id]) if p.id in reevals else None,  # intraday_reeval (live quote)
                     # docs/20 §20.10: a letter's proposal — what the letter says, what the tool sees, the verdict

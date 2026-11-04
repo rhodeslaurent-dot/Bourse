@@ -179,3 +179,24 @@ def test_an_observation_card_shows_no_quantity_and_no_order_button(client):
     assert "OBSERVATION" in card and "data-card-observation" in card and "114 titres" not in card
     assert "disabled" in card.split('value="order_entered"')[1][:120]
     assert "Rien à saisir" in card
+
+
+def test_the_card_says_its_sector_source_its_series_cut_and_an_old_cash(client):
+    """04/11/2026 (analysis of the cards: « Inwido : Non-Energy Minerals », « Amper : zones d'avant la
+    restructuration », « cash 11 jours ») — the screener's sector translated with its source, the day the series
+    counts from, the cash of the recommended account when it is old."""
+    import html as h
+
+    with db_session() as s:
+        s.add(Instrument(isin="FR0000120271", name="TotalEnergies", ticker_local="TTE", mic="XPAR",
+                         sector="Non-Energy Minerals", industry="Construction Materials"))  # fmt: skip
+        p = _proposal(s)
+        p.details = {**(p.details or {}),
+                     "serie_coupee": {"jour": "2026-06-02", "motif": "opération sur titre (facteur d'ajustement)",
+                                      "seances_ecartees": 120},
+                     "liquidites": {"compte": "pea", "recent": False, "age_jours": 11.0}}  # fmt: skip
+    page = h.unescape(client.get("/opportunites").text)
+    card = page[page.index('<section id="p') :]
+    assert "Matériaux (métaux, mines, matériaux de construction) · Construction Materials (classification" in card
+    assert "Historique lu depuis le 02/06/2026 (opération sur titre" in card and "120 séances" in card
+    assert "Liquidités du compte PEA relevées il y a 11 jours" in card

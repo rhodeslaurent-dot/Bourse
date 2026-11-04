@@ -70,6 +70,31 @@ LABELS: dict[str, dict[str, str]] = {
         "telegram": "forcé via Telegram",
     },
     "account": {"pea": "PEA", "cto_cash": "CTO comptant", "cto_srd": "CTO SRD", "cto": "CTO"},
+    # 04/11/2026 (analysis of the cards: « Inwido : Non-Energy Minerals ») — the screener's sectors are the FactSet
+    # classification used by TradingView: translated, with what each one covers (a building-products maker sits
+    # in « Non-Energy Minerals » there); the source is said on the card
+    "sector": {
+        "Commercial Services": "Services aux entreprises",
+        "Communications": "Télécommunications",
+        "Consumer Durables": "Biens de consommation durables",
+        "Consumer Non-Durables": "Biens de consommation courante",
+        "Consumer Services": "Services aux consommateurs",
+        "Distribution Services": "Distribution (gros)",
+        "Electronic Technology": "Électronique et matériel",
+        "Energy Minerals": "Énergie (pétrole, gaz, charbon)",
+        "Finance": "Finance",
+        "Health Services": "Services de santé",
+        "Health Technology": "Santé (pharmacie, matériel médical)",
+        "Industrial Services": "Services industriels (ingénierie, forage)",
+        "Miscellaneous": "Divers (fonds, holdings)",
+        "Non-Energy Minerals": "Matériaux (métaux, mines, matériaux de construction)",
+        "Process Industries": "Industries de transformation (chimie, papier)",
+        "Producer Manufacturing": "Biens d'équipement",
+        "Retail Trade": "Commerce de détail",
+        "Technology Services": "Logiciels et services informatiques",
+        "Transportation": "Transport",
+        "Utilities": "Services aux collectivités",
+    },
     "action": {
         "BUY": "Achat",
         "WATCH": "À surveiller",

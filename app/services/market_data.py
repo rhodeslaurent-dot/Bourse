@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -71,6 +72,39 @@ def load_bars(s: Session, isin: str, end: date | None = None, limit: int = 320) 
     rows = s.scalars(q.order_by(PriceEod.day.desc()).limit(limit)).all()
     rows.reverse()
     return [Bar(r.open, r.high, r.low, r.close, r.volume) for r in rows]
+
+
+CA_JUMP = 0.2  # as the backtest: a change of adj_close / close between two sessions → corporate action
+
+
+def bars_since_scale_break(
+    s: Session, isin: str, end: date | None = None, limit: int = 320, suspect_ratio: float | None = 4.0
+) -> tuple[list[Bar], dict[str, Any] | None]:
+    """The stored bars after the last change of scale (04/11/2026, analysis of the cards: zones drawn on prices
+    before a restructuring): a jump of the adjustment factor ``adj_close / close`` (split, reverse split, rights
+    issue — as the backtest) or a session at ≥ ``suspect_ratio`` × the previous close (a unit change the factor
+    does not show). Older bars are on another scale: they are dropped, never rescaled by estimate. Returns the
+    bars and, when cut, the day and the reason (None when the series is whole)."""
+    q = select(PriceEod).where(PriceEod.isin == isin)
+    if end:
+        q = q.where(PriceEod.day <= end)
+    rows = list(s.scalars(q.order_by(PriceEod.day.desc()).limit(limit)).all())
+    rows.reverse()
+    cut, why = 0, None
+    prev = None
+    for k, r in enumerate(rows):
+        f = (r.adj_close / r.close) if r.adj_close and r.close else None
+        if f and prev and abs(f / prev - 1) > CA_JUMP:
+            cut, why = k, "opération sur titre (facteur d'ajustement)"
+        prev = f or prev
+        if suspect_ratio and k and rows[k - 1].close > 0:
+            ratio = max(r.open, r.close) / rows[k - 1].close if min(r.open, r.close) > 0 else 0.0
+            low = min(r.open, r.close) / rows[k - 1].close if min(r.open, r.close) > 0 else 0.0
+            if r.close <= 0 or r.open <= 0 or ratio >= suspect_ratio or low <= 1 / suspect_ratio:
+                cut, why = k, f"saut de cours ≥ ×{suspect_ratio:g} en une séance"
+    bars = [Bar(r.open, r.high, r.low, r.close, r.volume) for r in rows[cut:]]
+    info = {"jour": rows[cut].day.isoformat(), "motif": why, "seances_ecartees": cut} if cut else None
+    return bars, info
 
 
 def last_eod_day(s: Session, isin: str) -> date | None:

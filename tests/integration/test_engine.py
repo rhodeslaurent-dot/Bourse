@@ -435,3 +435,27 @@ def test_a_close_several_sessions_old_is_to_verify_never_an_order(db_engine, con
         assert all("du 21/10/2026 (5 séances de la place sans clôture stockée)" in p.details["source_cours"]
                    for p in props)  # fmt: skip
         assert engine._close_late_sessions("XPAR", DAY, DAY + timedelta(days=1)) == 1  # the evening scan: tolerated
+
+
+def test_zones_never_read_prices_of_another_scale(db_engine, config):
+    """04/11/2026 (analysis of the cards: « Amper : zones d'avant la restructuration ») — bars before a change of
+    scale (adjustment factor jump, or a session at ≥ 4 × the previous close) are dropped, never rescaled: the card
+    says from which day its series counts."""
+    from app.services.market_data import bars_since_scale_break
+
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        rows = s.query(PriceEod).filter(PriceEod.isin == ISIN).order_by(PriceEod.day).all()
+        for r in rows[:40]:  # a 1-for-10 reverse split 40 sessions before the end of the stored series… shown raw
+            r.open, r.high, r.low, r.close = r.open / 10, r.high / 10, r.low / 10, r.close / 10
+        s.flush()
+        bars, cut = bars_since_scale_break(s, ISIN, DAY, 400)
+        assert cut is not None and cut["seances_ecartees"] == 40 and "×4" in cut["motif"]
+        assert len(bars) == len(rows) - 40 and bars[0].close == rows[40].close
+        for k, r in enumerate(rows):  # … or with the adjustment factor of the provider, the same cut
+            r.adj_close = r.close * (10.0 if k < 40 else 1.0)  # the provider's continuous series
+        s.flush()
+        _, cut2 = bars_since_scale_break(s, ISIN, DAY, 400, suspect_ratio=None)
+        assert cut2 is not None and cut2["seances_ecartees"] == 40 and "opération sur titre" in cut2["motif"]
+        whole, none_cut = bars_since_scale_break(s, ISIN, DAY, 100)
+        assert none_cut is None and len(whole) == 100  # the break is out of the window read: nothing is cut

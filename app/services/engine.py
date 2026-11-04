@@ -87,7 +87,7 @@ from app.domain.verdict import (
 )
 from app.domain.zones import detect_zones
 from app.services.decisions import create_proposal, expire_proposals, record_signal
-from app.services.market_data import fx_to_eur, load_bars
+from app.services.market_data import bars_since_scale_break, fx_to_eur, load_bars
 
 log = logging.getLogger("bourse.engine")
 
@@ -1954,7 +1954,9 @@ def _scan(
             rep.scanned += 1
             rep.count(inst.mic, 0)
             recs = _letter_levels(s, inst.isin, day)
-            bars = load_bars(s, inst.isin, end=day, limit=int(zp.get("lookback_sessions", 250)) + 10)
+            bars, scale_cut = bars_since_scale_break(
+                s, inst.isin, day, int(zp.get("lookback_sessions", 250)) + 10, _suspect_ratio(config)
+            )  # 04/11/2026: zones and setups never read prices of another scale (restructuring, split)
             if len(bars) < 60 and not (recs and len(bars) >= lp.min_history_sessions):
                 if recs:
                     na = NotAnalysable(
@@ -2001,7 +2003,8 @@ def _scan(
             found += l_setups
             if found:
                 staged.append({"inst": inst, "bars": bars, "feats": feats, "f": f, "zones": zones, "ff": ff,
-                               "shown": shown, "at": at, "found": found, "letters": l_meta})  # fmt: skip
+                               "shown": shown, "at": at, "found": found, "letters": l_meta,
+                               "scale_cut": scale_cut})  # fmt: skip
         except Exception as exc:  # noqa: BLE001 — one bad instrument never stops the scan
             rep.errors.append(f"{inst.isin}: {exc.__class__.__name__}")
             log.warning("moteur : %s ignorée (%s)", inst.isin, exc.__class__.__name__, exc_info=True)
@@ -2122,6 +2125,8 @@ def _scan(
                     ev = _graded(s, config, vp, ev, ev_of, finish, track, edges)
                 ev = _observation(s, config, ev, track, edges)  # last: no order on a measured negative edge
                 _cash_note(ev, cash_state)
+                if st_.get("scale_cut"):
+                    ev.details["serie_coupee"] = st_["scale_cut"]
                 if last_day is not None:  # the validity of its order counts from this session (decision of 01/11)
                     ev.details.setdefault("seance_signal", last_day.isoformat())
                 evals.append(ev)
@@ -2219,6 +2224,12 @@ def _speculative_for(
 
 
 OBSERVATION = "WATCH : observation"
+
+
+def _suspect_ratio(config: LoadedConfig) -> float | None:
+    """``backtest.suspect_price_ratio`` (the same rule as the measure), 4 by default."""
+    v = ((getattr(config, "raw", None) or {}).get("backtest") or {}).get("suspect_price_ratio", 4.0)
+    return float(v) if v else None
 
 
 def _cash_note(ev: Evaluation, cash_state: dict[str, dict[str, Any]]) -> None:
