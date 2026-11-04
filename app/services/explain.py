@@ -48,6 +48,28 @@ def entry_order_line(entree: dict[str, Any] | None, unit: str = "€") -> str | 
     )
 
 
+PRICE_KEYS = {"declencheur": "déclencheur", "seuil": "seuil", "limite": "limite", "achat": "achat",
+              "low": "bas", "high": "haut", "entry_low": "bas", "entry_high": "haut",
+              "annulation_ouverture_au_stop_structurel": "annulation si ouverture à"}  # fmt: skip
+
+
+def entry_zone_text(ez: dict[str, Any] | None, currency: str | None = None) -> str:
+    """The entry zone of a card in words (04/11/2026, analysis of the cards: « stop_atr 2,5 SEK »): prices in the
+    listing's currency, an ATR multiple as « × ATR », a duration in sessions; other fields are not shown here."""
+    unit = "€" if currency in (None, "", "EUR") else currency
+    out: list[str] = []
+    for k, v in (ez or {}).items():
+        if isinstance(v, bool) or not isinstance(v, int | float):
+            continue
+        if k in PRICE_KEYS:
+            out.append(f"{PRICE_KEYS[k]} {float(v):.4g} {unit}")
+        elif k == "stop_atr":
+            out.append(f"stop {float(v):g} × ATR sous l'exécution")
+        elif k == "sortie_au_temps_seances":
+            out.append(f"sortie au temps après {int(v)} séances")
+    return " · ".join(out) or "—"
+
+
 def _fmt(x: Any, digits: int = 2, unit: str = "") -> str:
     if x is None:
         return "—"
@@ -129,13 +151,13 @@ def explain_proposal(
     bullets: list[str] = []
     if ev.get("p_open") is not None:
         bullets.append(
-            f"Ouverture du jour {_fmt(ev['p_open'])} €"
+            f"Ouverture du jour {_fmt(ev['p_open'])} {unit}"
             + (f", gap {float(ev['gap_open']):+.1%}" if ev.get("gap_open") is not None else "")
         )
     if ev.get("p_recv") is not None:
-        bullets.append(f"Cours à réception {_fmt(ev['p_recv'])} €")
+        bullets.append(f"Cours à réception {_fmt(ev['p_recv'])} {unit}")
     for k, v in (ev.get("levels") or {}).items():
-        bullets.append(f"Niveau « {k} » cité par la source : {_fmt(v)} €")
+        bullets.append(f"Niveau « {k} » cité par la source : {_fmt(v)} {unit}")
     if getattr(proposal, "account_recommended", None):
         bullets.append(f"Compte conseillé : {label('account', proposal.account_recommended)}")
     if getattr(proposal, "size_eur", None) and not observation:
@@ -162,7 +184,7 @@ def explain_proposal(
         for isin, q in (getattr(snapshot, "quotes", None) or {}).items():
             if isinstance(q, dict):
                 data_used.append(
-                    f"Cours {isin} : {_fmt(q.get('last'))} € [{label('data_status', q.get('data_status'))}"
+                    f"Cours {isin} : {_fmt(q.get('last'))} {unit} [{label('data_status', q.get('data_status'))}"
                     + (f", marché {q.get('market_timestamp')}" if q.get("market_timestamp") else "")
                     + f"] source {q.get('source', '?')}"
                 )
@@ -181,16 +203,25 @@ def explain_proposal(
                 + _fmt(feats.get("pivot_60"))
                 + ", amplitude 14 j "
                 + _fmt(feats.get("atr14"))
-                + " €"
+                + f" {unit}"
                 + (" (trou de données)" if feats.get("gap_in_data") else "")
             )
         reg = getattr(snapshot, "regime", None) or {}
         if reg:
-            data_used.append(f"Régime au {reg.get('day', '?')} : {label('regime', reg.get('regime'))}")
+            mk = reg.get("marche")
+            where = " (régime européen : la place n'a pas le sien)" if mk == "EU" else f" ({mk})" if mk else ""
+            data_used.append(f"Régime au {reg.get('day', '?')}{where} : {label('regime', reg.get('regime'))}")
+        seen: dict[tuple[Any, ...], str] = {}
         for st in getattr(snapshot, "portfolio_state", None) or []:
             if isinstance(st, dict):
+                name = label("account", st["type"]) if st.get("type") else f"Compte {st.get('account_id')}"
+                key = (st.get("broker"), st.get("cash"), st.get("synced_at"))
+                same = seen.get(key) if st.get("broker") and st.get("cash") is not None else None
+                seen.setdefault(key, name)
                 data_used.append(
-                    f"Compte {st.get('account_id')} : cash {_fmt(st.get('cash'), 0)} €, "
+                    f"{name} : cash {_fmt(st.get('cash'), 0)} €"
+                    + (f" (même solde que {same}, compté une fois)" if same else "")
+                    + ", "
                     + ("déclaratif" if st.get("declarative") else "synchronisé")
                     + (f", synchronisé {st.get('synced_at')}" if st.get("synced_at") else ", jamais synchronisé")
                 )

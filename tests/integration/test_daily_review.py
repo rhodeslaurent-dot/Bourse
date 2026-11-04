@@ -166,3 +166,15 @@ def test_unvalidated_cards_can_be_shown_for_information_only(config, db_engine):
         c.params.allocation["validated_sources"] = ["d7"]  # the technical card's detector validated: it comes back
         r = daily_review.build(s, c, day)
         assert [i["nom"] for i in r["fiches"]] == ["TotalEnergies SE"] and len(r["fiches_information"]) == 2
+
+
+def test_a_block_outside_the_euro_says_its_currency(config, db_engine):
+    """04/11/2026 (analysis of the cards: « DKK labelled € ») — the prices of a block are in the listing's currency;
+    the block's name says it when it is not the euro (page, e-mail, Telegram, asks)."""
+    with db_session() as s:
+        s.add(Instrument(isin="DK0000000DK1", name="Danoise fictive", mic="XCSE", currency="DKK", in_universe=True))
+        s.flush()
+        _idea(s, "DK0000000DK1", "BUY", [], 640.0, 645.0, 600.0, [700.0])
+        r = daily_review.build(s, config, datetime.now(PARIS).date())
+    blk = next(i for i in r["fiches"] if i["isin"] == "DK0000000DK1")
+    assert blk["nom"].endswith("(cours en DKK)") and "(cours en DKK)" in daily_review.as_text(r)

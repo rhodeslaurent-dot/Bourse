@@ -146,7 +146,10 @@ def _ideas(s: Session, day: date) -> list[dict[str, Any]]:
         who, written, citation = _source_text(p, sig)
         inst = insts.get(p.isin)
         out.append({
-            "proposal_id": p.id, "isin": p.isin, "nom": name_of(p.isin), "devise": inst.currency if inst else None,
+            "proposal_id": p.id, "isin": p.isin, "devise": inst.currency if inst else None,
+            # 04/11/2026: the prices of the block are in the listing's currency — said when it is not the euro
+            "nom": name_of(p.isin) + (f" (cours en {inst.currency})" if inst and inst.currency not in (None, "", "EUR")
+                                      else ""),
             "origine": sorted({x for x in ((sig.detector, sig.source) if sig is not None else ()) if x}),
             "pea": bool(inst.pea_eligible) if inst is not None and inst.pea_eligible is not None else None,
             "source": who, "niveaux_source": written, "citation": citation,

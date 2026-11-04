@@ -2634,13 +2634,15 @@ def notify_top(s: Session, config: LoadedConfig, alerts: Any, mode: str, day: da
             continue  # docs/37 L0: a speculative card stays on /opportunites unless verdict.notify_speculative
         acc = (d.get("comptes") or {}).get(p.account_recommended or "", {})
         th = (p.thesis or {}).get("arguments") or []
+        cur = getattr(s.get(Instrument, p.isin), "currency", None)
+        u = f" {cur}" if cur and cur != "EUR" else " €"  # 04/11/2026: the listing's currency, never € by default
         lines = [
-            f"Compte : {p.account_recommended} · {acc.get('titres')} titres · limite {d.get('p_max'):.4g}"
+            f"Compte : {p.account_recommended} · {acc.get('titres')} titres · limite {d.get('p_max'):.4g}{u}"
             if d.get("p_max")
             else f"Compte : {p.account_recommended}",
-            f"Stop {p.stop:.4g} · objectif {(p.targets or [None])[0]} ({EXITS_NOTE})"
+            f"Stop {p.stop:.4g}{u} · objectif {(p.targets or [None])[0]}{u} ({EXITS_NOTE})"
             if not (spec and spec.get("entree") == "plage_p2")
-            else f"Stop {p.stop:.4g} · sortie au temps, objectifs = repères ({EXITS_NOTE})",
+            else f"Stop {p.stop:.4g}{u} · sortie au temps, objectifs = repères ({EXITS_NOTE})",
             f"Gain net {(acc.get('gain_net_pct') or 0) * 100:.1f} % · perte nette "
             f"{(acc.get('perte_nette_pct') or 0) * 100:.1f} % · ratio net {acc.get('ratio_net')}",
             f"Portail {d.get('portail')} · horizon {p.horizon}",

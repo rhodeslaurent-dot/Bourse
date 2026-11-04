@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    Account,
     Decision,
     DecisionSnapshot,
     FeatureDaily,
@@ -147,10 +148,13 @@ def create_proposal(
         from app.domain.timeutil import PARIS, from_store
 
         regime = snapshot_regime(s, sig.isin, from_store(p.created_at).astimezone(PARIS).date(), live=True)
+        accounts = {a.id: a for a in s.scalars(select(Account))}
         states = [
-            {"account_id": st.account_id, "cash": st.cash, "synced_at": st.synced_at, "declarative": st.declarative}
+            {"account_id": st.account_id, "cash": st.cash, "synced_at": st.synced_at, "declarative": st.declarative,
+             "type": getattr(accounts.get(st.account_id), "type", None),
+             "broker": getattr(accounts.get(st.account_id), "broker", None)}
             for st in s.scalars(select(PortfolioState))
-        ]
+        ]  # fmt: skip
     else:  # no data after as_of may enter a reconstituted snapshot (rule 10)
         feats = s.scalar(
             select(FeatureDaily)

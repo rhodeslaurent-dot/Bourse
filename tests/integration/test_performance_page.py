@@ -89,7 +89,7 @@ def test_performance_page_renders(client):
 
 
 def test_one_saxo_balance_on_two_accounts_is_counted_once_and_an_old_cash_is_said(db_engine, config):
-    """04/11/2026 (analysis of the cards: « accounts 2 and 3 both at 19 503 € », « cash 11 days old ») — the Saxo
+    """04/11/2026 (analysis of the cards: « two accounts at the same amount », « old cash ») — the Saxo
     sync writes one balance on cto_cash and cto_srd: the consolidated equity counts it once; an old cash is said."""
     from app.services.portfolio import cash_freshness, update_portfolio_state
 

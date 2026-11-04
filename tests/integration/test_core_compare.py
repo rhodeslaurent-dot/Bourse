@@ -164,7 +164,7 @@ def test_macro_backfill_loads_the_proxy_history_from_a_date(config, db_engine, m
 
 
 def test_a_line_without_closes_uses_a_recent_broker_price_or_says_how_to_load_it(config, db_engine):
-    """04/11/2026 on the PC: « cours inconnu pour FR0000053043 » — a held line without stored closes. A recent broker
+    """04/11/2026 on the PC: « cours inconnu pour <ISIN> » — a held line without stored closes. A recent broker
     price (dated, ≤ 10 days) is used and said; an old or absent one leaves the comparison unavailable, with the
     command that loads the line's history."""
     from app.db.models import PositionRow, PriceEod

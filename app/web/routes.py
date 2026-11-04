@@ -53,6 +53,9 @@ templates.env.globals.update(level_labels=LEVEL_LABELS, letter_modes=MODES)
 from app.domain.review import fmt_price  # noqa: E402
 
 templates.env.filters["px"] = fmt_price  # lot R1: prices with their useful decimals  # docs/20 §20.10 (letter cards)
+from app.services.explain import entry_zone_text  # noqa: E402
+
+templates.env.globals["entry_zone_text"] = entry_zone_text  # 04/11/2026: units of the entry zone
 
 
 def _regimes_by_market(s, cfg, day):  # type: ignore[no-untyped-def]
