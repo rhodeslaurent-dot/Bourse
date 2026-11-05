@@ -1146,7 +1146,7 @@ def cmd_core_setup(args: argparse.Namespace) -> int:
     with db_session() as s:
         rows = setup_core(s, eodhd_from(cfg), cfg, start, end, exchanges, mic_of)
     for r in rows:
-        span = f", {r.bars} clôture(s) du {r.first} au {r.last}" if r.first else ""
+        span = f", {r.bars} clôture(s) du {r.first} au {r.last} dont {r.new} nouvelle(s)" if r.first else ""
         print(f"{r.isin} : {r.status}" + (f" — {r.name} ({r.ticker})" if r.ticker else "") + span
               + (f" — {r.note}" if r.note else ""))  # fmt: skip
     return 0 if rows and all(r.status in ("enregistré", "déjà enregistré") for r in rows) else 1

@@ -47,11 +47,12 @@ def test_core_setup_registers_the_etf_out_of_the_universe_and_loads_its_closes(c
     with db_session() as s:
         out = allocation.setup_core(s, p, _cfg(config), date(2016, 1, 1), date(2026, 11, 5))
         inst = s.get(Instrument, CORE)
-        assert [r.status for r in out] == ["enregistré"] and out[0].bars == 3 and out[0].first == date(2025, 3, 4)
+        assert [r.status for r in out] == ["enregistré"] and out[0].bars == out[0].new == 3
+        assert out[0].first == date(2025, 3, 4)
         assert inst.ticker_eodhd == "CRWD.PA" and inst.mic == "XPAR" and inst.kind == "etf"
         assert inst.in_universe is False and inst.active is True  # the daily EOD job loads every active instrument
         again = allocation.setup_core(s, p, _cfg(config), date(2016, 1, 1), date(2026, 11, 5))
-        assert again[0].status == "déjà enregistré"
+        assert again[0].status == "déjà enregistré" and again[0].bars == 3 and again[0].new == 0  # read, none new
         c = _cfg(config)
         c.params.pockets["dca"]["isins"] = ["FR0000000XX0"]
         assert allocation.setup_core(s, p, c, date(2016, 1, 1), date(2026, 11, 5))[0].status == "introuvable"

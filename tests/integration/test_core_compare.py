@@ -104,6 +104,7 @@ def test_the_review_shows_the_cap_and_the_command_prints_the_detail(config, db_e
     assert cli.main(["core-compare", "--to", END.isoformat()]) == 0
     out = capsys.readouterr().out
     assert "achats de la partie active : 1 000,00 €" in out and "Kaplan & Schoar 2005" in out
+    assert "compris dans le cours de l'ETF du cœur s'il est capitalisant" in out  # 05/11/2026: never « des deux côtés »
 
 
 def test_without_the_allocation_group_nothing_is_shown(config, db_engine):

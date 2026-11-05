@@ -225,7 +225,13 @@ def report_lines(res: CoreComparison, series: CoreSeries | None) -> list[str]:
         f"  plus-values réalisées au CTO par année : {years or 'aucune'}",
         f"  impôt estimé (PFU, pertes reportées) : {_eur(res.tax_eur)}",
         f"  richesse de la partie active : {_eur(res.satellite_eur)} · même argent dans le cœur : {_eur(res.core_eur)}",
-        "  méthode : équivalent marché public (Kaplan & Schoar 2005) ; dividendes non comptés des deux côtés",
+        "  méthode : équivalent marché public (Kaplan & Schoar 2005) ; dividendes : "
+        + (
+            "compris dans le cours de l'ETF du cœur s'il est capitalisant (voir son DIC), non compris dans le proxy "
+            "ni sur la partie active — la comparaison est donc prudente pour la partie active"
+            if series is not None and series.label.startswith("ETF du cœur")
+            else "non comptés des deux côtés (le proxy est un indice de prix)"
+        ),
     ]
     return out
 
@@ -236,7 +242,8 @@ class CoreSetup:
     status: str  # « enregistré » | « déjà enregistré » | « introuvable » | « erreur »
     ticker: str | None = None
     name: str | None = None
-    bars: int = 0
+    bars: int = 0  # closes read from the provider
+    new: int = 0  # of which stored for the first time (or corrected)
     first: date | None = None
     last: date | None = None
     note: str = ""
@@ -294,6 +301,6 @@ def setup_core(
             continue
         n = upsert_eod(s, bars, {str(inst.ticker_eodhd): isin})
         days = sorted(b.day for b in bars)
-        out.append(CoreSetup(isin, status, inst.ticker_eodhd, inst.name, n, days[0] if days else None,
+        out.append(CoreSetup(isin, status, inst.ticker_eodhd, inst.name, len(bars), n, days[0] if days else None,
                              days[-1] if days else None))  # fmt: skip
     return out
