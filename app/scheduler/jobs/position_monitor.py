@@ -63,6 +63,9 @@ def monitor_once(ctx: JobContext, quotes: dict[str, Quote], now: datetime | None
     mode = ctx.mode
     unconfirmed = ctx.config.params.risk.stop.unconfirmed_exit_minutes
     n = 0
+    from app.services.allocation import core_isins
+
+    core = core_isins(ctx.config)  # R17 (docs/39 §5): the core ETF has no stop — never « sans protection »
     with db_session() as s:
         for row in s.scalars(select(PositionRow).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0)):
             p = _domain_position(s, row)
@@ -73,6 +76,10 @@ def monitor_once(ctx: JobContext, quotes: dict[str, Quote], now: datetime | None
                     q.market_timestamp,
                     q.data_status.value,
                 )
+            if row.isin in core:
+                if alerts:
+                    alerts.close_incident(s, f"unprotected:{row.id}")
+                continue
             price = row.last_price
             status = row.last_price_status or "indisponible"
             u = check_unprotected(p, row.id)

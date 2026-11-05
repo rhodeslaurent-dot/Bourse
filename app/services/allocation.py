@@ -52,42 +52,70 @@ def _pockets(config: LoadedConfig) -> tuple[list[str], set[str]]:
     return core, harvest
 
 
+def core_isins(config: LoadedConfig) -> set[str]:
+    """The core pocket (``pockets.dca.isins``, R17): out of the pilot capital, the caps, the stops and the circuit
+    breaker — bought every month, never sold on a signal (docs/39 §5)."""
+    return set(_pockets(config)[0])
+
+
 def _tax_rate(config: LoadedConfig) -> float:
     from app.services.engine import _tax
 
     return float(_tax(config).get("pfu_total_rate") or 0.0)
 
 
+def _proxy_prices(s: Session, name: str, end: date) -> dict[date, float]:
+    """The declared proxy (``allocation.proxy_series``, URTH in USD) converted with the stored EUR/USD rate."""
+    from app.services.market_data import fx_to_eur
+
+    prices: dict[date, float] = {}
+    for p in s.scalars(select(MacroPoint).where(MacroPoint.indicator == name, MacroPoint.day <= end)):
+        fx = fx_to_eur(s, "USD", p.day)  # URTH is quoted in USD
+        if fx is not None:
+            prices[p.day] = p.value * fx
+    return prices
+
+
 def core_series(s: Session, config: LoadedConfig, end: date) -> CoreSeries | None:
+    """The core's closes in EUR: the first ISIN of ``pockets.dca.isins`` with stored closes; before its first close
+    (an ETF younger than the first order), the declared proxy's returns chained to it —
+    said on the line; without the ETF, the declared proxy alone."""
+    from app.domain.allocation import price_on_or_before
     from app.services.market_data import fx_to_eur
 
     g = allocation_params(config) or {}
     core, _ = _pockets(config)
+    name = str(g.get("proxy_series") or "msci_world")
+    proxy = _proxy_prices(s, name, end)
+    plabel = f"série {name} (en USD converti en EUR, hors dividendes)"
     for isin in core:
         inst = s.get(Instrument, isin)
         rows = list(s.scalars(select(PriceEod).where(PriceEod.isin == isin, PriceEod.day <= end)))
         if inst is None or not rows:
             continue
         cur = inst.currency or "EUR"
-        prices = {}
+        etf = {}
         for r in rows:
             fx = fx_to_eur(s, cur, r.day)
             if fx is not None:
-                prices[r.day] = r.close * fx
-        if prices:
-            return CoreSeries(prices, f"ETF du cœur {inst.name or isin} ({isin}), clôtures", False)
-    name = str(g.get("proxy_series") or "msci_world")
-    pts = list(s.scalars(select(MacroPoint).where(MacroPoint.indicator == name, MacroPoint.day <= end)))
-    if not pts:
+                etf[r.day] = r.close * fx
+        if not etf:
+            continue
+        label = f"ETF du cœur {inst.name or isin} ({isin}), clôtures"
+        first = min(etf)
+        anchor = price_on_or_before(proxy, first)
+        before = {d: v for d, v in proxy.items() if d < first}
+        if anchor and before:  # chain-linked: the proxy's own returns before the ETF existed, never a level guess
+            k = etf[first] / anchor
+            return CoreSeries(
+                {**{d: v * k for d, v in before.items()}, **etf},
+                f"{label} depuis le {first:%d/%m/%Y} ; avant : proxy déclaré {plabel}, raccordé",
+                True,
+            )
+        return CoreSeries(etf, label, False)
+    if not proxy:
         return None
-    prices = {}
-    for p in pts:
-        fx = fx_to_eur(s, "USD", p.day)  # URTH is quoted in USD
-        if fx is not None:
-            prices[p.day] = p.value * fx
-    if not prices:
-        return None
-    return CoreSeries(prices, f"proxy déclaré : série {name} (en USD converti en EUR, hors dividendes)", True)
+    return CoreSeries(proxy, f"proxy déclaré : {plabel}", True)
 
 
 def satellite_fills(s: Session, config: LoadedConfig, end: date) -> list[Fill]:
@@ -199,4 +227,73 @@ def report_lines(res: CoreComparison, series: CoreSeries | None) -> list[str]:
         f"  richesse de la partie active : {_eur(res.satellite_eur)} · même argent dans le cœur : {_eur(res.core_eur)}",
         "  méthode : équivalent marché public (Kaplan & Schoar 2005) ; dividendes non comptés des deux côtés",
     ]
+    return out
+
+
+@dataclass(frozen=True)
+class CoreSetup:
+    isin: str
+    status: str  # « enregistré » | « déjà enregistré » | « introuvable » | « erreur »
+    ticker: str | None = None
+    name: str | None = None
+    bars: int = 0
+    first: date | None = None
+    last: date | None = None
+    note: str = ""
+
+
+def setup_core(
+    s: Session,
+    provider: Any,
+    config: LoadedConfig,
+    start: date,
+    end: date,
+    exchanges: tuple[str, ...] = ("PA",),
+    mic_of: dict[str, str] | None = None,
+) -> list[CoreSetup]:
+    """Lot C1 (docs/39 §5, D1): each ISIN of ``pockets.dca.isins`` registered as an instrument (ETF, out of the
+    universe: never a signal card, never a cap) from the provider's ETF list of ``exchanges``, then its stored closes
+    from ``start`` — the daily EOD job keeps them up to date (it loads every active instrument)."""
+    from app.services.market_data import upsert_eod
+
+    mic_of = mic_of or {"PA": "XPAR"}
+    out: list[CoreSetup] = []
+    listed: dict[str, list[dict[str, str]]] = {}
+    for isin in sorted(core_isins(config)):
+        inst = s.get(Instrument, isin)
+        status = "déjà enregistré" if inst is not None and inst.ticker_eodhd else "enregistré"
+        if inst is None or not inst.ticker_eodhd:
+            row, ex = None, None
+            for ex_ in exchanges:
+                if ex_ not in listed:
+                    try:
+                        listed[ex_] = provider.exchange_symbols(ex_, ("etf",))
+                    except Exception as exc:  # noqa: BLE001 — said, never guessed
+                        out.append(CoreSetup(isin, "erreur", note=f"liste des ETF {ex_} : {str(exc)[:100]}"))
+                        listed[ex_] = []
+                row = next((r for r in listed[ex_] if str(r.get("Isin") or "").upper() == isin), None)
+                if row is not None:
+                    ex = ex_
+                    break
+            if row is None or ex is None:
+                out.append(CoreSetup(isin, "introuvable", note=f"absent de la liste des ETF ({', '.join(exchanges)})"))
+                continue
+            if inst is None:
+                inst = Instrument(isin=isin, name=str(row.get("Name") or isin), mic=mic_of.get(ex, ex))
+                s.add(inst)
+            inst.name = str(row.get("Name") or inst.name)
+            inst.ticker_local, inst.exchange, inst.mic = str(row.get("Code")), ex, mic_of.get(ex, ex)
+            inst.ticker_eodhd = f"{row.get('Code')}.{ex}"
+            inst.currency, inst.kind = str(row.get("Currency") or "EUR"), "etf"
+            inst.in_universe, inst.active = False, True
+            s.flush()
+        try:
+            bars = provider.fetch_eod([inst.ticker_eodhd], start, end)
+        except Exception as exc:  # noqa: BLE001
+            out.append(CoreSetup(isin, "erreur", inst.ticker_eodhd, inst.name, note=f"historique : {str(exc)[:100]}"))
+            continue
+        n = upsert_eod(s, bars, {str(inst.ticker_eodhd): isin})
+        days = sorted(b.day for b in bars)
+        out.append(CoreSetup(isin, status, inst.ticker_eodhd, inst.name, n, days[0] if days else None,
+                             days[-1] if days else None))  # fmt: skip
     return out

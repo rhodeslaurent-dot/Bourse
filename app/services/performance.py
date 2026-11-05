@@ -72,6 +72,8 @@ class PerformanceView:
     open_lines: list[OpenLine] = field(default_factory=list)
     realized_total: float = 0.0
     latent_total: float = 0.0
+    core_realized: float = 0.0  # R17: the core pocket's share of the totals (the circuit breaker leaves it out)
+    core_latent: float = 0.0
     fees_total: float = 0.0
     costs_by_month: dict[str, float] = field(default_factory=dict)
     incomplete: list[str] = field(default_factory=list)
@@ -81,7 +83,10 @@ class PerformanceView:
 
 
 def build_performance(s: Session, config: LoadedConfig) -> dict[str, Any]:
+    from app.services.allocation import core_isins
+
     accounts = {a.id: a for a in s.scalars(select(Account))}
+    core = core_isins(config)
     v = PerformanceView()
     for row in s.scalars(select(PositionRow).order_by(PositionRow.id)):
         acc = accounts.get(row.account_id)
@@ -133,6 +138,8 @@ def build_performance(s: Session, config: LoadedConfig) -> dict[str, Any]:
             )
             v.closed_names[row.isin] = name_of(row.isin)
             v.realized_total += res.realized_pnl
+            if row.isin in core:
+                v.core_realized += res.realized_pnl
         if row.qty_held > 0 and row.closed_at is None:
             price, status, as_of = _last_price(s, row)
             fx_now = fx_to_eur(s, row.currency or "EUR")  # latent in EUR like the realised legs
@@ -154,6 +161,8 @@ def build_performance(s: Session, config: LoadedConfig) -> dict[str, Any]:
                 v.incomplete.append(f"{row.isin} : cours indisponible, latent exclu (jamais estimé)")
             else:
                 v.latent_total += lat
+                if row.isin in core:
+                    v.core_latent += lat
             v.open_lines.append(
                 OpenLine(
                     isin=row.isin,
@@ -222,11 +231,11 @@ def snapshot_equity(s: Session, config: LoadedConfig, day: date, now: datetime |
         total_cash += 0.0 if shared else acc.cash or 0.0
         total_pos += pos_value
         total_lat += lat
-    rows.append(
-        _upsert_kpi(
-            s, day, None, total_equity, total_cash, total_pos, total_lat, view.realized_total, any_incomplete, now
-        )
+    cons = _upsert_kpi(
+        s, day, None, total_equity, total_cash, total_pos, total_lat, view.realized_total, any_incomplete, now
     )
+    cons.core_latent_pnl, cons.core_realized_pnl_cum = view.core_latent, view.core_realized  # R17 (circuit)
+    rows.append(cons)
     s.flush()
     return rows
 

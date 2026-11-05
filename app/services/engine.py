@@ -222,10 +222,13 @@ class Book:
     as_of: datetime | None = None  # the scan's time: proposals marked « Ordre saisi » still valid reserve risk
 
 
-def _book(s: Session) -> Book:
+def _book(s: Session, core: set[str] | None = None) -> Book:
+    """``core``: the core pocket (R17) — out of the caps, the heat and the sector counts (docs/39 §5)."""
     accounts = {a.id: a for a in s.scalars(select(Account))}
     lines, sectors = [], {}
     for p in s.scalars(select(PositionRow).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0)):
+        if core and p.isin in core:
+            continue
         acc = accounts.get(p.account_id)
         opened = p.opened_at.replace(tzinfo=UTC) if p.opened_at and p.opened_at.tzinfo is None else p.opened_at
         age = (datetime.now(UTC) - opened).days * 5 // 7 if opened else 0
@@ -1556,13 +1559,14 @@ class ScanReport:
         )
 
 
-def _candidates(s: Session, isins: list[str] | None) -> list[Instrument]:
+def _candidates(s: Session, isins: list[str] | None, core: set[str] | None = None) -> list[Instrument]:
+    """``core`` (R17, docs/39 §5): the core ETF is bought every month and never on a signal — never a candidate."""
     q = select(Instrument).where(Instrument.active.is_(True))
     if isins:
         q = q.where(Instrument.isin.in_(isins))
     else:
         q = q.where(Instrument.in_universe.is_(True))
-    return list(s.scalars(q))
+    return [i for i in s.scalars(q) if not (core and i.isin in core)]
 
 
 def _letter_setups(
@@ -1924,7 +1928,10 @@ def _scan(
             ctx_by_market[key] = ctxm if key == "EU" else market_context(s, config, day, published, key)
         return ctx_by_market[key]
 
-    book = _book(s)
+    from app.services.allocation import core_isins
+
+    core = core_isins(config)
+    book = _book(s, core)
     book.as_of = now
     from app.services.portfolio import cash_freshness
 
@@ -1951,7 +1958,7 @@ def _scan(
     from app.services.letter_analysis import letter_params
 
     lp = letter_params(config)
-    cands = _candidates(s, isins)
+    cands = _candidates(s, isins, core)
     # docs/20 §20.10: every value a letter recommends gets a proposal of the day — « non analysable » when the
     # scan cannot reach it or the tool cannot compute it, with the reason (never silence)
     letter_na = _missing_letter_values(s, day, set(isins) - {i.isin for i in cands}) if isins else []

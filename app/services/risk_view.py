@@ -74,6 +74,9 @@ def build_risk_view(s: Session, config: LoadedConfig, now: datetime | None = Non
     missing_price: list[str] = []  # M12: no price → excluded from the aggregates, view marked incomplete
     missing_fx: list[str] = []  # C4: FX unknown → excluded, never 1.0
     price_status: dict[str, tuple[str, datetime | None]] = {}
+    from app.services.allocation import core_isins
+
+    core = core_isins(config)  # R17 (docs/39 §5): no stop, out of the caps — its value stays in the account's equity
     for r in s.scalars(select(PositionRow).where(PositionRow.closed_at.is_(None), PositionRow.qty_held > 0)):
         acc = accounts[r.account_id]
         meta = imap.get(r.isin, {})
@@ -89,6 +92,11 @@ def build_risk_view(s: Session, config: LoadedConfig, now: datetime | None = Non
             r.last_price_status or "indisponible",
             from_store(r.last_price_at) if r.last_price_at else None,
         )
+        if r.isin in core:  # the core's value counts in its account, never in the risk, the caps or the stops
+            values_by_account.setdefault(acc.type, []).append(
+                PositionValue(r.isin, r.qty_held, r.avg_price, price, fx, r.mode, 0.0, r.currency or "EUR")
+            )
+            continue
         fees = fee_schedule_for(config, acc.broker)
         exit_fees = fees.commission(r.qty_held * price * fx)
         positions.append(
@@ -178,7 +186,7 @@ def build_risk_view(s: Session, config: LoadedConfig, now: datetime | None = Non
                     PositionRow.closed_at.is_(None), PositionRow.qty_held > PositionRow.qty_protected
                 )
             )
-            if r.isin in missing_price
+            if r.isin in missing_price and r.isin not in core
         ],
         "missing_price": missing_price,
         "missing_fx": missing_fx,  # noqa: F821

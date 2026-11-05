@@ -42,6 +42,15 @@ class CircuitView:
         }
 
 
+def _active(row: KpiDaily) -> tuple[float, float]:
+    """(realised cumulative, latent) of the active part: the consolidated row minus the core pocket (R17, docs/39 —
+    a fall of the world index on the core never blocks the active part). Rows written before lot C1 hold NULL: 0."""
+    return (
+        float(row.realized_pnl_cum) - float(getattr(row, "core_realized_pnl_cum", None) or 0.0),
+        float(row.latent_pnl) - float(getattr(row, "core_latent_pnl", None) or 0.0),
+    )
+
+
 def _baseline(s: Session, before: date) -> KpiDaily | None:
     return s.scalar(
         select(KpiDaily)
@@ -66,7 +75,7 @@ def _start_values(s: Session, start: date) -> tuple[float, float] | None:
         and not row.incomplete
         and (start - row.day).days <= 4
     ):
-        return float(row.realized_pnl_cum), float(row.latent_pnl)
+        return _active(row)
     if not _trades_before(s, start):
         return 0.0, 0.0  # nothing held before the period: the baseline is exactly zero
     return None
@@ -79,7 +88,7 @@ def _worst(s: Session, start: date, end: date, r_unit: float, extra: tuple[float
     if a is None:
         return None
     vals = [
-        period_pnl_r(float(r.realized_pnl_cum), float(r.latent_pnl), a[0], a[1], r_unit)
+        period_pnl_r(*_active(r), a[0], a[1], r_unit)
         for r in s.scalars(
             select(KpiDaily).where(KpiDaily.account_id.is_(None), KpiDaily.day >= start, KpiDaily.day < end)
         )
@@ -110,7 +119,7 @@ def circuit_state(
         from app.services.performance import build_performance
 
         v = build_performance(s, config)["v"]
-        current = (v.realized_total, v.latent_total)
+        current = (v.realized_total - v.core_realized, v.latent_total - v.core_latent)  # R17: the active part
         if v.incomplete:
             view.notes.append("latent partiel : " + " ; ".join(v.incomplete[:3]))
     sw, sm = _start_values(s, week0), _start_values(s, month0)
@@ -145,11 +154,7 @@ def circuit_state(
             .limit(21)
         )
     )[::-1]
-    totals = [
-        float(r.realized_pnl_cum) + float(r.latent_pnl)
-        for r in rows
-        if r.realized_pnl_cum is not None and r.latent_pnl is not None
-    ]
+    totals = [sum(_active(r)) for r in rows if r.realized_pnl_cum is not None and r.latent_pnl is not None]
     tripped, mult, why = rolling_breaker(totals, current[0] + current[1], r_unit, rp)
     if not view.tripped and tripped:
         view.tripped, view.reason, view.size_multiplier = True, why, 0.0

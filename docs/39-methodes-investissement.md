@@ -262,6 +262,12 @@ Rien de ce qui suit ne passe d'ordre (règle 1) ni ne change une proposition, un
   - la porte « WATCH : observation (espérance mesurée … R, source, n cas) » n'attend aucun fait : la réévaluation en séance ne la rouvre jamais ;
   - dans la revue : décision « OBSERVATION », « Rien à saisir » ; `null` désactive la règle.
 
+- **C1 — le cœur ETF (décision D1 du 05/11/2026 ; l'ISIN choisi vit dans `config/params.yaml`, non versionné)** :
+  - `core-setup` enregistre chaque ISIN de `pockets.dca.isins` depuis la liste des ETF de la place (Paris par défaut), **hors univers**, et charge ses clôtures ; la tâche EOD du jour les tient à jour ;
+  - `core-compare` mesure contre les clôtures de l'ETF ; avant sa première clôture (un ETF plus jeune que le premier ordre), la série est **raccordée** aux rendements du proxy déclaré, et la ligne le dit ;
+  - le cœur n'est **jamais** une carte de signal, ni compté dans les plafonds ou le risque ouvert, ni « sans protection » (aucun stop : il n'est pas vendu sur un signal ni après une baisse), ni dans le coupe-circuit (migration 0033 : part du cœur dans l'instantané d'équité consolidé) ; sa valeur reste dans l'équité du PEA ;
+  - le rappel « achat mensuel du cœur » du premier jour de bourse du mois (lot M2) s'active avec l'ISIN.
+
 **Pas encore fait** (à décider) :
 - bloc fiscal de fin d'année au CTO (D9) ;
 - plan n° 9 du banc : momentum 12-1 en gestion directe contre ETF (D7, données radiées à charger d'abord) ;
@@ -269,7 +275,7 @@ Rien de ce qui suit ne passe d'ordre (règle 1) ni ne change une proposition, un
 
 ## 11. Vos décisions
 
-1. **D1** — Le cœur est-il un ETF Monde éligible au PEA, acheté chaque mois, jamais vendu sur un signal ni après une baisse ? Si oui, quel ISIN mettre dans `pockets.dca.isins` (après lecture du DIC) ?
+1. **D1** — *tranchée le 05/11/2026 (ETF consigné dans `params.yaml`)* — Le cœur est-il un ETF Monde éligible au PEA, acheté chaque mois, jamais vendu sur un signal ni après une baisse ? Si oui, quel ISIN mettre dans `pockets.dca.isins` (après lecture du DIC) ?
 2. **D2** — Quelle part du cœur fixez-vous (`allocation.core_target_pct`) ? Aucune étude ne donne le bon chiffre.
 3. **D3** — Faut-il ranger les fiches des détecteurs et des lettres non validés dans une section « à titre d'information » (`allocation.unvalidated_cards: information`) ?
 4. **D4** — Voulez-vous une inclinaison momentum par l'ETF iShares MSCI Europe Momentum au CTO, achetée et conservée, comptée dans la partie active ?

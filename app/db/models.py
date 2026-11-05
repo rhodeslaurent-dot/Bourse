@@ -854,6 +854,9 @@ class KpiDaily(Base):
     realized_pnl_cum: Mapped[float | None] = mapped_column(nullable=True)
     incomplete: Mapped[bool] = mapped_column(Boolean, default=False)  # a position without price was excluded
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # consolidated row only (docs/39, R17): the core pocket's share, left out of the circuit breaker's measure
+    core_latent_pnl: Mapped[float | None] = mapped_column(nullable=True)
+    core_realized_pnl_cum: Mapped[float | None] = mapped_column(nullable=True)
     __table_args__ = (UniqueConstraint("day", "account_id", name="uq_kpi_daily_day_account"),)
 
 

@@ -1073,6 +1073,42 @@ def cmd_core_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_core_setup(args: argparse.Namespace) -> int:
+    """Lot C1 (docs/39 §5, D1) — register the core ETF of ``pockets.dca.isins`` (out of the universe: never a
+    signal card, never a cap, no stop) and load its closes; ``core-compare`` then measures against them."""
+    import os
+
+    from app.data.providers.eodhd import eodhd_from
+    from app.db.session import db_session
+    from app.services.allocation import core_isins, setup_core
+
+    cfg = load_params(args.params)
+    if not core_isins(cfg):
+        print("pockets.dca.isins est vide dans config/params.yaml : y mettre l'ISIN de l'ETF du cœur")
+        return 2
+    if not os.environ.get("EODHD_API_TOKEN"):
+        print("EODHD_API_TOKEN absent : lancer `env-setup eodhd` puis recréer le conteneur")
+        return 2
+    mic_of = {"PA": "XPAR"}
+    try:
+        from app.domain.calendar import load_market_calendars
+
+        cals = load_market_calendars(os.environ.get("MARKET_CALENDARS_PATH", "config/market_calendars.yaml"))
+        mic_of = {**mic_of, **dict(getattr(cals, "eodhd_to_mic", {}) or {})}
+    except (OSError, KeyError, ValueError):
+        pass
+    start = date.fromisoformat(args.from_date)
+    end = date.fromisoformat(args.to) if args.to else date.today()
+    exchanges = tuple(x.strip() for x in args.exchanges.split(",") if x.strip())
+    with db_session() as s:
+        rows = setup_core(s, eodhd_from(cfg), cfg, start, end, exchanges, mic_of)
+    for r in rows:
+        span = f", {r.bars} clôture(s) du {r.first} au {r.last}" if r.first else ""
+        print(f"{r.isin} : {r.status}" + (f" — {r.name} ({r.ticker})" if r.ticker else "") + span
+              + (f" — {r.note}" if r.note else ""))  # fmt: skip
+    return 0 if rows and all(r.status in ("enregistré", "déjà enregistré") for r in rows) else 1
+
+
 def cmd_media_check(args: argparse.Namespace) -> int:
     """docs/23 §23.7 — why media opinions show up or not: for each media feed of the example, whether it is in
     params.yaml, its last read, the episodes of the last 7 days stored, those read by the LLM and the values
@@ -2627,6 +2663,11 @@ def main(argv: list[str] | None = None) -> int:
     cc = sub.add_parser("core-compare", help="partie active contre le même argent placé dans le cœur (docs/39)")
     cc.add_argument("--to", default=None, help="AAAA-MM-JJ : date de fin (défaut : aujourd'hui)")
     cc.set_defaults(fn=cmd_core_compare)
+    cs = sub.add_parser("core-setup", help="enregistre l'ETF du cœur (pockets.dca.isins) et charge ses clôtures")
+    cs.add_argument("--from", dest="from_date", default="2016-01-01", help="AAAA-MM-JJ (défaut : 2016-01-01)")
+    cs.add_argument("--to", default=None, help="AAAA-MM-JJ (défaut : aujourd'hui)")
+    cs.add_argument("--exchanges", default="PA", help="places EODHD où chercher l'ETF (défaut : PA)")
+    cs.set_defaults(fn=cmd_core_setup)
     mc = sub.add_parser(
         "media-check", help="podcasts et médias : flux présents, épisodes lus, valeurs citées (docs/23)"
     )

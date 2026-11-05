@@ -306,7 +306,7 @@ allocation:                             # docs/39, ADR-018 (proposé) — cœur 
 
 pockets:                                # R17 — poche sanctuarisée (hors capital pilote et plafonds)
   dca:
-    isins: []                           # ETF de l'investissement progressif (à renseigner dans params.yaml)
+    isins: []                           # ETF de l'investissement progressif (à renseigner dans params.yaml), puis `core-setup` : hors univers, jamais une carte, hors plafonds, sans stop, hors coupe-circuit (lot C1)
     acceleration_index: "MSCI World"   # [non codé] : ce nom n'est pas lu ; la baisse est mesurée sur la série macro msci_world (URTH, proxy déclaré) depuis son plus haut sur 260 séances (portfolio_review)
     acceleration_drawdown_pct: 0.15
   tax_harvest: []                       # R18 — ex. [{isin: "FR00…", target_date: "2026-11-27"}] : hors plafonds, rappel de cession
