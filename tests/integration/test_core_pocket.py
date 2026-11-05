@@ -126,3 +126,24 @@ def test_core_setup_says_where_to_put_the_isin(config, db_engine, monkeypatch, c
     monkeypatch.setattr(cli, "load_params", lambda _p: config)  # pockets.dca.isins empty in the example
     assert cli.main(["core-setup"]) == 2
     assert "pockets.dca.isins est vide" in capsys.readouterr().out
+
+
+def test_core_set_writes_the_isin_and_keeps_the_comment(tmp_path, capsys):
+    """The user's request of 05/11/2026: point 3 (the ISIN in params.yaml) by a command, not by hand."""
+    import yaml
+
+    from app import cli
+
+    dst = tmp_path / "params.yaml"
+    dst.write_text(open("config/params.example.yaml", encoding="utf-8").read(), encoding="utf-8")
+    assert cli.main(["--params", str(dst), "core-set", "FR0000120272"]) == 2  # wrong check digit
+    assert "ISIN invalide" in capsys.readouterr().out and "FR0000120272" not in dst.read_text(encoding="utf-8")
+    cli.main(["--params", str(dst), "core-set", "fr0000120271"])
+    text = dst.read_text(encoding="utf-8")
+    line = next(ln for ln in text.splitlines() if ln.strip().startswith("isins:") and "FR0000120271" in ln)
+    assert 'isins: ["FR0000120271"]' in line and "# ETF de l'investissement progressif" in line
+    assert yaml.safe_load(text)["pockets"]["dca"]["isins"] == ["FR0000120271"]
+    out = capsys.readouterr().out
+    assert 'pockets.dca.isins = ["FR0000120271"] écrit' in out
+    assert cli.main(["--params", str(dst), "core-set", "FR0000120271"]) == 0
+    assert "vaut déjà" in capsys.readouterr().out

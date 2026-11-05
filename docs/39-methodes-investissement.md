@@ -263,6 +263,7 @@ Rien de ce qui suit ne passe d'ordre (règle 1) ni ne change une proposition, un
   - dans la revue : décision « OBSERVATION », « Rien à saisir » ; `null` désactive la règle.
 
 - **C1 — le cœur ETF (décision D1 du 05/11/2026 ; l'ISIN choisi vit dans `config/params.yaml`, non versionné)** :
+  - `core-set <ISIN>` (sur le PC, hors conteneur) écrit l'ISIN dans `pockets.dca.isins` de `params.yaml` après contrôle de sa clé, commentaire conservé ;
   - `core-setup` enregistre chaque ISIN de `pockets.dca.isins` depuis la liste des ETF de la place (Paris par défaut), **hors univers**, et charge ses clôtures ; la tâche EOD du jour les tient à jour ;
   - `core-compare` mesure contre les clôtures de l'ETF ; avant sa première clôture (un ETF plus jeune que le premier ordre), la série est **raccordée** aux rendements du proxy déclaré, et la ligne le dit ;
   - le cœur n'est **jamais** une carte de signal, ni compté dans les plafonds ou le risque ouvert, ni « sans protection » (aucun stop : il n'est pas vendu sur un signal ni après une baisse), ni dans le coupe-circuit (migration 0033 : part du cœur dans l'instantané d'équité consolidé) ; sa valeur reste dans l'équité du PEA ;

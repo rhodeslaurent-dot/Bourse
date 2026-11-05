@@ -1073,6 +1073,49 @@ def cmd_core_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_core_set(args: argparse.Namespace) -> int:
+    """``core-set <ISIN> [<ISIN>…]`` — writes ``pockets.dca.isins`` in ``config/params.yaml`` (the line's comment
+    kept), after checking each ISIN's check digit. On the PC itself: the container mounts params.yaml read-only."""
+    import os
+    from pathlib import Path
+
+    from app.domain.filings import valid_isin
+
+    isins = [valid_isin(x) for x in args.isins]
+    bad = [x for x, v in zip(args.isins, isins, strict=True) if v is None]
+    if bad:
+        print(f"ISIN invalide (forme ou clé de contrôle) : {', '.join(bad)} — rien n'est modifié")
+        return 2
+    path = Path(args.params or os.environ.get("PARAMS_PATH") or "config/params.yaml")
+    if not path.exists():
+        print(f"{path} absent : lancer d'abord `uv run python -m app.cli params-init --email …`")
+        return 2
+    text = path.read_text(encoding="utf-8")
+    flow = "[" + ", ".join(f'"{v}"' for v in isins) + "]"
+    new, done = set_scalar(text, "pockets.dca.isins", flow)
+    if not done:
+        print("clé pockets.dca.isins introuvable : lancer d'abord `uv run python -m app.cli params-init --update …`")
+        return 2
+    if new == text:
+        print(f"pockets.dca.isins vaut déjà {flow} : rien à changer")
+        return 0
+    try:
+        path.write_text(new, encoding="utf-8")
+    except OSError as exc:
+        if exc.errno == 30:  # read-only mount in the container
+            print(
+                f"{path} est en lecture seule dans le conteneur : rien n'est modifié. Lancer sur le PC : "
+                f"uv run python -m app.cli core-set {' '.join(v for v in isins if v)}"
+            )
+            return 2
+        raise
+    print(f"pockets.dca.isins = {flow} écrit dans {path}")
+    rc = cmd_check_config(argparse.Namespace(params=str(path)))
+    if rc == 0:
+        print("ensuite : docker compose restart app, puis docker compose exec app python -m app.cli core-setup")
+    return rc
+
+
 def cmd_core_setup(args: argparse.Namespace) -> int:
     """Lot C1 (docs/39 §5, D1) — register the core ETF of ``pockets.dca.isins`` (out of the universe: never a
     signal card, never a cap, no stop) and load its closes; ``core-compare`` then measures against them."""
@@ -2663,6 +2706,9 @@ def main(argv: list[str] | None = None) -> int:
     cc = sub.add_parser("core-compare", help="partie active contre le même argent placé dans le cœur (docs/39)")
     cc.add_argument("--to", default=None, help="AAAA-MM-JJ : date de fin (défaut : aujourd'hui)")
     cc.set_defaults(fn=cmd_core_compare)
+    cst = sub.add_parser("core-set", help="écrit l'ISIN du cœur dans pockets.dca.isins de params.yaml (sur le PC)")
+    cst.add_argument("isins", nargs="+", help="ISIN de l'ETF du cœur (clé de contrôle vérifiée)")
+    cst.set_defaults(fn=cmd_core_set)
     cs = sub.add_parser("core-setup", help="enregistre l'ETF du cœur (pockets.dca.isins) et charge ses clôtures")
     cs.add_argument("--from", dest="from_date", default="2016-01-01", help="AAAA-MM-JJ (défaut : 2016-01-01)")
     cs.add_argument("--to", default=None, help="AAAA-MM-JJ (défaut : aujourd'hui)")
