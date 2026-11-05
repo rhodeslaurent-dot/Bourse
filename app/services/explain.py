@@ -50,7 +50,8 @@ def entry_order_line(entree: dict[str, Any] | None, unit: str = "€") -> str | 
 
 PRICE_KEYS = {"declencheur": "déclencheur", "seuil": "seuil", "limite": "limite", "achat": "achat",
               "low": "bas", "high": "haut", "entry_low": "bas", "entry_high": "haut",
-              "annulation_ouverture_au_stop_structurel": "annulation si ouverture à"}  # fmt: skip
+              "annulation_ouverture_au_stop_structurel": "annulation si ouverture à",
+              "stop_sous_support": "stop sous le support"}  # fmt: skip
 
 
 def entry_zone_text(ez: dict[str, Any] | None, currency: str | None = None) -> str:

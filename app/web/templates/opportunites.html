@@ -92,7 +92,7 @@
       {% set sp = dd.speculative %}{% if sp and sp.etiquette %}{# docs/37 L0: the measured history, the reduced size, the bet named #}
       <p class="mt-1 text-sm font-medium text-amber-800 dark:text-amber-200" data-speculative>{{ sp.etiquette }} · taille {{ sp.taille }}</p>
       {% if sp.objectif_final %}<p class="mt-1 text-xs text-amber-700 dark:text-amber-300">Objectif final {{ '%.4g'|format(sp.objectif_final.objectif_final) }} retenu pour le ratio (D12) : l'objectif 1 {{ '%.4g'|format(sp.objectif_final.objectif_1) }} ne donnait pas un ratio ≥ 2 à ce prix — le pari porte sur l'objectif final.</p>{% endif %}
-      {% if sp.entree == 'plage_p2' and dd.entree %}<p class="mt-1 text-xs text-amber-700 dark:text-amber-300">Entrée à plage du plan n° 4 (P2) : stop {{ dd.entree.stop_atr }} ATR sous l'exécution ({{ '%.4g'|format(p.stop) if p.stop else '—' }} pour une exécution au seuil), sortie au temps après {{ dd.entree.sortie_au_temps_seances }} séances ; les objectifs sont des repères, pas des ordres (D15).</p>{% endif %}
+      {% if sp.entree == 'plage_p2' and dd.entree %}<p class="mt-1 text-xs text-amber-700 dark:text-amber-300">Entrée à plage du plan n° 4 (P2) : {% if dd.entree.stop_sous_support %}stop sous le support (au lieu de k × ATR sous l'exécution){% else %}stop {{ dd.entree.stop_atr }} ATR sous l'exécution{% endif %} ({{ '%.4g'|format(p.stop) if p.stop else '—' }} pour une exécution au seuil), sortie au temps après {{ dd.entree.sortie_au_temps_seances }} séances ; les objectifs sont des repères, pas des ordres (D15).</p>{% endif %}
       {% set ap = (p.gates or {}).appreciation or [] %}{% if ap %}<p class="mt-1 text-xs text-amber-700 dark:text-amber-300">Éléments d'appréciation : {{ ap|join(' · ') }}</p>{% endif %}
       {% endif %}
       {% if dd and dd.p_max %}
@@ -113,7 +113,8 @@
       {% if dd and dd.p_max and day == today %}{{ live.reeval(p.id, it.reeval) }}{% endif %}
       {% if p.thesis and p.thesis.arguments %}<p class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{ p.thesis.arguments[0].texte }}</p>{% endif %}
       {% for b in ex.blocked %}<p class="mt-1 text-sm font-semibold text-rose-700 dark:text-rose-300 [overflow-wrap:anywhere]">{{ b }}</p>{% endfor %}
-      {% set dm = (p.details or {}).donnees_manquantes or [] %}{% if dm %}<p class="mt-1 text-xs text-slate-500 dark:text-slate-400" title="Ce que le score n'a pas pu utiliser et ce que chaque absence coûte (points du bloc laissés à 0) ; jamais estimé">Données manquantes : {% for m in dm %}<span title="{{ m.note }}">{{ m.donnee }}{% if m.points %} −{{ '%g'|format(m.points) }} pt {{ m.bloc }}{% elif m.donnee == 'fondamentaux' %} {{ (m.note or '').split(' ')[0] }}{% endif %}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+      {% set dm = (p.details or {}).donnees_manquantes or [] %}{% if dm %}<p class="mt-1 text-xs text-slate-500 dark:text-slate-400" title="Ce que le score n'a pas pu utiliser et ce que chaque absence coûte (points du bloc laissés à 0) ; jamais estimé">Score partiel — données manquantes : {% for m in dm %}<span title="{{ m.note }}">{{ m.donnee }}{% if m.points %} −{{ '%g'|format(m.points) }} pt {{ m.bloc }}{% elif m.donnee == 'fondamentaux' %} {{ (m.note or '').split(' ')[0] }}{% endif %}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+      {% set rs = (p.details or {}).resultats %}{% if rs and rs.date is none %}<p class="mt-1 text-xs text-amber-700 dark:text-amber-300" data-card-r14>{{ rs.note }}</p>{% endif %}
       {% if not it.verdict %}{% for w in it.pourquoi %}<p class="mt-1 text-xs text-slate-600 dark:text-slate-300">En clair : {{ w }}</p>{% endfor %}{% endif %}
       </details>
     </div>
@@ -137,6 +138,8 @@
         </dl>
         {% if ex.bullets %}<ul class="mt-2 list-disc ml-4 space-y-0.5 text-slate-700 dark:text-slate-300">{% for b in ex.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
         {% if obs %}<p class="mt-2 rounded-lg bg-slate-100 dark:bg-slate-800 p-2 text-xs text-slate-700 dark:text-slate-300" data-card-observation>Observation — espérance mesurée {{ '%+.2f'|format(obs.r) }} R ({{ obs.source }}{% if obs.n %}, n {{ obs.n }}{% endif %}) : aucun ordre tant que la mesure n'est pas positive. Les niveaux restent ici pour le journal et le post-mortem.</p>{% endif %}
+        {% set mv = (p.details or {}).get('stop_sous_support') %}
+        {% if mv %}<p class="mt-2 rounded-lg bg-slate-100 dark:bg-slate-800 p-2 text-xs text-slate-700 dark:text-slate-300" data-card-stop-moved>Stop placé sous le support {{ '%.4g'|format(mv.support[0]) }}–{{ '%.4g'|format(mv.support[1]) }} {{ it.devise or '€' }} : il était à {{ '%.4g'|format(mv.stop_initial) }}, dans le chemin d'un test de ce support (moins de {{ '%g'|format(mv.marge_atr) }} × ATR au-dessus). Risque, quantité et ratio sont calculés sur ce stop.</p>{% endif %}
         {% set cut = (p.details or {}).get('serie_coupee') %}
         {% if cut %}<p class="mt-2 rounded-lg bg-slate-100 dark:bg-slate-800 p-2 text-xs text-slate-700 dark:text-slate-300" data-card-scale-cut>Historique lu depuis le {{ cut.jour[8:10] }}/{{ cut.jour[5:7] }}/{{ cut.jour[:4] }} ({{ cut.motif }}) : les {{ cut.seances_ecartees }} séances d'avant sont à une autre échelle de prix et ne donnent ni zone ni niveau.</p>{% endif %}
         {% set liq = (p.details or {}).get('liquidites') %}

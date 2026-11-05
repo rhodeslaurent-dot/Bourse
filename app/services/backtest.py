@@ -13,7 +13,7 @@ import logging
 import statistics
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -27,6 +27,7 @@ from app.domain.backtest import simulate_trade, summarize
 from app.domain.costs import CostParams, ftt_rate_any, round_trip_fee_fraction
 from app.domain.detectors import DETECTORS, DetectorContext
 from app.domain.indicators import Bar, compute_daily_features, sma
+from app.domain.stops import Zone, clear_of_supports
 from app.domain.zones import detect_zones
 
 log = logging.getLogger("bourse.backtest")
@@ -147,6 +148,9 @@ def run_backtest(
     zp = getattr(p, "zones", None) or {}
     stop_p = p.risk.stop
     wick = float(getattr(stop_p, "wick_buffer_pct", 0.005) or 0.005)
+    from app.services.engine import support_margin_atr
+
+    clear_k = support_margin_atr(config)  # 05/11/2026: the production stop rule, measured as it is applied
     k_rr = float((p.admission or {}).get("min_reward_risk", 2.0))
     slip = float(p.risk.slippage_pct)
     expiry = int((getattr(p, "entry", None) or {}).get("expiry_sessions", 3))
@@ -191,6 +195,7 @@ def run_backtest(
     excluded_ca = 0
     excluded_suspect = 0  # trades crossing a suspect session
     skipped_suspect = 0  # signal sessions whose detector window reads a suspect session
+    moved_stops = 0  # setups whose stop sat in a support's test path, moved under it
     trades: list[BacktestTrade] = []
     for n_done, (isin, h) in enumerate(hist.items(), 1):
         if progress:
@@ -220,7 +225,15 @@ def run_backtest(
                         int(zp.get("pivot_window", 5)), float(zp.get("merge_atr_mult", 0.5)), int(zp.get("min_touches", 2)),
                     )  # fmt: skip
                     zctx = DetectorContext(ctx.rs_rank, zones, ctx.wick_buffer_pct, ctx.stop_buffer_atr_mult)
-                    setups += [(name, dp, x) for x in DETECTORS[name](dp).detect(window, zctx)]
+                    found = DETECTORS[name](dp).detect(window, zctx)
+                    if clear_k is not None:  # the production rule of 05/11/2026: no stop in a support's test path
+                        sup = [z.zone for z in zones] + ([Zone(f.mm50, f.mm50)] if f.mm50 else [])
+                        for j, x in enumerate(found):
+                            new, span = clear_of_supports(x.stop, window[-1].close, sup, wick, clear_k * (f.atr14 or 0))
+                            if span is not None:
+                                found[j] = replace(x, stop=new)
+                                moved_stops += 1
+                    setups += [(name, dp, x) for x in found]
             for name, dp, st in setups:
                 if not st.targets:
                     continue  # « pas d'objectif exploitable »: WATCH in production, never a trade
@@ -272,6 +285,10 @@ def run_backtest(
         f"{excluded_suspect} trade(s) exclu(s), {skipped_suspect} séance(s) de signal ignorée(s) (fenêtre de "
         f"{SIGNAL_WINDOW} séances)",
         "compte comptant (frais du CTO), avant impôt ; une règle « découverte » exige t ≥ 3 (Harvey, Liu & Zhu)",
+        f"stop sous le support (risk.stop.support_clearance_atr = {clear_k}) : {moved_stops} configuration(s) au stop "
+        "déplacé sous un support dans le chemin duquel il se trouvait (règle de production du 05/11/2026)"
+        if clear_k is not None
+        else "stop sous le support : règle désactivée (risk.stop.support_clearance_atr = null)",
     ]
     s.flush()
     return run

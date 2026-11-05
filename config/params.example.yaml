@@ -97,6 +97,7 @@ risk:
     policy: "structural_first"        # structurel − tampon ; volatilité seulement en repli ; rejet si trop loin
     buffer_atr_mult: 0.25
     max_distance_adr: 2.5             # borne générale ; chaque détecteur a la sienne (stop_max_adr_mult)
+    support_clearance_atr: 0.5        # décision du 05/11/2026 (« l'erreur Airbus ») : un stop dans une zone de support ou moins de 0,5 × ATR14 au-dessus d'elle ou de la MM50 passe sous ce support (bas × (1 − wick_buffer_pct)) avant la taille ; moteur ET backtest ; null = désactivé
     protection_order_type_default: "a_seuil_de_declenchement"
     unconfirmed_exit_minutes: 5       # seuil franchi sans exécution confirmée → proposition SELL au marché (même incident P1)
     trailing_1r: {ref: "low_5d", atr_mult: 0.5}   # [à décider sur l'analyse MFE / MAE du backtest]

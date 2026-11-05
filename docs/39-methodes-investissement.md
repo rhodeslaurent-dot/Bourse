@@ -269,6 +269,11 @@ Rien de ce qui suit ne passe d'ordre (règle 1) ni ne change une proposition, un
   - le cœur n'est **jamais** une carte de signal, ni compté dans les plafonds ou le risque ouvert, ni « sans protection » (aucun stop : il n'est pas vendu sur un signal ni après une baisse), ni dans le coupe-circuit (migration 0033 : part du cœur dans l'instantané d'équité consolidé) ; sa valeur reste dans l'équité du PEA ;
   - le rappel « achat mensuel du cœur » du premier jour de bourse du mois (lot M2) s'active avec l'ISIN.
 
+- **C2 — points 5 et 6 de l'analyse des cartes (décisions du 05/11/2026)** :
+  - un stop dans une zone de support, ou moins de `risk.stop.support_clearance_atr` (0,5) × ATR14 au-dessus d'elle ou de la MM50, passe **sous ce support** (bas × (1 − `wick_buffer_pct`)) avant le calcul de la taille ; la carte le dit ; le **backtest applique la même règle** (le prochain run mesure la stratégie modifiée) ;
+  - date des prochains résultats inconnue : « R14 non vérifiable » sur la carte, sans blocage ; un score à données manquantes s'affiche « score partiel » ;
+  - place sans lettre : le **régime de la place** remplace la condition publiée — vert → ouvert, orange → restreint, rouge → restreint + (au lieu de « ouvert » par défaut).
+
 **Pas encore fait** (à décider) :
 - bloc fiscal de fin d'année au CTO (D9) ;
 - plan n° 9 du banc : momentum 12-1 en gestion directe contre ETF (D7, données radiées à charger d'abord) ;

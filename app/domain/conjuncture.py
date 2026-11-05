@@ -70,13 +70,17 @@ class GateState:
     reason: str
 
 
+_LIGHT = {"green": "vert", "orange": "orange", "red": "rouge"}
+
+
 def market_gate(published_ok: bool | None, level: str, regime: str | None, letters_apply: bool = True) -> GateState:
     """``published_ok``: option C conditions (None = no recent publication → not met). ``letters_apply``:
-    False on a venue the letters do not cover (docs/32) — the gate then follows the venue's regime and the
-    conjunctural level only, never the conditions published about another market."""
-    met = published_ok is True or not letters_apply
+    False on a venue the letters do not cover (docs/32) — never the conditions published about another market:
+    the venue's own regime takes their place (user decision of 05/11/2026: « ouvert » only on a green regime,
+    orange → restreint, red → restreint +), then the conjunctural level as everywhere."""
+    met = published_ok is True or (not letters_apply and regime == "green")
     cond = (
-        "lettres non applicables à cette place"
+        f"sans lettre sur cette place : régime de la place {_LIGHT.get(regime or '', 'inconnu')}"
         if not letters_apply
         else "conditions publiées remplies"
         if met

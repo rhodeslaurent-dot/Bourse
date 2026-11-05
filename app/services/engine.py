@@ -358,8 +358,12 @@ def evaluate(
     level: float = 1.0,
     ref: Any | None = None,
     spec: Speculative | None = None,
+    supports: list[Any] | None = None,
 ) -> Evaluation:
-    """``spec`` (docs/37 L0, only with ``verdict.enabled``): a « spéculative » card — budget × its multiplier, ADR-013
+    """``supports``: the value's support zones (and its MM50 from ``feats``) — a stop in their test path goes under
+    them before any size is computed (user decision of 05/11/2026).
+
+    ``spec`` (docs/37 L0, only with ``verdict.enabled``): a « spéculative » card — budget × its multiplier, ADR-013
     lifted for a speculative detector, D12 (last target) and D15 (d7 plage P2) when allowed. None: as before."""
     p = config.params
     risk = p.risk
@@ -411,6 +415,10 @@ def evaluate(
             horizon=_horizon_of(d15.sortie_seances),
             evidence={**setup.evidence, "entree_p2": d15.as_dict()},
         )
+        ev.setup = setup
+    cleared = _clear_stop(config, setup, price, supports, feats)
+    if cleared is not None:  # 05/11/2026: never a stop the first test of a support reaches (« l'erreur Airbus »)
+        setup, ev.details["stop_sous_support"] = cleared
         ev.setup = setup
     adm_price = _admission_price(setup, price)
     # docs/06 §6.3 (applied 30/10/2026): a breakout is entered with an order à plage de déclenchement for J+1 —
@@ -1011,6 +1019,9 @@ def evaluate(
                 "stop_atr": d15.stop_atr,
                 "sortie_au_temps_seances": d15.sortie_seances,
             })  # fmt: skip
+            if ev.details.get("stop_sous_support"):  # the k × ATR stop was in a support's test path: moved under it
+                ev.details["entree"].pop("stop_atr", None)
+                ev.details["entree"]["stop_sous_support"] = setup.stop
     else:
         ev.details["entree"] = {"declencheur": setup.entry_level, "limite": adm.p_max, "type": LIMIT_AT_PMAX}
     der = getattr(p, "derivatives", None) or {}
@@ -1332,6 +1343,9 @@ def _events_blocks(
                     f"BLOQUÉ : publication de résultats le {inst.earnings_next_date:%d/%m} — un stop ne protège pas "
                     f"d'un gap ; {exp.text} (R14)"
                 )
+    else:  # user decision of 05/11/2026: said on the card, never a block — R14 cannot be checked without the date
+        ev.details["resultats"] = {"date": None, "note": "date des prochains résultats inconnue : R14 non vérifiable "
+                                   "(vérifier l'agenda de la société avant l'ordre)"}  # fmt: skip
     keywords = list(e.get("macro_keywords") or MACRO_KEYWORDS_DEFAULT)
     families = _macro_families(config)
     soon = s.scalars(
@@ -2128,6 +2142,7 @@ def _scan(
                     circuit,
                     level=line_level,
                     ref=ref,
+                    supports=[z.zone for z in zones],
                 )
                 finish = partial(_finish_card, s, config, inst, setup, cm, published_why, level_info, line_level,
                                  conv_why, price_source, price_ts, at, f, shown, zones, er, track, prior,
@@ -2238,6 +2253,38 @@ def _speculative_for(
 
 
 OBSERVATION = "WATCH : observation"
+
+
+def support_margin_atr(config: LoadedConfig) -> float | None:
+    """``risk.stop.support_clearance_atr`` (0.5 by default; null disables the rule): how far above a support, in
+    ATR14, a stop is still in the path of the support's first test."""
+    v = getattr(config.params.risk.stop, "support_clearance_atr", 0.5)
+    return float(v) if v is not None else None
+
+
+def _clear_stop(
+    config: LoadedConfig, setup: Setup, price: float, supports: list[Any] | None, feats: Any | None
+) -> tuple[Setup, dict[str, Any]] | None:
+    """The setup with its stop under the supports whose test path it sits in (``app.domain.stops``), with what
+    moved; None when the stop is clear (or no zone was given, or the rule is off)."""
+    from app.domain.stops import Zone, clear_of_supports
+
+    k = support_margin_atr(config)
+    if k is None or supports is None:
+        return None
+    mm50 = getattr(feats, "mm50", None)
+    zs = [Zone(float(z.low), float(z.high)) for z in supports]
+    if mm50 and mm50 < price:
+        zs.append(Zone(float(mm50), float(mm50)))
+    wick = float(getattr(config.params.risk.stop, "wick_buffer_pct", None) or 0.005)
+    atr = float(getattr(feats, "atr14", None) or 0.0)
+    new, span = clear_of_supports(setup.stop, price, zs, wick, k * atr)
+    if span is None:
+        return None
+    info = {"stop_initial": round(setup.stop, 6), "stop": round(new, 6), "support": [span.low, span.high],
+            "marge_atr": k}  # fmt: skip
+    basis = f"{setup.stop_basis} → sous le support {span.low:.4g}–{span.high:.4g} (dans le chemin d'un test)"
+    return replace(setup, stop=new, stop_basis=basis), info
 
 
 def _suspect_ratio(config: LoadedConfig) -> float | None:

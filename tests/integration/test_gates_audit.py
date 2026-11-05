@@ -251,7 +251,11 @@ def test_missing_data_line_on_the_card(client):  # noqa: F811
             {"donnee": "fondamentaux", "bloc": "F", "points": None, "note": "1/5 critères (< 2 : bloc F non attribué)"},
         ]}  # fmt: skip
     html = client.get("/opportunites").text
-    assert "Données manquantes : " in html and "date des prochains résultats −4 pt R" in html and "1/5" in html
+    assert (
+        "Score partiel — données manquantes : " in html
+        and "date des prochains résultats −4 pt R" in html
+        and "1/5" in html
+    )
 
 
 def test_waiting_limit_caps_use_the_interface_capital(db_engine, config):
@@ -333,3 +337,26 @@ def test_a_taken_proposal_is_not_counted_twice_with_its_unlinked_order_or_fill(d
         s.flush()
         total, rows = engine._reserved_risk(s, config, 300.0, NOW)
     assert [r.get("proposition") for r in rows] == [None]  # the declared order only, the fill ends b
+
+
+def test_a_stop_in_a_supports_test_path_goes_under_it_before_the_size(db_engine, config, monkeypatch, pea_only):
+    """User decision of 05/11/2026 (Inwido, « l'erreur Airbus »): the risk, the quantity and the ratio are computed on
+    the stop moved under the support; an unknown earnings date is said, never a block."""
+    monkeypatch.setattr(engine, "score", _fake())
+    feats = SimpleNamespace(mm50=95.6, atr14=2.0, rs_rank=90)
+    with db_session() as s:
+        _seed(s, breakout_bars())
+        inst = s.get(Instrument, ISIN)
+        inst.earnings_next_date = None
+        setup = Setup("d4_pullback", SetupKind.PULLBACK, 100.0, 101.0, 96.0, "structure", 99.0, [121.0], "swing_2_6w")
+        args = (s, _cfg(config), inst, setup, "moteur", 100.0, "eod", engine.Book([], {}, {}), "ouvert", "green", None,
+                NOW, feats)  # fmt: skip
+        plain = engine.evaluate(*args, circuit=CIRCUIT)
+        moved = engine.evaluate(*args, circuit=CIRCUIT, supports=[SimpleNamespace(low=94.0, high=95.2)])
+    mv = moved.details["stop_sous_support"]
+    assert "stop_sous_support" not in plain.details and plain.setup.stop == 96.0
+    assert mv["stop_initial"] == 96.0 and mv["stop"] == pytest.approx(94.0 * 0.995) and mv["support"] == [94.0, 95.6]
+    assert moved.setup.stop == pytest.approx(94.0 * 0.995) and "sous le support 94–95.6" in moved.setup.stop_basis
+    assert (moved.shares or 0) < (plain.shares or 0)  # a wider stop: fewer shares for the same risk (rule 7)
+    assert "R14 non vérifiable" in moved.details["resultats"]["note"]
+    assert not any("R14" in b for b in moved.blocked)

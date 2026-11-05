@@ -32,6 +32,31 @@ def placement_violation(stop: float, supports: list[Zone]) -> Zone | None:
     return None
 
 
+def clear_of_supports(
+    stop: float, price: float, supports: list[Zone], wick_buffer_pct: float, margin: float
+) -> tuple[float, Zone | None]:
+    """A stop in the test path of a support goes under it (user decision of 05/11/2026, « l'erreur Airbus »: a stop
+    just above the MM50 or a pivot zone is hit by the first test of the support, the very move the support is
+    meant to absorb). A support under ``price`` is in the path when the stop lies inside it or above its high by
+    less than ``margin`` (in price, e.g. 0.5 × ATR14); the stop then becomes its low × (1 − wick buffer), again
+    while the new stop lands in the path of a lower support. Returns (stop, the supports' span it was moved under —
+    None when unchanged). A stop is only ever lowered here: the risk is recomputed on it (rule 7)."""
+    cur, span = stop, None
+    for _ in range(len(supports) + 1):
+        hit = next(
+            (z for z in sorted(supports, key=lambda z: -z.high) if z.low < price and z.low <= cur <= z.high + margin),
+            None,
+        )
+        if hit is None:
+            break
+        new = place_stop(hit, wick_buffer_pct)
+        if new >= cur:
+            break
+        cur = new
+        span = Zone(hit.low, max(hit.high, span.high) if span else hit.high)
+    return cur, span
+
+
 @dataclass
 class StopDecision:
     stop: float

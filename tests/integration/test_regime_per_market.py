@@ -55,8 +55,13 @@ def test_indices_load_incrementally_and_report_unknown_codes(db_engine, config):
 def test_letters_conditions_do_not_gate_other_venues():
     assert market_gate(None, "faible", "green").state == "restreint"  # Paris without a recent publication
     g = market_gate(None, "faible", "green", letters_apply=False)
-    assert g.state == "ouvert" and "non applicables" in g.reason
+    assert g.state == "ouvert" and "sans lettre sur cette place : régime de la place vert" in g.reason
     assert market_gate(None, "faible", "red", letters_apply=False).state == "restreint_plus"  # its own red regime
+    # user decision of 05/11/2026: without a letter, the venue's regime replaces the published condition — an
+    # orange regime is « restreint » (as Paris without a recent publication), never « ouvert » by default
+    o = market_gate(None, "faible", "orange", letters_apply=False)
+    assert o.state == "restreint" and "régime de la place orange" in o.reason
+    assert market_gate(None, "modere", None, letters_apply=False).state == "restreint"  # no regime: never open
 
 
 @pytest.mark.parametrize(
