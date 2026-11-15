@@ -1,0 +1,66 @@
+"""Lot S3 (step 1 of the user's plan, 15/11/2026) — statistics of what followed a family of events. Pure.
+
+The excess return of a value over the median of its venue is read in the source's own direction: a « buy » letter is
+right when the value then beats its venue, a « sell » when it lags. Events without a direction (a filing, a radar
+label) are read as they are. The figures are descriptive: no threshold here decides anything.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from math import sqrt
+from statistics import mean, median, pstdev
+
+
+@dataclass(frozen=True)
+class GroupStats:
+    n: int
+    mean: float | None  # mean excess, signed by the source's direction
+    median: float | None
+    hit_rate: float | None  # share of events where the signed excess is positive
+    t_stat: float | None  # mean / (sd / √n), descriptive
+
+    def as_dict(self) -> dict[str, float | int | None]:
+        return {"n": self.n, "moyenne": self.mean, "mediane": self.median, "reussite": self.hit_rate,
+                "t": self.t_stat}  # fmt: skip
+
+
+def signed(excess: float, direction: int | None) -> float:
+    """The excess in the source's direction: × −1 for a « sell », as is for a « buy » or no direction."""
+    return -excess if direction == -1 else excess
+
+
+def group_stats(values: Sequence[float]) -> GroupStats:
+    """n, mean, median, hit rate and t of signed excess returns (None where n is too small to say)."""
+    v = [float(x) for x in values]
+    n = len(v)
+    if n == 0:
+        return GroupStats(0, None, None, None, None)
+    m = mean(v)
+    sd = pstdev(v) if n > 1 else 0.0
+    t = m / (sd / sqrt(n)) if n > 1 and sd > 0 else None
+    return GroupStats(n, m, median(v), sum(1 for x in v if x > 0) / n, t)
+
+
+def venue_median(returns: Sequence[float], min_n: int = 10) -> float | None:
+    """The median return of a venue's values over the same sessions (None under ``min_n`` values)."""
+    r = list(returns)
+    return median(r) if len(r) >= min_n else None
+
+
+def broken(closes: Sequence[float], adj_factors: Sequence[float | None], jump: float = 0.2, ratio: float = 4.0) -> bool:
+    """A change of scale between two sessions inside the window: the adjustment factor ``adj_close / close`` moves
+    by more than ``jump`` (split, reverse split, rights issue) or a close is ``ratio`` × or 1/``ratio`` of the one
+    before (a unit change or a bad tick the factor does not show) — the window measures nothing then."""
+    prev_f = None
+    for k, c in enumerate(closes):
+        if c <= 0:
+            return True
+        if k and (c / closes[k - 1] >= ratio or c / closes[k - 1] <= 1 / ratio):
+            return True
+        f = adj_factors[k] if k < len(adj_factors) else None
+        if f and prev_f and abs(f / prev_f - 1) > jump:
+            return True
+        prev_f = f or prev_f
+    return False

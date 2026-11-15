@@ -1315,3 +1315,89 @@ class ProposalReevaluation(Base):
     status: Mapped[str] = mapped_column(String(32))  # app.domain.reevaluation.ReevalStatus
     actionable: Mapped[bool] = mapped_column(Boolean, default=False)  # rule 2: realtime and fresh only
     reasons: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+
+# ---------------------------------------------------------------------------------------------
+# Step 1 of the user's plan (15/11/2026): source health, one journal of events, their measure
+# ---------------------------------------------------------------------------------------------
+
+
+class SourceHealthRow(Base):
+    """Lot S1 — one row per day and source: items of the day and of 7 days, history held, status (kept day by day)."""
+
+    __tablename__ = "source_health"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    source: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(12))  # ok | en_retard | vide
+    items_day: Mapped[int] = mapped_column(Integer, default=0)
+    items_7d: Mapped[int] = mapped_column(Integer, default=0)
+    total: Mapped[int] = mapped_column(BigInteger, default=0)
+    first_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    silent_weekdays: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("day", "source", name="uq_source_health_day_source"),)
+
+
+class MarketEvent(Base):
+    """Lot S2 — every item of every source about a value, in one shape: when it became public (``event_at``), what
+    it says (``kind``, ``direction`` +1 / −1 / 0, ``strength``), where it comes from (``ref_table``, ``ref_id``) and
+    the context of that day (venue regime, VIX, major macro announcement). Never an opinion of the tool."""
+
+    __tablename__ = "market_events"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    source_key: Mapped[str] = mapped_column(String(48), index=True)
+    family: Mapped[str] = mapped_column(String(16))
+    kind: Mapped[str] = mapped_column(String(48), index=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    mic: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    direction: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    strength: Mapped[float | None] = mapped_column(nullable=True)
+    title: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    ref_table: Mapped[str] = mapped_column(String(32))
+    ref_id: Mapped[int] = mapped_column(BigInteger)
+    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    __table_args__ = (UniqueConstraint("ref_table", "ref_id", "kind", "isin", name="uq_market_events_ref"),)
+
+
+class EventOutcome(Base):
+    """Lot S3 — what the value did after an event: close of the first session after it (``ref``), close ``horizon``
+    sessions later, its return and its excess over the median of its venue and of its sector on the same sessions.
+    ``pending`` until the sessions exist; ``unavailable`` (with a note) when a price is missing or the series breaks."""
+
+    __tablename__ = "event_outcomes"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    event_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    horizon: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(12))  # pending | final | unavailable
+    ref_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ref_close: Mapped[float | None] = mapped_column(nullable=True)
+    end_close: Mapped[float | None] = mapped_column(nullable=True)
+    ret: Mapped[float | None] = mapped_column(nullable=True)
+    venue_median: Mapped[float | None] = mapped_column(nullable=True)
+    excess_venue: Mapped[float | None] = mapped_column(nullable=True)
+    sector_median: Mapped[float | None] = mapped_column(nullable=True)
+    excess_sector: Mapped[float | None] = mapped_column(nullable=True)
+    note: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("event_id", "horizon", name="uq_event_outcomes_event_horizon"),)
+
+
+class ShortVolumeDaily(Base):
+    """Lot S5 — daily short sale volume of a US value as published by FINRA (Reg SHO files): facts as published."""
+
+    __tablename__ = "short_volume_daily"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    short_volume: Mapped[float] = mapped_column()
+    short_exempt_volume: Mapped[float | None] = mapped_column(nullable=True)
+    total_volume: Mapped[float] = mapped_column()
+    source: Mapped[str] = mapped_column(String(32))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("isin", "day", "source", name="uq_short_volume_daily"),)

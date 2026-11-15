@@ -214,6 +214,14 @@ committee:                              # docs/24 v2 — comité d'investissemen
   max_tokens: 4000                      # la réflexion du président compte dans max_tokens
   est_output_tokens: 2500               # réservation de budget (réflexion comprise)
 
+event_journal:                           # étape 1 du plan (lots S1 à S3, 15/11/2026) — journal unique des événements de toutes les sources et mesure de ce qui a suivi (descriptif : aucun seuil ici ne décide)
+  effective_from: "2026-11-15"
+  horizons: [1, 5, 20]                  # séances après la première clôture de la place qui suit l'événement
+  venue_min_members: 10                 # valeurs de la place nécessaires pour sa médiane (sinon : écart non calculé)
+  sector_min_members: 5                 # valeurs du même secteur sur la place nécessaires pour la médiane du secteur
+  consensus_min_change: 0.02            # variation de l'objectif moyen des analystes en dessous de laquelle ce n'est pas un événement
+  short_volume_z: 3.0                   # lot S5 : part vendue à découvert (FINRA) à ≥ 3 écarts de sa base de 20 jours
+
 weak_signals:                           # docs/26 — radar des signaux faibles PUBLICS : agrégats seulement, jamais un déclencheur
   effective_from: "2026-10-25"
   enabled: true
@@ -906,6 +914,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   outcomes_update: {cron: "20 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}     # docs/18 §18.4 : résultat des propositions passées
   letters_review: {cron: "15 19 * * 1-5", misfire_grace_min: 240, market_days_only: true}     # docs/20 : rattrapage du soir (la revue se fait à la réception, dans imap_poll)
   us_open_scan: {cron: "35 15 * * 1-5", enabled: false, market_days_only: true}          # [phase 6] phase 6
+  sources_daily: {cron: "40 22 * * *", misfire_grace_min: 600, market_days_only: false}   # étape 1 du plan (lots S1 à S3) : journal des événements de toutes les sources, mesure à 1/5/20 séances, santé des sources ; tous les jours (lettres et forums arrivent aussi le week-end)
 
 workflow:                                # docs/17 §17.6 — journée guidée ; heures en Europe/Paris
   effective_from: 2026-10-21

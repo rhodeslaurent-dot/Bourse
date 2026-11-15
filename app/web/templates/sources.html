@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% from "_ui.html" import badge, dot %}
+{% block title %}Sources — BOURSE-PILOT{% endblock %}
+{% block content %}
+{% set tone = {'ok': 'green', 'en_retard': 'red', 'vide': 'amber'} %}
+<section class="card">
+  <h1 class="text-2xl font-bold">Sources</h1>
+  <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Chaque source collectée, chaque soir : éléments du jour et des 7 derniers jours, historique conservé, silence. Puis, pour chaque événement d'une source (recommandation, déclaration de dirigeant, nouvelle, communiqué…), ce que la valeur a fait ensuite face à sa place.</p>
+  {% if day %}
+  <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">État du {{ day.strftime('%d/%m/%Y') }} (job <code>sources_daily</code>, 22:40 Paris).</p>
+  {% else %}
+  <p class="mt-3 text-sm">{{ badge('aucun état enregistré', 'amber') }} Le job <code>sources_daily</code> n'a pas encore tourné. Sur le PC : <code>docker compose exec app python -m app.cli sources-health</code>.</p>
+  {% endif %}
+</section>
+
+{% if rows %}
+{% for fam, label in families.items() %}
+{% set part = rows | selectattr('family', 'equalto', fam) | list %}
+{% if part %}
+<section class="card">
+  <h2 class="font-semibold">{{ label }}</h2>
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-left text-xs text-slate-500 dark:text-slate-400">
+        <tr><th class="py-1 pr-2">Source</th><th class="pr-2">État</th><th class="pr-2 text-right">Jour</th><th class="pr-2 text-right">7 j</th><th class="pr-2 text-right">Total</th><th class="pr-2">Historique</th><th class="pr-2">14 derniers jours</th><th>Alimentée par</th></tr>
+      </thead>
+      <tbody>
+      {% for r in part %}
+        <tr class="border-t border-slate-100 dark:border-slate-800 align-top">
+          <td class="py-1.5 pr-2"><div class="font-medium">{{ r.label }}</div><div class="text-xs text-slate-500 dark:text-slate-400">{{ r.coverage }} · {{ r.cadence }}</div></td>
+          <td class="pr-2 whitespace-nowrap">{{ dot(tone.get(r.status, 'slate')) }} {{ r.status_label }}{% if r.silent_weekdays %}<div class="text-xs text-slate-500">muette {{ r.silent_weekdays }} j ouvré(s)</div>{% endif %}</td>
+          <td class="pr-2 text-right tabular-nums">{{ '{:,}'.format(r.items_day).replace(',', ' ') }}</td>
+          <td class="pr-2 text-right tabular-nums">{{ '{:,}'.format(r.items_7d).replace(',', ' ') }}</td>
+          <td class="pr-2 text-right tabular-nums">{{ '{:,}'.format(r.total).replace(',', ' ') }}</td>
+          <td class="pr-2 text-xs whitespace-nowrap">{% if r.first %}{{ r.first.strftime('%d/%m/%Y') }} → {{ r.last.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</td>
+          <td class="pr-2"><div class="flex gap-0.5">{% for d, st in strip.get(r.key, []) %}<span title="{{ d.strftime('%d/%m') }} : {{ st }}" class="inline-block h-3 w-2 rounded-sm {% if st == 'ok' %}bg-emerald-500{% elif st == 'en_retard' %}bg-rose-500{% else %}bg-amber-400{% endif %}"></span>{% endfor %}</div></td>
+          <td class="text-xs"><code>{{ r.feeder }}</code></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endfor %}
+{% endif %}
+
+<section class="card">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <h2 class="font-semibold">Ce qui a suivi les événements, à {{ h }} séance(s)</h2>
+    <div class="flex gap-1 text-sm">{% for x in horizons %}<a href="/sources?h={{ x }}" class="rounded-lg px-2 py-0.5 {% if x == h %}bg-slate-900 text-white dark:bg-white dark:text-slate-900{% else %}border border-slate-200 dark:border-slate-700{% endif %}">{{ x }} séance{{ 's' if x > 1 }}</a>{% endfor %}</div>
+  </div>
+  <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ n_events }} événement(s) au journal · à {{ h }} séance(s) : {{ by_status.get('final', 0) }} mesuré(s), {{ by_status.get('pending', 0) }} en attente, {{ by_status.get('unavailable', 0) }} non mesurable(s) (opération sur titre, cours manquants). Écart = rendement de la valeur moins la médiane des autres valeurs de sa place sur les mêmes séances, <b>lu dans le sens de la source</b> (une « vente » qui a raison donne un écart positif). Référence : la première clôture de la place après la publication. Descriptif : aucun chiffre de ce tableau ne décide une proposition.</p>
+  {% if board %}
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-left text-xs text-slate-500 dark:text-slate-400">
+        <tr><th class="py-1 pr-2">Source</th><th class="pr-2">Type</th><th class="pr-2">Sens</th><th class="pr-2 text-right">n</th><th class="pr-2 text-right">Écart moyen</th><th class="pr-2 text-right">Réussite</th><th class="pr-2 text-right">t</th><th class="pr-2">Par régime de la place</th><th>VIX</th></tr>
+      </thead>
+      <tbody>
+      {% for r in board[:60] %}
+        {% set m = r.stats.mean %}
+        <tr class="border-t border-slate-100 dark:border-slate-800 align-top">
+          <td class="py-1.5 pr-2 font-medium">{{ r.source_key }}</td>
+          <td class="pr-2 text-xs">{{ r.kind }}</td>
+          <td class="pr-2">{{ {1: 'hausse', -1: 'baisse', 0: 'neutre'}.get(r.direction, '—') }}</td>
+          <td class="pr-2 text-right tabular-nums">{{ r.stats.n }}</td>
+          <td class="pr-2 text-right tabular-nums {% if m is not none and m > 0 %}text-emerald-700 dark:text-emerald-300{% elif m is not none and m < 0 %}text-rose-700 dark:text-rose-300{% endif %}">{{ '—' if m is none else ('%+.2f'|format(m * 100)).replace('.', ',') ~ ' %' }}</td>
+          <td class="pr-2 text-right tabular-nums">{{ '—' if r.stats.hit_rate is none else '%.0f'|format(r.stats.hit_rate * 100) ~ ' %' }}</td>
+          <td class="pr-2 text-right tabular-nums">{{ '—' if r.stats.t_stat is none else ('%+.1f'|format(r.stats.t_stat)).replace('.', ',') }}</td>
+          <td class="pr-2 text-xs">{% for k, g in r.by_regime.items() %}<span class="mr-2 whitespace-nowrap">{{ k }} : {{ g.n }} · {{ '—' if g.mean is none else ('%+.1f'|format(g.mean * 100)).replace('.', ',') ~ ' %' }}</span>{% endfor %}</td>
+          <td class="text-xs">{% for k, g in r.by_vix.items() %}<span class="mr-2 whitespace-nowrap">{{ k }} : {{ g.n }} · {{ '—' if g.mean is none else ('%+.1f'|format(g.mean * 100)).replace('.', ',') ~ ' %' }}</span>{% endfor %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Lignes d'au moins 5 événements mesurés. Un t entre −2 et +2 ne distingue pas la source du hasard. Détail en console : <code>events-scoreboard --horizon {{ h }} --context 10</code>.</p>
+  {% else %}
+  <p class="mt-3 text-sm">{{ badge('pas encore de mesure', 'slate') }} Il faut des événements au journal et les séances qui les suivent. Sur le PC : <code>events-build --from 2016-01-01</code> puis <code>events-measure</code>.</p>
+  {% endif %}
+</section>
+{% endblock %}

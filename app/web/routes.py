@@ -247,6 +247,46 @@ def home(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/sources", response_class=HTMLResponse)
+def sources_page(request: Request, h: int = 5) -> HTMLResponse:
+    """Step 1 of the user's plan (lots S1 to S3) — every source's health, day by day, and what followed its events."""
+    from app.services.event_measure import scoreboard, settings
+    from app.services.source_health import FAMILIES, history, latest
+
+    st = settings(request.app.state.config)
+    h = h if h in st.horizons else (5 if 5 in st.horizons else st.horizons[0])
+    with db_session() as s:
+        day, rows = latest(s)
+        strip = history(s, day) if day else {}
+        board = scoreboard(s, h, 5)
+        from sqlalchemy import func
+
+        from app.db.models import EventOutcome, MarketEvent
+
+        n_events = int(s.scalar(select(func.count(MarketEvent.id))) or 0)
+        by_status = dict(
+            s.execute(
+                select(EventOutcome.status, func.count()).where(EventOutcome.horizon == h).group_by(EventOutcome.status)
+            ).all()  # fmt: skip
+        )
+    return templates.TemplateResponse(
+        request,
+        "sources.html",
+        {
+            "request": request,
+            "day": day,
+            "rows": rows,
+            "families": FAMILIES,
+            "strip": strip,
+            "board": board,
+            "h": h,
+            "horizons": st.horizons,
+            "n_events": n_events,
+            "by_status": by_status,
+        },  # fmt: skip
+    )
+
+
 @router.get("/sante", response_class=HTMLResponse)
 def sante(request: Request) -> HTMLResponse:
     st = request.app.state

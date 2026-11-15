@@ -50,6 +50,7 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "committee_review": "app.scheduler.jobs.committee_review:run",
     "backtest_weekly": "app.scheduler.jobs.backtest_weekly:run",
     "brief_premarket": "app.scheduler.jobs.daily_report:run",
+    "sources_daily": "app.scheduler.jobs.sources_daily:run",
 }
 
 

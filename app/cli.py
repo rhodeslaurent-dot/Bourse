@@ -440,6 +440,7 @@ NEW_TOP_BLOCKS = [
     "committee",  # docs/24 v2
     "verdict",  # docs/37 lot L0 — échelle de verdict, livrée désactivée (enabled: false)
     "allocation",  # docs/39 lots M1-M2 (02/11/2026) — cœur et partie active ; oublié le 02/11, ajouté le 03/11
+    "event_journal",  # étape 1 du plan, lots S1 à S3 (15/11/2026) — journal des événements et mesure
 ]
 # top-level groups present since the first params.yaml (never appended by params-init --update): every other group
 # of the example must be in NEW_TOP_BLOCKS (tests/unit/test_cli_setup.py), so that a new group is never forgotten
@@ -2611,6 +2612,78 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sources_health(args: argparse.Namespace) -> int:
+    """Step 1 (lot S1) — the state of every source today: items of the day and of 7 days, history held, silence."""
+    from app.db.session import db_session
+    from app.services.source_health import FAMILIES, STATUS_LABELS, snapshot, summary_line
+
+    day = date.fromisoformat(args.date) if args.date else date.today()
+    with db_session() as s:
+        states = snapshot(s, day)
+    fam = None
+    for x in states:
+        if x.family != fam:
+            fam = x.family
+            print(f"\n{FAMILIES[fam]}")
+        span = f"du {x.first:%d/%m/%Y} au {x.last:%d/%m/%Y}" if x.first and x.last else "aucun historique"
+        silent = f", muette depuis {x.silent_weekdays} jour(s) ouvré(s)" if x.silent_weekdays else ""
+        print(f"  {STATUS_LABELS[x.status]:<10} {x.label:<58} jour {x.items_day:>6}  7 j {x.items_7d:>7}  "
+              f"total {x.total:>9}  {span}{silent}  [{x.feeder}]")  # fmt: skip
+    print("\n" + summary_line(states))
+    return 0
+
+
+def cmd_events_build(args: argparse.Namespace) -> int:
+    """Step 1 (lot S2) — the journal of events from every source received since ``--from`` (idempotent)."""
+    from app.db.session import db_session
+    from app.domain.timeutil import PARIS
+    from app.services.event_journal import collect
+
+    cfg = load_params(args.params)
+    start = date.fromisoformat(args.from_date)
+    since = datetime.combine(start, datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
+    with db_session() as s:
+        rep = collect(s, cfg, since)
+    print(rep.line())
+    return 0
+
+
+def cmd_events_measure(args: argparse.Namespace) -> int:
+    """Step 1 (lot S3) — what each value did 1, 5 and 20 sessions after each event (by batches, oldest first)."""
+    from app.db.session import db_session
+    from app.services.event_measure import measure, settings
+
+    cfg = load_params(args.params)
+    today = date.fromisoformat(args.date) if args.date else date.today()
+    for _ in range(args.batches):
+        with db_session() as s:
+            rep = measure(s, today, limit=args.limit, st=settings(cfg))
+        print(rep.line())
+        if rep.events < args.limit or rep.final + rep.unavailable == 0:
+            break
+    return 0
+
+
+def cmd_events_scoreboard(args: argparse.Namespace) -> int:
+    """Step 1 (lot S3) — per source and kind: the mean excess over the venue after the event, in its direction."""
+    from app.db.session import db_session
+    from app.services.event_measure import pct, report_lines, scoreboard
+
+    since = date.fromisoformat(args.since) if args.since else None
+    with db_session() as s:
+        rows = scoreboard(s, args.horizon, args.min_n, since)
+    for line in report_lines(rows, args.horizon):
+        print(line)
+    if args.context:
+        for r in rows[: args.context]:
+            print(f"\n{r.source_key} · {r.kind}")
+            for title, part in (("régime", r.by_regime), ("VIX", r.by_vix), ("macro", r.by_macro)):
+                bits = ", ".join(f"{k} n {g.n} {pct(g.mean)}" for k, g in part.items())
+                print(f"  {title:<7} {bits}")
+            print(f"  secteur n {r.sector.n} {pct(r.sector.mean)} (écart à la médiane du secteur sur la place)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     from app.env import load_env
 
@@ -2725,6 +2798,23 @@ def main(argv: list[str] | None = None) -> int:
     rh.add_argument("--pages", default="1,20,100,300", help="probe : numéros de pages")
     rh.add_argument("--from", dest="from_date", default="2015-07-01")
     rh.set_defaults(fn=cmd_radar_history)
+    sh = sub.add_parser("sources-health", help="état de chaque source : éléments du jour, 7 jours, historique, retard")
+    sh.add_argument("--date", default=None, help="AAAA-MM-JJ (défaut : aujourd'hui)")
+    sh.set_defaults(fn=cmd_sources_health)
+    eb = sub.add_parser("events-build", help="journal des événements de toutes les sources depuis une date")
+    eb.add_argument("--from", dest="from_date", default="2016-01-01", help="AAAA-MM-JJ (défaut : 2016-01-01)")
+    eb.set_defaults(fn=cmd_events_build)
+    em = sub.add_parser("events-measure", help="mesure à 1, 5 et 20 séances de ce qui a suivi chaque événement")
+    em.add_argument("--date", default=None, help="AAAA-MM-JJ : jour de la mesure (défaut : aujourd'hui)")
+    em.add_argument("--limit", type=int, default=20000, help="événements par lot (défaut : 20000)")
+    em.add_argument("--batches", type=int, default=50, help="lots au plus (défaut : 50)")
+    em.set_defaults(fn=cmd_events_measure)
+    es = sub.add_parser("events-scoreboard", help="par source : écart moyen à la place après chaque événement")
+    es.add_argument("--horizon", type=int, default=5, help="séances (défaut : 5)")
+    es.add_argument("--min-n", dest="min_n", type=int, default=5, help="événements mesurés au moins (défaut : 5)")
+    es.add_argument("--since", default=None, help="AAAA-MM-JJ : événements depuis cette date")
+    es.add_argument("--context", type=int, default=0, help="détail par contexte des N premières lignes")
+    es.set_defaults(fn=cmd_events_scoreboard)
     sk = sub.add_parser("sources-check", help="lit chaque flux configuré et affiche son état (docs/23)")
     sk.add_argument("--name", default=None)
     sk.set_defaults(fn=cmd_sources_check)

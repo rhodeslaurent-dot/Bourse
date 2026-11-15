@@ -417,7 +417,24 @@ def _sources(s: Session, day: date, now: datetime) -> list[str]:
     last = s.scalar(select(func.max(PriceEod.day)).where(PriceEod.day <= day))
     if last is not None:
         out.append(f"cours de clôture jusqu'au {last:%d/%m/%Y}")
+    out += _health_line(s, day)
     return out
+
+
+def _health_line(s: Session, day: date) -> list[str]:
+    """Step 1 (lot S1): the last stored health of every source, in one line (nothing when never computed)."""
+    from app.db.models import SourceHealthRow
+    from app.services.source_health import registry
+
+    last = s.scalar(select(func.max(SourceHealthRow.day)).where(SourceHealthRow.day <= day))
+    if last is None:
+        return []
+    rows = list(s.scalars(select(SourceHealthRow).where(SourceHealthRow.day == last)))
+    labels = {x.key: x.label for x in registry()}
+    late = [labels.get(r.source, r.source) for r in rows if r.status == "en_retard"]
+    ok = sum(1 for r in rows if r.status == "ok")
+    txt = f"sources à jour {ok}/{len(rows)} le {last:%d/%m}"
+    return [txt + (f" (en retard : {', '.join(late[:4])}{'…' if len(late) > 4 else ''})" if late else "")]
 
 
 def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = None) -> dict[str, Any]:
