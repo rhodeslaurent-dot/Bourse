@@ -85,6 +85,15 @@ def substitute(cmd: str, params: dict[str, Any]) -> str:
     return _PLACEHOLDER.sub(one, cmd)
 
 
+def argv_of(cmd: str) -> list[str]:
+    """The arguments of a command; ``uv run python -m …`` runs with this very interpreter (already in the project's
+    environment): no second ``uv`` call, so no network nor certificate check (PC report of 15/11/2026)."""
+    args = shlex.split(cmd)
+    if args[:4] == ["uv", "run", "python", "-m"]:
+        return [sys.executable, "-m", *args[4:]]
+    return args
+
+
 def mask(text: str) -> str:
     return _SECRET.sub(lambda m: f"{m.group(1)}=***", text)
 
@@ -187,7 +196,7 @@ def run_task(task: dict[str, Any], params: dict[str, Any], run: Runner = _run,
         if c.startswith("wait-app "):
             code, out = _wait_app(int(c.split()[1]), run, sleep)
         else:
-            code, out = run(shlex.split(real), timeout)
+            code, out = run(argv_of(real), timeout)
         rep.steps.append(Step(c, code, time.monotonic() - t0, clip(mask(out))))  # the task's text, not the values
         if code != 0:
             rep.status = "échec"

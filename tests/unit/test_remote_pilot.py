@@ -154,3 +154,10 @@ def test_a_stale_lock_is_removed(tmp_path, monkeypatch):
     (tmp_path / ".running").write_text('{"id": "old", "started": 0, "timeout_s": 10}', encoding="utf-8")
     out = rp.tick(spawn=lambda: None, now=100000.0)
     assert "verrou périmé de la tâche old retiré" in out and "tâche lancée en arrière-plan : t1" in out
+
+
+def test_host_cli_commands_run_with_the_runner_s_own_interpreter():
+    import sys
+
+    assert rp.argv_of("uv run python -m app.cli params-init --update")[:3] == [sys.executable, "-m", "app.cli"]
+    assert rp.argv_of("docker compose ps") == ["docker", "compose", "ps"]

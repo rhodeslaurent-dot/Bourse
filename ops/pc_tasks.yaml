@@ -4,18 +4,15 @@
 # commande sort de la liste blanche (app/remote_pilot.py). Aucune donnée personnelle ici : une valeur du PC
 # s'écrit {params:chemin.de.la.cle} et n'est lue que sur le PC.
 tasks:
-  - id: "2026-11-15-01"
-    purpose: "Étape 1 (lots S1 à S5) : paramètres, reconstruction, santé des sources, journal depuis 2016, mesure, tableau, essai SEC/FINRA"
-    stop_on_error: true
-    timeout_s: 7200
+  # Les étapes 2 à 8 (lots S1 à S5) sont lancées à la main par la session locale le 15/11/2026 : la première tâche
+  # du relais est un simple point d'étape (lecture seule), qui vérifie aussi que le circuit fonctionne.
+  - id: "2026-11-15-02"
+    purpose: "Point d'étape après les étapes 2 à 8 : version, conteneur, santé des sources, tableau de mesure, essai SEC/FINRA"
+    stop_on_error: false
+    timeout_s: 1800
     commands:
       - "git log -3 --oneline"
-      - "uv run python -m app.cli params-init --update"
-      - "docker compose up -d --build"
-      - "wait-app 600"
       - "docker compose ps"
       - "docker compose exec -T app python -m app.cli sources-health"
-      - "docker compose exec -T app python -m app.cli events-build --from 2016-01-01"
-      - "docker compose exec -T app python -m app.cli events-measure"
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --context 10"
       - "docker compose exec -T app python -m app.cli us-check"
