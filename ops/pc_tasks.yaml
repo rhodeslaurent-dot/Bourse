@@ -1,0 +1,21 @@
+# Tâches exécutées sur le PC par la session locale en boucle (pilotage à distance, docs/41, ADR-022).
+# Écrites par la session cloud UNIQUEMENT après validation de l'utilisateur dans le chat cloud.
+# Exécutées une seule fois chacune par `python -m app.remote_pilot`, qui refuse toute la tâche si une seule
+# commande sort de la liste blanche (app/remote_pilot.py). Aucune donnée personnelle ici : une valeur du PC
+# s'écrit {params:chemin.de.la.cle} et n'est lue que sur le PC.
+tasks:
+  - id: "2026-11-15-01"
+    purpose: "Étape 1 (lots S1 à S5) : paramètres, reconstruction, santé des sources, journal depuis 2016, mesure, tableau, essai SEC/FINRA"
+    stop_on_error: true
+    timeout_s: 7200
+    commands:
+      - "git log -3 --oneline"
+      - "uv run python -m app.cli params-init --update"
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose ps"
+      - "docker compose exec -T app python -m app.cli sources-health"
+      - "docker compose exec -T app python -m app.cli events-build --from 2016-01-01"
+      - "docker compose exec -T app python -m app.cli events-measure"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --context 10"
+      - "docker compose exec -T app python -m app.cli us-check"

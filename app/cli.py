@@ -702,15 +702,37 @@ def merge_missing_jobs(example: str, target: str) -> tuple[str, list[str]]:
     return "".join(t_lines), added
 
 
+def existing_user(path: str) -> dict[str, object]:
+    """``user.telegram_user_id`` and ``user.email`` of an existing params.yaml (empty when absent or unreadable)."""
+    from pathlib import Path
+
+    import yaml
+
+    try:
+        data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    user = data.get("user") if isinstance(data, dict) else None
+    if not isinstance(user, dict):
+        return {}
+    email = str(user.get("email") or "")
+    return {"telegram_user_id": user.get("telegram_user_id"), "email": email if "@" in email else None}
+
+
 def cmd_params_init(args: argparse.Namespace) -> int:
     """``config/params.yaml`` from ``params.example.yaml`` with the user's Telegram id (from .env) and e-mail."""
     import os
 
+    known = existing_user("config/params.yaml") if args.update else {}
     uid = os.environ.get("TELEGRAM_USER_ID", "0")
+    if uid in ("", "0"):
+        uid = str(known.get("telegram_user_id") or "0")  # --update: the id already in params.yaml is kept
     if uid in ("", "0"):
         print("TELEGRAM_USER_ID absent de .env : lancer d'abord `env-setup telegram`")
         return 2
-    email = args.email or input("Adresse e-mail (rapports, Cloudflare Access) : ").strip()
+    email = args.email or str(known.get("email") or "")  # --update: no prompt (remote piloting, 15/11/2026)
+    if not email:
+        email = input("Adresse e-mail (rapports, Cloudflare Access) : ").strip()
     if "@" not in email:
         print("adresse e-mail invalide")
         return 2

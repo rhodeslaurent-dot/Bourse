@@ -15,3 +15,7 @@ docker-compose.override.yml
 scripts/tailwindcss
 scripts/tailwindcss.exe
 .claude/worktrees/
+
+# remote piloting (docs/41): reports and done-list stay on the PC
+ops/out/
+ops/.done
