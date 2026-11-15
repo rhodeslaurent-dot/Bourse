@@ -51,6 +51,8 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "backtest_weekly": "app.scheduler.jobs.backtest_weekly:run",
     "brief_premarket": "app.scheduler.jobs.daily_report:run",
     "sources_daily": "app.scheduler.jobs.sources_daily:run",
+    "consensus_daily": "app.scheduler.jobs.consensus_daily:run",
+    "filings_daily": "app.scheduler.jobs.filings_daily:run",
 }
 
 

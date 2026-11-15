@@ -45,7 +45,15 @@
 
 ## 40.5 S4 — Fréquences de recueil
 
-En cours de réalisation (voir `docs/15-status.md`).
+| Source | Avant | Depuis le lot S4 | Job |
+|---|---|---|---|
+| Consensus des analystes (screener différé : nombre d'analystes, objectif moyen, note publiée) | une fois par semaine (`universe_refresh`, lundi) | **chaque soir** 22:20 Paris, lundi à vendredi, univers et positions | `consensus_daily` |
+| Fondamentaux (Yahoo) | dimanche, toujours les 800 mêmes premières valeurs | **chaque nuit** 05:10 Paris, 800 valeurs par **rotation** : positions d'abord, puis jamais lues, puis les plus anciennes — tout l'univers en une semaine environ | `fundamentals_refresh` |
+| Communiqués officiels AMF | à la main (`filings-archive`) | **chaque soir** 21:50 Paris, tous les jours, 3 derniers jours (`data.filings.daily_lookback_days`), idempotent | `filings_daily` |
+| Actualités (RSS) | toutes les 15 min de 09:00 à 18:45 | toutes les 15 min de 09:00 à **21:45** (séance de New York) | `news_scan` |
+
+- Sur le PC, `params-init --update` ajoute les nouveaux jobs et **déplace les deux horaires modifiés** (`fundamentals_refresh`, `news_scan.day`) seulement s'ils sont encore à leur ancienne valeur par défaut : un horaire choisi par l'utilisateur est gardé.
+- Le registre de santé attend désormais un consensus et des fondamentaux au plus tard 3 jours ouvrés après le précédent.
 
 ## 40.6 S5 — Couverture des États-Unis
 

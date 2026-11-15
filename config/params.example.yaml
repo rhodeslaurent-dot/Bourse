@@ -650,8 +650,9 @@ data:
     dila_base_url: "https://echanges.dila.gouv.fr/OPENDATA/AMF/"
     min_interval_s: 1.0                    # au moins 1 s entre deux requêtes (plancher imposé par le code)
     history_from: "2016-01-01"             # début par défaut de filings-archive ; jamais avant 2015-10-01 (période 2007-2015 réservée, docs/34)
+    daily_lookback_days: 3                 # lot S4 (15/11/2026) : la tâche du soir filings_daily relit les 3 derniers jours (mois entiers lus, idempotent)
     coverage_min_share: 0.5                # un mois sous 50 % de la médiane du même mois des autres années est « non couvert » (l'étude y lit « inconnu »)
-  fundamentals: {max_items: 800, min_interval_s: 1.0}   # Yahoo (gratuit, non officiel) : débit limité, source et date affichées
+  fundamentals: {max_items: 800, min_interval_s: 1.0}   # Yahoo (gratuit, non officiel) : débit limité, source et date affichées ; lot S4 : chaque jour les 800 valeurs les moins récentes (positions d'abord), tout l'univers en une semaine
   quote_at_each_analysis: true             # [comportement codé] R19 : cours relevé au moment de chaque analyse, horodatage de marché et statut enregistrés
   plausibility_max_gap_pct: 0.05           # écart entre sources ou vs dernière clôture sans nouvelle → « à vérifier »
   paid_max_cost_pct_of_net_gains: 0.10     # [info] docs/22 §22.7 : abonnement proposé seulement si coût ≤ 10 % des gains nets annualisés
@@ -876,7 +877,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   eod_backfill_check: {cron: "45 6 * * 1-5", misfire_grace_min: 240, market_days_only: true}
   news_scan:
     premarket: {cron: "*/5 7-8 * * 1-5", market_days_only: true}
-    day: {cron: "*/15 9-18 * * 1-5", market_days_only: true}
+    day: {cron: "*/15 9-21 * * 1-5", market_days_only: true}   # lot S4 (15/11/2026) : jusqu'à 22:00 Paris (séance de New York) ; était 9-18
     misfire_grace_min: 5
   daily_regime: {cron: "30 7 * * 1-5", misfire_grace_min: 60, market_days_only: true}
   imap_poll: {every_minutes: 10, window_local: ["07:30", "19:00"], days: "1-5", market_days_only: true}
@@ -907,13 +908,15 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   forum_history: {cron: "*/30 0-5 * * *", misfire_grace_min: 20, market_days_only: false}   # docs/26 : historique du forum lu lentement la nuit, jusqu'à forum_from (décision du 26/10/2026)
   committee_review: {cron: "10 8 * * 1-5", misfire_grace_min: 90, market_days_only: true}   # docs/24 v2 : comité d'investissement en observation (verdicts mesurés, jamais appliqués)
   weak_signals: {cron: "40 6 * * 1-5", misfire_grace_min: 60, market_days_only: true}   # docs/26 : radar des signaux faibles publics (Wikipédia, volume, presse)
-  fundamentals_refresh: {cron: "0 9 * * 0", misfire_grace_min: 1440, market_days_only: false}   # fondamentaux et consensus gratuits (Yahoo), hebdomadaire
+  fundamentals_refresh: {cron: "10 5 * * *", misfire_grace_min: 600, market_days_only: false}   # lot S4 (15/11/2026) : fondamentaux gratuits (Yahoo) chaque nuit par rotation (les moins récents d'abord) ; était hebdomadaire
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h
   weekly_review: {cron: "0 8 * * 6", misfire_grace_min: 600, market_days_only: false}   # docs/18 §18.6 : revue IA, questions et propositions
   watchlist_refresh: {cron: "15 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}   # docs/18 §18.2 : après eod_backfill_check
   outcomes_update: {cron: "20 7 * * 1-5", misfire_grace_min: 240, market_days_only: true}     # docs/18 §18.4 : résultat des propositions passées
   letters_review: {cron: "15 19 * * 1-5", misfire_grace_min: 240, market_days_only: true}     # docs/20 : rattrapage du soir (la revue se fait à la réception, dans imap_poll)
   us_open_scan: {cron: "35 15 * * 1-5", enabled: false, market_days_only: true}          # [phase 6] phase 6
+  consensus_daily: {cron: "20 22 * * 1-5", misfire_grace_min: 600, market_days_only: false}   # lot S4 (15/11/2026) : consensus des analystes (screener différé) de tout l'univers chaque soir, après la clôture de New York ; était hebdomadaire (universe_refresh)
+  filings_daily: {cron: "50 21 * * *", misfire_grace_min: 720, market_days_only: false}   # lot S4 (15/11/2026) : communiqués officiels AMF des 3 derniers jours chaque soir (métadonnées seulement), tous les jours
   sources_daily: {cron: "40 22 * * *", misfire_grace_min: 600, market_days_only: false}   # étape 1 du plan (lots S1 à S3) : journal des événements de toutes les sources, mesure à 1/5/20 séances, santé des sources ; tous les jours (lettres et forums arrivent aussi le week-end)
 
 workflow:                                # docs/17 §17.6 — journée guidée ; heures en Europe/Paris

@@ -32,6 +32,7 @@ def refresh(
 ) -> dict[str, int]:
     held = {p.isin for p in s.scalars(select(PositionRow).where(PositionRow.closed_at.is_(None)))}
     insts = list(s.scalars(select(Instrument).where((Instrument.in_universe.is_(True)) | (Instrument.isin.in_(held)))))
+    insts = rotation(s, insts, held)
     rep = {"ok": 0, "absent": 0, "erreur": 0, "deja": 0}
     for k, inst in enumerate(insts[:max_items]):
         if s.scalar(select(Fundamentals.id).where(Fundamentals.isin == inst.isin, Fundamentals.day == day)):
@@ -58,6 +59,16 @@ def refresh(
         rep["ok"] += 1
     s.flush()
     return rep
+
+
+def rotation(s: Session, insts: list[Instrument], held: set[str]) -> list[Instrument]:
+    """Lot S4 (15/11/2026): the held values first, then those never read, then the oldest reading first — a daily
+    run of ``max_items`` covers the whole universe in turn (before: the same first 800 values every week)."""
+    from sqlalchemy import func
+
+    last = dict(s.execute(select(Fundamentals.isin, func.max(Fundamentals.day)).group_by(Fundamentals.isin)).all())
+    return sorted(insts, key=lambda i: (i.isin not in held, last.get(i.isin) is not None, last.get(i.isin) or date.min,
+                                        i.isin))  # fmt: skip
 
 
 def latest(s: Session, isin: str) -> Fundamentals | None:

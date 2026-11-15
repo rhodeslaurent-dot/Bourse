@@ -73,6 +73,7 @@ def settings(config: LoadedConfig) -> dict[str, Any]:
         "min_interval_s": max(float(cfg.get("min_interval_s", 1.0)), 1.0),  # never faster than 1 request/s
         "history_from": date.fromisoformat(str(cfg.get("history_from", "2016-01-01"))),
         "coverage_min_share": float(cfg.get("coverage_min_share", 0.5)),
+        "daily_lookback_days": int(cfg.get("daily_lookback_days", 3)),  # lot S4: the evening job's window
     }
 
 

@@ -1,5 +1,6 @@
-"""``fundamentals_refresh`` (Sunday 09:00 Paris): free fundamentals and analyst consensus of the
-universe and the held positions (Yahoo, throttled) → ``fundamentals`` (docs/22 §22.7)."""
+"""``fundamentals_refresh`` (every night, 05:10 Paris since lot S4 of 15/11/2026; Sunday before): free fundamentals
+and analyst consensus of the universe and the held positions (Yahoo, throttled) → ``fundamentals`` (docs/22 §22.7),
+``data.fundamentals.max_items`` values per night by rotation (held first, then never read, then the oldest)."""
 
 from __future__ import annotations
 

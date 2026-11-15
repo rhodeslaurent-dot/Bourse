@@ -318,6 +318,9 @@ def init_params(
         text, added = merge_missing_jobs(example_text, text)
         if added:
             print("jobs ajoutés depuis params.example.yaml : " + ", ".join(added))
+        text, moved = update_default_schedules(text)
+        if moved:
+            print("horaires mis à jour (valeur par défaut d'origine) : " + ", ".join(moved))
         text, blocks = merge_missing_blocks(example_text, text, NEW_TOP_BLOCKS)
         if blocks:
             print("blocs ajoutés depuis params.example.yaml : " + ", ".join(blocks))
@@ -627,6 +630,34 @@ def merge_missing_blocks(example: str, target: str, keys: list[str]) -> tuple[st
         target = target.rstrip("\n") + "\n\n" + block
         added.append(key)
     return target, added
+
+
+# A schedule whose default changed in the example: (job, line prefix, old default, new default). ``params-init
+# --update`` rewrites it only while the user's line still holds the old default (a schedule the user set is kept).
+SCHEDULE_CHANGES: list[tuple[str, str, str, str]] = [
+    ("fundamentals_refresh", "  fundamentals_refresh:", 'cron: "0 9 * * 0"', 'cron: "10 5 * * *"'),  # lot S4
+    ("news_scan.day", "    day:", 'cron: "*/15 9-18 * * 1-5"', 'cron: "*/15 9-21 * * 1-5"'),  # lot S4
+]
+
+
+def update_default_schedules(target: str) -> tuple[str, list[str]]:
+    """Lot S4 (15/11/2026) — apply ``SCHEDULE_CHANGES`` inside the target's ``jobs:`` block."""
+    ts, te, _ = _jobs_block(target)
+    if ts < 0:
+        return target, []
+    lines = target.splitlines(keepends=True)
+    moved = []
+    for name, prefix, old, new in SCHEDULE_CHANGES:
+        for i in range(ts + 1, te):
+            if lines[i].startswith(prefix) and old in lines[i]:
+                if name.startswith("news_scan.") and not any(
+                    lines[j].startswith("  news_scan:") for j in range(max(ts, i - 3), i)
+                ):
+                    continue  # ``day:`` of another multi-line job
+                lines[i] = lines[i].replace(old, new, 1)
+                moved.append(name)
+                break
+    return "".join(lines), moved
 
 
 def merge_missing_jobs(example: str, target: str) -> tuple[str, list[str]]:
