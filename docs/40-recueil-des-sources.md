@@ -69,6 +69,7 @@
 - **Identité demandée par la SEC** : `data.sec.user_agent` (« Prénom Nom adresse »), réglé par l'utilisateur sur le PC ; tant qu'il vaut « à renseigner », la SEC n'est pas lue et la ligne du job le dit. FINRA ne demande rien.
 - **Décision de l'utilisateur du 15/11/2026 (« oui sec »)** : l'identité déclarée est « Laurent » suivi de l'e-mail de `config/params.yaml`, écrite sur le PC par la tâche `2026-11-15-03` du relais (docs/41) ; l'adresse n'apparaît dans aucun fichier versionné.
 - **Contrôle et rattrapage** : `us-check` (réglages, valeurs suivies, lecture d'essai d'un jour, rien n'est stocké), `us-load --from AAAA-MM-JJ` (chargement d'une période, idempotent).
+- **Formats vérifiés sur de vrais fichiers le 15/11/2026** (`us-check --sample 3` sur le PC) : index quotidien SEC du 13/11 (7 471 dépôts, dont 1 382 Form 4 et 302 8-K), Form 4 (vente au marché, donations « G » rangées en « autre », rôle, heure d'acceptation), 8-K (items et famille), fichier FINRA (12 268 lignes).
 - Les lignes SEC sont **exclues** des études et contrôles propres au flux AMF (couverture mensuelle, re-familiarisation, études des causes et plan 8).
 
 ## 40.7 Limites connues
