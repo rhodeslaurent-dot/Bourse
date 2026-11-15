@@ -10,3 +10,11 @@ __pycache__
 .mypy_cache
 .ruff_cache
 docker-compose.override.yml
+# 15/11/2026 : sauvegardes de la base (12 Go sur le PC) aspirées par `COPY . .` → image de 26 Go
+bourse-backups
+*-backups
+# pilotage à distance (docs/41) : comptes rendus et état de la boucle, propres au PC
+ops/out
+ops/.done
+ops/.sent
+ops/.running
