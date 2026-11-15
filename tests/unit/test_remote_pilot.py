@@ -161,3 +161,19 @@ def test_host_cli_commands_run_with_the_runner_s_own_interpreter():
 
     assert rp.argv_of("uv run python -m app.cli params-init --update")[:3] == [sys.executable, "-m", "app.cli"]
     assert rp.argv_of("docker compose ps") == ["docker", "compose", "ps"]
+
+
+def test_the_cli_writes_utf8_even_to_a_cp1252_pipe(monkeypatch):
+    """PC report of 15/11/2026: « ✅ » made check-config fail on a Windows pipe (cp1252)."""
+    import io
+    import sys
+
+    from app import cli
+
+    raw = io.BytesIO()
+    fake = io.TextIOWrapper(raw, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", fake)
+    cli.utf8_output()
+    print("✅ ⛔ →")
+    fake.flush()
+    assert raw.getvalue().decode("utf-8").strip() == "✅ ⛔ →"

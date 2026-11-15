@@ -38,3 +38,15 @@ tasks:
       - "docker compose ps"
       - "docker compose logs --tail 400 app"
       - "docker compose exec -T app python -m app.cli check-config"
+  # Suite de la tâche 03 (échec sur l'encodage Windows après l'écriture de l'identité SEC dans params.yaml) :
+  # reconstruction avec le correctif UTF-8 et les deux diagnostics, recréation du conteneur (qui relit params.yaml),
+  # base réellement lue, puis 3 Form 4 et 3 8-K réels décodés (rien stocké, aucun nom de déclarant).
+  - id: "2026-11-15-05"
+    purpose: "Reconstruction (UTF-8, diagnostics), base lue par le conteneur, décodage de vrais Form 4 et 8-K"
+    stop_on_error: false
+    timeout_s: 1800
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli check-config --db"
+      - "docker compose exec -T app python -m app.cli us-check --sample 3"

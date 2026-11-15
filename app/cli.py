@@ -19,7 +19,49 @@ def cmd_check_config(args: argparse.Namespace) -> int:
     print(f"OK params v{cfg.params.version} (sha {cfg.sha256[:12]})")
     for f in cfg.features:
         print(f"  {'✅' if f.enabled else '⛔'} {f.label} [{f.key}]{'' if f.enabled else ' — ' + f.reason}")
+    if getattr(args, "db", False):
+        for line in db_summary():
+            print(line)
     return 0
+
+
+def db_summary() -> list[str]:
+    """Which database the tool reads (password masked), its schema version and how much it holds; on Postgres,
+    the databases of the instance with their size (15/11/2026: a container on an empty base). Read only."""
+    from sqlalchemy import inspect, text
+    from sqlalchemy.engine import make_url
+
+    from app.db.session import database_url, get_engine
+
+    url = make_url(database_url())
+    sqlite = url.get_backend_name() == "sqlite"
+    note = "  ← DATABASE_URL absent : base SQLite locale par défaut" if sqlite else ""
+    out = [f"base : {url.render_as_string(hide_password=True)}{note}"]
+    try:
+        eng = get_engine()
+        with eng.connect() as c:
+            tables = set(inspect(c).get_table_names())
+            ver = (
+                c.execute(text("SELECT version_num FROM alembic_version")).scalar()
+                if "alembic_version" in tables
+                else None
+            )
+            out.append(f"schéma : {ver or 'aucun'} · {len(tables)} table(s)")
+            for t in ("instruments", "prices_eod", "newsletter_items", "news_items", "positions", "market_events"):
+                if t in tables:
+                    n = c.execute(text(f"SELECT count(*) FROM {t}")).scalar()  # noqa: S608 — fixed table names
+                    out.append(f"  {t:<18} {n:>12} ligne(s)")
+            if url.get_backend_name().startswith("postgres"):
+                try:
+                    rows = c.execute(text("SELECT datname, pg_database_size(datname) FROM pg_database "
+                                          "WHERE NOT datistemplate ORDER BY 2 DESC")).all()  # fmt: skip
+                    out.append("bases de l'instance : " + ", ".join(f"{d} ({s / 1e6:,.0f} Mo)".replace(",", " ")
+                                                                    for d, s in rows))  # fmt: skip
+                except Exception as exc:  # noqa: BLE001 — sizes need a privilege the role may not have
+                    out.append(f"bases de l'instance : non lisibles ({exc.__class__.__name__})")
+    except Exception as exc:  # noqa: BLE001
+        out.append(f"connexion impossible : {exc.__class__.__name__}")
+    return out
 
 
 def cmd_seed_calendar(args: argparse.Namespace) -> int:
@@ -2762,12 +2804,52 @@ def cmd_us_check(args: argparse.Namespace) -> int:
             forms[r.form] = forms.get(r.form, 0) + 1
         print(f"index SEC du {d:%d/%m/%Y} : {len(rows)} dépôt(s) dont {forms.get('4', 0)} Form 4 et "
               f"{forms.get('8-K', 0)} 8-K")  # fmt: skip
+        if args.sample:
+            for line in sec_sample(rows, args.sample, http_fetch(st.user_agent, st.min_interval_s)):
+                print(line)
     text = http_fetch(None, 1.0)(finra_regsho.url(d), 20_000_000, None)
     fr = finra_regsho.parse(text or "")
     hit = sum(1 for r in fr if finra_regsho.norm(r.symbol) in vals)
     print(f"FINRA du {d:%d/%m/%Y} : {len(fr)} ligne(s), {hit} pour les valeurs suivies" if text
           else f"FINRA du {d:%d/%m/%Y} : fichier absent (jour férié ou pas encore publié)")  # fmt: skip
     return 0
+
+
+def sec_sample(rows: list, n: int, fetch) -> list[str]:  # type: ignore[no-untyped-def,type-arg]
+    """``us-check --sample N``: N real Form 4 and N real 8-K of the index read and parsed, nothing stored, no
+    declarant's name (the parser never returns it) — the check of the readers on true documents."""
+    from app.data.providers import sec_edgar
+
+    out: list[str] = []
+    for form in ("4", "8-K"):
+        seen: set[str] = set()
+        for r in rows:
+            if r.form != form or r.accession in seen or len(seen) >= n:
+                continue
+            seen.add(r.accession)
+            url = f"{sec_edgar.BASE}/Archives/{r.path}"
+            try:
+                body = fetch(url, 300_000, "</SEC-HEADER>") if form == "8-K" else fetch(url, 3_000_000, None)
+            except Exception as exc:  # noqa: BLE001
+                out.append(f"  {form} {r.accession} : illisible ({exc.__class__.__name__})")
+                continue
+            hdr = sec_edgar.parse_header(body or "")
+            when = f"{hdr.accepted_at:%d/%m %H:%M} UTC" if hdr.accepted_at else "heure illisible"
+            if form == "8-K":
+                fam = sec_edgar.family_of_items(hdr.items) or "—"
+                out.append(f"  8-K {r.accession} · {r.company[:30]} · {when} · {len(hdr.items)} item(s) → {fam} · "
+                           + "; ".join(hdr.items)[:120])  # fmt: skip
+            else:
+                f4 = sec_edgar.parse_form4(body or "")
+                if f4 is None:
+                    out.append(f"  Form 4 {r.accession} : XML illisible")
+                    continue
+                buy, sell, net, _, _, k = f4.open_market()
+                codes = ",".join(sorted({x.code for x in f4.transactions if x.code})) or "—"
+                out.append(f"  Form 4 {r.accession} · {f4.symbol or '?'} (CIK {f4.issuer_cik}) · {when} · rôle "
+                           f"{f4.role} · codes {codes} · achats {buy:,.0f} $ · ventes {sell:,.0f} $ · "
+                           f"plan 10b5-1 {f4.plan_10b5_1}")  # fmt: skip
+    return out
 
 
 def cmd_us_load(args: argparse.Namespace) -> int:
@@ -2791,7 +2873,18 @@ def cmd_us_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def utf8_output() -> None:
+    """Windows writes to a pipe in cp1252, where « ✅ » or « → » make ``print`` fail (PC report of 15/11/2026, task
+    2026-11-15-03): the tool always writes UTF-8, and a character the terminal cannot show is replaced, never fatal."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    utf8_output()
     from app.env import load_env
 
     load_env()  # .env at the repo root; never overrides variables already set by Docker/the shell
@@ -2806,7 +2899,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--params", default=None, help="chemin de params.yaml (défaut: $PARAMS_PATH ou config/params.yaml)")
     p.add_argument("--calendars", default="config/market_calendars.yaml")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("check-config").set_defaults(fn=cmd_check_config)
+    ck = sub.add_parser("check-config")
+    ck.add_argument("--db", action="store_true", help="aussi : base lue (mot de passe masqué), schéma, volumes")
+    ck.set_defaults(fn=cmd_check_config)
     sc = sub.add_parser("seed-calendar")
     sc.add_argument("--years", default="2026,2027")
     sc.set_defaults(fn=cmd_seed_calendar)
@@ -2907,6 +3002,7 @@ def main(argv: list[str] | None = None) -> int:
     rh.set_defaults(fn=cmd_radar_history)
     uc = sub.add_parser("us-check", help="États-Unis : réglages, valeurs suivies, lecture d'essai SEC et FINRA")
     uc.add_argument("--date", default=None, help="AAAA-MM-JJ (défaut : dernier jour ouvré)")
+    uc.add_argument("--sample", type=int, default=0, help="lire et décoder N Form 4 et N 8-K réels (rien stocké)")
     uc.set_defaults(fn=cmd_us_check)
     ul = sub.add_parser("us-load", help="États-Unis : SEC (Form 4, 8-K) et FINRA sur une période")
     ul.add_argument("--from", dest="from_date", required=True, help="AAAA-MM-JJ")

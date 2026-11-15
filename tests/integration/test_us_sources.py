@@ -199,3 +199,24 @@ def test_the_amf_studies_never_read_the_us_filings(db_engine, config):
         cov = filings.coverage(s, config, date(2026, 11, 1), date(2026, 11, 30))
     assert fil.family == "resultats"
     assert "0 communiqué(s) en base" in cov and "ISIN valide : 0" in cov  # the AMF archive alone
+
+
+def test_check_config_db_says_which_base_is_read_and_what_it_holds(db_engine):
+    from app.cli import db_summary
+
+    with db_session() as s:
+        _values(s)
+    lines = db_summary()
+    assert lines[0].startswith("base : sqlite") and "base SQLite locale par défaut" in lines[0]
+    assert any(x.strip().startswith("instruments") and x.strip().endswith("2 ligne(s)") for x in lines)
+
+
+def test_us_check_sample_decodes_real_shaped_filings_without_any_name():
+    from app.cli import sec_sample
+
+    rows = sec_edgar.parse_master_index(INDEX)
+    docs = _docs()
+    out = sec_sample(rows, 1, Reader(docs))
+    assert any(x.startswith("  Form 4 0001000001-26-000011 · ACME") and "rôle dirigeant" in x for x in out)
+    assert any(x.startswith("  8-K 0001000001-26-000010") and "→ resultats" in x for x in out)
+    assert "DOE" not in "\n".join(out) and "JANE" not in "\n".join(out)

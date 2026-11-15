@@ -45,6 +45,7 @@ La session locale « BOURSE-PILOT setup et validation » est une session Remote 
 
 - Le PC doit rester allumé, avec la session locale ouverte et la boucle active.
 - Délai : jusqu'à 10 minutes entre la validation ici et le lancement sur le PC.
+- Windows écrit vers un tube en cp1252 : la CLI de l'outil force désormais l'UTF-8 à la sortie (`utf8_output`, compte rendu de la tâche `2026-11-15-03`) ; la boucle du PC lance aussi l'exécutant avec `PYTHONUTF8=1`.
 - `uv run --system-certs` : le poste vérifie les certificats avec le magasin de Windows (sans cela, `uv` échoue en TLS) ; les commandes `uv run python -m app.cli …` d'une tâche sont lancées avec l'interpréteur de l'exécutant, sans second appel à `uv`.
 - Si la session locale ne peut pas écrire à la session cloud, ses comptes rendus restent visibles dans la session locale, ouvrable à distance depuis l'application Claude.
 - Si le partage de dossier vers le cloud devient possible (mise à jour de l'application Claude sur Windows), la session cloud exécutera directement, et le relais deviendra inutile.
