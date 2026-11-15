@@ -27,3 +27,14 @@ tasks:
       - "docker compose restart app"
       - "wait-app 300"
       - "docker compose exec -T app python -m app.cli us-check"
+  # 15/11/2026 soir : après le remplacement du conteneur, sources-health dit 0/24 et events-build 0 événement —
+  # la base vue par le nouveau conteneur semble vide. Diagnostic en lecture seule : le journal de démarrage dit si
+  # alembic a créé toutes les tables (base neuve) ou seulement 0033 → 0034 (base de production).
+  - id: "2026-11-15-04"
+    purpose: "Diagnostic lecture seule : quelle base voit le nouveau conteneur (journal de démarrage, configuration)"
+    stop_on_error: false
+    timeout_s: 600
+    commands:
+      - "docker compose ps"
+      - "docker compose logs --tail 400 app"
+      - "docker compose exec -T app python -m app.cli check-config"
