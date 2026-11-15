@@ -16,3 +16,14 @@ tasks:
       - "docker compose exec -T app python -m app.cli sources-health"
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --context 10"
       - "docker compose exec -T app python -m app.cli us-check"
+  # Décision de l'utilisateur du 15/11/2026 (« oui sec ») : identité déclarée à la SEC = « Laurent » + l'e-mail de
+  # config/params.yaml, remplacé sur le PC seulement (jamais écrit dans le dépôt).
+  - id: "2026-11-15-03"
+    purpose: "Identité SEC (décision « oui sec » du 15/11/2026), redémarrage, lecture d'essai SEC et FINRA"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - 'uv run python -m app.cli params-init --update --set "data.sec.user_agent=Laurent {params:user.email}"'
+      - "docker compose restart app"
+      - "wait-app 300"
+      - "docker compose exec -T app python -m app.cli us-check"
