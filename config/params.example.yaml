@@ -265,6 +265,7 @@ weak_signals:                           # docs/26 — radar des signaux faibles 
     reddit:
       enabled: true                     # API officielle (env-setup reddit) ; usage personnel non commercial
       subreddits: ["vosfinances", "bourse", "eupersonalfinance", "Finanzen", "wallstreetbetsGER"]
+      subreddits_us: ["stocks", "investing", "StockMarket", "ValueInvesting", "wallstreetbets"]   # lot S5 (15/11/2026) : source « reddit_us », valeurs américaines par leur nom ou leur « $TICKER » ; couverture propre (ne coupe jamais les zéros européens)
       max_values: 400
       interval_s: 1.0
     bluesky:
@@ -652,6 +653,13 @@ data:
     history_from: "2016-01-01"             # début par défaut de filings-archive ; jamais avant 2015-10-01 (période 2007-2015 réservée, docs/34)
     daily_lookback_days: 3                 # lot S4 (15/11/2026) : la tâche du soir filings_daily relit les 3 derniers jours (mois entiers lus, idempotent)
     coverage_min_share: 0.5                # un mois sous 50 % de la médiane du même mois des autres années est « non couvert » (l'étude y lit « inconnu »)
+  sec:                                     # lot S5 (15/11/2026) : SEC EDGAR en lecture seule — Form 4 (dirigeants) et 8-K (événements importants) des valeurs américaines suivies ; nom du déclarant jamais stocké
+    enabled: true
+    user_agent: "à renseigner"             # exigé par la SEC (« fair access ») : « Prénom Nom adresse@exemple.fr » — VOTRE nom et VOTRE adresse, à écrire sur le PC (params-init --update --set data.sec.user_agent=…) ; tant que « à renseigner », la SEC n'est pas lue
+    lookback_days: 3                       # jours ouvrés relus à chaque passage (index quotidien EDGAR)
+    min_interval_s: 0.25                   # ≥ 0,11 s imposé par le code (la SEC tolère 10 requêtes par seconde au plus)
+    max_filings_per_run: 2000              # plafond de dépôts lus par passage (la suite au passage suivant)
+  finra: {enabled: true, lookback_days: 5}   # lot S5 : fichiers « Reg SHO daily short sale volume » (cdn.finra.org), part de volume déclarée vendue à découvert, valeurs américaines suivies
   fundamentals: {max_items: 800, min_interval_s: 1.0}   # Yahoo (gratuit, non officiel) : débit limité, source et date affichées ; lot S4 : chaque jour les 800 valeurs les moins récentes (positions d'abord), tout l'univers en une semaine
   quote_at_each_analysis: true             # [comportement codé] R19 : cours relevé au moment de chaque analyse, horodatage de marché et statut enregistrés
   plausibility_max_gap_pct: 0.05           # écart entre sources ou vs dernière clôture sans nouvelle → « à vérifier »
@@ -917,6 +925,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   us_open_scan: {cron: "35 15 * * 1-5", enabled: false, market_days_only: true}          # [phase 6] phase 6
   consensus_daily: {cron: "20 22 * * 1-5", misfire_grace_min: 600, market_days_only: false}   # lot S4 (15/11/2026) : consensus des analystes (screener différé) de tout l'univers chaque soir, après la clôture de New York ; était hebdomadaire (universe_refresh)
   filings_daily: {cron: "50 21 * * *", misfire_grace_min: 720, market_days_only: false}   # lot S4 (15/11/2026) : communiqués officiels AMF des 3 derniers jours chaque soir (métadonnées seulement), tous les jours
+  us_filings: {cron: "20 6 * * *", misfire_grace_min: 720, market_days_only: false}   # lot S5 (15/11/2026) : SEC (Form 4 dirigeants, 8-K événements) et FINRA (ventes à découvert du jour) des valeurs américaines suivies, jours précédents ; SEC lue seulement si data.sec.user_agent est renseigné
   sources_daily: {cron: "40 22 * * *", misfire_grace_min: 600, market_days_only: false}   # étape 1 du plan (lots S1 à S3) : journal des événements de toutes les sources, mesure à 1/5/20 séances, santé des sources ; tous les jours (lettres et forums arrivent aussi le week-end)
 
 workflow:                                # docs/17 §17.6 — journée guidée ; heures en Europe/Paris

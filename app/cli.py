@@ -2715,6 +2715,60 @@ def cmd_events_scoreboard(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_us_check(args: argparse.Namespace) -> int:
+    """Lot S5 — on the PC: the US settings, the values followed, and one real read of the SEC daily index and of
+    the FINRA file of a day (nothing stored), to check the formats and the access."""
+    from app.data.providers import finra_regsho, sec_edgar
+    from app.db.session import db_session
+    from app.services.us_sources import http_fetch, settings, us_values
+
+    cfg = load_params(args.params)
+    st = settings(cfg)
+    d = date.fromisoformat(args.date) if args.date else date.today() - timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    with db_session() as s:
+        vals = us_values(s)
+    print(f"valeurs américaines suivies : {len(vals)}")
+    print("User-Agent SEC : " + ("renseigné" if st.user_agent else "À RENSEIGNER (data.sec.user_agent) — SEC non lue"))
+    if st.user_agent:
+        rows = sec_edgar.parse_master_index(
+            http_fetch(st.user_agent, st.min_interval_s)(sec_edgar.index_url(d), 30_000_000, None) or ""
+        )
+        forms: dict[str, int] = {}
+        for r in rows:
+            forms[r.form] = forms.get(r.form, 0) + 1
+        print(f"index SEC du {d:%d/%m/%Y} : {len(rows)} dépôt(s) dont {forms.get('4', 0)} Form 4 et "
+              f"{forms.get('8-K', 0)} 8-K")  # fmt: skip
+    text = http_fetch(None, 1.0)(finra_regsho.url(d), 20_000_000, None)
+    fr = finra_regsho.parse(text or "")
+    hit = sum(1 for r in fr if finra_regsho.norm(r.symbol) in vals)
+    print(f"FINRA du {d:%d/%m/%Y} : {len(fr)} ligne(s), {hit} pour les valeurs suivies" if text
+          else f"FINRA du {d:%d/%m/%Y} : fichier absent (jour férié ou pas encore publié)")  # fmt: skip
+    return 0
+
+
+def cmd_us_load(args: argparse.Namespace) -> int:
+    """Lot S5 — SEC Form 4 / 8-K and FINRA short volume of the followed US values over [--from, --to]."""
+    from app.db.session import db_session
+    from app.services.us_sources import UsReport, finra_load, http_fetch, sec_load, settings
+
+    cfg = load_params(args.params)
+    st = settings(cfg)
+    start = date.fromisoformat(args.from_date)
+    end = date.fromisoformat(args.to) if args.to else date.today() - timedelta(days=1)
+    rep = UsReport()
+    with db_session() as s:
+        if st.user_agent and not args.finra_only:
+            rep = sec_load(s, cfg, start, end, http_fetch(st.user_agent, st.min_interval_s))
+            s.commit()
+        elif not args.finra_only:
+            print("SEC non lue : data.sec.user_agent à renseigner (params-init --update --set data.sec.user_agent=…)")
+        finra_load(s, start, end, http_fetch(None, 1.0), rep)
+    print(rep.line())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     from app.env import load_env
 
@@ -2829,6 +2883,14 @@ def main(argv: list[str] | None = None) -> int:
     rh.add_argument("--pages", default="1,20,100,300", help="probe : numéros de pages")
     rh.add_argument("--from", dest="from_date", default="2015-07-01")
     rh.set_defaults(fn=cmd_radar_history)
+    uc = sub.add_parser("us-check", help="États-Unis : réglages, valeurs suivies, lecture d'essai SEC et FINRA")
+    uc.add_argument("--date", default=None, help="AAAA-MM-JJ (défaut : dernier jour ouvré)")
+    uc.set_defaults(fn=cmd_us_check)
+    ul = sub.add_parser("us-load", help="États-Unis : SEC (Form 4, 8-K) et FINRA sur une période")
+    ul.add_argument("--from", dest="from_date", required=True, help="AAAA-MM-JJ")
+    ul.add_argument("--to", default=None, help="AAAA-MM-JJ (défaut : hier)")
+    ul.add_argument("--finra-only", dest="finra_only", action="store_true", help="FINRA seulement")
+    ul.set_defaults(fn=cmd_us_load)
     sh = sub.add_parser("sources-health", help="état de chaque source : éléments du jour, 7 jours, historique, retard")
     sh.add_argument("--date", default=None, help="AAAA-MM-JJ (défaut : aujourd'hui)")
     sh.set_defaults(fn=cmd_sources_health)

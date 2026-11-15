@@ -160,47 +160,75 @@ def collect_forum(s: Session, config: LoadedConfig, client: httpx.Client, day: d
     return n, errors
 
 
+CASHTAG_RE = re.compile(r"(?<![A-Za-z0-9$])\$([A-Z]{1,5}(?:[.\-][A-Z])?)\b")
+
+
+def cashtags(text: str, codes: dict[str, str]) -> list[str]:
+    """Lot S5: ISINs of the US values named by a cashtag (``$AAPL``) — a ticker alone is never read as a name."""
+    from app.data.providers.finra_regsho import norm
+
+    out: list[str] = []
+    for m in CASHTAG_RE.findall(text):
+        isin = codes.get(norm(m))
+        if isin and isin not in out:
+            out.append(isin)
+    return out
+
+
 def collect_reddit(s: Session, config: LoadedConfig, client: httpx.Client, day: date) -> tuple[int, list[str]]:
+    """Counts per value and day of the configured subreddits: ``subreddits`` (Europe, source ``reddit``) and, since
+    lot S5 (15/11/2026), ``subreddits_us`` (source ``reddit_us``, names and cashtags of the US values). Each group
+    has its own coverage: a busy US subreddit read only over its last hours never cuts the European zeros."""
     p = social_params(config).get("reddit") or {}
     cid, secret = os.environ.get("REDDIT_CLIENT_ID"), os.environ.get("REDDIT_CLIENT_SECRET")
     if not p.get("enabled") or not cid or not secret:
         return 0, [] if not p.get("enabled") else ["identifiants Reddit absents (env-setup reddit)"]
     from app.services.news import alias_index, attach_instruments
+    from app.services.us_sources import us_values
 
     aliases = alias_index(s)
+    us_codes = {code: inst.isin for code, inst in us_values(s).items()}
     token = social.reddit_token(cid, secret, client)
-    counts: dict[tuple[str, date], int] = defaultdict(int)
-    errors = []
-    covered_from: datetime | None = None  # the most recent « oldest item » over the listings
-    for sub in p.get("subreddits") or []:
-        for kind in ("new", "comments"):
-            try:
-                items = social.reddit_listing(str(sub), kind, token, client)
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"r/{sub}: {exc.__class__.__name__}")
-                continue
-            if items:
-                oldest = min(ts for ts, _ in items)
-                covered_from = oldest if covered_from is None else max(covered_from, oldest)
-            for ts, text in items:
-                d = ts.astimezone(PARIS).date()
-                if d < day - timedelta(days=2):
-                    continue
-                for isin in attach_instruments(text, aliases):  # the text is dropped right after matching
-                    counts[(isin, d)] += 1
-            time.sleep(float(p.get("interval_s", 1.0)))
+    errors: list[str] = []
+    total = 0
     now = datetime.now(UTC)
-    for (isin, d), v in counts.items():
-        _store(s, isin, d, "reddit", v, now)
-    yday = day - timedelta(days=1)
-    yday_start = datetime.combine(yday, datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
-    if covered_from is not None and covered_from <= yday_start:  # yesterday fully read: unnamed values = 0
-        named = {isin for (isin, d) in counts if d == yday}
-        for inst in followed_values(s, int(p.get("max_values", 400)), day):
-            if inst.isin not in named:
-                _store(s, inst.isin, yday, "reddit", 0, now)
+    groups = (("reddit", p.get("subreddits") or [], False), ("reddit_us", p.get("subreddits_us") or [], True))
+    for source, subs, us in groups:
+        counts: dict[tuple[str, date], int] = defaultdict(int)
+        covered_from: datetime | None = None  # the most recent « oldest item » over the listings
+        for sub in subs:
+            for kind in ("new", "comments"):
+                try:
+                    items = social.reddit_listing(str(sub), kind, token, client)
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"r/{sub}: {exc.__class__.__name__}")
+                    continue
+                if items:
+                    oldest = min(ts for ts, _ in items)
+                    covered_from = oldest if covered_from is None else max(covered_from, oldest)
+                for ts, text in items:
+                    d = ts.astimezone(PARIS).date()
+                    if d < day - timedelta(days=2):
+                        continue
+                    found = attach_instruments(text, aliases)  # the text is dropped right after matching
+                    if us:
+                        found = [i for i in found if i in us_codes.values()]
+                        found += [i for i in cashtags(text, us_codes) if i not in found]
+                    for isin in found:
+                        counts[(isin, d)] += 1
+                time.sleep(float(p.get("interval_s", 1.0)))
+        for (isin, d), v in counts.items():
+            _store(s, isin, d, source, v, now)
+        yday = day - timedelta(days=1)
+        yday_start = datetime.combine(yday, datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
+        if subs and covered_from is not None and covered_from <= yday_start:  # yesterday fully read: zeros
+            named = {isin for (isin, d) in counts if d == yday}
+            for inst in followed_values(s, int(p.get("max_values", 400)), day):
+                if inst.isin not in named and (not us or inst.isin in us_codes.values()):
+                    _store(s, inst.isin, yday, source, 0, now)
+        total += len(counts)
     s.flush()
-    return len(counts), errors
+    return total, errors
 
 
 def collect_bluesky(s: Session, config: LoadedConfig, client: httpx.Client, day: date) -> tuple[int, list[str]]:

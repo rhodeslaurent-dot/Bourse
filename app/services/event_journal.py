@@ -133,7 +133,8 @@ def _insiders(s: Session, since: datetime) -> Iterator[EventDraft]:
     q = select(InsiderDeclaration).where(InsiderDeclaration.received_at >= since, InsiderDeclaration.isin.is_not(None))
     for r in s.scalars(q):
         d = INSIDER_DIRECTION.get(r.nature or "")
-        yield EventDraft(f"dirigeant:{r.source}", "momentum", f"dirigeant_{r.nature or 'autre'}", r.isin,  # type: ignore[arg-type]
+        plan = "_plan" if r.nature_detail and "10b5-1" in r.nature_detail else ""  # decided in advance (SEC Form 4)
+        yield EventDraft(f"dirigeant:{r.source}", "momentum", f"dirigeant_{r.nature or 'autre'}{plan}", r.isin,  # type: ignore[arg-type]
                          _utc(r.market_timestamp), "insider_declarations", r.id, d, r.amount,  # type: ignore[arg-type]
                          (r.issuer_name or "")[:300])  # fmt: skip
 

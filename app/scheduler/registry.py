@@ -53,6 +53,7 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "sources_daily": "app.scheduler.jobs.sources_daily:run",
     "consensus_daily": "app.scheduler.jobs.consensus_daily:run",
     "filings_daily": "app.scheduler.jobs.filings_daily:run",
+    "us_filings": "app.scheduler.jobs.us_filings:run",
 }
 
 

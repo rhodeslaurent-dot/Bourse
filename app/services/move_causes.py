@@ -240,7 +240,10 @@ def _filings(s: Session, src: Sources, isins: set[str], last_day: date, min_shar
     from app.domain.filings import month_coverage, month_key
 
     counts: Counter[str] = Counter()
-    for amf_ts, mkt_ts in s.execute(select(OfficialFiling.amf_timestamp, OfficialFiling.market_timestamp)):
+    q_cov = select(OfficialFiling.amf_timestamp, OfficialFiling.market_timestamp).where(
+        OfficialFiling.diffuser != "SEC"  # the AMF flow's coverage only (US 8-K of lot S5 apart)
+    )
+    for amf_ts, mkt_ts in s.execute(q_cov):
         ts = amf_ts if amf_ts is not None else mkt_ts
         if ts is not None:
             counts[month_key(_aware(ts))] += 1
@@ -334,10 +337,12 @@ def _sources(s: Session, isins: set[str], start: date, end: date, last_day: date
                          "valeurs": len(src.earnings)}  # fmt: skip
     src.loaded_by_year[mc.EARNINGS] = by_year
     # managers' purchases: the AMF archive, rule X5 of registration n° 5 (any role, on market, shares, ≥ 10 000 €)
+    amf = InsiderDeclaration.source != "sec_form4"  # the AMF archive only (US Form 4 of lot S5 apart)
     src.insider_span = _span(*s.execute(select(func.min(InsiderDeclaration.market_timestamp),
-                                               func.max(InsiderDeclaration.market_timestamp))).one())  # fmt: skip
+                                               func.max(InsiderDeclaration.market_timestamp)).where(amf)).one())  # fmt: skip
     src.insider_months = {
-        (_aware(ts).year, _aware(ts).month) for (ts,) in s.execute(select(InsiderDeclaration.market_timestamp))
+        (_aware(ts).year, _aware(ts).month)
+        for (ts,) in s.execute(select(InsiderDeclaration.market_timestamp).where(amf))
     }
     try:
         from app.domain.research.insider_triggers import OK, CellRule, rules_from, screen

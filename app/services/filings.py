@@ -270,7 +270,12 @@ def refamily(s: Session, progress: Progress | None = None) -> Counter[str]:
     last = 0
     while True:
         rows = list(
-            s.scalars(select(OfficialFiling).where(OfficialFiling.id > last).order_by(OfficialFiling.id).limit(5000))
+            s.scalars(
+                select(OfficialFiling)
+                .where(OfficialFiling.id > last, OfficialFiling.diffuser != "SEC")  # AMF type codes only
+                .order_by(OfficialFiling.id)
+                .limit(5000)
+            )
         )
         if not rows:
             break
@@ -394,7 +399,9 @@ def coverage(s: Session, config: LoadedConfig, start: date | None = None, end: d
     lo = start or st["history_from"]
     hi = end or date.today()
     counts: Counter[str] = Counter()
-    for amf_ts, mkt_ts in s.execute(select(OfficialFiling.amf_timestamp, OfficialFiling.market_timestamp)):
+    amf_only = OfficialFiling.diffuser != "SEC"  # the AMF flow's coverage (US 8-K of lot S5 apart)
+    q_cov = select(OfficialFiling.amf_timestamp, OfficialFiling.market_timestamp).where(amf_only)
+    for amf_ts, mkt_ts in s.execute(q_cov):
         ts = amf_ts if amf_ts is not None else mkt_ts
         if ts is not None:
             counts[month_key(from_store(ts))] += 1
@@ -406,7 +413,7 @@ def coverage(s: Session, config: LoadedConfig, start: date | None = None, end: d
         share = ((nxt - day).days if first else day.day) / length
         fractions[key] = min(fractions.get(key, 1.0), share)
     cov = month_coverage(counts, months, st["coverage_min_share"], fractions)
-    total = s.scalar(select(func.count()).select_from(OfficialFiling)) or 0
+    total = s.scalar(select(func.count()).select_from(OfficialFiling).where(amf_only)) or 0
     lines = [
         "Communiqués officiels AMF (lot L1) — archive par mois de dépôt, heure de Paris",
         f"  {total} communiqué(s) en base ; période lue ici : {lo} → {hi}",
@@ -429,7 +436,7 @@ def coverage(s: Session, config: LoadedConfig, start: date | None = None, end: d
                  + " · mois partiels : " + ", ".join(k for k, v in fractions.items() if v < 1.0))  # fmt: skip
 
     def grouped(col: Any) -> list[tuple[Any, int]]:
-        return [(k, int(n)) for k, n in s.execute(select(col, func.count()).group_by(col)).all()]
+        return [(k, int(n)) for k, n in s.execute(select(col, func.count()).where(amf_only).group_by(col)).all()]
 
     src = dict(grouped(OfficialFiling.source))
     both_n = s.scalar(select(func.count()).select_from(OfficialFiling).where(OfficialFiling.also_in.is_not(None))) or 0
@@ -463,13 +470,17 @@ def coverage(s: Session, config: LoadedConfig, start: date | None = None, end: d
         f"{prec.get('jour', 0)}, illisible {prec.get('illisible', 0)} · étiquette de fuseau fausse "
         f"{lab.get(False, 0)} sur {lab.get(False, 0) + lab.get(True, 0)}"
     )
-    with_isin = s.scalar(select(func.count()).select_from(OfficialFiling).where(OfficialFiling.isin.is_not(None))) or 0
+    with_isin = (
+        s.scalar(select(func.count()).select_from(OfficialFiling).where(amf_only, OfficialFiling.isin.is_not(None)))
+        or 0
+    )
     lines.append(f"  ISIN valide : {with_isin} ({with_isin / total:.0%})" if total else "  ISIN valide : 0")
     fams = sorted(grouped(OfficialFiling.family), key=lambda x: -x[1])
     lines.append("  familles : " + " · ".join(f"{FAMILY_LABELS.get(f, f)} {n}" for f, n in fams))
     label_col, fam_col = func.max(OfficialFiling.subtype_label), func.max(OfficialFiling.family)
     codes = s.execute(
         select(OfficialFiling.type_code, func.count(), label_col, fam_col)
+        .where(amf_only)
         .group_by(OfficialFiling.type_code)
         .order_by(func.count().desc())
     ).all()

@@ -33,6 +33,7 @@ def load_rows(s: Session, families: Sequence[str] | None = None) -> tuple[Filing
         OfficialFiling.isin, OfficialFiling.market_timestamp, OfficialFiling.family, OfficialFiling.time_precision,
         OfficialFiling.update_status,
     )  # fmt: skip
+    q = q.where(OfficialFiling.diffuser != "SEC")  # the AMF flow of the registered studies (US 8-K of lot S5 apart)
     if families:
         q = q.where(OfficialFiling.family.in_(list(families)))
     return tuple(

@@ -55,9 +55,20 @@
 - Sur le PC, `params-init --update` ajoute les nouveaux jobs et **déplace les deux horaires modifiés** (`fundamentals_refresh`, `news_scan.day`) seulement s'ils sont encore à leur ancienne valeur par défaut : un horaire choisi par l'utilisateur est gardé.
 - Le registre de santé attend désormais un consensus et des fondamentaux au plus tard 3 jours ouvrés après le précédent.
 
-## 40.6 S5 — Couverture des États-Unis
+## 40.6 S5 — Couverture des États-Unis (ADR-021)
 
-En cours de réalisation (voir `docs/15-status.md`).
+| Source | Ce qui est lu | Où c'est stocké | Sens dans le journal |
+|---|---|---|---|
+| **SEC Form 4** (déclarations des dirigeants) | achats (code P) et ventes (code S) au marché d'un dépôt, additionnés ; attributions, exercices et retenues fiscales gardés comme « autre » ; vente ou achat **programmé** (plan 10b5-1) signalé | `insider_declarations`, source `sec_form4` — **rôle seulement** (dirigeant, administrateur, actionnaire de plus de 10 %, autre), jamais le nom | achat +1, vente −1 ; un échange programmé a son propre type (`dirigeant_cession_plan`) |
+| **SEC 8-K** (événements importants) | les items publiés (résultats, accord important, acquisition, départ de dirigeant, dépréciation, changement de contrôle…), rangés dans les familles des communiqués AMF ; l'heure d'acceptation de la SEC | `official_filings`, diffuseur `SEC`, source `sec_8k` | sans sens (comme un communiqué) |
+| **FINRA Reg SHO** (ventes à découvert du jour) | volume déclaré vendu à découvert, volume total, volume exempté | `short_volume_daily` | un pic (part à au moins `event_journal.short_volume_z` écarts de sa base de 20 jours) : −1 |
+| **Reddit américain** | r/stocks, r/investing, r/StockMarket, r/ValueInvesting, r/wallstreetbets (`weak_signals.social.reddit.subreddits_us`) : comptage par valeur et par jour, nom ou « $TICKER » | `attention_daily`, source `reddit_us` | via le radar |
+
+- **Job `us_filings`** : 06:20 Paris, tous les jours, sur les jours précédents (l'index SEC du jour J est complet dans la nuit ; le fichier FINRA paraît après la clôture américaine).
+- **Seules les valeurs suivies** (univers et positions cotées aux États-Unis) : l'index quotidien dit lesquelles ont déposé, et seuls ces dépôts sont téléchargés ; d'un 8-K, seul l'en-tête (les annexes ne sont jamais lues).
+- **Identité demandée par la SEC** : `data.sec.user_agent` (« Prénom Nom adresse »), réglé par l'utilisateur sur le PC ; tant qu'il vaut « à renseigner », la SEC n'est pas lue et la ligne du job le dit. FINRA ne demande rien.
+- **Contrôle et rattrapage** : `us-check` (réglages, valeurs suivies, lecture d'essai d'un jour, rien n'est stocké), `us-load --from AAAA-MM-JJ` (chargement d'une période, idempotent).
+- Les lignes SEC sont **exclues** des études et contrôles propres au flux AMF (couverture mensuelle, re-familiarisation, études des causes et plan 8).
 
 ## 40.7 Limites connues
 
