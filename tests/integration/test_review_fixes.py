@@ -445,3 +445,28 @@ def test_m24_path_traversal_and_redaction():
         _check_read_only("POST", "/trade/v1/infoprices/subscriptions/../../../trade/v2/" + "orders")
     assert redact("wss://x?api_token=abcdef123 failed") == "wss://x?api_token=[redacted] failed"
     assert redact("Authorization: Bearer abc.def") == "Authorization: Bearer [redacted]"
+
+
+def test_a_closed_positions_answer_of_unexpected_shape_never_breaks_the_sync():
+    """16/11/2026 — the live answer raised « 'list' object has no attribute 'get' »."""
+    from app.data.providers.saxo import SaxoPortfolio
+    from app.scheduler.jobs.portfolio_sync import _where
+
+    class Client:
+        def __init__(self, answer):
+            self.answer = answer
+
+        def closed_positions(self, client_key):
+            return self.answer
+
+    pf = SaxoPortfolio.__new__(SaxoPortfolio)
+    pf.client_key = "k"
+    pf.isin_of = lambda uic, asset, symbol: None  # type: ignore[method-assign]
+    pf.client = Client([{"ClosedPosition": ["x"]}, {"ClosedPosition": {"Uic": 1, "Amount": -2, "ClosingPrice": 3.0},
+                                                    "DisplayAndFormat": []}])  # fmt: skip
+    fills = pf.closed_fills()
+    assert len(fills) == 1 and fills[0]["qty"] == 2 and fills[0]["currency"] == "EUR"
+    try:
+        [].get("x")  # type: ignore[attr-defined]
+    except AttributeError as exc:
+        assert _where(exc).startswith("AttributeError: 'list' object has no attribute 'get' (test_review_fixes.py:")

@@ -94,6 +94,16 @@ def remember_saxo_uics(s, pairs: list[tuple[str | None, str]]) -> int:  # type: 
     return n
 
 
+def _where(exc: Exception) -> str:
+    """The error and the line it came from (file:line of the last frame) — enough to fix a parsing error read in a
+    log, never a value of the account."""
+    import traceback
+
+    tb = traceback.extract_tb(exc.__traceback__)
+    at = f" ({tb[-1].filename.rsplit('/', 1)[-1]}:{tb[-1].lineno})" if tb else ""
+    return f"{exc.__class__.__name__}: {str(exc)[:120]}{at}"
+
+
 def sync_saxo(
     portfolio: SaxoPortfolio, tolerance: MatchTolerance, alerts=None, mode: str = "reunion"
 ) -> dict[str, object]:  # type: ignore[no-untyped-def]
@@ -107,7 +117,7 @@ def sync_saxo(
     try:
         closed = portfolio.closed_fills()
     except Exception as exc:  # noqa: BLE001
-        log.warning("closedpositions indisponible : %s", exc)
+        log.warning("closedpositions indisponible : %s", _where(exc))
         closed = []
     with db_session() as s:
         remember_saxo_uics(s, [(p.isin, p.uic) for p in positions] + [(o.isin, o.uic) for o in orders])

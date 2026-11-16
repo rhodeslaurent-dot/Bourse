@@ -217,7 +217,11 @@ class SaxoClient:
         return self.get("/port/v1/clients/me")
 
     def closed_positions(self, client_key: str) -> list[dict[str, Any]]:
-        return self.get("/port/v1/closedpositions", ClientKey=client_key).get("Data", [])
+        """16/11/2026: the live answer broke the reading (« 'list' object has no attribute 'get' »): a list answer is
+        read as the data itself, and only the items that are objects are kept."""
+        r = self.get("/port/v1/closedpositions", ClientKey=client_key)
+        data = r.get("Data", []) if isinstance(r, dict) else r if isinstance(r, list) else []
+        return [c for c in data if isinstance(c, dict)]
 
 
 class SaxoPriceProvider(MarketDataProvider):
@@ -475,8 +479,12 @@ class SaxoPortfolio:
         out = []
         for c in self.client.closed_positions(self.client_key):
             cp = c.get("ClosedPosition", c)
+            if not isinstance(cp, dict):
+                continue
+            disp = c.get("DisplayAndFormat")
+            disp = disp if isinstance(disp, dict) else {}
             uic = str(cp.get("Uic"))
-            symbol = str(c.get("DisplayAndFormat", {}).get("Symbol") or "")
+            symbol = str(disp.get("Symbol") or "")
             out.append(
                 {
                     "fill_id": str(
@@ -488,7 +496,7 @@ class SaxoPortfolio:
                     "qty": abs(int(cp.get("Amount") or 0)),
                     "price": float(cp.get("ClosingPrice") or 0),
                     "ts": _iso(cp.get("ExecutionTimeClose")),
-                    "currency": c.get("DisplayAndFormat", {}).get("Currency", "EUR"),
+                    "currency": disp.get("Currency", "EUR"),
                     "srd": str(cp.get("AssetType", "")).lower() == "srdstock",
                 }
             )
