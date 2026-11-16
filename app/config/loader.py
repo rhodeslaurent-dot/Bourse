@@ -47,6 +47,16 @@ OPTIONAL_FEATURES: dict[str, tuple[str, Any]] = {
         VerdictParamsModel,
     ),
     "allocation": ("Cœur et partie active : mesure, rappel d'achat, bandes (docs/39, ADR-018)", None),
+    # 16/11/2026: listed in code too, so that an older params.yaml (whose config_validation predates them) still
+    # shows and checks them — the production file listed 12 features out of 20
+    "admission": ("Admission des valeurs (référentiel de gestion, docs/07 §7.9)", None),
+    "market_gate": ("Portail de marché (lettres et régime de la place)", None),
+    "conjuncture": ("Risque conjoncturel (VIX, Brent, taux)", None),
+    "events": ("Annonces à venir et exposition aux écarts (R14)", None),
+    "entry": ("Entrées : déclencheur, repli, fixing", None),
+    "zones": ("Zones de support et de résistance", None),
+    "ranking": ("Classement des propositions", None),
+    "pockets": ("Poches : cœur, partie active, crypto", None),
 }
 
 

@@ -246,3 +246,15 @@ def test_a_backfill_sets_its_own_filing_budget(db_engine, config):
         capped = us_sources.sec_load(s, cfg, date(2026, 11, 13), date(2026, 11, 13), Reader(_docs()), NOW,
                                      max_filings=1)  # fmt: skip
     assert capped.truncated and capped.form4_added + capped.form8k_added == 1
+
+
+def test_an_older_params_yaml_still_checks_the_recent_groups(config):
+    """16/11/2026: the production params.yaml (older config_validation) listed 12 features out of 20."""
+    import copy
+
+    from app.config.loader import validate_params
+
+    raw = copy.deepcopy(config.raw)
+    raw["config_validation"]["optional_groups"] = ["tax", "llm"]
+    keys = {f.key for f in validate_params(raw).features}
+    assert {"admission", "market_gate", "conjuncture", "events", "entry", "zones", "ranking", "pockets"} <= keys
