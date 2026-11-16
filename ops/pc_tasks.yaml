@@ -128,3 +128,13 @@ tasks:
       - "docker compose exec -T app python -m app.cli events-build --from 2026-11-01"
       - "docker compose exec -T app python -m app.cli events-measure"
       - "docker compose exec -T app python -m app.cli sources-health"
+  # 16/11/2026 : le tableau de la tâche 06b dépasse la taille d'un compte rendu — trois tableaux sans le détail par
+  # contexte, limités aux lignes d'au moins 1 000 cas (seuil de confiance de l'utilisateur : 300 cas et t ≥ 3).
+  - id: "2026-11-16-10"
+    purpose: "Lecture seule : tableaux de mesure à 1, 5 et 20 séances, lignes d'au moins 1 000 événements"
+    stop_on_error: false
+    timeout_s: 1800
+    commands:
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 1 --min-n 1000"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --min-n 1000"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 1000"
