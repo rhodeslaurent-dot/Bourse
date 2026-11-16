@@ -219,6 +219,7 @@ event_journal:                           # étape 1 du plan (lots S1 à S3, 15/1
   horizons: [1, 5, 20]                  # séances après la première clôture de la place qui suit l'événement
   venue_min_members: 10                 # valeurs de la place nécessaires pour sa médiane (sinon : écart non calculé)
   sector_min_members: 5                 # valeurs du même secteur sur la place nécessaires pour la médiane du secteur
+  median_population: all                # « all » : toutes les actions de la place cotées aux deux dates (16/11/2026 : l'univers d'aujourd'hui, survivant par construction, tirait tous les écarts vers le bas) ; « universe » : l'univers actuel seulement
   consensus_min_change: 0.02            # variation de l'objectif moyen des analystes en dessous de laquelle ce n'est pas un événement
   short_volume_z: 3.0                   # lot S5 : part vendue à découvert (FINRA) à ≥ 3 écarts de sa base de 20 jours
 

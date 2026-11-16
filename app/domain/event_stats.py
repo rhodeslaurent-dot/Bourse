@@ -20,6 +20,7 @@ class GroupStats:
     median: float | None
     hit_rate: float | None  # share of events where the signed excess is positive
     t_stat: float | None  # mean / (sd / √n), descriptive
+    sd: float | None = None  # standard deviation of the signed excess (for the contrasts between groups)
 
     def as_dict(self) -> dict[str, float | int | None]:
         return {"n": self.n, "moyenne": self.mean, "mediane": self.median, "reussite": self.hit_rate,
@@ -52,7 +53,42 @@ def group_stats(values: Sequence[float]) -> GroupStats:
     m = mean(v)
     sd = pstdev(v) if n > 1 else 0.0
     t = m / (sd / sqrt(n)) if n > 1 and sd > 0 else None
-    return GroupStats(n, m, median(v), sum(1 for x in v if x > 0) / n, t)
+    return GroupStats(n, m, median(v), sum(1 for x in v if x > 0) / n, t, sd if n > 1 else None)
+
+
+@dataclass(frozen=True)
+class Contrast:
+    n_up: int
+    n_down: int
+    diff: float | None  # raw excess after the « up » events minus after the « down » ones
+    t_stat: float | None  # Welch, descriptive
+
+
+def _pooled(groups: Sequence[GroupStats], sign: int) -> tuple[int, float | None, float | None]:
+    """n, raw mean (``sign`` undoes the signing of a « down » group) and its standard error, over several groups."""
+    gs = [(g.n, g.mean, g.sd) for g in groups if g.n > 0 and g.mean is not None]
+    n = sum(k for k, _, _ in gs)
+    if n == 0:
+        return 0, None, None
+    m = sum(k * sign * float(mu or 0.0) for k, mu, _ in gs) / n
+    sds = [(k, sd) for k, _, sd in gs if sd is not None]
+    if len(sds) < len(gs):
+        return n, m, None
+    se2 = sum((k / n) ** 2 * (float(sd) ** 2 / k) for k, sd in sds)
+    return n, m, sqrt(se2)
+
+
+def contrast(up: Sequence[GroupStats], down: Sequence[GroupStats]) -> Contrast:
+    """After the « up » events of one source (a buy, a positive surprise) minus after its « down » events (a sale, a
+    negative surprise), raw excess over the venue (16/11/2026). Both share whatever drifts the population (the
+    companies that file, the venue's median): the difference is free of it, where each signed mean is not."""
+    nu, mu, su = _pooled(up, 1)
+    nd, md, sdn = _pooled(down, -1)
+    if mu is None or md is None:
+        return Contrast(nu, nd, None, None)
+    diff = mu - md
+    t = diff / sqrt(su**2 + sdn**2) if su is not None and sdn is not None and (su or sdn) else None
+    return Contrast(nu, nd, diff, t)
 
 
 def venue_median(returns: Sequence[float], min_n: int = 10) -> float | None:

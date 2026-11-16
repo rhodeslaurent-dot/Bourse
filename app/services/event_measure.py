@@ -19,7 +19,7 @@ from typing import Any
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from app.domain.event_stats import GroupStats, broken, group_stats, signed, total_return, venue_median
+from app.domain.event_stats import GroupStats, broken, contrast, group_stats, signed, total_return, venue_median
 from app.domain.timeutil import PARIS, from_store
 
 HORIZONS = (1, 5, 20)
@@ -32,13 +32,22 @@ class MeasureSettings:
     horizons: tuple[int, ...] = HORIZONS
     venue_min: int = VENUE_MIN  # values of the venue needed for its median
     sector_min: int = SECTOR_MIN  # values of the same sector on the venue needed for the sector median
+    # 16/11/2026: « all » = every share of the venue with a close at both dates, whatever happened to it later; the
+    # first production measure used today's universe — survivors by construction, which pulled every excess down
+    population: str = "all"
 
 
 def settings(config: Any) -> MeasureSettings:
     """``event_journal.horizons``, ``.venue_min_members``, ``.sector_min_members`` (defaults when absent)."""
     g = (getattr(config, "raw", None) or {}).get("event_journal") or {}
     hz = tuple(sorted({int(h) for h in g.get("horizons", HORIZONS) if int(h) > 0})) or HORIZONS
-    return MeasureSettings(hz, int(g.get("venue_min_members", VENUE_MIN)), int(g.get("sector_min_members", SECTOR_MIN)))
+    pop = str(g.get("median_population", "all"))
+    return MeasureSettings(
+        hz,
+        int(g.get("venue_min_members", VENUE_MIN)),
+        int(g.get("sector_min_members", SECTOR_MIN)),
+        pop if pop in ("all", "universe") else "all",
+    )
 
 
 @dataclass
@@ -86,7 +95,8 @@ class _Medians:
         rows = self.s.execute(
             select(PriceEod.isin, PriceEod.close, PriceEod.adj_close, Instrument.sector)
             .join(Instrument, Instrument.isin == PriceEod.isin)
-            .where(Instrument.mic == mic, Instrument.in_universe.is_(True), PriceEod.day == d)
+            .where(Instrument.mic == mic, PriceEod.day == d)
+            .where(Instrument.in_universe.is_(True) if self.st.population == "universe" else Instrument.kind == "stock")
         )
         out = {isin: (float(c), (float(a) / float(c)) if a else None, sec) for isin, c, a, sec in rows if c}
         self.days[key] = out
@@ -311,6 +321,31 @@ def report_lines(rows: list[ScoreRow], horizon: int) -> list[str]:
                    f"n {st.n:>5}  moyenne {pct(st.mean):>9}  réussite {rate:>4}  t {t:>5}")  # fmt: skip
     if len(out) == 1:
         out.append("  aucune mesure finale pour l'instant (il faut que les séances suivant les événements existent)")
+        return out
+    pairs = contrast_lines(rows)
+    if pairs:
+        out.append(
+            "Contraste dans une même source : après « hausse » (achat, surprise positive) moins après « baisse »"
+        )
+        out.append("  (indemne de ce qui fait dériver toute la population de la source ; t ≥ 3 en valeur absolue)")
+        out.extend(pairs)
+    return out
+
+
+def contrast_lines(rows: list[ScoreRow]) -> list[str]:
+    """One line per source with both « up » and « down » events among the rows."""
+    by_source: dict[str, tuple[list[GroupStats], list[GroupStats]]] = {}
+    for r in rows:
+        if r.direction in (1, -1):
+            up, down = by_source.setdefault(r.source_key, ([], []))
+            (up if r.direction == 1 else down).append(r.stats)
+    out = []
+    for source, (up, down) in by_source.items():
+        if not up or not down:
+            continue
+        c = contrast(up, down)
+        t = f"{c.t_stat:+.1f}" if c.t_stat is not None else "—"
+        out.append(f"  {source:<28} n {c.n_up:>6} / {c.n_down:<6} écart {pct(c.diff):>9}  t {t:>5}")
     return out
 
 

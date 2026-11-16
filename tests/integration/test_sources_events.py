@@ -344,3 +344,39 @@ def test_the_runs_of_each_feeding_job_say_why_a_source_is_silent(db_engine):
     assert "ProviderError: EOD XPAR boom" in line
     assert "sauté" in source_health.job_line(states["daily_regime"])
     assert "jamais lancé" in source_health.job_line(states["news_scan"])
+
+
+def test_the_venue_median_counts_every_share_not_only_todays_universe(db_engine, calendars):
+    """16/11/2026 — a median of today's universe (survivors by construction) pulled every excess down: the shares
+    that fell and left the universe count too, point in time."""
+    fallen = [f"FR0000000F{k:02d}" for k in range(14)]  # −3 % a session, no longer in the universe today
+    with db_session() as s:
+        _market(s)
+        for isin in fallen:
+            s.add(Instrument(isin=isin, name=isin, mic="XPAR", currency="EUR", in_universe=False, active=False))
+            for d in DAYS:
+                n = sum(1 for x in DAYS if D0 < x <= d)
+                c = 100 * 0.97**n
+                s.add(PriceEod(isin=isin, day=d, open=c, high=c, low=c, close=c, adj_close=c, volume=1000,
+                               source="eodhd", received_at=NOW))  # fmt: skip
+        s.add(Instrument(isin="FR0000000E01", name="ETF", mic="XPAR", currency="EUR", kind="etf"))
+        _letter(s, T, "buy", _paris(D0, 10), "p1")
+        s.flush()
+        survivors = event_measure.MeasureSettings(population="universe")
+        med = event_measure._Medians(s, survivors)
+        assert med.medians("XPAR", None, D0, date(2026, 10, 2), T)[0] == pytest.approx(0.0)
+        everyone = event_measure._Medians(s, event_measure.MeasureSettings())
+        vm = everyone.medians("XPAR", None, D0, date(2026, 10, 2), T)[0]
+        assert vm == pytest.approx(-0.03)  # 14 fallen shares out of 26: the median is theirs
+
+
+def test_the_scoreboard_says_the_contrast_between_buys_and_sales_of_a_source(db_engine, calendars):
+    with db_session() as s:
+        _market(s)
+        _letter(s, T, "buy", _paris(D0, 10), "c1")
+        _letter(s, C, "sell", _paris(D0, 10), "c2")
+        _measured(s, calendars)
+        lines = event_measure.report_lines(event_measure.scoreboard(s, 1, 1), 1)
+    text = "\n".join(lines)
+    assert "Contraste dans une même source" in text
+    assert "lettre:lettre_test" in text.split("Contraste")[1]
