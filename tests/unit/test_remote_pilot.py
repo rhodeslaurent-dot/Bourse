@@ -202,3 +202,12 @@ def test_commands_started_by_the_runner_write_utf8():
 
     code, out = rp._run([sys.executable, "-c", "import sys; print(sys.stdout.encoding)"], 30)
     assert code == 0 and out.strip().lower().replace("-", "") == "utf8"
+
+
+def test_the_system_trust_store_is_used_on_windows_only(monkeypatch):
+    import os
+
+    from app import cli
+
+    monkeypatch.setattr(os, "name", "posix")
+    assert cli.os_trust_store() is False  # Linux and the container: unchanged

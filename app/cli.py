@@ -2890,8 +2890,25 @@ def utf8_output() -> None:
             pass
 
 
+def os_trust_store() -> bool:
+    """Windows: HTTPS checked against the system's certificates (16/11/2026 on the PC: an antivirus or proxy that
+    inspects HTTPS adds its own authority, unknown to Python's own list — saxo-check failed, Docker did not).
+    Linux and the container are left as they are."""
+    import os
+
+    if os.name != "nt":
+        return False
+    try:
+        import truststore
+    except ImportError:
+        return False
+    truststore.inject_into_ssl()
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     utf8_output()
+    os_trust_store()
     from app.env import load_env
 
     load_env()  # .env at the repo root; never overrides variables already set by Docker/the shell
