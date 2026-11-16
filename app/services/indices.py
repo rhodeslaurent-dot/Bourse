@@ -63,6 +63,17 @@ def index_for(config: Any, market: str) -> IndexSpec | None:
     return next((x for x in index_specs(config) if x.market == market), None)
 
 
+def _provisional(s: Session, isin: str, day: date) -> bool:
+    """A bar received on its own day (Paris) may have been read before the final close (16/11/2026)."""
+    from sqlalchemy import select
+
+    from app.db.models import PriceEod
+    from app.domain.timeutil import PARIS, from_store
+
+    got = s.scalar(select(PriceEod.received_at).where(PriceEod.isin == isin, PriceEod.day == day))
+    return got is not None and from_store(got).astimezone(PARIS).date() <= day
+
+
 def refresh_indices(
     s: Session,
     provider: Any,
@@ -86,12 +97,14 @@ def refresh_indices(
     for spec in index_specs(config):
         last = last_eod_day(s, spec.id)
         start = history_from if history_from is not None else ((last + timedelta(days=1)) if last else first_day)
-        if start > today:
+        if history_from is None and last is not None and _provisional(s, spec.id, last):
+            start = last  # 16/11/2026: a bar received on its own day may be partial — read it again, final
+        if start >= today:  # a session not over is never stored (a replay in the session had kept partial bars)
             out[spec.market] = (0, None)
             continue
         n, err = 0, None
         try:
-            bars = provider.fetch_eod([spec.eodhd], start, today + timedelta(days=1))
+            bars = [b for b in provider.fetch_eod([spec.eodhd], start, today) if b.day < today]
             n = upsert_eod(s, bars, {spec.eodhd: spec.id})
         except QuotaExceeded as exc:
             out[spec.market] = (0, f"quota : {exc}"[:160])

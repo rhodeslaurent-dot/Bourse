@@ -44,8 +44,10 @@ def snapshot_regime(s: Session, isin: str, day: date, live: bool) -> MarketRegim
             return row
     q = select(MarketRegimeRow).where(MarketRegimeRow.market == "EU")
     if live:
-        return s.scalar(q.order_by(MarketRegimeRow.id.desc()))
-    return s.scalar(q.where(MarketRegimeRow.day <= day).order_by(MarketRegimeRow.day.desc()))
+        # the latest day, then its latest computation — never the last row written (a replay of a past day writes
+        # after today's row, 16/11/2026)
+        return s.scalar(q.order_by(MarketRegimeRow.day.desc(), MarketRegimeRow.id.desc()))
+    return s.scalar(q.where(MarketRegimeRow.day <= day).order_by(MarketRegimeRow.day.desc(), MarketRegimeRow.id.desc()))
 
 
 def record_signal(

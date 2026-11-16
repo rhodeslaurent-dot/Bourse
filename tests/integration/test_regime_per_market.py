@@ -15,6 +15,7 @@ from app.db.session import db_session
 from app.domain.conjuncture import market_gate
 from app.services import engine
 from app.services.indices import index_specs, refresh_indices
+from app.services.market_data import last_eod_day
 from tests.integration.test_engine import DAY, ISIN, NOW, _seed, breakout_bars
 
 
@@ -48,8 +49,25 @@ def test_indices_load_incrementally_and_report_unknown_codes(db_engine, config):
         p.calls.clear()
         refresh_indices(s, p, config, today, first_day=date(2026, 10, 19))
         assert [c[0] for c in p.calls] == ["OBX.INDX"]  # up to date: only the unknown code is tried again
+        assert last_eod_day(s, "IDX.GDAXI") == date(2026, 10, 22)  # the session of « today » is never stored
         refresh_indices(s, p, config, date(2026, 10, 27), first_day=date(2026, 10, 19))
-        assert dict(p.calls)["GDAXI.INDX"] == date(2026, 10, 24)  # incremental: the day after the last stored
+        assert dict(p.calls)["GDAXI.INDX"] == date(2026, 10, 23)  # incremental: the day after the last stored
+
+
+def test_a_bar_received_on_its_own_day_is_read_again_and_today_is_never_stored(db_engine, config):
+    """16/11/2026 — a replay in the session had stored the day's partial index bars as closes."""
+    p = FakeEod()
+    with db_session() as s:
+        s.add(PriceEod(isin="IDX.GDAXI", day=date(2026, 11, 16), open=1, high=1, low=1, close=1, volume=0,
+                       source="eodhd", data_status="eod",
+                       received_at=datetime(2026, 11, 16, 15, 20, tzinfo=UTC)))  # fmt: skip
+        s.flush()
+        refresh_indices(s, p, config, date(2026, 11, 16), first_day=date(2026, 11, 2))
+        assert "GDAXI.INDX" not in dict(p.calls)  # still the same day: nothing fetched, nothing stored
+        refresh_indices(s, p, config, date(2026, 11, 17), first_day=date(2026, 11, 2))
+        assert dict(p.calls)["GDAXI.INDX"] == date(2026, 11, 16)  # the partial bar is read again, final
+        row = s.query(PriceEod).filter(PriceEod.isin == "IDX.GDAXI", PriceEod.day == date(2026, 11, 16)).one()
+        assert row.close == 100 and last_eod_day(s, "IDX.GDAXI") == date(2026, 11, 16)
 
 
 def test_letters_conditions_do_not_gate_other_venues():
@@ -221,3 +239,15 @@ def test_the_snapshot_keeps_the_regime_of_the_instruments_own_venue(db_engine):
             assert s.query(DecisionSnapshot).filter(DecisionSnapshot.proposal_id == back.id).one().regime == got[isin]
     assert got["SE0000000SE1"]["regime"] == "red" and got["SE0000000SE1"]["marche"] == "XSTO"
     assert got["DK0000000DK1"]["regime"] == "orange" and got["DK0000000DK1"]["marche"] == "EU"  # said, not hidden
+
+
+def test_a_past_day_replayed_later_never_becomes_the_current_regime(db_engine):
+    """16/11/2026 — replaying the regime of past Mondays writes rows after today's: « current » is the latest day."""
+    from app.services.decisions import snapshot_regime
+
+    with db_session() as s:
+        for day, light in ((date(2026, 11, 16), "orange"), (date(2026, 11, 9), "red")):  # 09/11 written last
+            s.add(MarketRegimeRow(day=day, ts=datetime.now(UTC), market="EU", regime=light, details={}))
+        s.flush()
+        assert snapshot_regime(s, "XX0000000000", date(2026, 11, 16), live=True).day == date(2026, 11, 16)
+        assert snapshot_regime(s, "XX0000000000", date(2026, 11, 12), live=False).day == date(2026, 11, 9)

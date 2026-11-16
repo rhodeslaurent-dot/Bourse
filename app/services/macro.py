@@ -344,7 +344,9 @@ def market_context(
     source = market if reg is not None else "EU"
     if reg is None:
         reg = latest_regime(s, day, "EU", 10) or s.scalar(
-            select(MarketRegimeRow).where(MarketRegimeRow.day <= day).order_by(MarketRegimeRow.id.desc())
+            select(MarketRegimeRow)
+            .where(MarketRegimeRow.day <= day)
+            .order_by(MarketRegimeRow.day.desc(), MarketRegimeRow.id.desc())
         )
     regime = reg.regime if reg else None
     spec = index_for(config, market) if market != "EU" else None

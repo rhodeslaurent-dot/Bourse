@@ -49,14 +49,17 @@ def compute_market(
     r = config.params.regime or {}
     sessions = int(r.get("distribution_days_sessions", 25))
     drop = float(r.get("distribution_day_drop", 0.002))
-    idx = load_bars(s, index_id, end=day)
-    eu = idx if index_id == europe_id else load_bars(s, europe_id, end=day)
+    # the regime of a day is what was known before its session: the closes of the sessions before it, even when the
+    # job is replayed later (16/11/2026: a replay in the session had read the day's partial index bar)
+    known = day - timedelta(days=1)
+    idx = load_bars(s, index_id, end=known)
+    eu = idx if index_id == europe_id else load_bars(s, europe_id, end=known)
     closes = {}
     q = select(Instrument).where(Instrument.in_universe.is_(True))
     if mics is not None:
         q = q.where(Instrument.mic.in_(sorted(mics)))
     for inst in s.scalars(q):
-        bars = load_bars(s, inst.isin, end=day, limit=60)
+        bars = load_bars(s, inst.isin, end=known, limit=60)
         if len(bars) >= 50:
             closes[inst.isin] = [b.close for b in bars]
     min_n = int(r.get("breadth_min_values", 10))

@@ -202,7 +202,11 @@ def build_context(
     the tool already stores (indicators, explanations)."""
     now = now or datetime.now(UTC)
     ctx: dict[str, Any] = {"date_du_dossier": _d(now)}
-    reg = s.scalar(select(MarketRegimeRow).where(MarketRegimeRow.market == "EU").order_by(MarketRegimeRow.id.desc()))
+    reg = s.scalar(
+        select(MarketRegimeRow)
+        .where(MarketRegimeRow.market == "EU")
+        .order_by(MarketRegimeRow.day.desc(), MarketRegimeRow.id.desc())
+    )
     if reg:
         ctx["regime_marche"] = {"jour": _d(reg.day), "regime": label("regime", reg.regime)}
     if isin is None:

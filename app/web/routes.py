@@ -145,7 +145,9 @@ def home(request: Request) -> HTMLResponse:
     paris_today = datetime.now(PARIS).date()
     with db_session() as s:
         regime = s.scalar(
-            select(MarketRegimeRow).where(MarketRegimeRow.market == "EU").order_by(MarketRegimeRow.id.desc())
+            select(MarketRegimeRow)
+            .where(MarketRegimeRow.market == "EU")
+            .order_by(MarketRegimeRow.day.desc(), MarketRegimeRow.id.desc())
         )
         wl_count = len(list(s.scalars(select(WatchlistRow.id).where(WatchlistRow.active.is_(True)))))
         props_today = [

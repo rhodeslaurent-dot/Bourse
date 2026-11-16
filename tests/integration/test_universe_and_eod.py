@@ -187,7 +187,8 @@ def test_regime_job_on_stored_data(seeded, config, calendars):
 
         expected = 0
         for isin in ("FR0000120271", "FR0000120073", "DE0007164600"):
-            closes = [b.close for b in load_bars(s, isin, end=DAY, limit=60)]
+            # the regime of DAY is known before its session: the closes up to the session before (16/11/2026)
+            closes = [b.close for b in load_bars(s, isin, end=DAY - timedelta(days=1), limit=60)]
             expected += closes[-1] > sma(closes, 50)
         assert row.breadth_mm50 == pytest.approx(expected / 3)
         assert row.details["missing"] == []

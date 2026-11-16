@@ -129,7 +129,11 @@ def market_facts(s: Session) -> dict[str, Any]:
     from app.db.models import PriceEod
     from app.scheduler.jobs.daily_regime import INDEX_ISINS
 
-    reg = s.scalar(select(MarketRegimeRow).where(MarketRegimeRow.market == "EU").order_by(MarketRegimeRow.id.desc()))
+    reg = s.scalar(
+        select(MarketRegimeRow)
+        .where(MarketRegimeRow.market == "EU")
+        .order_by(MarketRegimeRow.day.desc(), MarketRegimeRow.id.desc())
+    )
     out: dict[str, Any] = {}
     if reg:
         out["regime"] = {"jour": reg.day, "regime": label("regime", reg.regime), "details": reg.details}
@@ -190,7 +194,11 @@ def build_dossier(
         {"isin": w.isin, "valeur": name_of(w.isin), "motif": label("watch_reason", w.reason)}
         for w in s.scalars(select(WatchlistRow).where(WatchlistRow.active.is_(True)).limit(80))
     ]
-    reg = s.scalar(select(MarketRegimeRow).where(MarketRegimeRow.market == "EU").order_by(MarketRegimeRow.id.desc()))
+    reg = s.scalar(
+        select(MarketRegimeRow)
+        .where(MarketRegimeRow.market == "EU")
+        .order_by(MarketRegimeRow.day.desc(), MarketRegimeRow.id.desc())
+    )
     from app.services.learning import memory_items
 
     return json.loads(
