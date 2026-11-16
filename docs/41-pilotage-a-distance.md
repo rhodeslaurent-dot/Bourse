@@ -23,7 +23,7 @@
 
 ## 41.2 Garde-fous (code : `app/remote_pilot.py`, tests : `tests/unit/test_remote_pilot.py`)
 
-- **Liste blanche fermée** : `git status` et `git log` ; `params-init --update` (avec `--set clé=valeur` sans caractère de commande) ; `docker compose up -d --build`, `ps`, `restart app` et `logs --tail N app` ; une liste de commandes de l'outil dans le conteneur (diagnostics et chargements idempotents) ; `wait-app N`, qui attend que l'application réponde. Sont exclus : `env-set`, `env-setup`, `saxo-auth`, `radar-history reset`, `core-set`, `git push`, `docker compose down`, tout `;`, `&&`, `|`, `$(…)` ou accent grave.
+- **Liste blanche fermée** : `git status` et `git log` ; `params-init --update` (avec `--set clé=valeur` sans caractère de commande) ; `docker compose up -d --build`, `ps`, `restart app` et `logs --tail N app` ; une liste de commandes de l'outil dans le conteneur (diagnostics et chargements idempotents) ; `wait-app N`, qui attend que l'application réponde ; `docker system df`, `docker image prune -f` et `docker builder prune -f` (demande de l'utilisateur du 16/11/2026 : place disque, images orphelines et cache de construction seulement — jamais un conteneur, un volume ni une image nommée). Sont exclus : `env-set`, `env-setup`, `saxo-auth`, `radar-history reset`, `core-set`, `git push`, `docker compose down`, tout `;`, `&&`, `|`, `$(…)` ou accent grave.
 - **Une seule commande refusée fait refuser toute la tâche** : rien n'est exécuté.
 - **Aucun interpréteur de commandes** : les arguments sont découpés, jamais interprétés.
 - **Aucun secret** : `.env` n'est jamais ouvert ; une ligne de sortie qui ressemble à un secret (`token=…`, `password=…`) est masquée.

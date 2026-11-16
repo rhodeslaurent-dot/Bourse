@@ -51,6 +51,9 @@ ALLOWED = [
     re.compile(r"^docker compose (?:up -d --build|ps|restart app|logs --tail \d{1,4} app)$"),
     re.compile(r"^docker compose exec -T app python -m app\.cli (?P<cli>[a-z][a-z0-9-]*)" + _ARG + r"$"),
     re.compile(r"^wait-app \d{1,4}$"),  # wait until the container answers its health check
+    # disk (user's request of 16/11/2026): the space used, the dangling images and the build cache only — never a
+    # container, a volume (the Postgres data) or a tagged image
+    re.compile(r"^docker (?:system df|image prune -f|builder prune -f)$"),
 ]
 _PLACEHOLDER = re.compile(r"\{params:([a-z_][a-z0-9_.]*)\}")
 _SECRET = re.compile(r"(?i)\b(token|secret|password|passwd|api[_-]?key|authorization)\b\s*[:=]\s*\S+")

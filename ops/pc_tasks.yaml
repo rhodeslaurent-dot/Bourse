@@ -50,6 +50,17 @@ tasks:
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli check-config --db"
       - "docker compose exec -T app python -m app.cli us-check --sample 3"
+  # 16/11/2026, demande de l'utilisateur : nettoyage disque avant les chargements (image ratée de 26 Go et cache de
+  # build du 15/11). Images orphelines et cache de construction seulement : aucun conteneur, aucun volume touché.
+  - id: "2026-11-16-05b"
+    purpose: "Nettoyage disque : images orphelines et cache de construction (jamais un conteneur ni un volume)"
+    stop_on_error: false
+    timeout_s: 1800
+    commands:
+      - "docker system df"
+      - "docker image prune -f"
+      - "docker builder prune -f"
+      - "docker system df"
   # À exécuter dans le dossier de PRODUCTION (base Postgres) : le contrôle arrête la tâche sur une base SQLite, donc
   # rien n'est chargé tant que le conteneur n'est pas remis sur Postgres. Reconstruction d'abord : le code est figé
   # dans l'image (16/11 : sans elle, l'option --require-postgres était inconnue du conteneur).

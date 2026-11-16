@@ -22,6 +22,9 @@ from app import remote_pilot as rp
         "docker compose exec -T app python -m app.cli events-build --from 2016-01-01",
         "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --context 10",
         "docker compose exec -T app python -m app.cli run-job sources_daily --date 2026-11-14",
+        "docker system df",
+        "docker image prune -f",
+        "docker builder prune -f",
     ],
 )
 def test_allowed_commands(cmd):
@@ -44,6 +47,10 @@ def test_allowed_commands(cmd):
         "uv run python -m app.cli core-set FR0000000CR1",
         "docker compose exec -T app python -m app.cli backfill --from `id`",
         "wait-app 600\ncat .env",
+        "docker system prune -a --volumes -f",
+        "docker volume prune -f",
+        "docker image prune -a -f",
+        "docker rm -f invest-n8n-postgres-1",
     ],
 )
 def test_refused_commands(cmd):
