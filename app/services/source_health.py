@@ -160,19 +160,21 @@ class SourceState:
 
 
 def state_of(s: Session, spec: SourceSpec, day: date) -> SourceState:
+    """One aggregate query per source (16/11/2026: the production base holds 54 million closes — one scan of a
+    table, never five): total, first and last item, items of the day and of the last 7 days."""
     col = spec.col
-    total = int(s.scalar(spec.query(func.count()).select_from(spec.model)) or 0)
-    first = _as_day(s.scalar(spec.query(func.min(col))))
-    last = _as_day(s.scalar(spec.query(func.max(col))))
     if _is_datetime(spec):
         a, b = _bounds(day)
         a7 = _bounds(day - timedelta(days=6))[0]
-        n_day = s.scalar(spec.query(func.count()).select_from(spec.model).where(col >= a, col < b))
-        n_7 = s.scalar(spec.query(func.count()).select_from(spec.model).where(col >= a7, col < b))
+        in_day, in_7d = (col >= a) & (col < b), (col >= a7) & (col < b)
     else:
-        n_day = s.scalar(spec.query(func.count()).select_from(spec.model).where(col == day))
-        n_7 = s.scalar(spec.query(func.count()).select_from(spec.model).where(col > day - timedelta(days=7),
-                                                                                col <= day))  # fmt: skip
+        in_day, in_7d = col == day, (col > day - timedelta(days=7)) & (col <= day)
+    q = spec.query(
+        func.count(), func.min(col), func.max(col), func.count().filter(in_day), func.count().filter(in_7d)
+    ).select_from(spec.model)
+    total, first_v, last_v, n_day, n_7 = s.execute(q).one()
+    total = int(total or 0)
+    first, last = _as_day(first_v), _as_day(last_v)
     silent = weekdays_between(last, day) if last is not None else None
     status = "vide" if total == 0 else "en_retard" if (silent or 0) > spec.max_silent_weekdays else "ok"
     return SourceState(spec.key, spec.label, spec.family, spec.cadence, spec.coverage, spec.feeder, int(n_day or 0),

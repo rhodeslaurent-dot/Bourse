@@ -150,11 +150,13 @@ def _todo(s: Session, limit: int, n_horizons: int) -> list[Any]:
     )
 
 
-def measure(s: Session, today: date, calendars: Any | None = None, limit: int = 20000,
+def measure(s: Session, today: date, calendars: Any | None = None, limit: int = 5000,
             now: datetime | None = None, st: MeasureSettings | None = None) -> MeasureReport:  # fmt: skip
-    """Measure (or measure again) every event whose horizons are not all final, oldest first, ``limit`` at most.
-    The events of the batch are read value by value: the closes of one value are loaded once, over the dates the
-    batch needs only."""
+    """Measure (or measure again) the ``limit`` oldest events whose horizons are not all final.
+
+    The batch is read **in time order** (16/11/2026, before the first run on the production base of 54 million
+    closes): consecutive events share their sessions, so each venue's day of closes is read once and kept in a
+    bounded cache; the closes of a value are read once per batch, over the batch's dates only."""
     from app.db.models import EventOutcome, Instrument
 
     now = now or datetime.now(UTC)
@@ -163,24 +165,27 @@ def measure(s: Session, today: date, calendars: Any | None = None, limit: int = 
     rep = MeasureReport()
     med = _Medians(s, st)
     events = _todo(s, limit, len(st.horizons))
+    if not events:
+        return rep
     existing = {
         (o.event_id, o.horizon): o
         for k in range(0, len(events), 900)
         for o in s.scalars(select(EventOutcome).where(EventOutcome.event_id.in_([e.id for e in events[k : k + 900]])))
     }
-    by_isin: dict[str, list[Any]] = defaultdict(list)
-    for ev in events:
-        by_isin[ev.isin].append(ev)
-    span = timedelta(days=3 * max(st.horizons) + 40)  # ≥ 2 × the horizon in sessions on any venue
-    for isin, evs in by_isin.items():
-        inst = s.get(Instrument, isin)
-        sector = inst.sector if inst is not None else None
-        days = [from_store(e.event_at).date() for e in evs]
-        b = _bars(s, isin, min(days) - timedelta(days=7), max(days) + span)
-        for ev in evs:
-            rep.events += 1
-            _measure_one(ev, b, sector, today, now, cals, med, st, existing, rep, s, EventOutcome)
-        s.flush()
+    days = [from_store(e.event_at).date() for e in events]
+    lo, hi = min(days) - timedelta(days=7), max(days) + timedelta(days=3 * max(st.horizons) + 40)
+    bars: dict[str, list[tuple[date, float, float | None]]] = {}
+    sectors: dict[str, str | None] = {}
+    for ev in sorted(events, key=lambda e: (from_store(e.event_at), e.id)):
+        if ev.isin not in bars:
+            bars[ev.isin] = _bars(s, ev.isin, lo, hi)
+            inst = s.get(Instrument, ev.isin)
+            sectors[ev.isin] = inst.sector if inst is not None else None
+        rep.events += 1
+        _measure_one(ev, bars[ev.isin], sectors[ev.isin], today, now, cals, med, st, existing, rep, s, EventOutcome)
+        if rep.events % 2000 == 0:
+            s.flush()
+    s.flush()
     return rep
 
 
