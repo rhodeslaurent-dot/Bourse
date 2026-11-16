@@ -250,6 +250,16 @@ tasks:
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 1 --min-n 1000"
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --min-n 1000"
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 1000"
+  # 16/11/2026 (soir) : l'utilisateur signale l'application injoignable par Cloudflare. Lecture seule, avant la 18 :
+  # le conteneur répond-il (santé locale) et que dit la fin de son journal ? (le tunnel lui-même n'est pas visible ici)
+  - id: "2026-11-16-17b"
+    purpose: "Lecture seule : l'application répond-elle en local ? (signalée injoignable par Cloudflare)"
+    stop_on_error: false
+    timeout_s: 600
+    commands:
+      - "docker compose ps"
+      - "wait-app 60"
+      - "docker compose logs --tail 60 app"
   # 16/11/2026 (soir) : mise en service du témoin de l'étape 1 (la même valeur 60 séances avant et après chaque
   # événement, hors autre événement de la source ; migration 0035 appliquée au démarrage), mesure refaite avec ses
   # témoins (≈ 45 min), puis les tableaux avec l'écart au témoin. Arrêt si la reconstruction échoue.
