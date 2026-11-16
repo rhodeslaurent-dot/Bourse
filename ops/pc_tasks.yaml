@@ -158,3 +158,12 @@ tasks:
       - "docker compose exec -T app python -m app.cli run-job news_scan --date 2026-11-16"
       - "docker compose exec -T app python -m app.cli run-job insider_archive --date 2026-11-16"
       - "docker compose exec -T app python -m app.cli sources-health"
+  # 16/11/2026 : lecture seule — l'état des conteneurs et la fin du journal de l'application (le planificateur y
+  # écrit « missed by » quand un passage est sauté faute de fil d'exécution libre).
+  - id: "2026-11-16-12"
+    purpose: "Lecture seule : état des conteneurs et fin du journal de l'application (passages sautés ?)"
+    stop_on_error: false
+    timeout_s: 600
+    commands:
+      - "docker compose ps"
+      - "docker compose logs --tail 300 app"
