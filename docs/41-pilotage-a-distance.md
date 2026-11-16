@@ -46,6 +46,7 @@ La session locale « BOURSE-PILOT setup et validation » est une session Remote 
 
 - Le code de l'outil est figé dans l'image Docker (`COPY . .`) : une tâche qui utilise une commande ou une option nouvelle commence par `docker compose up -d --build` puis `wait-app 600` (16/11/2026 : `--require-postgres` inconnue d'un conteneur construit avant elle).
 - Un chargement lourd commence par `check-config --require-postgres` : il s'arrête sur la base SQLite de repli.
+- `docker compose restart app` garde l'environnement de création du conteneur : après un changement de `.env` (clés, `SAXO_TOKEN_KEY`…), c'est `docker compose up -d` qui le relit (16/11/2026 : jeton Saxo illisible après `env-setup saxo --force` puis `restart`).
 - La liste des tâches faites (`ops/.done`) est propre à chaque dossier : déplacer la boucle dans un autre dossier y rejoue les tâches qu'il n'a pas exécutées.
 
 ## 41.6 Limites
