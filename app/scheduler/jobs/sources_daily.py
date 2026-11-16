@@ -36,8 +36,11 @@ def run(ctx: JobContext) -> int:
             notes.append(f"journal en échec ({exc.__class__.__name__})")
         try:
             with s.begin_nested():
-                m = event_measure.measure(s, ctx.run_date, ctx.calendars, st=event_measure.settings(ctx.config))
+                st = event_measure.settings(ctx.config)
+                m = event_measure.measure(s, ctx.run_date, ctx.calendars, st=st)
                 notes.append(m.line())
+                for offset in st.control_offsets:  # the control windows (docs/40 §40.3)
+                    event_measure.measure(s, ctx.run_date, ctx.calendars, st=st, offset=offset)
         except Exception as exc:  # noqa: BLE001
             log.warning("mesure des événements : %s", exc)
             notes.append(f"mesure en échec ({exc.__class__.__name__})")

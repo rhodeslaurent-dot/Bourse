@@ -112,3 +112,15 @@ def broken(closes: Sequence[float], adj_factors: Sequence[float | None], jump: f
             return True
         prev_f = f or prev_f
     return False
+
+
+def difference(event: GroupStats, control: GroupStats) -> Contrast:
+    """Signed mean after the events minus signed mean over their control windows (the same values, the same horizon,
+    away from any event of the source), Welch t — the reading fixed on 16/11/2026 before any control was measured."""
+    if event.mean is None or control.mean is None:
+        return Contrast(event.n, control.n, None, None)
+    diff = event.mean - control.mean
+    if event.sd is None or control.sd is None or event.n < 2 or control.n < 2:
+        return Contrast(event.n, control.n, diff, None)
+    se = sqrt(event.sd**2 / event.n + control.sd**2 / control.n)
+    return Contrast(event.n, control.n, diff, diff / se if se > 0 else None)

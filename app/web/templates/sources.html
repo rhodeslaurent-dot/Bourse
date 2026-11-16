@@ -55,7 +55,7 @@
   <div class="mt-2 overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="text-left text-xs text-slate-500 dark:text-slate-400">
-        <tr><th class="py-1 pr-2">Source</th><th class="pr-2">Type</th><th class="pr-2">Sens</th><th class="pr-2 text-right">n</th><th class="pr-2 text-right">Écart moyen</th><th class="pr-2 text-right">Réussite</th><th class="pr-2 text-right">t</th><th class="pr-2">Par régime de la place</th><th>VIX</th></tr>
+        <tr><th class="py-1 pr-2">Source</th><th class="pr-2">Type</th><th class="pr-2">Sens</th><th class="pr-2 text-right">n</th><th class="pr-2 text-right">Écart moyen</th><th class="pr-2 text-right">Réussite</th><th class="pr-2 text-right">t</th><th class="pr-2 text-right">Écart au témoin</th><th class="pr-2 text-right">t témoin</th><th class="pr-2">Par régime de la place</th><th>VIX</th></tr>
       </thead>
       <tbody>
       {% for r in board[:60] %}
@@ -68,6 +68,9 @@
           <td class="pr-2 text-right tabular-nums {% if m is not none and m > 0 %}text-emerald-700 dark:text-emerald-300{% elif m is not none and m < 0 %}text-rose-700 dark:text-rose-300{% endif %}">{{ '—' if m is none else ('%+.2f'|format(m * 100)).replace('.', ',') ~ ' %' }}</td>
           <td class="pr-2 text-right tabular-nums">{{ '—' if r.stats.hit_rate is none else '%.0f'|format(r.stats.hit_rate * 100) ~ ' %' }}</td>
           <td class="pr-2 text-right tabular-nums">{{ '—' if r.stats.t_stat is none else ('%+.1f'|format(r.stats.t_stat)).replace('.', ',') }}</td>
+          {% set vc = r.vs_control %}
+          <td class="pr-2 text-right tabular-nums" title="{{ r.control.n }} fenêtre(s) témoin">{{ '—' if vc.diff is none else ('%+.2f'|format(vc.diff * 100)).replace('.', ',') ~ ' %' }}</td>
+          <td class="pr-2 text-right tabular-nums {% if vc.t_stat is not none and (vc.t_stat >= 3 or vc.t_stat <= -3) %}font-semibold{% endif %}">{{ '—' if vc.t_stat is none else ('%+.1f'|format(vc.t_stat)).replace('.', ',') }}</td>
           <td class="pr-2 text-xs">{% for k, g in r.by_regime.items() %}<span class="mr-2 whitespace-nowrap">{{ k }} : {{ g.n }} · {{ '—' if g.mean is none else ('%+.1f'|format(g.mean * 100)).replace('.', ',') ~ ' %' }}</span>{% endfor %}</td>
           <td class="text-xs">{% for k, g in r.by_vix.items() %}<span class="mr-2 whitespace-nowrap">{{ k }} : {{ g.n }} · {{ '—' if g.mean is none else ('%+.1f'|format(g.mean * 100)).replace('.', ',') ~ ' %' }}</span>{% endfor %}</td>
         </tr>
@@ -75,7 +78,7 @@
       </tbody>
     </table>
   </div>
-  <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Lignes d'au moins 5 événements mesurés. Un t entre −2 et +2 ne distingue pas la source du hasard. Détail en console : <code>events-scoreboard --horizon {{ h }} --context 10</code>.</p>
+  <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Lignes d'au moins 5 événements mesurés. Un t entre −2 et +2 ne distingue pas la source du hasard. <strong>À lire : l'écart au témoin</strong> (les mêmes valeurs 60 séances avant et après, hors événement de la source) : une source n'est retenue que si |t| ≥ 3, avec au moins 300 cas de chaque côté, au même signe à 5 et 20 séances (règle fixée le 16/11/2026 avant tout résultat). Détail en console : <code>events-scoreboard --horizon {{ h }} --context 10</code>.</p>
   {% else %}
   <p class="mt-3 text-sm">{{ badge('pas encore de mesure', 'slate') }} Il faut des événements au journal et les séances qui les suivent. Sur le PC : <code>events-build --from 2016-01-01</code> puis <code>events-measure</code>.</p>
   {% endif %}

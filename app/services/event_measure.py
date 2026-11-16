@@ -19,10 +19,21 @@ from typing import Any
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from app.domain.event_stats import GroupStats, broken, contrast, group_stats, signed, total_return, venue_median
+from app.domain.event_stats import (
+    Contrast,
+    GroupStats,
+    broken,
+    contrast,
+    difference,
+    group_stats,
+    signed,
+    total_return,
+    venue_median,
+)
 from app.domain.timeutil import PARIS, from_store
 
 HORIZONS = (1, 5, 20)
+CONTROL_OFFSETS = (-60, 60)
 SECTOR_MIN = 5
 VENUE_MIN = 10
 
@@ -35,6 +46,9 @@ class MeasureSettings:
     # 16/11/2026: « all » = every share of the venue with a close at both dates, whatever happened to it later; the
     # first production measure used today's universe — survivors by construction, which pulled every excess down
     population: str = "all"
+    # 16/11/2026, control group fixed before any result was read: the same value, the same horizon, 60 sessions
+    # before and 60 sessions after the event's reference close (docs/40 §40.3)
+    control_offsets: tuple[int, ...] = CONTROL_OFFSETS
 
 
 def settings(config: Any) -> MeasureSettings:
@@ -42,11 +56,13 @@ def settings(config: Any) -> MeasureSettings:
     g = (getattr(config, "raw", None) or {}).get("event_journal") or {}
     hz = tuple(sorted({int(h) for h in g.get("horizons", HORIZONS) if int(h) > 0})) or HORIZONS
     pop = str(g.get("median_population", "all"))
+    offsets = tuple(int(x) for x in g.get("control_offsets", CONTROL_OFFSETS) if int(x) != 0) or CONTROL_OFFSETS
     return MeasureSettings(
         hz,
         int(g.get("venue_min_members", VENUE_MIN)),
         int(g.get("sector_min_members", SECTOR_MIN)),
         pop if pop in ("all", "universe") else "all",
+        offsets,
     )
 
 
@@ -143,18 +159,18 @@ def _calendars() -> Any:
         return None
 
 
-def _todo(s: Session, limit: int, n_horizons: int) -> list[Any]:
-    """Events with a horizon not measured yet or still pending, oldest first."""
+def _todo(s: Session, limit: int, n_horizons: int, offset: int = 0) -> list[Any]:
+    """Events with a horizon not measured yet or still pending (for the event, or for its control at ``offset``),
+    oldest first."""
     from sqlalchemy import func
 
-    from app.db.models import EventOutcome, MarketEvent
+    from app.db.models import EventControl, EventOutcome, MarketEvent
 
-    done = (
-        select(EventOutcome.event_id)
-        .where(EventOutcome.status != "pending")
-        .group_by(EventOutcome.event_id)
-        .having(func.count() >= n_horizons)
-    )
+    model: Any = EventControl if offset else EventOutcome
+    q = select(model.event_id).where(model.status != "pending")
+    if offset:
+        q = q.where(EventControl.offset == offset)
+    done = q.group_by(model.event_id).having(func.count() >= n_horizons)
     return list(
         s.scalars(select(MarketEvent).where(MarketEvent.id.not_in(done)).order_by(MarketEvent.event_at).limit(limit))
     )
@@ -165,37 +181,44 @@ def reset(s: Session) -> int:
     derived from stored closes only, so the next ``measure`` rebuilds them identically from the same data."""
     from sqlalchemy import delete
 
-    from app.db.models import EventOutcome
+    from app.db.models import EventControl, EventOutcome
 
-    n = s.execute(delete(EventOutcome)).rowcount or 0
+    n = (s.execute(delete(EventOutcome)).rowcount or 0) + (s.execute(delete(EventControl)).rowcount or 0)
     s.flush()
     return int(n)
 
 
-def measure(s: Session, today: date, calendars: Any | None = None, limit: int = 5000,
-            now: datetime | None = None, st: MeasureSettings | None = None) -> MeasureReport:  # fmt: skip
-    """Measure (or measure again) the ``limit`` oldest events whose horizons are not all final.
+def measure(s: Session, today: date, calendars: Any | None = None, limit: int = 5000, now: datetime | None = None,
+            st: MeasureSettings | None = None, offset: int = 0) -> MeasureReport:  # fmt: skip
+    """Measure (or measure again) the ``limit`` oldest events whose horizons are not all final — or, with an
+    ``offset`` in sessions, their control windows (the same value, ``offset`` sessions before or after).
 
     The batch is read **in time order** (16/11/2026, before the first run on the production base of 54 million
     closes): consecutive events share their sessions, so each venue's day of closes is read once and kept in a
-    bounded cache; the closes of a value are read once per batch, over the batch's dates only."""
-    from app.db.models import EventOutcome, Instrument
+    bounded cache; the closes of a value are read once per batch, over the batch's dates only. A control pass walks
+    one offset at a time, so its days move in order too."""
+    from app.db.models import EventControl, EventOutcome, Instrument
 
     now = now or datetime.now(UTC)
     st = st or MeasureSettings()
     cals = calendars if calendars is not None else _calendars()
     rep = MeasureReport()
     med = _Medians(s, st)
-    events = _todo(s, limit, len(st.horizons))
+    events = _todo(s, limit, len(st.horizons), offset)
     if not events:
         return rep
-    existing = {
-        (o.event_id, o.horizon): o
-        for k in range(0, len(events), 900)
-        for o in s.scalars(select(EventOutcome).where(EventOutcome.event_id.in_([e.id for e in events[k : k + 900]])))
-    }
+    model: Any = EventControl if offset else EventOutcome
+    existing = {}
+    for k in range(0, len(events), 900):
+        q = select(model).where(model.event_id.in_([e.id for e in events[k : k + 900]]))
+        if offset:
+            q = q.where(EventControl.offset == offset)
+        existing.update({(o.event_id, o.horizon): o for o in s.scalars(q)})
     days = [from_store(e.event_at).date() for e in events]
-    lo, hi = min(days) - timedelta(days=7), max(days) + timedelta(days=3 * max(st.horizons) + 40)
+    pad = timedelta(days=int(1.6 * abs(offset)) + 10) if offset else timedelta(0)  # sessions → calendar days
+    lo = min(days) - timedelta(days=7) - (pad if offset < 0 else timedelta(0))
+    hi = max(days) + timedelta(days=3 * max(st.horizons) + 40) + (pad if offset > 0 else timedelta(0))
+    others = _same_source_days(s, events, lo, hi) if offset else {}
     bars: dict[str, list[tuple[date, float, float | None]]] = {}
     sectors: dict[str, str | None] = {}
     for ev in sorted(events, key=lambda e: (from_store(e.event_at), e.id)):
@@ -204,38 +227,69 @@ def measure(s: Session, today: date, calendars: Any | None = None, limit: int = 
             inst = s.get(Instrument, ev.isin)
             sectors[ev.isin] = inst.sector if inst is not None else None
         rep.events += 1
-        _measure_one(ev, bars[ev.isin], sectors[ev.isin], today, now, cals, med, st, existing, rep, s, EventOutcome)
+        _measure_one(ev, bars[ev.isin], sectors[ev.isin], today, now, cals, med, st, existing, rep, s, model,
+                     offset, others.get((ev.isin, ev.source_key), ()))  # fmt: skip
         if rep.events % 2000 == 0:
             s.flush()
     s.flush()
     return rep
 
 
+def _same_source_days(s: Session, events: list[Any], lo: date, hi: date) -> dict[tuple[str, str], tuple[date, ...]]:
+    """(value, source) → the days of that source's events on the value: a control window holding one is not a
+    window « without event »."""
+    from app.db.models import MarketEvent
+
+    isins = sorted({e.isin for e in events})
+    start = datetime.combine(lo, time.min, tzinfo=PARIS).astimezone(UTC)
+    end = datetime.combine(hi, time.max, tzinfo=PARIS).astimezone(UTC)
+    out: dict[tuple[str, str], set[date]] = defaultdict(set)
+    for k in range(0, len(isins), 900):
+        for isin, src, at in s.execute(
+            select(MarketEvent.isin, MarketEvent.source_key, MarketEvent.event_at).where(
+                MarketEvent.isin.in_(isins[k : k + 900]), MarketEvent.event_at >= start, MarketEvent.event_at <= end
+            )
+        ):
+            out[(isin, src)].add(from_store(at).astimezone(PARIS).date())
+    return {k: tuple(sorted(v)) for k, v in out.items()}
+
+
 def _measure_one(ev: Any, b: list[tuple[date, float, float | None]], sector: str | None, today: date, now: datetime,
                  cals: Any, med: _Medians, st: MeasureSettings, existing: dict[tuple[int, int], Any],
-                 rep: MeasureReport, s: Session, outcome_cls: Any) -> None:  # fmt: skip
+                 rep: MeasureReport, s: Session, outcome_cls: Any, offset: int = 0,
+                 others: tuple[date, ...] = ()) -> None:  # fmt: skip
     at = from_store(ev.event_at)
     venue = _venue(cals, ev.mic)
     local = at.astimezone(venue.tz if venue is not None else PARIS).date()
-    i = next((k for k, (d, _, _) in enumerate(b) if d >= local), None)
-    if i is not None and b[i][0] == local and _close_moment(venue, local) <= at:
-        i = i + 1 if i + 1 < len(b) else None
+    r = next((k for k, (d, _, _) in enumerate(b) if d >= local), None)
+    if r is not None and b[r][0] == local and _close_moment(venue, local) <= at:
+        r = r + 1 if r + 1 < len(b) else None
+    i = r + offset if r is not None else None  # the control window starts ``offset`` sessions away
+    ahead = max(offset, 0)
     for h in st.horizons:
-        o = existing.get((ev.id, h)) or outcome_cls(event_id=ev.id, horizon=h)
+        o = existing.get((ev.id, h)) or (
+            outcome_cls(event_id=ev.id, horizon=h, offset=offset) if offset else outcome_cls(event_id=ev.id, horizon=h)
+        )
         if o.status in ("final", "unavailable"):
             continue
         o.computed_at = now
-        if i is None:
-            late = (today - local).days > 10
+        if i is None or r is None:
+            late = (today - local).days > 10 + ahead * 2
             o.status, o.note = ("unavailable", "aucun cours après l'événement") if late else ("pending", None)
+        elif i < 0:
+            o.status, o.note = "unavailable", "historique insuffisant avant l'événement"
         elif i + h >= len(b):
-            late = (today - b[i][0]).days > 3 * h + 30
+            late = (today - b[r][0]).days > 3 * (h + ahead) + 30
             o.status, o.note = ("unavailable", "cours manquants") if late else ("pending", None)
-            o.ref_day, o.ref_close = b[i][0], b[i][1]
+            if i < len(b):
+                o.ref_day, o.ref_close = b[i][0], b[i][1]
         else:
             win = b[i : i + h + 1]
             o.ref_day, o.ref_close, o.end_day, o.end_close = b[i][0], b[i][1], b[i + h][0], b[i + h][1]
-            if broken([c for _, c, _ in win], [f for _, _, f in win]):
+            first = b[i - 1][0] if i > 0 else b[i][0]  # an event published after the close before the window counts
+            if others and any(first <= d <= b[i + h][0] for d in others):
+                o.status, o.note = "unavailable", "autre événement de la même source dans la fenêtre"
+            elif broken([c for _, c, _ in win], [f for _, _, f in win]):
                 o.status, o.note = "unavailable", "opération sur titre ou cours aberrant dans la fenêtre"
             else:
                 o.ret = total_return(b[i][1], b[i][2], b[i + h][1], b[i + h][2])  # dividends included
@@ -270,6 +324,8 @@ class ScoreRow:
     by_vix: dict[str, GroupStats]
     by_macro: dict[str, GroupStats]
     sector: GroupStats
+    control: GroupStats = GroupStats(0, None, None, None, None)  # the same values away from the source's events
+    vs_control: Contrast = Contrast(0, 0, None, None)
 
 
 def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None = None) -> list[ScoreRow]:
@@ -286,6 +342,7 @@ def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None 
     groups: dict[tuple[str, str, str, int | None], list[tuple[Any, Any]]] = defaultdict(list)
     for ev, o in s.execute(q):
         groups[(ev.source_key, ev.family, ev.kind, ev.direction)].append((ev, o))
+    controls = _control_values(s, horizon, since)
     out = []
     for (src, fam, kind, d), items in groups.items():
         if len(items) < min_n:
@@ -303,7 +360,29 @@ def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None 
             split(lambda c: "annonce macro proche" if c.get("annonce_macro") else "sans annonce macro"),
             group_stats([signed(o.excess_sector, d) for _, o in items if o.excess_sector is not None]),
         ))  # fmt: skip
+        ctl = group_stats([signed(x, d) for x in controls.get((src, fam, kind, d), [])])
+        out[-1].control, out[-1].vs_control = ctl, difference(out[-1].stats, ctl)
     return sorted(out, key=lambda r: (-r.stats.n, r.source_key, r.kind))
+
+
+def _control_values(
+    s: Session, horizon: int, since: date | None
+) -> dict[tuple[str, str, str, int | None], list[float]]:
+    """Excess over the venue of every final control window, by (source, family, kind, direction) of its event."""
+    from app.db.models import EventControl, MarketEvent
+
+    q = (
+        select(MarketEvent.source_key, MarketEvent.family, MarketEvent.kind, MarketEvent.direction,
+               EventControl.excess_venue)
+        .join(EventControl, EventControl.event_id == MarketEvent.id)
+        .where(EventControl.horizon == horizon, EventControl.status == "final", EventControl.excess_venue.is_not(None))
+    )  # fmt: skip
+    if since is not None:
+        q = q.where(MarketEvent.event_at >= datetime.combine(since, time.min, tzinfo=PARIS).astimezone(UTC))
+    out: dict[tuple[str, str, str, int | None], list[float]] = defaultdict(list)
+    for src, fam, kind, d, x in s.execute(q):
+        out[(src, fam, kind, d)].append(float(x))
+    return out
 
 
 def pct(x: float | None, digits: int = 1) -> str:
@@ -313,12 +392,20 @@ def pct(x: float | None, digits: int = 1) -> str:
 def report_lines(rows: list[ScoreRow], horizon: int) -> list[str]:
     """The scoreboard as text (``events-scoreboard``)."""
     out = [f"Après chaque événement : écart à la médiane de la place à {horizon} séance(s), dans le sens de la source"]
+    if any(r.control.n for r in rows):
+        out.append("  (témoin : les mêmes valeurs 60 séances avant et après, hors événement de la source ; à lire : "
+                   "l'écart au témoin, n ≥ 300 de chaque côté et t ≥ 3 en valeur absolue)")  # fmt: skip
     for r in rows:
         st = r.stats
         t = f"{st.t_stat:+.1f}" if st.t_stat is not None else "—"
         rate = f"{st.hit_rate:.0%}" if st.hit_rate is not None else "—"
-        out.append(f"  {r.source_key:<28} {r.kind:<30} sens {r.direction if r.direction is not None else '·':>2}  "
-                   f"n {st.n:>5}  moyenne {pct(st.mean):>9}  réussite {rate:>4}  t {t:>5}")  # fmt: skip
+        line = (f"  {r.source_key:<28} {r.kind:<30} sens {r.direction if r.direction is not None else '·':>2}  "
+                f"n {st.n:>5}  moyenne {pct(st.mean):>9}  réussite {rate:>4}  t {t:>5}")  # fmt: skip
+        if r.control.n:  # 16/11/2026: the same values away from the source's events, and the gap to them
+            vc = r.vs_control
+            tc = f"{vc.t_stat:+.1f}" if vc.t_stat is not None else "—"
+            line += f"  | témoin n {r.control.n:>6} {pct(r.control.mean):>8}  écart {pct(vc.diff):>8}  t {tc:>5}"
+        out.append(line)
     if len(out) == 1:
         out.append("  aucune mesure finale pour l'instant (il faut que les séances suivant les événements existent)")
         return out

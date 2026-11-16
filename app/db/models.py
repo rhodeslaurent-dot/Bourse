@@ -1387,6 +1387,32 @@ class EventOutcome(Base):
     __table_args__ = (UniqueConstraint("event_id", "horizon", name="uq_event_outcomes_event_horizon"),)
 
 
+class EventControl(Base):
+    """Step 1 control group (16/11/2026) — the same value over the same number of sessions, ``offset`` sessions before
+    (negative) or after (positive) the event's reference close, excluding windows with another event of the same
+    source on the value. Read against the venue's median like the event itself: the gap event − control removes the
+    drift of the source's population and of the value's own trend."""
+
+    __tablename__ = "event_controls"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    event_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    horizon: Mapped[int] = mapped_column(Integer)
+    offset: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(12))  # pending | final | unavailable
+    ref_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ref_close: Mapped[float | None] = mapped_column(nullable=True)
+    end_close: Mapped[float | None] = mapped_column(nullable=True)
+    ret: Mapped[float | None] = mapped_column(nullable=True)
+    venue_median: Mapped[float | None] = mapped_column(nullable=True)
+    excess_venue: Mapped[float | None] = mapped_column(nullable=True)
+    sector_median: Mapped[float | None] = mapped_column(nullable=True)
+    excess_sector: Mapped[float | None] = mapped_column(nullable=True)
+    note: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("event_id", "horizon", "offset", name="uq_event_controls_event_horizon_offset"),)
+
+
 class ShortVolumeDaily(Base):
     """Lot S5 — daily short sale volume of a US value as published by FINRA (Reg SHO files): facts as published."""
 

@@ -2768,12 +2768,15 @@ def cmd_events_measure(args: argparse.Namespace) -> int:
 
         with db_session() as s:
             print(f"{reset(s)} mesure(s) effacée(s) : tout est mesuré à nouveau")
-    for _ in range(args.batches):
-        with db_session() as s:
-            rep = measure(s, today, limit=args.limit, st=settings(cfg))
-        print(rep.line())
-        if rep.events < args.limit or rep.final + rep.unavailable == 0:
-            break
+    st = settings(cfg)
+    for offset in (0, *(() if args.no_controls else st.control_offsets)):
+        label = "" if not offset else f"témoin {offset:+d} séances : "
+        for _ in range(args.batches):
+            with db_session() as s:
+                rep = measure(s, today, limit=args.limit, st=st, offset=offset)
+            print(label + rep.line())
+            if rep.events < args.limit or rep.final + rep.unavailable == 0:
+                break
     return 0
 
 
@@ -3061,6 +3064,7 @@ def main(argv: list[str] | None = None) -> int:
     em.add_argument("--limit", type=int, default=5000, help="événements par lot (défaut : 5000)")
     em.add_argument("--batches", type=int, default=400, help="lots au plus (défaut : 400)")
     em.add_argument("--redo", action="store_true", help="effacer toutes les mesures et tout mesurer à nouveau")
+    em.add_argument("--no-controls", dest="no_controls", action="store_true", help="sans les fenêtres témoins")
     em.set_defaults(fn=cmd_events_measure)
     es = sub.add_parser("events-scoreboard", help="par source : écart moyen à la place après chaque événement")
     es.add_argument("--horizon", type=int, default=5, help="séances (défaut : 5)")
