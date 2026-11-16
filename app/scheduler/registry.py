@@ -66,8 +66,59 @@ class ScheduledJob:
     spec: JobSpec
 
 
+_CRONTAB_DAYS = ("sun", "mon", "tue", "wed", "thu", "fri", "sat")
+_WEEK_ORDER = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def _day_number(token: str) -> int:
+    t = token.strip().lower()
+    if t[:3] in _CRONTAB_DAYS:
+        return _CRONTAB_DAYS.index(t[:3])
+    n = int(t)
+    if not 0 <= n <= 7:
+        raise ValueError(f"jour de semaine hors de 0-7 : {token}")
+    return n % 7
+
+
+def crontab_days(field: str) -> str:
+    """The day-of-week field of a standard crontab (0 or 7 = Sunday, 1 = Monday … 6 = Saturday), as APScheduler's day
+    names. APScheduler 3 reads the numbers with 0 = **Monday**, and its ``from_crontab`` passes them unchanged: until
+    16/11/2026 « 1-5 » ran Tuesday to Saturday — no closes, regime, news or scan on Mondays — and the Sunday backtest
+    « 0 » ran on Monday during the session."""
+    f = field.strip()
+    if f in ("*", "?"):
+        return "*"
+    days: set[int] = set()
+    for part in f.split(","):
+        step = 1
+        if "/" in part:
+            part, s = part.split("/", 1)
+            step = int(s)
+        if part in ("*", ""):
+            lo, hi = 0, 6
+        elif "-" in part:
+            a, b = part.split("-", 1)
+            lo, hi = _day_number(a), _day_number(b)
+            if b.strip() == "7":  # « 1-7 »: Monday to Sunday
+                hi = 7
+            if hi < lo:
+                raise ValueError(f"plage de jours inversée : {part}")
+        else:
+            lo = hi = _day_number(part)
+            if step > 1:  # « 1/2 »: from that day to the end of the week
+                hi = 6
+        days.update(d % 7 for d in range(lo, hi + 1, step))
+    names = {_CRONTAB_DAYS[d] for d in days}
+    return ",".join(n for n in _WEEK_ORDER if n in names)
+
+
 def _cron(expr: str, tz: ZoneInfo) -> CronTrigger:
-    return CronTrigger.from_crontab(expr, timezone=tz)
+    """A standard 5-field crontab (minute hour day month day-of-week), its day of week read the crontab way."""
+    fields = expr.split()
+    if len(fields) != 5:
+        raise ValueError(f"expression cron à 5 champs attendue : {expr!r}")
+    minute, hour, day, month, dow = fields
+    return CronTrigger(minute=minute, hour=hour, day=day, month=month, day_of_week=crontab_days(dow), timezone=tz)
 
 
 def _window_interval(spec: JobSpec, tz: ZoneInfo) -> BaseTrigger:

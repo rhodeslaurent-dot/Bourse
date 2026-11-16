@@ -166,6 +166,24 @@ def test_the_reference_is_the_first_close_after_publication_and_the_excess_is_ov
     assert a20.status == "final" and a20.ret == pytest.approx(1.01**20 - 1)
 
 
+def test_a_dividend_is_added_back_and_redo_measures_everything_again(db_engine, calendars):
+    """16/11/2026 — the first production measure read raw closes: an ex-dividend date counted as a loss."""
+    with db_session() as s:
+        _market(s)
+        _letter(s, T, "buy", _paris(D0, 10), "d1")
+        # an ex-dividend date of 2 % on T the next session: raw close down, factor of the earlier rows below 1
+        for p in s.scalars(select(PriceEod).where(PriceEod.isin == T)):
+            if p.day <= D0:
+                p.adj_close = p.close * 0.98
+        s.flush()
+        _, out = _measured(s, calendars)
+        assert out[(T, "lettre_achat", 1)].ret == pytest.approx(1.01 / 0.98 - 1)
+        assert event_measure.reset(s) == 3
+        assert event_measure.measure(s, NOW.date(), calendars, now=NOW).final == 3
+        again = s.scalars(select(EventOutcome).where(EventOutcome.horizon == 1)).one()
+        assert again.ret == pytest.approx(1.01 / 0.98 - 1)
+
+
 def test_a_window_not_finished_is_pending_and_a_split_makes_it_unavailable(db_engine, calendars):
     with db_session() as s:
         _market(s)
@@ -236,6 +254,7 @@ def test_the_sources_page_shows_the_health_and_the_scoreboard(config, calendars,
     assert "Cours de clôture" in html and "à jour" in html and "Lettres d&#39;analystes" in html
     assert "Ce qui a suivi les événements, à 5 séance(s)" in html and "20 séance(s)" in h20
     assert "pas encore de mesure" in html  # one event: under the 5 needed for a line
+    assert "Jobs qui alimentent les sources" in html and "eod_backfill_check" in html
 
 
 def test_the_other_sources_enter_the_journal_with_the_source_s_own_direction(db_engine, config):
@@ -288,3 +307,40 @@ def test_every_source_names_a_job_that_exists():
     from app.scheduler.registry import IMPLEMENTED_JOBS
 
     assert {x.feeder for x in source_health.registry()} <= set(IMPLEMENTED_JOBS)
+
+
+def test_the_runs_of_each_feeding_job_say_why_a_source_is_silent(db_engine):
+    """16/11/2026 — a source silent for days: did its job run, was it skipped, did it fail? Times of La Réunion."""
+    from app.db.models import JobRun
+
+    now = datetime(2026, 11, 16, 14, 0, tzinfo=UTC)
+    with db_session() as s:
+        s.add_all(
+            [
+                JobRun(job="eod_backfill_check", started_at=now - timedelta(days=6), status="ok", rows=18000),
+                JobRun(
+                    job="eod_backfill_check",
+                    started_at=now - timedelta(hours=8, minutes=15),
+                    status="error",
+                    error="ProviderError: EOD XPAR\nboom",
+                ),  # fmt: skip
+                JobRun(
+                    job="daily_regime",
+                    started_at=now - timedelta(hours=7),
+                    status="skipped",
+                    note="aucune place ouverte",
+                ),  # fmt: skip
+            ]
+        )
+    jobs = source_health.feeders()
+    assert jobs[0] == "eod_backfill_check" and len(jobs) == len(set(jobs))
+    with db_session() as s:
+        names = ["eod_backfill_check", "daily_regime", "news_scan"]
+        states = {x.job: x for x in source_health.job_states(s, names, now)}
+    eod = states["eod_backfill_check"]
+    assert eod.last_status == "error" and eod.runs_24h == {"error": 1} and eod.last_ok is not None
+    line = source_health.job_line(eod)
+    assert "dernier 16/11 09:45 erreur" in line and "dernier ok 10/11 18:00" in line and "\n" not in line
+    assert "ProviderError: EOD XPAR boom" in line
+    assert "sauté" in source_health.job_line(states["daily_regime"])
+    assert "jamais lancé" in source_health.job_line(states["news_scan"])

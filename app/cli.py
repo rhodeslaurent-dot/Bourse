@@ -2731,6 +2731,13 @@ def cmd_sources_health(args: argparse.Namespace) -> int:
         print(f"  {STATUS_LABELS[x.status]:<10} {x.label:<58} jour {x.items_day:>6}  7 j {x.items_7d:>7}  "
               f"total {x.total:>9}  {span}{silent}  [{x.feeder}]")  # fmt: skip
     print("\n" + summary_line(states))
+    if not args.no_jobs:  # 16/11/2026: a silent source — did its job run, was it skipped, did it fail?
+        from app.services.source_health import feeders, job_line, job_states
+
+        print("\nJobs qui alimentent les sources (heure de La Réunion)")
+        with db_session() as s:
+            for js in job_states(s, feeders()):
+                print(job_line(js))
     return 0
 
 
@@ -2756,6 +2763,11 @@ def cmd_events_measure(args: argparse.Namespace) -> int:
 
     cfg = load_params(args.params)
     today = date.fromisoformat(args.date) if args.date else date.today()
+    if args.redo:  # 16/11/2026: dividends now included — every window measured again from the same closes
+        from app.services.event_measure import reset
+
+        with db_session() as s:
+            print(f"{reset(s)} mesure(s) effacée(s) : tout est mesuré à nouveau")
     for _ in range(args.batches):
         with db_session() as s:
             rep = measure(s, today, limit=args.limit, st=settings(cfg))
@@ -3039,6 +3051,7 @@ def main(argv: list[str] | None = None) -> int:
     ul.set_defaults(fn=cmd_us_load)
     sh = sub.add_parser("sources-health", help="état de chaque source : éléments du jour, 7 jours, historique, retard")
     sh.add_argument("--date", default=None, help="AAAA-MM-JJ (défaut : aujourd'hui)")
+    sh.add_argument("--no-jobs", dest="no_jobs", action="store_true", help="sans les passages des jobs")
     sh.set_defaults(fn=cmd_sources_health)
     eb = sub.add_parser("events-build", help="journal des événements de toutes les sources depuis une date")
     eb.add_argument("--from", dest="from_date", default="2016-01-01", help="AAAA-MM-JJ (défaut : 2016-01-01)")
@@ -3047,6 +3060,7 @@ def main(argv: list[str] | None = None) -> int:
     em.add_argument("--date", default=None, help="AAAA-MM-JJ : jour de la mesure (défaut : aujourd'hui)")
     em.add_argument("--limit", type=int, default=5000, help="événements par lot (défaut : 5000)")
     em.add_argument("--batches", type=int, default=400, help="lots au plus (défaut : 400)")
+    em.add_argument("--redo", action="store_true", help="effacer toutes les mesures et tout mesurer à nouveau")
     em.set_defaults(fn=cmd_events_measure)
     es = sub.add_parser("events-scoreboard", help="par source : écart moyen à la place après chaque événement")
     es.add_argument("--horizon", type=int, default=5, help="séances (défaut : 5)")

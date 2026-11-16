@@ -19,7 +19,7 @@ from typing import Any
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from app.domain.event_stats import GroupStats, broken, group_stats, signed, venue_median
+from app.domain.event_stats import GroupStats, broken, group_stats, signed, total_return, venue_median
 from app.domain.timeutil import PARIS, from_store
 
 HORIZONS = (1, 5, 20)
@@ -74,9 +74,9 @@ class _Medians:
         self.s = s
         self.st = st
         self.max_days = max_days
-        self.days: OrderedDict[tuple[str, date], dict[str, tuple[float, str | None]]] = OrderedDict()
+        self.days: OrderedDict[tuple[str, date], dict[str, tuple[float, float | None, str | None]]] = OrderedDict()
 
-    def day(self, mic: str, d: date) -> dict[str, tuple[float, str | None]]:
+    def day(self, mic: str, d: date) -> dict[str, tuple[float, float | None, str | None]]:
         key = (mic, d)
         if key in self.days:
             self.days.move_to_end(key)
@@ -84,11 +84,11 @@ class _Medians:
         from app.db.models import Instrument, PriceEod
 
         rows = self.s.execute(
-            select(PriceEod.isin, PriceEod.close, Instrument.sector)
+            select(PriceEod.isin, PriceEod.close, PriceEod.adj_close, Instrument.sector)
             .join(Instrument, Instrument.isin == PriceEod.isin)
             .where(Instrument.mic == mic, Instrument.in_universe.is_(True), PriceEod.day == d)
         )
-        out = {isin: (float(c), sec) for isin, c, sec in rows if c}
+        out = {isin: (float(c), (float(a) / float(c)) if a else None, sec) for isin, c, a, sec in rows if c}
         self.days[key] = out
         if len(self.days) > self.max_days:
             self.days.popitem(last=False)
@@ -99,8 +99,8 @@ class _Medians:
     ) -> tuple[float | None, float | None]:
         a, b = self.day(mic, d0), self.day(mic, d1)
         w = {
-            i: (b[i][0] / ca - 1, sec)
-            for i, (ca, sec) in a.items()
+            i: (total_return(ca, fa, b[i][0], b[i][1]), sec)
+            for i, (ca, fa, sec) in a.items()
             if i != exclude and i in b and ca > 0 and 0.25 < b[i][0] / ca < 4
         }
         venue = venue_median([r for r, _ in w.values()], self.st.venue_min)
@@ -148,6 +148,18 @@ def _todo(s: Session, limit: int, n_horizons: int) -> list[Any]:
     return list(
         s.scalars(select(MarketEvent).where(MarketEvent.id.not_in(done)).order_by(MarketEvent.event_at).limit(limit))
     )
+
+
+def reset(s: Session) -> int:
+    """Forget every measure (16/11/2026: the method changed — returns now include dividends). The outcomes are
+    derived from stored closes only, so the next ``measure`` rebuilds them identically from the same data."""
+    from sqlalchemy import delete
+
+    from app.db.models import EventOutcome
+
+    n = s.execute(delete(EventOutcome)).rowcount or 0
+    s.flush()
+    return int(n)
 
 
 def measure(s: Session, today: date, calendars: Any | None = None, limit: int = 5000,
@@ -216,7 +228,7 @@ def _measure_one(ev: Any, b: list[tuple[date, float, float | None]], sector: str
             if broken([c for _, c, _ in win], [f for _, _, f in win]):
                 o.status, o.note = "unavailable", "opération sur titre ou cours aberrant dans la fenêtre"
             else:
-                o.ret = b[i + h][1] / b[i][1] - 1
+                o.ret = total_return(b[i][1], b[i][2], b[i + h][1], b[i + h][2])  # dividends included
                 vm, sm = med.medians(ev.mic, sector, b[i][0], b[i + h][0], ev.isin) if ev.mic else (None, None)
                 o.venue_median, o.sector_median = vm, sm
                 o.excess_venue = o.ret - vm if vm is not None else None

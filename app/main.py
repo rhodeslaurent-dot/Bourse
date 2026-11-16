@@ -24,7 +24,7 @@ from app.logging_setup import setup_logging
 from app.notify.base import Notifier
 from app.notify.email import send_event_email, smtp_settings
 from app.notify.telegram import ModeStore, TelegramBot, telegram_settings
-from app.scheduler.service import create_scheduler
+from app.scheduler.service import create_scheduler, schedule_catch_up
 from app.llm import ClaudeGateway, settings_from
 from app.services.alerts import AlertService
 from app.web.portfolio_routes import router as portfolio_web_router
@@ -178,6 +178,7 @@ def create_app(
                 config, calendars, alerts=app.state.alerts, mode_fn=store.current_mode, llm=app.state.llm
             )
             app.state.scheduler.start()
+            schedule_catch_up(app.state.scheduler, config)  # runs missed while the application was down
         for f in config.disabled_features:
             log.warning("fonctionnalité désactivée : %s — %s", f.label, f.reason)
         yield

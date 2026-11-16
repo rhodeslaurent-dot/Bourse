@@ -26,6 +26,18 @@ class GroupStats:
                 "t": self.t_stat}  # fmt: skip
 
 
+def total_return(c0: float, f0: float | None, c1: float, f1: float | None) -> float:
+    """The return between two closes, dividends included where the stored adjustment factors allow (16/11/2026).
+
+    ``f = adj_close / close``. On raw closes an ex-dividend date reads as a loss (the first measure counted it so);
+    over a window ``f1 / f0`` adds it back. A factor loaded before a later dividend was known stays at 1 (the daily
+    load), so the correction falls short there rather than overshooting; without a factor at either end the raw
+    return is kept. A jump of the factor (split, rights issue) is not corrected here: ``broken`` voids the window."""
+    if f0 is not None and f1 is not None and f0 > 0 and f1 > 0:
+        return (c1 * f1) / (c0 * f0) - 1
+    return c1 / c0 - 1
+
+
 def signed(excess: float, direction: int | None) -> float:
     """The excess in the source's direction: × −1 for a « sell », as is for a « buy » or no direction."""
     return -excess if direction == -1 else excess

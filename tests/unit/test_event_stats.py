@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.domain.event_stats import broken, group_stats, signed, venue_median
+from app.domain.event_stats import broken, group_stats, signed, total_return, venue_median
 
 
 def test_signed_reads_a_sell_the_other_way_round():
@@ -35,3 +35,12 @@ def test_a_window_crossing_a_split_or_a_bad_tick_is_broken():
     assert broken([100, 1, 1], [None, None, None])  # a ×100 unit change the factor does not show
     assert broken([100, 0, 1], [None, None, None])
     assert not broken([100, 102], [None, None])
+
+
+def test_a_dividend_inside_the_window_is_not_read_as_a_loss():
+    # 100 → 97 on the ex-dividend date of a 3 dividend: the stored factor adj/close goes from 0.97 to 1
+    assert total_return(100.0, 0.97, 97.0, 1.0) == pytest.approx(0.0)
+    assert total_return(100.0, 0.97, 99.0, 1.0) == pytest.approx(99 / 97 - 1)
+    # no factor at one end: the raw return, never a guess
+    assert total_return(100.0, None, 97.0, 1.0) == pytest.approx(-0.03)
+    assert total_return(100.0, 0.97, 97.0, None) == pytest.approx(-0.03)

@@ -259,6 +259,9 @@ def sources_page(request: Request, h: int = 5) -> HTMLResponse:
         day, rows = latest(s)
         strip = history(s, day) if day else {}
         board = scoreboard(s, h, 5)
+        from app.services.source_health import feeders, job_line, job_states
+
+        jobs = [job_line(x).strip() for x in job_states(s, feeders())]
         from sqlalchemy import func
 
         from app.db.models import EventOutcome, MarketEvent
@@ -283,6 +286,7 @@ def sources_page(request: Request, h: int = 5) -> HTMLResponse:
             "horizons": st.horizons,
             "n_events": n_events,
             "by_status": by_status,
+            "jobs": jobs,
         },  # fmt: skip
     )
 

@@ -80,4 +80,14 @@
   <p class="mt-3 text-sm">{{ badge('pas encore de mesure', 'slate') }} Il faut des événements au journal et les séances qui les suivent. Sur le PC : <code>events-build --from 2016-01-01</code> puis <code>events-measure</code>.</p>
   {% endif %}
 </section>
+
+{% if jobs %}
+<section class="card">
+  <h2 class="font-semibold">Jobs qui alimentent les sources</h2>
+  <p class="text-xs text-slate-500 dark:text-slate-400">Dernier passage, dernier passage réussi et passages des 24 dernières heures (heure de La Réunion). Une source muette dont le job n'a pas tourné, a été sauté ou a échoué se lit ici.</p>
+  <ul class="mt-2 space-y-1 text-xs font-mono break-words">
+    {% for line in jobs %}<li>{{ line }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% endblock %}

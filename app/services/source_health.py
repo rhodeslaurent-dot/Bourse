@@ -233,6 +233,92 @@ def summary_line(states: list[SourceState]) -> str:
     return " · ".join(parts)
 
 
+@dataclass(frozen=True)
+class JobState:
+    """The runs of one feeding job (``jobs_runs``): the last one, the last successful one, the last 24 hours."""
+
+    job: str
+    last_start: datetime | None
+    last_status: str | None
+    last_rows: int | None
+    last_info: str  # its note or its error, clipped
+    last_ok: datetime | None
+    runs_24h: dict[str, int]  # status → count
+
+
+def feeders() -> list[str]:
+    """The feeding jobs of the registry, in the page's order, each once."""
+    out: list[str] = []
+    for spec in registry():
+        if spec.feeder not in out:
+            out.append(spec.feeder)
+    return out
+
+
+def job_states(s: Session, jobs: list[str], now: datetime | None = None) -> list[JobState]:
+    """16/11/2026 — a source can be silent because its job never ran, was skipped or failed: the runs say which.
+    Three aggregate queries, whatever the number of jobs."""
+    from app.db.models import JobRun
+    from app.domain.timeutil import from_store
+
+    now = now or datetime.now(UTC)
+    last_ids = dict(
+        s.execute(select(JobRun.job, func.max(JobRun.id)).where(JobRun.job.in_(jobs)).group_by(JobRun.job)).all()
+    )
+    ids = list(last_ids.values())
+    last = {r.job: r for r in s.scalars(select(JobRun).where(JobRun.id.in_(ids)))} if ids else {}
+    last_ok = dict(
+        s.execute(
+            select(JobRun.job, func.max(JobRun.started_at))
+            .where(JobRun.job.in_(jobs), JobRun.status == "ok")
+            .group_by(JobRun.job)
+        ).all()
+    )
+    counts: dict[str, dict[str, int]] = {}
+    for job, status, n in s.execute(
+        select(JobRun.job, JobRun.status, func.count())
+        .where(JobRun.job.in_(jobs), JobRun.started_at >= now - timedelta(hours=24))
+        .group_by(JobRun.job, JobRun.status)
+    ).all():
+        counts.setdefault(job, {})[status] = int(n)
+    out = []
+    for job in jobs:
+        r = last.get(job)
+        info = ((r.error or r.note or "") if r is not None else "").replace("\n", " ")
+        out.append(
+            JobState(
+                job,
+                from_store(r.started_at) if r is not None else None,
+                r.status if r is not None else None,
+                r.rows if r is not None else None,
+                info[:140],
+                from_store(last_ok[job]) if last_ok.get(job) else None,
+                counts.get(job, {}),
+            )
+        )
+    return out
+
+
+JOB_STATUS = {"ok": "ok", "error": "erreur", "skipped": "sauté", "running": "en cours"}
+
+
+def job_line(x: JobState) -> str:
+    """One line per job, times of La Réunion (display rule, CLAUDE.md §4)."""
+    from app.domain.timeutil import to_reunion
+
+    if x.last_start is None:
+        return f"  {x.job:<24} jamais lancé (aucune ligne dans jobs_runs)"
+    when = f"{to_reunion(x.last_start):%d/%m %H:%M}"
+    rows = f" ({x.last_rows} ligne(s))" if x.last_rows is not None else ""
+    ok = f"{to_reunion(x.last_ok):%d/%m %H:%M}" if x.last_ok else "jamais"
+    day = ", ".join(f"{JOB_STATUS.get(k, k)} {v}" for k, v in sorted(x.runs_24h.items())) or "aucun passage"
+    info = f" · {x.last_info}" if x.last_info else ""
+    return (
+        f"  {x.job:<24} dernier {when} {JOB_STATUS.get(x.last_status or '', x.last_status)}{rows} · "
+        f"dernier ok {ok} · 24 h : {day}{info}"
+    )
+
+
 def history(s: Session, day: date, days: int = 14) -> dict[str, list[tuple[date, str]]]:
     """Each source's stored status over the last ``days`` snapshots (oldest first), for the page's strip."""
     from app.db.models import SourceHealthRow
