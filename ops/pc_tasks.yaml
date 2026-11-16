@@ -260,3 +260,16 @@ tasks:
       - "docker compose ps"
       - "wait-app 60"
       - "docker compose logs --tail 60 app"
+  # 16/11/2026 (soir) : l'application répond sur le PC mais Cloudflare renvoie 524 (aucune réponse en 100 s).
+  # Mise en service, SANS mesure : contrôle d'accès hors de la boucle d'événements (la lecture des clés Cloudflare
+  # figeait toute l'application), journal des requêtes lentes, index des dates des cours (migration 0036, quelques
+  # minutes au démarrage : la page d'accueil lisait 54 millions de lignes), table du témoin (0035).
+  - id: "2026-11-16-18b"
+    purpose: "Mise en service des correctifs d'accès (erreur 524 Cloudflare), sans mesure"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 1200"
+      - "docker compose ps"
+      - "docker compose logs --tail 30 app"
