@@ -62,7 +62,9 @@ def test_steps_stop_at_the_first_error_and_values_of_the_pc_are_substituted():
 
     def fake(args, timeout):
         ran.append(args)
-        return (1, "erreur") if "us-check" in args else (0, "ok token=abc123")
+        if "us-check" in args:
+            return 1, "erreur"
+        return 0, "data.sec.user_agent = Laurent moi@example.org\nok token=abc123"  # params-init prints the value
 
     task = {
         "id": "t2",
@@ -177,3 +179,19 @@ def test_the_cli_writes_utf8_even_to_a_cp1252_pipe(monkeypatch):
     print("✅ ⛔ →")
     fake.flush()
     assert raw.getvalue().decode("utf-8").strip() == "✅ ⛔ →"
+
+
+def test_a_report_stays_bounded_so_the_pc_relays_it_verbatim():
+    huge = "\n".join(f"ligne de journal {k}" for k in range(20000))
+    rep = rp.run_task({"id": "t5", "commands": ["docker compose logs --tail 400 app", "docker compose ps"]}, {},
+                      run=lambda a, t: (0, huge))  # fmt: skip
+    text = rep.text()
+    assert len(text) <= rp.REPORT_MAX + 200 and "caractères coupés" in text
+    assert "ligne de journal 0" in text and "ligne de journal 19999" in text  # the start and the end are kept
+
+
+def test_commands_started_by_the_runner_write_utf8():
+    import sys
+
+    code, out = rp._run([sys.executable, "-c", "import sys; print(sys.stdout.encoding)"], 30)
+    assert code == 0 and out.strip().lower().replace("-", "") == "utf8"

@@ -94,11 +94,28 @@ def argv_of(cmd: str) -> list[str]:
     return args
 
 
+def hide_values(text: str, cmd: str, params: dict[str, Any]) -> str:
+    """Each ``{params:…}`` value of the command written back as its placeholder in the command's output (task
+    2026-11-15-03: params-init printed the substituted address in its report)."""
+    for m in _PLACEHOLDER.finditer(cmd):
+        try:
+            value = substitute(m.group(0), params)
+        except ValueError:
+            continue
+        if value:
+            text = text.replace(value, m.group(0))
+    return text
+
+
 def mask(text: str) -> str:
     return _SECRET.sub(lambda m: f"{m.group(1)}=***", text)
 
 
-def clip(text: str, head: int = 6000, tail: int = 6000) -> str:
+STEP_HEAD, STEP_TAIL = 2500, 2500  # a step's output kept: its start and its end (logs, builds)
+REPORT_MAX = 16000  # a whole report stays under this size: the PC relays it verbatim, never condensed
+
+
+def clip(text: str, head: int = STEP_HEAD, tail: int = STEP_TAIL) -> str:
     if len(text) <= head + tail:
         return text
     return text[:head] + f"\n… [{len(text) - head - tail} caractères coupés] …\n" + text[-tail:]
@@ -126,16 +143,19 @@ class Report:
             out.append(f"Motif : {self.reason}")
         for k, st in enumerate(self.steps, 1):
             out += ["", f"[{k}] $ {st.cmd}  → code {st.code} en {st.seconds:.0f} s", st.output.rstrip()]
-        return "\n".join(out)
+        return clip("\n".join(out), REPORT_MAX // 2, REPORT_MAX // 2)
 
 
 Runner = Callable[[list[str], float], tuple[int, str]]
 
 
 def _run(args: list[str], timeout: float) -> tuple[int, str]:
+    import os
+
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}  # PC report of 15/11/2026 (cp1252)
     try:
         p = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           timeout=timeout, stdin=subprocess.DEVNULL)  # fmt: skip
+                           timeout=timeout, stdin=subprocess.DEVNULL, env=env)  # fmt: skip
     except subprocess.TimeoutExpired as exc:
         part = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
         return 124, f"délai dépassé ({timeout:.0f} s)\n{part}"
@@ -197,7 +217,8 @@ def run_task(task: dict[str, Any], params: dict[str, Any], run: Runner = _run,
             code, out = _wait_app(int(c.split()[1]), run, sleep)
         else:
             code, out = run(argv_of(real), timeout)
-        rep.steps.append(Step(c, code, time.monotonic() - t0, clip(mask(out))))  # the task's text, not the values
+        out = hide_values(out, c, params)  # the task's text and placeholders, never the PC's values
+        rep.steps.append(Step(c, code, time.monotonic() - t0, clip(mask(out))))
         if code != 0:
             rep.status = "échec"
             if task.get("stop_on_error", True):

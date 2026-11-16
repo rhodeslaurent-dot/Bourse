@@ -266,6 +266,8 @@ def finra_load(s: Session, start: date, end: date, fetch: Fetch, rep: UsReport |
     now = now or datetime.now(UTC)
     rep = rep or UsReport()
     vals = us_values(s)
+    if not vals:  # nothing followed in the US: no file is downloaded
+        return rep
     for d in weekdays(start, end):
         text = fetch(finra_regsho.url(d), 20_000_000, None)
         if text is None:

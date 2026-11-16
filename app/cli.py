@@ -19,9 +19,15 @@ def cmd_check_config(args: argparse.Namespace) -> int:
     print(f"OK params v{cfg.params.version} (sha {cfg.sha256[:12]})")
     for f in cfg.features:
         print(f"  {'✅' if f.enabled else '⛔'} {f.label} [{f.key}]{'' if f.enabled else ' — ' + f.reason}")
-    if getattr(args, "db", False):
+    if getattr(args, "db", False) or getattr(args, "require_postgres", False):
         for line in db_summary():
             print(line)
+    if getattr(args, "require_postgres", False):
+        from app.db.session import database_url
+
+        if not database_url().startswith("postgresql"):
+            print("ARRÊT : la base lue n'est pas Postgres (DATABASE_URL absent ?) — rien n'est chargé ici")
+            return 2
     return 0
 
 
@@ -2901,6 +2907,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
     ck = sub.add_parser("check-config")
     ck.add_argument("--db", action="store_true", help="aussi : base lue (mot de passe masqué), schéma, volumes")
+    ck.add_argument("--require-postgres", dest="require_postgres", action="store_true",
+                    help="code 2 si la base lue n'est pas Postgres (garde-fou avant un chargement)")  # fmt: skip
     ck.set_defaults(fn=cmd_check_config)
     sc = sub.add_parser("seed-calendar")
     sc.add_argument("--years", default="2026,2027")

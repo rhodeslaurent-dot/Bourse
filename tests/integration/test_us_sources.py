@@ -220,3 +220,20 @@ def test_us_check_sample_decodes_real_shaped_filings_without_any_name():
     assert any(x.startswith("  Form 4 0001000001-26-000011 · ACME") and "rôle dirigeant" in x for x in out)
     assert any(x.startswith("  8-K 0001000001-26-000010") and "→ resultats" in x for x in out)
     assert "DOE" not in "\n".join(out) and "JANE" not in "\n".join(out)
+
+
+def test_require_postgres_stops_a_load_on_the_sqlite_fallback(db_engine, monkeypatch, capsys):
+    import argparse
+
+    from app.cli import cmd_check_config
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    code = cmd_check_config(argparse.Namespace(params="config/params.example.yaml", db=False, require_postgres=True))
+    assert code == 2 and "ARRÊT : la base lue n'est pas Postgres" in capsys.readouterr().out
+
+
+def test_finra_reads_nothing_when_no_us_value_is_followed(db_engine):
+    r = Reader({})
+    with db_session() as s:
+        us_sources.finra_load(s, date(2026, 11, 2), date(2026, 11, 13), r, now=NOW)
+    assert r.calls == []

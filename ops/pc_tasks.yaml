@@ -50,3 +50,16 @@ tasks:
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli check-config --db"
       - "docker compose exec -T app python -m app.cli us-check --sample 3"
+  # À exécuter dans le dossier de PRODUCTION (base Postgres) : le premier contrôle arrête la tâche sur une base
+  # SQLite, donc rien n'est chargé tant que le conteneur n'est pas remis sur Postgres.
+  - id: "2026-11-16-06"
+    purpose: "Base de production : SEC/FINRA depuis le 15/10, journal des événements depuis 2016, mesure, tableau, santé"
+    stop_on_error: true
+    timeout_s: 7200
+    commands:
+      - "docker compose exec -T app python -m app.cli check-config --require-postgres"
+      - "docker compose exec -T app python -m app.cli us-load --from 2026-10-15"
+      - "docker compose exec -T app python -m app.cli events-build --from 2016-01-01"
+      - "docker compose exec -T app python -m app.cli events-measure"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --context 10"
+      - "docker compose exec -T app python -m app.cli sources-health"
