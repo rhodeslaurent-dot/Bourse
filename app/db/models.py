@@ -412,7 +412,12 @@ class PriceEod(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     data_status: Mapped[str] = mapped_column(String(12), default="eod")
     official: Mapped[bool] = mapped_column(Boolean, default=True)
-    __table_args__ = (UniqueConstraint("isin", "day", name="uq_prices_eod_isin_day"),)
+    __table_args__ = (
+        UniqueConstraint("isin", "day", name="uq_prices_eod_isin_day"),
+        # 16/11/2026 (migration 0036): the queries by day alone (last close, health of the sources, a venue's day)
+        # scanned the 54 million rows — the home page timed out through Cloudflare under load
+        Index("ix_prices_eod_day", "day"),
+    )
 
 
 class FeatureDaily(Base):
