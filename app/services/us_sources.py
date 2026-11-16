@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -63,17 +64,21 @@ def settings(config: Any) -> UsSettings:
     )  # fmt: skip
 
 
+RETRY_WAITS_S = (2.0, 8.0)  # a server error or a timeout is tried again twice, after 2 s then 8 s
+
+
 def http_fetch(user_agent: str | None, min_interval_s: float, client: Any | None = None,
                sleep: Callable[[float], None] = time.sleep) -> Fetch:  # fmt: skip
     """One paced HTTP reader; a file is read up to ``max_bytes`` or up to ``stop`` (the end of a filing's header:
-    an 8-K's exhibits are never downloaded)."""
+    an 8-K's exhibits are never downloaded). A server error (5xx) or a timeout is tried again (16/11/2026: dozens of
+    SEC filings unreadable during a long load); 403 and 429 stop the load (identity or pace refused)."""
     import httpx
 
     cl = client or httpx.Client(timeout=30.0, follow_redirects=True)
     last = [0.0]
     headers = {"User-Agent": user_agent or "bourse-pilot", "Accept-Encoding": "gzip, deflate"}
 
-    def fetch(url: str, max_bytes: int = 3_000_000, stop: str | None = None) -> str | None:
+    def once(url: str, max_bytes: int, stop: str | None) -> str | None:
         wait = min_interval_s - (time.monotonic() - last[0])
         if wait > 0:
             sleep(wait)
@@ -92,6 +97,19 @@ def http_fetch(user_agent: str | None, min_interval_s: float, client: Any | None
                 if (stop and stop in "".join(parts[-2:])) or n >= max_bytes:
                     break
         return "".join(parts)
+
+    def fetch(url: str, max_bytes: int = 3_000_000, stop: str | None = None) -> str | None:
+        for k in range(len(RETRY_WAITS_S) + 1):
+            try:
+                return once(url, max_bytes, stop)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code < 500 or k == len(RETRY_WAITS_S):
+                    raise
+            except httpx.TransportError:  # timeouts, resets
+                if k == len(RETRY_WAITS_S):
+                    raise
+            sleep(RETRY_WAITS_S[k])
+        return None  # not reached
 
     return fetch
 
@@ -126,12 +144,15 @@ class UsReport:
     truncated: bool = False
     short_rows: int = 0
     notes: list[str] = field(default_factory=list)
+    errors: Counter[str] = field(default_factory=Counter)  # unreadable filings by cause (« HTTPStatusError 503 »)
 
     def line(self) -> str:
         parts = [f"SEC : {self.days_read} jour(s) lu(s), {self.form4_added} Form 4 et {self.form8k_added} 8-K ajoutés, "
                  f"{self.known} déjà connus"]  # fmt: skip
         if self.skipped:
             parts.append(f"{self.skipped} écarté(s)")
+        if self.errors:
+            parts.append("illisibles : " + ", ".join(f"{k} × {v}" for k, v in self.errors.most_common(4)))
         if self.truncated:
             parts.append("plafond de lecture atteint (suite au prochain passage)")
         if self.short_rows:
@@ -241,8 +262,10 @@ def sec_load(s: Session, config: Any, start: date, end: date, fetch: Fetch, now:
             except ProviderUnavailable:
                 raise
             except Exception as exc:  # noqa: BLE001 — one filing failing never stops the others
-                log.info("dépôt SEC %s illisible : %s", acc, exc.__class__.__name__)
+                code = getattr(getattr(exc, "response", None), "status_code", None)
+                log.info("dépôt SEC %s illisible : %s%s", acc, exc.__class__.__name__, f" {code}" if code else "")
                 rep.skipped += 1
+                rep.errors[f"{exc.__class__.__name__}{' ' + str(code) if code else ''}"] += 1
                 continue
             if not body:
                 rep.skipped += 1

@@ -258,3 +258,33 @@ def test_an_older_params_yaml_still_checks_the_recent_groups(config):
     raw["config_validation"]["optional_groups"] = ["tax", "llm"]
     keys = {f.key for f in validate_params(raw).features}
     assert {"admission", "market_gate", "conjuncture", "events", "entry", "zones", "ranking", "pockets"} <= keys
+
+
+def test_a_server_error_or_a_timeout_is_tried_again_and_403_stops():
+    import httpx
+    import pytest as _pytest
+
+    from app.data.base import ProviderUnavailable
+
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if "flaky" in str(request.url):
+            if calls["n"] == 1:
+                return httpx.Response(503)
+            if calls["n"] == 2:
+                raise httpx.ReadTimeout("lent", request=request)
+            return httpx.Response(200, text="ok")
+        if "down" in str(request.url):
+            return httpx.Response(500)
+        return httpx.Response(403)
+
+    waits = []
+    fetch = us_sources.http_fetch("Test test@example.org", 0.0, httpx.Client(transport=httpx.MockTransport(handler)),
+                                  sleep=waits.append)  # fmt: skip
+    assert fetch("https://www.sec.gov/flaky", 1000, None) == "ok" and waits == [2.0, 8.0]
+    with _pytest.raises(httpx.HTTPStatusError):
+        fetch("https://www.sec.gov/down", 1000, None)  # still failing after two retries: reported as unreadable
+    with _pytest.raises(ProviderUnavailable):
+        fetch("https://www.sec.gov/refused", 1000, None)  # identity or pace refused: the load stops
