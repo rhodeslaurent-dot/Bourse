@@ -104,3 +104,21 @@ def test_a_control_not_over_yet_waits_and_history_too_short_is_said(db_engine):
         short = [c for c in rows if c.offset == -60 and c.note == "historique insuffisant avant l'événement"]
         assert short
         assert event_measure.reset(s) > 0 and not list(s.scalars(select(EventControl)))
+
+
+def test_the_cli_measures_one_pass_at_a_time(db_engine, monkeypatch, capsys):
+    from app import cli
+
+    with db_session() as s:
+        _market(s)
+        _letter(s, X, _paris(EVENT, 10), "e1")
+        event_journal.collect(s, type("C", (), {"raw": {}})(), _paris(date(2026, 1, 1), 0))
+    monkeypatch.setattr(cli, "load_params", lambda path: type("C", (), {"raw": {}})())
+    base = ["events-measure", "--date", "2026-11-16"]
+    assert cli.main([*base, "--offset", "-60"]) == 0
+    from app.db.models import EventOutcome
+
+    with db_session() as s:
+        assert {c.offset for c in s.scalars(select(EventControl))} == {-60}  # only that pass
+        assert s.scalars(select(EventOutcome)).first() is None  # the events' pass was not run
+    assert "témoin -60 séances" in capsys.readouterr().out
