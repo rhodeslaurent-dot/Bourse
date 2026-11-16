@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from app.api.portfolio_routes import router as portfolio_api_router
 from app.api.ingest_routes import router as ingest_router
 from app.api.routes import router as api_router
-from app.api.security import AccessMiddleware
+from app.api.security import AccessMiddleware, SlowRequestLog
 from app.config import LoadedConfig, load_params
 from app.db.repo import current_override, log_telegram_event, record_params_version, set_override
 from app.db.session import database_url, db_session
@@ -197,6 +197,7 @@ def create_app(
     app.state.email_enabled = smtp_settings() is not None
     app.state.db_kind = database_url().split(":", 1)[0]
     app.add_middleware(AccessMiddleware)
+    app.add_middleware(SlowRequestLog)  # added last: outermost, it times the whole request
     app.state.alerts = None
     llm_settings = settings_from(config)
     app.state.llm = ClaudeGateway(llm_settings) if llm_settings else None  # used by news, newsletters, assistant

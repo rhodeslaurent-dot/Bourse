@@ -15,6 +15,7 @@ from typing import Any
 
 import httpx
 import jwt
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
@@ -31,15 +32,30 @@ def cf_settings() -> tuple[str, str] | None:
 
 
 class _Jwks:
+    """Cloudflare's signing keys, read at most once an hour. 16/11/2026: a failed read is remembered for a minute
+    (every request used to read them again, 10 s each), and keys still valid are kept when a refresh fails."""
+
+    RETRY_AFTER_FAILURE_S = 60.0
+
     def __init__(self) -> None:
         self._keys: dict[str, Any] | None = None
         self._fetched = 0.0
+        self._failed_at = 0.0
 
     def get(self, team: str) -> dict[str, Any]:
-        if self._keys is None or time.time() - self._fetched > 3600:
-            url = f"https://{team}/cdn-cgi/access/certs"
-            self._keys = httpx.get(url, timeout=10).json()
-            self._fetched = time.time()
+        now = time.time()
+        if self._keys is None or now - self._fetched > 3600:
+            if now - self._failed_at < self.RETRY_AFTER_FAILURE_S:
+                if self._keys is not None:
+                    return self._keys
+                raise httpx.ConnectError("clés Cloudflare Access indisponibles (nouvel essai dans une minute)")
+            try:
+                self._keys = httpx.get(f"https://{team}/cdn-cgi/access/certs", timeout=10).json()
+                self._fetched = now
+            except Exception:
+                self._failed_at = now
+                if self._keys is None:
+                    raise
         return self._keys
 
     def set_for_tests(self, keys: dict[str, Any]) -> None:
@@ -106,7 +122,8 @@ class AccessMiddleware(BaseHTTPMiddleware):
         if not token:
             return JSONResponse({"detail": "Cloudflare Access token required"}, status_code=401)
         try:
-            claims = verify_cf_token(token, *settings)
+            # 16/11/2026: off the event loop — reading Cloudflare's keys over the network froze every request
+            claims = await run_in_threadpool(verify_cf_token, token, *settings)
         except Exception as exc:  # noqa: BLE001
             return JSONResponse({"detail": f"invalid access token: {exc.__class__.__name__}"}, status_code=401)
         allowed = os.environ.get("CF_ACCESS_EMAIL")
@@ -114,3 +131,20 @@ class AccessMiddleware(BaseHTTPMiddleware):
             return JSONResponse({"detail": "email not allowed"}, status_code=403)
         request.state.auth = "cloudflare"
         return await call_next(request)
+
+
+class SlowRequestLog(BaseHTTPMiddleware):
+    """16/11/2026 — Cloudflare gives up after 100 s (error 524): every request over ``SLOW_REQUEST_S`` is written
+    in the log with its path and its duration, so the slow page is named (never a parameter value)."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
+        import logging
+
+        start = time.monotonic()
+        response = await call_next(request)
+        took = time.monotonic() - start
+        if took > float(os.environ.get("SLOW_REQUEST_S", "5")):
+            logging.getLogger("bourse.web").warning(
+                "requête lente : %s %s %.1f s (code %s)", request.method, request.url.path, took, response.status_code
+            )
+        return response

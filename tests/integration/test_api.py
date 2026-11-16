@@ -121,3 +121,38 @@ def test_static_stylesheet_is_served_and_compiled(client):
     r = client.get("/static/app.css")
     assert r.status_code == 200 and ".card" in r.text and "prefers-color-scheme" in r.text
     assert "/static/app.css" in client.get("/sante").text
+
+
+def test_cloudflare_keys_are_not_read_again_on_every_request_after_a_failure(monkeypatch):
+    """16/11/2026 — the home page timed out through Cloudflare (524): a failed read of Cloudflare's keys was
+    repeated on every request, 10 s each, on the event loop."""
+    import httpx
+
+    import app.api.security as sec
+
+    calls = []
+
+    def down(url, timeout=10):
+        calls.append(url)
+        raise httpx.ConnectError("no route")
+
+    monkeypatch.setattr(sec.httpx, "get", down)
+    jw = sec._Jwks()
+    for _ in range(3):
+        try:
+            jw.get("team.cloudflareaccess.com")
+        except httpx.HTTPError:
+            pass
+    assert len(calls) == 1  # one read, then « unavailable » for a minute without touching the network
+    jw.set_for_tests({"keys": [{"kid": "k"}]})
+    jw._fetched -= 7200  # an hour later: the refresh fails, the keys still valid are kept
+    jw._failed_at = 0.0
+    assert jw.get("team.cloudflareaccess.com") == {"keys": [{"kid": "k"}]} and len(calls) == 2
+
+
+def test_a_slow_request_is_named_in_the_log(config, calendars, db_engine, monkeypatch, caplog):
+    monkeypatch.setenv("SLOW_REQUEST_S", "0")
+    app = create_app(config=config, calendars=calendars, start_scheduler=False, start_telegram=False)
+    with TestClient(app) as c, caplog.at_level("WARNING", logger="bourse.web"):
+        assert c.get("/health").status_code == 200
+    assert any("requête lente : GET /health" in r.getMessage() for r in caplog.records)
