@@ -87,6 +87,22 @@ tasks:
       - "docker compose exec -T app python -m app.cli sources-health"
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 1 --context 5"
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --context 10"
+  # Reprise de la tâche 06, interrompue par la recréation du conteneur pour Saxo (us-load tué, code 137) : le
+  # chargement SEC reprend où il s'est arrêté (dépôts connus sautés), avec nouvelles tentatives sur les erreurs
+  # temporaires de la SEC ; puis le journal depuis 2016, la mesure, le tableau et la santé, qui n'avaient pas tourné.
+  - id: "2026-11-16-06b"
+    purpose: "Reprise de la tâche 06 : SEC/FINRA depuis le 02/11, journal des événements depuis 2016, mesure, tableau, santé"
+    stop_on_error: false
+    timeout_s: 7200
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli check-config --require-postgres"
+      - "docker compose exec -T app python -m app.cli us-load --from 2026-11-02 --max-filings 15000"
+      - "docker compose exec -T app python -m app.cli events-build --from 2016-01-01"
+      - "docker compose exec -T app python -m app.cli events-measure"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --context 10"
+      - "docker compose exec -T app python -m app.cli sources-health"
   # 16/11/2026 (l'utilisateur part au travail) : le rejeu hebdomadaire du dimanche n'a pas tourné (production
   # arrêtée depuis le 11/11) — rejeu des détecteurs au coût complet (≈ 20 min, docs/27) puis son rapport.
   - id: "2026-11-16-08"
