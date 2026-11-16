@@ -80,3 +80,26 @@ def test_a_failing_catch_up_never_stops_the_start(config, monkeypatch):
 
     monkeypatch.setattr(svc, "_last_started", boom)
     assert schedule_catch_up(object(), config) == []  # type: ignore[arg-type]
+
+
+def test_a_run_cut_by_the_restart_is_closed_and_caught_up(config, db_engine):
+    """16/11/2026 — a rebuild at 19:40 cut the short positions job: its « running » row must not count as a run."""
+    from sqlalchemy import select
+
+    from app.scheduler.service import INTERRUPTED
+
+    with db_session() as s:
+        s.add(JobRun(job="short_positions_refresh", started_at=_paris(19, 40).astimezone(UTC), status="running"))
+        s.add(JobRun(job="letters_review", started_at=_paris(19, 15).astimezone(UTC), status="ok"))
+
+    class Sched:
+        calls: list[dict] = []
+
+        def add_job(self, fn, **kw) -> None:
+            self.calls.append(kw)
+
+    names = schedule_catch_up(Sched(), config, now=_paris(19, 42).astimezone(UTC))  # type: ignore[arg-type]
+    assert "short_positions_refresh" in names and "letters_review" not in names
+    with db_session() as s:
+        row = s.scalar(select(JobRun).where(JobRun.job == "short_positions_refresh"))
+        assert row.status == "error" and row.error == INTERRUPTED and row.ended_at is not None

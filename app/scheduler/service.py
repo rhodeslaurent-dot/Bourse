@@ -124,8 +124,28 @@ def missed_runs(
     return sorted(out.values(), key=lambda r: (grace[r[1]] >= TOLERANT_GRACE_S, r[0], r[1]))
 
 
+INTERRUPTED = "interrompu : redémarrage de l'application"
+
+
+def close_orphan_runs(now: datetime) -> int:
+    """At start, a run still « running » was cut by the restart (the container's processes all stopped): it is closed
+    as interrupted, and it does not count as a run for the catch-up (16/11/2026)."""
+    from sqlalchemy import update
+
+    from app.db.models import JobRun
+    from app.db.session import db_session
+
+    with db_session() as s:
+        res = s.execute(
+            update(JobRun)
+            .where(JobRun.status == "running", JobRun.started_at < now)
+            .values(status="error", ended_at=now, error=INTERRUPTED)
+        )
+        return int(res.rowcount or 0)
+
+
 def _last_started(names: list[str]) -> dict[str, datetime]:
-    from sqlalchemy import func, select
+    from sqlalchemy import func, or_, select
 
     from app.db.models import JobRun
     from app.db.session import db_session
@@ -133,7 +153,9 @@ def _last_started(names: list[str]) -> dict[str, datetime]:
 
     with db_session() as s:
         rows = s.execute(
-            select(JobRun.job, func.max(JobRun.started_at)).where(JobRun.job.in_(names)).group_by(JobRun.job)
+            select(JobRun.job, func.max(JobRun.started_at))
+            .where(JobRun.job.in_(names), or_(JobRun.error.is_(None), JobRun.error != INTERRUPTED))
+            .group_by(JobRun.job)
         ).all()
     return {job: from_store(t) for job, t in rows if t is not None}
 
@@ -165,6 +187,9 @@ def schedule_catch_up(sched: BackgroundScheduler, config: LoadedConfig, now: dat
     """After ``start``: queue the missed runs as one one-off job (they run in order, on one thread). Never raises."""
     try:
         now = now or datetime.now(UTC)
+        cut = close_orphan_runs(now)
+        if cut:
+            log.warning("%d passage(s) interrompu(s) par le redémarrage", cut)
         jobs = build_schedule(config.params)
         missed = missed_runs(jobs, now, _last_started(sorted({j.name for j in jobs})))
         if not missed:
