@@ -280,3 +280,11 @@ def test_the_measure_reads_its_settings_from_params(config):
     assert st.horizons == (1, 5, 20) and st.venue_min == 10 and st.sector_min == 5
     assert event_journal.consensus_min_change(config) == pytest.approx(0.02)
     assert event_journal.short_volume_z(config) == pytest.approx(3.0)
+
+
+def test_every_source_names_a_job_that_exists():
+    """16/11/2026: the closes were credited to « eod_pipeline », declared in params but never implemented — the
+    morning eod_backfill_check loads them. A silent source must point to the job to look at."""
+    from app.scheduler.registry import IMPLEMENTED_JOBS
+
+    assert {x.feeder for x in source_health.registry()} <= set(IMPLEMENTED_JOBS)

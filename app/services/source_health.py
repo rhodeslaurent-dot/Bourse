@@ -59,9 +59,9 @@ def registry() -> list[SourceSpec]:
 
     return [
         SourceSpec("cours_eod", "Cours de clôture", "cours", m.PriceEod, "day", "quotidien", 2,
-                   "16 places Europe et US", "eod_pipeline"),
+                   "16 places Europe et US", "eod_backfill_check"),
         SourceSpec("indicateurs", "Indicateurs techniques (MM, ATR, volumes, force relative)", "cours",
-                   m.FeatureDaily, "day", "quotidien", 2, "univers", "eod_pipeline"),
+                   m.FeatureDaily, "day", "quotidien", 2, "univers", "eod_backfill_check"),
         SourceSpec("regime", "Régime de marché par place", "conjoncture", m.MarketRegimeRow, "day", "quotidien", 2,
                    "chaque place et l'Europe", "daily_regime"),
         SourceSpec("change", "Taux de change BCE", "conjoncture", m.FxRate, "day", "quotidien", 3, "devises",
