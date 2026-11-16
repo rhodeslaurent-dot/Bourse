@@ -2870,7 +2870,8 @@ def cmd_us_load(args: argparse.Namespace) -> int:
     rep = UsReport()
     with db_session() as s:
         if st.user_agent and not args.finra_only:
-            rep = sec_load(s, cfg, start, end, http_fetch(st.user_agent, st.min_interval_s))
+            rep = sec_load(s, cfg, start, end, http_fetch(st.user_agent, st.min_interval_s),
+                           max_filings=args.max_filings, commit_each_day=True)  # fmt: skip
             s.commit()
         elif not args.finra_only:
             print("SEC non lue : data.sec.user_agent à renseigner (params-init --update --set data.sec.user_agent=…)")
@@ -3016,6 +3017,8 @@ def main(argv: list[str] | None = None) -> int:
     ul.add_argument("--from", dest="from_date", required=True, help="AAAA-MM-JJ")
     ul.add_argument("--to", default=None, help="AAAA-MM-JJ (défaut : hier)")
     ul.add_argument("--finra-only", dest="finra_only", action="store_true", help="FINRA seulement")
+    ul.add_argument("--max-filings", dest="max_filings", type=int, default=None,
+                    help="dépôts SEC lus au plus (défaut : data.sec.max_filings_per_run)")  # fmt: skip
     ul.set_defaults(fn=cmd_us_load)
     sh = sub.add_parser("sources-health", help="état de chaque source : éléments du jour, 7 jours, historique, retard")
     sh.add_argument("--date", default=None, help="AAAA-MM-JJ (défaut : aujourd'hui)")

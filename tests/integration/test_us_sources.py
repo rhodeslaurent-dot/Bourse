@@ -237,3 +237,12 @@ def test_finra_reads_nothing_when_no_us_value_is_followed(db_engine):
     with db_session() as s:
         us_sources.finra_load(s, date(2026, 11, 2), date(2026, 11, 13), r, now=NOW)
     assert r.calls == []
+
+
+def test_a_backfill_sets_its_own_filing_budget(db_engine, config):
+    cfg = _cfg(config)
+    with db_session() as s:
+        _values(s)
+        capped = us_sources.sec_load(s, cfg, date(2026, 11, 13), date(2026, 11, 13), Reader(_docs()), NOW,
+                                     max_filings=1)  # fmt: skip
+    assert capped.truncated and capped.form4_added + capped.form8k_added == 1

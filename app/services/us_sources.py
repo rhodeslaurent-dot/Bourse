@@ -198,7 +198,8 @@ def store_8k(s: Session, row: sec_edgar.IndexRow, text: str, isin_of: dict[int, 
     return "added"
 
 
-def sec_load(s: Session, config: Any, start: date, end: date, fetch: Fetch, now: datetime | None = None) -> UsReport:
+def sec_load(s: Session, config: Any, start: date, end: date, fetch: Fetch, now: datetime | None = None,
+             max_filings: int | None = None, commit_each_day: bool = False) -> UsReport:  # fmt: skip
     """The SEC daily indexes of [start, end] → the Form 4 and 8-K filings of the followed US values (idempotent)."""
     now = now or datetime.now(UTC)
     st = settings(config)
@@ -213,7 +214,7 @@ def sec_load(s: Session, config: Any, start: date, end: date, fetch: Fetch, now:
     if not isin_of:
         rep.notes.append("correspondance CIK → valeur vide (company_tickers.json illisible)")
         return rep
-    budget = st.max_filings
+    budget = st.max_filings if max_filings is None else max_filings  # a backfill (us-load) sets its own
     for d in weekdays(start, end):
         text = fetch(sec_edgar.index_url(d), 30_000_000, None)
         if text is None:
@@ -255,6 +256,8 @@ def sec_load(s: Session, config: Any, start: date, end: date, fetch: Fetch, now:
             else:
                 rep.skipped += 1
         s.flush()
+        if commit_each_day:  # a long backfill keeps each day read, whatever stops it later
+            s.commit()
         if rep.truncated:
             break
     return rep
