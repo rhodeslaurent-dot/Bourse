@@ -2240,7 +2240,32 @@ def cmd_llm_costs(args: argparse.Namespace) -> int:
         proj = f" · projection du mois {b.projected_month:.2f} $" if b.projected_month is not None else ""
         print(f"\ntotal : jour {b.today:.2f} $ · 7 jours {b.last_7d:.2f} $ · mois {b.month:.2f} ${proj}")
         _print_author_measure(s)
+        _print_defense_measure(s)
     return 0
+
+
+def _print_defense_measure(s: object) -> None:
+    """Step 2, option B — each defence of a held position against « do nothing » (docs/42)."""
+    from datetime import date as _date
+
+    from app.services.position_ai import measure_defense
+
+    ms = [m for m in measure_defense(s, _date.today()) if m.action != "conserver"]  # type: ignore[arg-type]
+    if not ms:
+        print(
+            "\ndéfense des positions (étape 2, option B) : aucune fenêtre terminée hors « conserver » — mesure à venir"
+        )
+        return
+    print(
+        "\ndéfense des positions (étape 2, option B, observation) — écart à « ne rien faire », "
+        "% du cours de la revue, brut"
+    )
+    print(f"{'auteur':<8} {'action':<14} {'séances':>7} {'revues':>7} {'positions':>9} {'écart':>8} {'t':>6}")
+    for m in ms:
+        g = f"{m.mean_gap:+.2%}" if m.mean_gap is not None else "—"
+        t = f"{m.t_stat:+.1f}" if m.t_stat is not None else "—"
+        print(f"{m.author:<8} {m.action:<14} {m.horizon:>7} {m.n:>7} {m.positions:>9} {g:>8} {t:>6}")
+    print("Revues d'une même position sur des jours voisins : fenêtres qui se chevauchent, t indicatif.")
 
 
 def _print_author_measure(s: object) -> None:

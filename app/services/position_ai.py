@@ -236,3 +236,54 @@ def summary(r: AiPositionReview | None) -> str | None:
         r.action or "", r.action or "")  # fmt: skip
     first = ((r.contradictor or {}).get("objections") or (r.analyst or {}).get("motifs") or [{}])[0].get("texte", "")
     return f"Avis IA ({r.day:%d/%m}, observation, jamais appliqué) : {what}" + (f" — {first}" if first else "")
+
+
+@dataclass(frozen=True)
+class DefenseMeasure:
+    author: str  # ia | python
+    action: str
+    horizon: int
+    n: int  # reviews whose window is over
+    positions: int  # distinct positions among them (daily reviews of one position overlap)
+    mean_gap: float | None  # (defence − do nothing) / review close, gross
+    t_stat: float | None
+
+
+def measure_defense(s: Session, today: date, horizons: tuple[int, ...] = (5, 20),
+                    slippage_pct: float = 0.002) -> list[DefenseMeasure]:  # fmt: skip
+    """docs/42 option B — each defence (the AI's final view, and Python's own review line) against « do nothing »,
+    from the session after the evening review; only finished windows. The reviews of one position on following days
+    overlap: the t-statistic is indicative, the count of distinct positions says how much evidence there is."""
+    from statistics import mean, stdev
+
+    from app.db.models import PriceEod
+    from app.domain.defense import Defense, gap_vs_nothing, python_defense
+    from app.domain.indicators import Bar
+
+    gaps: dict[tuple[str, str, int], list[tuple[int, float]]] = {}
+    longest = max(horizons)
+    for r in s.scalars(select(AiPositionReview).where(AiPositionReview.status == "ok", AiPositionReview.day < today)):
+        if not r.ref_close:
+            continue
+        rows = s.execute(
+            select(PriceEod.open, PriceEod.high, PriceEod.low, PriceEod.close, PriceEod.volume)
+            .where(PriceEod.isin == r.isin, PriceEod.day > r.day)
+            .order_by(PriceEod.day)
+            .limit(longest)
+        ).all()
+        bars = [Bar(o, h, lo, c, v) for o, h, lo, c, v in rows]
+        stop = (r.python or {}).get("stop")
+        stop = float(stop) if isinstance(stop, int | float) else None
+        authors = {"ia": Defense(r.action or "conserver", r.stop_ai, r.part_ai), "python": python_defense(r.python)}
+        for who, d in authors.items():
+            for h in horizons:
+                g = gap_vs_nothing(bars, d, stop, float(r.ref_close), h, slippage_pct)
+                if g is not None:
+                    gaps.setdefault((who, d.action, h), []).append((r.position_id, g))
+    out = []
+    for (who, action, h), xs in sorted(gaps.items()):
+        vals = [g for _, g in xs]
+        sd = stdev(vals) if len(vals) > 1 else 0.0
+        t = mean(vals) / (sd / math.sqrt(len(vals))) if sd > 0 else None
+        out.append(DefenseMeasure(who, action, h, len(vals), len({p for p, _ in xs}), mean(vals), t))
+    return out

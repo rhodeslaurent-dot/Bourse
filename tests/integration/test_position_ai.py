@@ -103,3 +103,27 @@ def test_the_review_respects_its_daily_budget(db_engine, config):
         (row,) = position_ai.run_day(s, config, Gw(ANALYST, {"action_finale": "conserver", "confiance": "faible"}),
                                      DAY, NOW)  # fmt: skip
         assert row.status == "budget" and not s.scalars(select(LlmCall)).first()
+
+
+def test_the_defence_is_measured_against_doing_nothing_on_finished_windows(db_engine, config):
+    with db_session() as s:
+        pid = _held(s)
+        gw = Gw(ANALYST, {"objections": [{"texte": "Avis repris.", "faits": ["F2"]}], "action_finale": "remonter_stop",
+                          "stop_final": 57.5, "confiance": "moyenne"})  # fmt: skip
+        (row,) = position_ai.run_day(s, config, gw, DAY, NOW)
+        assert row.status == "ok" and row.stop_ai == 57.5
+        assert position_ai.measure_defense(s, DAY + timedelta(days=1)) == []  # no session after the review yet
+        d, k = DAY + timedelta(days=1), 0
+        while k < 20:  # the stock falls after the review: 59, 58, … through 57.5 then 52
+            if d.weekday() < 5:
+                c = 59.0 - k
+                s.add(PriceEod(isin=ISIN, day=d, open=c + 0.5, high=c + 1, low=c - 0.5, close=c, adj_close=c,
+                               volume=1000, source="eodhd", received_at=NOW))  # fmt: skip
+                k += 1
+            d += timedelta(days=1)
+        s.flush()
+        by = {(m.author, m.action, m.horizon): m for m in position_ai.measure_defense(s, d)}
+        ia5, ia20 = by[("ia", "remonter_stop", 5)], by[("ia", "remonter_stop", 20)]
+        assert ia5.n == 1 and ia5.positions == 1 and ia5.mean_gap > 0  # out at the raised stop, not at 52
+        assert ia20.mean_gap > 0 and ia5.t_stat is None  # one case: no t
+        assert s.get(PositionRow, pid).stop_current == 52.0  # observation: nothing applied

@@ -137,7 +137,7 @@ def test_the_measure_counts_only_finished_windows_per_author(db_engine, config):
         s.add(r)
         s.flush()
         assert all(m.n == 0 for m in idea_ai.measure_authors(s, day + timedelta(days=1)))  # window not over
-        d, k = day + timedelta(days=1), 0
+        d, k = day, 0  # the review runs before the open: the session of the review day counts
         while k < 30:
             if d.weekday() < 5:
                 o = 100.0 if k == 0 else 101.5

@@ -266,8 +266,8 @@ class AuthorMeasure:
 
 def measure_authors(s: Session, today: date, entry_sessions: int = 3, max_hold: int = 20,
                     slippage_pct: float = 0.002) -> list[AuthorMeasure]:  # fmt: skip
-    """What each author's levels would have given (limit entry within ``entry_sessions``, first target, stop, or
-    ``max_hold`` sessions), from the closes stored after the review — the measure that designates the default."""
+    """What each author's levels would have given (limit entry within ``entry_sessions`` from the session of the review
+    day, first target, slipped stop, or ``max_hold`` sessions) — the measure that designates the default author."""
     from app.domain.backtest import simulate_trade
     from app.domain.indicators import Bar
 
@@ -276,7 +276,8 @@ def measure_authors(s: Session, today: date, entry_sessions: int = 3, max_hold: 
     for r in s.scalars(select(AiIdeaReview).where(AiIdeaReview.status == "ok", AiIdeaReview.day < today)):
         rows = s.execute(
             select(PriceEod.open, PriceEod.high, PriceEod.low, PriceEod.close, PriceEod.volume)
-            .where(PriceEod.isin == r.isin, PriceEod.day > r.day, PriceEod.day <= r.day + timedelta(days=60))
+            # the review runs at 08:25, before the open: the order can fill in the session of the review day
+            .where(PriceEod.isin == r.isin, PriceEod.day >= r.day, PriceEod.day <= r.day + timedelta(days=60))
             .order_by(PriceEod.day)
         ).all()
         bars = [Bar(o, h, lo, c, v) for o, h, lo, c, v in rows]
