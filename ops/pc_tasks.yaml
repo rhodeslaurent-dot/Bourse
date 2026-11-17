@@ -406,3 +406,11 @@ tasks:
       - "docker compose exec -T app python -m app.cli sources-health"
       - "docker compose exec -T app python -m app.cli llm-costs"
       - "docker compose logs --tail 80 app"
+  # Consensus des analystes : 0 enregistré sur 4 799 valeurs chaque soir, sans erreur signalée. Lecture seule, en séance
+  # (5 petites requêtes au screener) : les colonnes d'analystes renvoient-elles des valeurs sur Paris ?
+  - id: "2026-11-17-12"
+    purpose: "Diagnostic du consensus des analystes (0 enregistré) : valeurs renvoyées par les colonnes d'analystes"
+    stop_on_error: false
+    timeout_s: 600
+    commands:
+      - "docker compose exec -T app python -m app.cli tv-columns-check --market france --columns price_target_average,price_target_high,price_target_low,recommendation_total,recommendation_mark"

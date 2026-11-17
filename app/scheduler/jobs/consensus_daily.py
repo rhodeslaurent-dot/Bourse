@@ -42,6 +42,22 @@ def run(ctx: JobContext) -> int:
         failed = next((r.extra.get("screener_error") for r in rows if r.extra.get("screener_error")), None)
         n = store_analyst_consensus(s, rows, ctx.run_date)
     ctx.note = f"{n} consensus enregistré(s) sur {len(rows)} valeur(s)" + (
-        f" ; screener indisponible ({failed})" if failed else ""
+        f" ; screener indisponible ({failed})" if failed else diagnosis(ctx.config, rows, n)
     )
     return n
+
+
+def diagnosis(config, rows: list[SymbolRow], stored: int) -> str:  # type: ignore[no-untyped-def]
+    """17/11/2026 — the job stored nothing for days without saying why: what is missing, in the note."""
+    data = config.params.data
+    tv_cfg = data.tradingview_screener or {}
+    cols = {k: v for k, v in (tv_cfg.get("analyst_columns") or {}).items() if v}
+    if not tv_cfg or not data.screener:
+        return " ; screener non configuré (data.screener, data.tradingview_screener)"
+    if not cols:
+        return " ; colonnes d'analystes absentes de params.yaml (data.tradingview_screener.analyst_columns)"
+    matched = sum(1 for r in rows if r.tv_ticker)
+    out = f" ; {matched} valeur(s) trouvée(s) dans le screener"
+    if matched and not stored:
+        out += " ; aucune valeur numérique dans les colonnes " + ", ".join(sorted(set(cols.values())))
+    return out

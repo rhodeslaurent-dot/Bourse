@@ -68,6 +68,27 @@ def test_the_consensus_is_stored_every_evening_from_the_stored_tickers(db_engine
         assert len(list(s.scalars(select(AnalystConsensus)))) == 2
 
 
+def test_the_consensus_note_says_why_nothing_was_stored(db_engine, config, calendars, monkeypatch):
+    """17/11/2026: « 0 consensus enregistré(s) sur 4799 valeur(s) » for days, without a reason."""
+    from app.scheduler.jobs import consensus_daily
+
+    def found_without_values(rows, cfg):  # the screener answers, the analyst columns are empty
+        for r in rows:
+            r.tv_ticker = "EURONEXT:" + r.code
+        return rows
+
+    monkeypatch.setattr(consensus_daily, "enrich_with_screener", found_without_values)
+    with db_session() as s:
+        _insts(s, 2)
+    ctx = JobContext(config, calendars, date(2026, 11, 16), ("XPAR",), "normal")
+    assert consensus_daily.run(ctx) == 0
+    assert "2 valeur(s) trouvée(s) dans le screener ; aucune valeur numérique dans les colonnes" in ctx.note
+    assert "price_target_average" in ctx.note
+    config.params.data.tradingview_screener.pop("analyst_columns")
+    consensus_daily.run(ctx)
+    assert "colonnes d'analystes absentes de params.yaml" in ctx.note
+
+
 def test_the_filings_are_read_every_evening_over_the_last_days(db_engine, config, calendars, monkeypatch):
     from app.scheduler.jobs import filings_daily
     from app.services.filings import FilingsReport
