@@ -109,6 +109,17 @@ def shares_for(action: str, part: float | None, qty: int) -> int | None:
     return None
 
 
+def prompts_dir(config: LoadedConfig, gateway: Any) -> Any:
+    """The versioned prompts' folder — the gateway's, else the configured one: the dossier hash must not depend on
+    whether the AI is reachable (17/11/2026: a run without it took a valid review for a changed dossier)."""
+    from pathlib import Path
+
+    if gateway is not None and getattr(getattr(gateway, "settings", None), "prompts_dir", None):
+        return gateway.settings.prompts_dir
+    p = Path(((config.raw or {}).get("llm") or {}).get("prompt_versions_dir") or "app/llm/prompts")
+    return p if p.is_dir() else None
+
+
 def spent_today(s: Session, now: datetime) -> float:
     day0 = now.astimezone(PARIS).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
     q = select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(
@@ -126,7 +137,7 @@ def review_one(s: Session, config: LoadedConfig, gateway: Any, line: dict[str, A
     st = settings(config)
     inst = s.get(Instrument, line["isin"])
     facts = dossier(line, inst, regime)
-    pdir = gateway.settings.prompts_dir if gateway is not None else None
+    pdir = prompts_dir(config, gateway)
     versions = (
         f"analyst_v{load_prompt(pdir, 'position_analyst')[0]}|contra_v{load_prompt(pdir, 'position_contradictor')[0]}"
         if pdir
@@ -138,13 +149,16 @@ def review_one(s: Session, config: LoadedConfig, gateway: Any, line: dict[str, A
     )
     if row is not None and row.status in ("ok", "ecartee") and row.dossier_hash == h:
         return row  # idempotent: same position, same day, same dossier
+    usable = gateway is not None and getattr(gateway, "enabled", False)
+    if row is not None and row.status in ("ok", "ecartee") and not usable:
+        return row  # 17/11/2026: a run without the AI never replaces a review the AI gave
     row = row or AiPositionReview(position_id=line["position_id"], day=day)
     row.isin, row.dossier_hash, row.created_at = line["isin"], h, now
     row.ref_close, row.status, row.cost_usd = line.get("cours"), "indisponible", 0.0
     row.dossier = {"faits": facts, "versions": versions}
     row.python = {k: line.get(k) for k in ("verdict", "stop", "stop_propose", "stop_raison", "alleger_pct")}
     s.add(row)
-    if gateway is None or not getattr(gateway, "enabled", False):
+    if not usable:
         row.analyst = {"motif": "IA non configurée : revue non faite"}
         s.flush()
         return row

@@ -89,14 +89,17 @@ def cmd_seed_calendar(args: argparse.Namespace) -> int:
 
 def cmd_run_job(args: argparse.Namespace) -> int:
     from app.domain.calendar import load_market_calendars
+    from app.llm import ClaudeGateway, settings_from
     from app.scheduler.runner import execute_job
 
     cfg = load_params(args.params)
     cals = load_market_calendars(args.calendars)
     run_date = date.fromisoformat(args.date) if args.date else None
+    st = settings_from(cfg)  # 17/11/2026: the same AI as the scheduler (replayed prompts come from its cache)
     run = execute_job(
-        args.job, cfg, cals, run_date=run_date, variant=args.variant, mics=args.mics.split(",") if args.mics else None
-    )
+        args.job, cfg, cals, run_date=run_date, variant=args.variant, mics=args.mics.split(",") if args.mics else None,
+        llm=ClaudeGateway(st) if st else None,
+    )  # fmt: skip
     print(f"{args.job}: {run.status} rows={run.rows} note={run.note} error={(run.error or '')[:200]}")
     return 0 if run.status in ("ok", "skipped") else 1
 

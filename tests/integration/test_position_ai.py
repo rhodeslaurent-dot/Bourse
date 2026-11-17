@@ -127,3 +127,16 @@ def test_the_defence_is_measured_against_doing_nothing_on_finished_windows(db_en
         assert ia5.n == 1 and ia5.positions == 1 and ia5.mean_gap > 0  # out at the raised stop, not at 52
         assert ia20.mean_gap > 0 and ia5.t_stat is None  # one case: no t
         assert s.get(PositionRow, pid).stop_current == 52.0  # observation: nothing applied
+
+
+def test_a_run_without_the_ai_never_replaces_a_review_the_ai_gave(db_engine, config):
+    """17/11/2026: `run-job position_ai_review` from the command line had no AI and overwrote the evening reviews."""
+    with db_session() as s:
+        _held(s)
+        gw = Gw(ANALYST, {"objections": [{"texte": "Avis repris.", "faits": ["F2"]}], "action_finale": "conserver",
+                          "confiance": "moyenne"})  # fmt: skip
+        (row,) = position_ai.run_day(s, config, gw, DAY, NOW)
+        assert row.status == "ok"
+        (again,) = position_ai.run_day(s, config, None, DAY, NOW)
+        assert again.id == row.id and again.status == "ok" and again.action == "conserver"
+        assert position_ai.prompts_dir(config, None) is not None  # the hash never depends on the AI being there

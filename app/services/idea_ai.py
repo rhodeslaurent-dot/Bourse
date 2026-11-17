@@ -142,20 +142,25 @@ def deliberate(s: Session, config: LoadedConfig, gateway: Any, p: Proposal, rank
     caution = caution_for(s, config, p.isin, day)
     if caution:
         facts.append({"id": f"F{len(facts) + 1}", "texte": caution})
-    pdir = gateway.settings.prompts_dir if gateway is not None else None
+    from app.services.position_ai import prompts_dir
+
+    pdir = prompts_dir(config, gateway)
     names = ("idea_analyst", "idea_contradictor", "idea_arbiter")
     versions = "|".join(f"{n}_v{load_prompt(pdir, n)[0]}" for n in names) if pdir else "regles"
     h = hashlib.sha256((json.dumps(facts, ensure_ascii=False, sort_keys=True) + versions).encode()).hexdigest()
     row = s.scalar(select(AiIdeaReview).where(AiIdeaReview.proposal_id == p.id))
     if row is not None and row.status == "ok" and row.dossier_hash == h:
         return row
+    usable = gateway is not None and getattr(gateway, "enabled", False)
+    if row is not None and row.status == "ok" and not usable:
+        return row  # 17/11/2026: a run without the AI never replaces a review the AI gave
     row = row or AiIdeaReview(proposal_id=p.id)
     last = last_close(s, p.isin, day)
     row.day, row.isin, row.rank, row.dossier_hash, row.created_at = day, p.isin, rank, h, now
     row.status, row.cost_usd, row.dossier = "indisponible", 0.0, {"faits": facts, "versions": versions, "cours": last}
     row.python = {**_author(py, last, st, p), "avis": p.action, "titres": p.shares}
     s.add(row)
-    if gateway is None or not getattr(gateway, "enabled", False):
+    if not usable:
         row.analyst = {"motif": "IA non configurée : avis non rendu"}
         s.flush()
         return row

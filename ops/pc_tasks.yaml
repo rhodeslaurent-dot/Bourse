@@ -429,3 +429,15 @@ tasks:
       - "docker compose exec -T app python -m app.cli run-job consensus_daily"
       - "docker compose exec -T app python -m app.cli run-job position_ai_review"
       - "docker compose exec -T app python -m app.cli llm-costs"
+  # Incident du 17/11 : `run-job position_ai_review` (sans IA en ligne de commande) a remplacé les deux revues de 19:35.
+  # Correctif : une exécution sans IA ne remplace plus une revue rendue ; run-job reçoit l'IA du planificateur. Les
+  # revues du jour sont relancées (dossier inchangé : réponses rejouées depuis le cache, coût nul ou presque).
+  - id: "2026-11-17-14"
+    purpose: "Correctif : une exécution sans IA ne remplace plus une revue ; revues IA des positions du jour restaurées"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli run-job position_ai_review"
+      - "docker compose exec -T app python -m app.cli llm-costs"

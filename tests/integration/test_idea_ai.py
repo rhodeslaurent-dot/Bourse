@@ -179,3 +179,14 @@ def test_the_arbiters_model_is_called_without_sampling_nor_thinking_setting(conf
     opts = config.raw["llm"]["model_options"][model]
     assert request_options(model, 0.0, opts) == {"output_config": {"effort": "low"}}
     assert model in config.raw["llm"]["prices_usd_per_mtok"]
+
+
+def test_a_run_without_the_ai_never_replaces_an_idea_review(db_engine, config):
+    with db_session() as s:
+        s.info["config"] = config
+        p = _idea(s)
+        gw = Gw({"avis": "attendre", "confiance": "faible"}, {"avis_revu": "attendre", "confiance": "faible"})
+        (row,) = idea_ai.run_day(s, config, gw, _day(p), NOW)
+        assert row.status == "ok"
+        (again,) = idea_ai.run_day(s, config, None, _day(p), NOW)
+        assert again.id == row.id and again.status == "ok" and again.analyst["avis"] == "attendre"
