@@ -396,3 +396,13 @@ tasks:
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli check-config"
       - "docker compose exec -T app python -m app.cli llm-costs"
+  # Contrôle du matin (lecture seule) : chaîne du matin (clôtures 06:45, régime 07:30, scan 07:50, comité 08:10),
+  # premier passage de l'option A (08:25 : idées analysées, statut, coût) et jobs du soir d'hier.
+  - id: "2026-11-17-11"
+    purpose: "Contrôle du matin : jobs du matin et du soir, premier passage de l'analyse multi-agent des idées, coûts"
+    stop_on_error: false
+    timeout_s: 900
+    commands:
+      - "docker compose exec -T app python -m app.cli sources-health"
+      - "docker compose exec -T app python -m app.cli llm-costs"
+      - "docker compose logs --tail 80 app"
