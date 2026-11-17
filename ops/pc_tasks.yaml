@@ -414,3 +414,18 @@ tasks:
     timeout_s: 600
     commands:
       - "docker compose exec -T app python -m app.cli tv-columns-check --market france --columns price_target_average,price_target_high,price_target_low,recommendation_total,recommendation_mark"
+  # Point du soir, après la clôture et la revue IA des positions de 19:35. Cause du consensus vide trouvée le 17/11 :
+  # `analyst_columns: {}` laissé par un ancien exemple dans params.yaml (jamais rempli par --update) → colonnes validées
+  # par tv-columns-check (tâche 17-12) ; reconstruction (note de consensus_daily, réglages vides signalés, saxo-check) ;
+  # le consensus est relancé pour vérifier (> 0) ; la revue des positions est relue (même dossier : aucun nouvel appel).
+  - id: "2026-11-17-13"
+    purpose: "Colonnes d'analystes renseignées, reconstruction, consensus relancé ; relecture de la revue IA des positions"
+    stop_on_error: true
+    timeout_s: 2400
+    commands:
+      - "uv run python -m app.cli params-init --update --set \"data.tradingview_screener.analyst_columns={objectif_moyen: price_target_average, objectif_haut: price_target_high, objectif_bas: price_target_low, nb_analystes: recommendation_total, note: recommendation_mark}\""
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli run-job consensus_daily"
+      - "docker compose exec -T app python -m app.cli run-job position_ai_review"
+      - "docker compose exec -T app python -m app.cli llm-costs"
