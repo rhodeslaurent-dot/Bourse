@@ -325,13 +325,18 @@ class ScoreRow:
     by_macro: dict[str, GroupStats]
     sector: GroupStats
     by_trend: dict[str, GroupStats] = field(default_factory=dict)  # index above / below its MM50 (17/11/2026)
+    trend_vs_control: dict[str, Contrast] = field(default_factory=dict)  # gap to the control inside each bucket
+    vix_vs_control: dict[str, Contrast] = field(default_factory=dict)
     control: GroupStats = GroupStats(0, None, None, None, None)  # the same values away from the source's events
     vs_control: Contrast = Contrast(0, 0, None, None)
 
 
 def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None = None,
-               control_offset: int | None = None) -> list[ScoreRow]:  # fmt: skip
-    """Final measures grouped by (source, kind, direction): signed excess over the venue, by context."""
+               control_offset: int | None = None, kinds: tuple[str, ...] | None = None,
+               controls_by_context: bool = False) -> list[ScoreRow]:  # fmt: skip
+    """Final measures grouped by (source, kind, direction): signed excess over the venue, by context. ``kinds``
+    keeps some types only; ``controls_by_context`` adds the gap to the control inside each context bucket (index
+    trend, VIX) — the controls of an event are put in its own event's bucket."""
     from app.db.models import EventOutcome, MarketEvent
 
     q = (
@@ -339,12 +344,14 @@ def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None 
         .join(EventOutcome, and_(EventOutcome.event_id == MarketEvent.id, EventOutcome.horizon == horizon))
         .where(EventOutcome.status == "final", EventOutcome.excess_venue.is_not(None))
     )
+    if kinds:
+        q = q.where(MarketEvent.kind.in_(kinds))
     if since is not None:
         q = q.where(MarketEvent.event_at >= datetime.combine(since, time.min, tzinfo=PARIS).astimezone(UTC))
     groups: dict[tuple[str, str, str, int | None], list[tuple[Any, Any]]] = defaultdict(list)
     for ev, o in s.execute(q):
         groups[(ev.source_key, ev.family, ev.kind, ev.direction)].append((ev, o))
-    controls = _control_values(s, horizon, since, control_offset)
+    controls = _control_values(s, horizon, since, control_offset, kinds, controls_by_context)
     out = []
     for (src, fam, kind, d), items in groups.items():
         if len(items) < min_n:
@@ -362,31 +369,51 @@ def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None 
             split(lambda c: "annonce macro proche" if c.get("annonce_macro") else "sans annonce macro"),
             group_stats([signed(o.excess_sector, d) for _, o in items if o.excess_sector is not None]),
         ))  # fmt: skip
-        out[-1].by_trend = split(lambda c: str(c.get("indice_mm50") or "inconnu"))
-        ctl = group_stats([signed(x, d) for x in controls.get((src, fam, kind, d), [])])
+        trend_of = lambda c: str((c or {}).get("indice_mm50") or "inconnu")  # noqa: E731
+        vix_of = lambda c: _vix_bucket((c or {}).get("vix"))  # noqa: E731
+        out[-1].by_trend = split(trend_of)
+        mine = controls.get((src, fam, kind, d), [])
+        ctl = group_stats([signed(x, d) for x, _ in mine])
         out[-1].control, out[-1].vs_control = ctl, difference(out[-1].stats, ctl)
+        if controls_by_context:
+            for attr, key, part in (("trend_vs_control", trend_of, out[-1].by_trend),
+                                    ("vix_vs_control", vix_of, out[-1].by_vix)):  # fmt: skip
+                by: dict[str, list[float]] = defaultdict(list)
+                for x, c in mine:
+                    by[key(c)].append(signed(x, d))
+                setattr(out[-1], attr, {k: difference(g, group_stats(by.get(k, []))) for k, g in part.items()})
     return sorted(out, key=lambda r: (-r.stats.n, r.source_key, r.kind))
 
 
 def _control_values(
-    s: Session, horizon: int, since: date | None, offset: int | None = None
-) -> dict[tuple[str, str, str, int | None], list[float]]:
-    """Excess over the venue of every final control window, by (source, family, kind, direction) of its event."""
+    s: Session,
+    horizon: int,
+    since: date | None,
+    offset: int | None = None,
+    kinds: tuple[str, ...] | None = None,
+    with_context: bool = False,
+) -> dict[tuple[str, str, str, int | None], list[tuple[float, dict[str, Any] | None]]]:
+    """Excess over the venue of every final control window, by (source, family, kind, direction) of its event —
+    with its event's context when asked (a control is read in the context of the event it stands for)."""
     from app.db.models import EventControl, MarketEvent
 
+    ctx_col: Any = MarketEvent.context if with_context else None
+    cols = [MarketEvent.source_key, MarketEvent.family, MarketEvent.kind, MarketEvent.direction,
+            EventControl.excess_venue] + ([ctx_col] if with_context else [])  # fmt: skip
     q = (
-        select(MarketEvent.source_key, MarketEvent.family, MarketEvent.kind, MarketEvent.direction,
-               EventControl.excess_venue)
+        select(*cols)
         .join(EventControl, EventControl.event_id == MarketEvent.id)
         .where(EventControl.horizon == horizon, EventControl.status == "final", EventControl.excess_venue.is_not(None))
-    )  # fmt: skip
+    )
+    if kinds:
+        q = q.where(MarketEvent.kind.in_(kinds))
     if since is not None:
         q = q.where(MarketEvent.event_at >= datetime.combine(since, time.min, tzinfo=PARIS).astimezone(UTC))
     if offset is not None:  # one control window only (17/11/2026: a run-up before the event sits in the −60 one)
         q = q.where(EventControl.offset == offset)
-    out: dict[tuple[str, str, str, int | None], list[float]] = defaultdict(list)
-    for src, fam, kind, d, x in s.execute(q):
-        out[(src, fam, kind, d)].append(float(x))
+    out: dict[tuple[str, str, str, int | None], list[tuple[float, dict[str, Any] | None]]] = defaultdict(list)
+    for row in s.execute(q):
+        out[(row[0], row[1], row[2], row[3])].append((float(row[4]), row[5] if with_context else None))
     return out
 
 

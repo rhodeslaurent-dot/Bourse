@@ -159,3 +159,17 @@ def test_events_build_completes_the_context_with_the_index_trend(db_engine, monk
         assert ev.context["indice_mm50"] == "au-dessus" and ev.context["indice_de"] == "EU"
         assert ev.context["vix"] == 15.0 + (100 - 1) % 3  # the session before the event's day
     assert "complété" in capsys.readouterr().out
+
+
+def test_the_gap_to_the_control_is_read_inside_each_context_bucket(db_engine):
+    with db_session() as s:
+        _market(s)
+        _letter(s, X, _paris(EVENT, 10), "e1")
+        _measure_all(s)
+        ev = s.scalar(select(MarketEvent))
+        ev.context = {**(ev.context or {}), "indice_mm50": "au-dessus", "vix": 15.0}
+        s.flush()
+        (row,) = event_measure.scoreboard(s, 5, 1, kinds=("lettre_achat",), controls_by_context=True)
+    assert set(row.trend_vs_control) == {"au-dessus"} and row.trend_vs_control["au-dessus"].n_down == 2
+    assert row.trend_vs_control["au-dessus"].diff == pytest.approx(1.01**5 - 1)
+    assert set(row.vix_vs_control) == {"VIX < 20"}
