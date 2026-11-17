@@ -224,6 +224,17 @@ event_journal:                           # étape 1 du plan (lots S1 à S3, 15/1
   consensus_min_change: 0.02            # variation de l'objectif moyen des analystes en dessous de laquelle ce n'est pas un événement
   short_volume_z: 3.0                   # lot S5 : part vendue à découvert (FINRA) à ≥ 3 écarts de sa base de 20 jours
 
+position_ai:                            # étape 2, option B (décision du 17/11/2026, docs/42) — revue du soir de chaque position par un analyste et un contradicteur IA, en OBSERVATION : avis stocké et mesuré, jamais appliqué ; Python contrôle les niveaux et calcule la quantité
+  effective_from: "2026-11-17"
+  enabled: true
+  daily_budget_usd: 0.3                 # plafond propre à cette revue (dans le plafond général llm.*)
+  analyst_model: null                   # défaut : llm.write_model
+  contradictor_model: null
+  max_tokens: 900
+  est_input_tokens: 4000                # réservation de budget avant appel
+  est_output_tokens: 700
+  stop_band: 0.25                       # un stop proposé à plus de 25 % sous le dernier cours est écarté
+
 insider_caution:                        # étape 2, lot D1 (décision de l'utilisateur du 17/11/2026) — mention de prudence après une vente de dirigeant (docs/40 §40.3 bis, docs/42) : information, jamais un ordre ni un blocage
   effective_from: "2026-11-17"
   enabled: true
@@ -925,6 +936,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   insider_archive: {cron: "35 21 * * *", misfire_grace_min: 1440, market_days_only: false}   # docs/34 §34.8 : déclarations des dirigeants AMF (BDIF) des 7 derniers jours, archivage seul (aucun signal) ; tous les jours car l'AMF publie les jours ouvrés français, pas les séances d'Euronext
   forum_history: {cron: "*/30 0-5 * * *", misfire_grace_min: 20, market_days_only: false}   # docs/26 : historique du forum lu lentement la nuit, jusqu'à forum_from (décision du 26/10/2026)
   committee_review: {cron: "10 8 * * 1-5", misfire_grace_min: 90, market_days_only: true}   # docs/24 v2 : comité d'investissement en observation (verdicts mesurés, jamais appliqués)
+  position_ai_review: {cron: "35 19 * * 1-5", misfire_grace_min: 120, market_days_only: true}   # étape 2, option B (docs/42) : revue IA du soir de chaque position, en observation
   weak_signals: {cron: "40 6 * * 1-5", misfire_grace_min: 60, market_days_only: true}   # docs/26 : radar des signaux faibles publics (Wikipédia, volume, presse)
   fundamentals_refresh: {cron: "10 5 * * *", misfire_grace_min: 600, market_days_only: false}   # lot S4 (15/11/2026) : fondamentaux gratuits (Yahoo) chaque nuit par rotation (les moins récents d'abord) ; était hebdomadaire
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h

@@ -1392,6 +1392,35 @@ class EventOutcome(Base):
     __table_args__ = (UniqueConstraint("event_id", "horizon", name="uq_event_outcomes_event_horizon"),)
 
 
+class AiPositionReview(Base):
+    """Step 2, option B (17/11/2026, docs/42) — the evening review of a held position by an analyst and a contradictor
+    (LLM), in **observation**: what they would do (keep, raise the stop, lighten, exit), checked by Python (a stop is
+    never lowered nor above the last close; the quantity is Python's), stored with the dossier sent, never applied.
+    Measured against « do nothing » from the close of the review (``ref_close``)."""
+
+    __tablename__ = "ai_position_reviews"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    position_id: Mapped[int] = mapped_column(Integer, index=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    dossier_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(12))  # ok | ecartee | budget | indisponible
+    action: Mapped[str | None] = mapped_column(String(16), nullable=True)  # conserver|remonter_stop|alleger|sortir
+    stop_ai: Mapped[float | None] = mapped_column(nullable=True)
+    part_ai: Mapped[float | None] = mapped_column(nullable=True)
+    shares_ai: Mapped[int | None] = mapped_column(Integer, nullable=True)  # computed by Python from the part
+    ref_close: Mapped[float | None] = mapped_column(nullable=True)
+    python: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # Python's review at the same moment
+    dossier: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    analyst: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    contradictor: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    rejected: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    models: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("position_id", "day", name="uq_ai_position_reviews_position_day"),)
+
+
 class EventControl(Base):
     """Step 1 control group (16/11/2026) — the same value over the same number of sessions, ``offset`` sessions before
     (negative) or after (positive) the event's reference close, excluding windows with another event of the same

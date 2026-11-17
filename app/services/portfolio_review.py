@@ -119,6 +119,7 @@ def review_lines(s: Session, config: LoadedConfig, day: date, now: datetime) -> 
         bars = load_bars(s, pos.isin, end=day, limit=260)
         acc = accounts.get(pos.account_id)
         line: dict[str, Any] = {
+            "position_id": pos.id,
             "isin": pos.isin,
             "nom": name_of(pos.isin),
             "compte": ACCOUNT_LABELS.get(acc.type, acc.type) if acc else "?",

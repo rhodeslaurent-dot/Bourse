@@ -234,7 +234,10 @@ def _portfolio(s: Session, config: LoadedConfig, day: date, now: datetime) -> li
     for ln in review_lines(s, config, day, now):
         last = s.scalar(select(func.max(PriceEod.day)).where(PriceEod.isin == ln["isin"], PriceEod.day <= day))
         stale = last is None or _weekdays_between(last, day) > STALE_SESSIONS
-        out.append({**ln, "dernier_cours_jour": last, "cours_perime": stale})
+        from app.services.position_ai import latest_for, summary
+
+        ai = summary(latest_for(s, ln["position_id"])) if ln.get("position_id") is not None else None
+        out.append({**ln, "dernier_cours_jour": last, "cours_perime": stale, "avis_ia": ai})
     return out
 
 

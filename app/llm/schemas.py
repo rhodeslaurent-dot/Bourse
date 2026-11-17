@@ -269,3 +269,27 @@ class ForumMessageLabel(BaseModel):
 
 class ForumBatchLabels(BaseModel):
     messages: Items(ForumMessageLabel, 40)
+
+
+# Step 2, option B (17/11/2026, docs/42) — the evening review of a held position (closed lists; numbers checked by
+# Python against the stored prices: a stop is never lowered nor above the last close)
+class PositionArgument(BaseModel):
+    texte: Text(220)
+    faits: Items(str, 6) = Field(default_factory=list)
+
+
+class PositionAnalystOut(BaseModel):
+    action: Literal["conserver", "remonter_stop", "alleger", "sortir"]
+    stop: float | None = None  # with « remonter_stop » only
+    part: Literal[0.25, 0.5] | None = None  # with « alleger » only: the share of the position to sell
+    motifs: Items(PositionArgument, 4) = Field(default_factory=list)
+    confiance: Literal["faible", "moyenne", "forte"]
+
+
+class PositionContradictorOut(BaseModel):
+    objections: Items(PositionArgument, 4) = Field(default_factory=list)
+    action_finale: Literal["conserver", "remonter_stop", "alleger", "sortir"]
+    stop_final: float | None = None
+    part_finale: Literal[0.25, 0.5] | None = None
+    confiance: Literal["faible", "moyenne", "forte"]
+    raison: Text(300) = ""
