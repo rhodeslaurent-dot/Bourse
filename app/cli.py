@@ -944,6 +944,13 @@ def cmd_saxo_check(args: argparse.Namespace) -> int:
             text += f"\n{line}\n"
         env.write_text(text, encoding="utf-8")
         print("SAXO_CLIENT_KEY enregistré dans .env")
+    elif client_key and live:  # in the container there is no .env file: the key comes from the environment
+        known = os.environ.get("SAXO_CLIENT_KEY") == client_key
+        print(
+            "SAXO_CLIENT_KEY déjà fourni à l'application (environnement)"
+            if known
+            else "SAXO_CLIENT_KEY absent de l'environnement : relancer saxo-check sur le PC, hors conteneur"
+        )
     else:
         print("(simulation : SAXO_CLIENT_KEY sera enregistré avec le compte live)")
     print("appels effectués, tous en GET : " + ", ".join(p for _, p in client.calls))
