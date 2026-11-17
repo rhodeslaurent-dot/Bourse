@@ -288,3 +288,11 @@ tasks:
       - "docker compose exec -T app python -m app.cli events-measure --offset 60"
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --min-n 300"
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 300"
+  # 17/11/2026 (nuit) : lecture seule — le tableau à 5 séances de la tâche 19 a été coupé au milieu (taille du
+  # compte rendu) ; la règle pré-enregistrée exige le même signe à 5 et 20 séances : lignes d'au moins 1 000 cas.
+  - id: "2026-11-17-01"
+    purpose: "Lecture seule : tableau à 5 séances avec témoin, lignes d'au moins 1 000 cas"
+    stop_on_error: false
+    timeout_s: 1200
+    commands:
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --min-n 1000"
