@@ -344,6 +344,12 @@ def test_the_runs_of_each_feeding_job_say_why_a_source_is_silent(db_engine):
     assert "ProviderError: EOD XPAR boom" in line
     assert "sauté" in source_health.job_line(states["daily_regime"])
     assert "jamais lancé" in source_health.job_line(states["news_scan"])
+    with db_session() as s:  # 17/11/2026: the command shows a long note whole (the consensus coverage per venue)
+        s.add(JobRun(job="consensus_daily", started_at=now - timedelta(hours=1), status="ok", note="x" * 300))
+    with db_session() as s:
+        page = source_health.job_states(s, ["consensus_daily"], now)[0]
+        cli = source_health.job_states(s, ["consensus_daily"], now, clip=600)[0]
+    assert len(page.last_info) == 140 and len(cli.last_info) == 300
 
 
 def test_the_venue_median_counts_every_share_not_only_todays_universe(db_engine, calendars):

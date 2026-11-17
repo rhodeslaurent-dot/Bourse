@@ -2826,7 +2826,7 @@ def cmd_sources_health(args: argparse.Namespace) -> int:
 
         print("\nJobs qui alimentent les sources (heure de La Réunion)")
         with db_session() as s:
-            for js in job_states(s, feeders()):
+            for js in job_states(s, feeders(), clip=600):
                 print(job_line(js))
     return 0
 

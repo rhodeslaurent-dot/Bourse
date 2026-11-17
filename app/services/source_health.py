@@ -255,7 +255,7 @@ def feeders() -> list[str]:
     return out
 
 
-def job_states(s: Session, jobs: list[str], now: datetime | None = None) -> list[JobState]:
+def job_states(s: Session, jobs: list[str], now: datetime | None = None, clip: int = 140) -> list[JobState]:
     """16/11/2026 — a source can be silent because its job never ran, was skipped or failed: the runs say which.
     Three aggregate queries, whatever the number of jobs."""
     from app.db.models import JobRun
@@ -291,7 +291,7 @@ def job_states(s: Session, jobs: list[str], now: datetime | None = None) -> list
                 from_store(r.started_at) if r is not None else None,
                 r.status if r is not None else None,
                 r.rows if r is not None else None,
-                info[:140],
+                info[:clip],  # the page keeps 140 characters; the command shows more (17/11/2026)
                 from_store(last_ok[job]) if last_ok.get(job) else None,
                 counts.get(job, {}),
             )
