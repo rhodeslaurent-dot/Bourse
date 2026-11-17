@@ -330,3 +330,13 @@ tasks:
       - "docker compose exec -T app python -m app.cli macro-backfill --from 2016-01-01 --indicator vix"
       - "docker compose exec -T app python -m app.cli events-build --from 2016-01-01 --complete-context"
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 4000 --context 4"
+  # 17/11/2026 (nuit) : la seule source retenue (vente de dirigeant) et les deux fragiles, lues par contexte
+  # (tendance de l'indice, VIX) contre leur témoin — descriptif : des sous-groupes, pas une nouvelle règle.
+  - id: "2026-11-17-05"
+    purpose: "Ventes, déclarations « autres » de dirigeants et communiqués de résultats : écart au témoin par contexte"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 300 --kind dirigeant_cession --kind dirigeant_autre --kind communique_resultats --context 3"
