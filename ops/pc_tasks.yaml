@@ -370,3 +370,16 @@ tasks:
       - "docker compose up -d --build"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli check-config"
+  # Décision de l'utilisateur du 17/11/2026 (« a et b, oui ») : option A de l'étape 2 (docs/42, ADR-020), en
+  # observation. Avant la chaîne du matin (clôtures 06:45) : le scan de 07:50 stockera les entrées de taille, l'analyse
+  # multi-agent tournera à 08:25. La dernière commande vérifie la version (section « niveaux des idées »).
+  - id: "2026-11-17-09"
+    purpose: "Mise en service de l'option A : analyse multi-agent des idées du jour (observation), paramètres et migration"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "uv run python -m app.cli params-init --update"
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli check-config"
+      - "docker compose exec -T app python -m app.cli llm-costs"
