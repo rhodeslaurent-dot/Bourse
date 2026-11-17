@@ -72,7 +72,13 @@ def coverage(rows: list[SymbolRow], top: int = 8) -> str:
         c = by.setdefault(r.exchange, [0, 0])
         c[0] += 1 if r.tv_ticker else 0
         c[1] += 1
+    cut = {r.exchange: r.extra["screener_tronque"] for r in rows if r.extra.get("screener_tronque")}
     low = sorted((v[0] / v[1], ex, v) for ex, v in by.items() if v[1] and v[0] < v[1])
     if not low:
         return ""
-    return " ; couverture par place : " + ", ".join(f"{ex} {v[0]}/{v[1]}" for _, ex, v in low[:top])
+
+    def one(ex: str, v: list[int]) -> str:
+        c = cut.get(ex)
+        return f"{ex} {v[0]}/{v[1]}" + (f" (source lue {c[0]}/{c[1]} lignes)" if c else "")
+
+    return " ; couverture par place : " + ", ".join(one(ex, v) for _, ex, v in low[:top])

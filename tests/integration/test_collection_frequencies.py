@@ -142,3 +142,14 @@ def test_the_consensus_note_gives_the_coverage_per_exchange():
     for r in rows:
         r.tv_ticker = "T"
     assert coverage(rows) == ""
+
+
+def test_the_coverage_says_when_the_screener_was_cut():
+    from app.scheduler.jobs.consensus_daily import coverage
+    from app.services.universe import SymbolRow
+
+    rows = [SymbolRow(isin=f"X{k}", name="n", code=f"C{k}", exchange="US", currency="USD") for k in range(2)]
+    rows[0].tv_ticker = "T"
+    for r in rows:
+        r.extra["screener_tronque"] = (1500, 6200)
+    assert coverage(rows) == " ; couverture par place : US 1/2 (source lue 1500/6200 lignes)"

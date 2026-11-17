@@ -282,6 +282,7 @@ def enrich_with_screener(  # type: ignore[no-untyped-def]
             min_interval_seconds=int(tv_cfg.get("min_interval_seconds", 60)),
             max_requests_per_scan=int(tv_cfg.get("max_requests_per_scan", 6)),
             limit_per_request=int(tv_cfg.get("limit_per_request", 1500)),
+            max_pages_per_market=int(tv_cfg.get("max_pages_per_market", 1)),
         )
         from app.data.providers.tradingview_screener import DEFAULT_COLUMNS, analyst_values
 
@@ -298,6 +299,13 @@ def enrich_with_screener(  # type: ignore[no-untyped-def]
             r.extra["screener_error"] = exc.__class__.__name__
         return rows
     fx = fx_to_eur or {}
+    truncated = getattr(tv, "truncated", None) or {}
+    if truncated:  # the screener has more rows than were read: values beyond them are « not found »
+        log.warning("screener limité : " + ", ".join(f"{m} {a}/{b}" for m, (a, b) in sorted(truncated.items())))
+    for r in rows:
+        cut = truncated.get(MARKETS_BY_EODHD.get(r.exchange, ""))
+        if cut:
+            r.extra["screener_tronque"] = cut
     by_key = {r.ticker: r for r in scan}  # EXCHANGE:SYMBOL — never merged across venues (M21)
     for r in rows:
         market = MARKETS_BY_EODHD.get(r.exchange)

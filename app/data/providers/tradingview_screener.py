@@ -78,6 +78,8 @@ class TradingViewScreener:
         max_requests_per_scan: int = 6,
         limit_per_request: int = 1500,
         enabled: bool = True,
+        max_pages_per_market: int = 1,
+        page_pause_seconds: float = 2.0,
     ) -> None:
         self.client = client or httpx.Client(
             base_url=BASE, timeout=30, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
@@ -86,8 +88,11 @@ class TradingViewScreener:
         self.max_requests = max_requests_per_scan
         self.limit = limit_per_request
         self.enabled = enabled
+        self.max_pages = max(1, int(max_pages_per_market))
+        self.page_pause = page_pause_seconds
         self._last_scan_at = 0.0
         self.requests_made = 0
+        self.truncated: dict[str, tuple[int, int]] = {}  # market → (rows read, rows the screener has)
 
     def scan(
         self, markets: list[str], columns: list[str] | None = None, filters: list[dict] | None = None
@@ -103,20 +108,32 @@ class TradingViewScreener:
         cols = columns or DEFAULT_COLUMNS
         rows: list[ScreenerRow] = []
         for market in markets:
-            payload = {
-                "columns": cols,
-                "filter": filters or [{"left": "type", "operation": "equal", "right": "stock"}],
-                "range": [0, self.limit],
-                "sort": {"sortBy": "volume", "sortOrder": "desc"},
-                "markets": [market],
-            }
-            self.requests_made += 1
-            r = self.client.post(f"/{market}/scan", json=payload)
-            if r.status_code >= 400:
-                raise ProviderError(f"tradingview {r.status_code} on {market}: {r.text[:120]}")
-            received = datetime.now(UTC)
-            for item in r.json().get("data", []):
-                rows.append(self._row(item["s"], dict(zip(cols, item["d"], strict=False)), received))
+            read, total = 0, None
+            for page in range(self.max_pages):  # 17/11/2026: one page of ``limit`` rows by volume per market at most
+                if page:
+                    time.sleep(self.page_pause)  # polite: the extra pages of a market are spaced
+                payload = {
+                    "columns": cols,
+                    "filter": filters or [{"left": "type", "operation": "equal", "right": "stock"}],
+                    "range": [page * self.limit, (page + 1) * self.limit],
+                    "sort": {"sortBy": "volume", "sortOrder": "desc"},
+                    "markets": [market],
+                }
+                self.requests_made += 1
+                r = self.client.post(f"/{market}/scan", json=payload)
+                if r.status_code >= 400:
+                    raise ProviderError(f"tradingview {r.status_code} on {market}: {r.text[:120]}")
+                received = datetime.now(UTC)
+                body = r.json()
+                data = body.get("data", []) or []
+                total = body.get("totalCount") if isinstance(body.get("totalCount"), int) else total
+                for item in data:
+                    rows.append(self._row(item["s"], dict(zip(cols, item["d"], strict=False)), received))
+                read += len(data)
+                if len(data) < self.limit or (total is not None and read >= total):
+                    break
+            if total is not None and read < total:
+                self.truncated[market] = (read, total)
         return rows
 
     @staticmethod

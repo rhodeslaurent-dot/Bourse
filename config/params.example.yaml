@@ -715,6 +715,7 @@ data:
     min_interval_seconds: 60
     max_requests_per_scan: 6
     limit_per_request: 1500
+    max_pages_per_market: 1               # 17/11/2026 : pages de limit_per_request lignes (par volume) lues par place, espacées ; 1 = une seule page (comportement d'origine) — à relever après la mesure de la couverture (note de consensus_daily)
     fallback: "eodhd_rest_delayed"
     # docs/23 S4 : consensus des analystes en recoupement de Yahoo ; colonnes acceptées par `tv-columns-check` le 25/10/2026
     # (number_of_analysts existe mais renvoie toujours None : recommendation_total = achats + conservations + ventes)
