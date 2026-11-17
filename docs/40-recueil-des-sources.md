@@ -42,6 +42,25 @@
 - **Tableau de mesure** (`scoreboard`) : par source, type et sens, l'écart moyen à la place **lu dans le sens de la source** (une « vente » qui a raison donne un écart positif), la médiane, le taux de réussite, le t, et la même chose **par contexte** : régime de la place, VIX < 20 ou ≥ 20, annonce macro proche ou non, et contre le secteur.
 - **Où le voir** : page `/sources` (choix de l'horizon), commande `events-scoreboard --horizon 5 --context 10`.
 
+### 40.3 bis — Résultats du 17/11/2026 (production : 374 953 événements, 2016 → 2026)
+
+Mesure dividendes inclus, médiane de **toute** la place, témoin ±60 séances. Règle pré-enregistrée (16/11/2026) : écart au témoin (les deux fenêtres réunies) avec |t| ≥ 3, ≥ 300 événements et ≥ 300 témoins, même signe à 5 et 20 séances. **Vérification ajoutée après coup, non pré-enregistrée** : chaque fenêtre témoin lue seule (une hausse avant l'événement tombe dans la fenêtre « avant »).
+
+| Source (sens) | Écart au témoin, 5 / 20 séances (t) | Témoin « avant » seul, 20 séances | Témoin « après » seul, 20 séances | Verdict |
+|---|---|---|---|---|
+| Ventes de dirigeants (baisse attendue) | +0,7 % (3,6) / +3,8 % (9,3) | +5,6 % (10,2) | +1,7 % (3,5) | **retenue à 20 séances** ; à 5 séances, seulement contre « avant » (+0,3 %, t 1,1 contre « après ») |
+| Déclarations « autres » de dirigeants | −0,8 % (−3,2) / −2,2 % (−5,3) | −3,0 % (−6,4) | −1,4 % (−2,6) | retenue par la règle, **fragile** |
+| Communiqués de résultats (AMF) | −0,3 % (−4,1) / −1,0 % (−4,3) | −0,8 % (−2,9) | −1,2 % (−3,7) | retenue par la règle, **fragile** (témoins = périodes sans communiqué) |
+| Communiqués d'information privilégiée | −0,1 % (−2,4) / −1,5 % (−5,3) | −1,4 % (−3,6) | −1,5 % (−4,1) | non retenue (5 séances) ; à suivre à 20 séances |
+| Achats de dirigeants | +0,2 % (3,5) / +0,1 % (0,4) | −0,1 % | +0,3 % (1,2) | non retenue |
+| Signaux Momentum Capital | −0,5 % (−3,2) / −0,7 % (−1,8) | −1,1 % (−2,4) | +0,2 % (205 témoins) | non retenue |
+| Lettres d'achat Momentum | −0,6 % (−2,1) / −2,0 % (−3,1) | — | — | non retenue (244 témoins < 300) ; achat − vente −2,2 % (t −3,8) |
+| Surprises de résultats, rachats d'actions, positions courtes, autres communiqués | — | — | — | non retenues (rachats : signe inversé selon le témoin) |
+
+- **Contraste dans une même source** (indemne de la population) : achats − ventes de dirigeants **+1,9 % à 20 séances (t 7,3)**, +0,5 % à 5 (t 3,3) ; surprises positives − négatives +0,2 % à 5 séances (t 3,6), +0,1 % à 20 (t 1,3).
+- **Lecture** : le seul résultat qui tient contre les deux témoins et dans le contraste est la **vente de dirigeant**, suivie d'environ 1,7 point de sous-performance sur 20 séances par rapport aux périodes suivantes de la même valeur — avant frais, sur une fenêtre de 20 séances : une information de prudence (fiche, portefeuille), pas un déclencheur. Les dirigeants vendent après une hausse (+4,3 % par rapport à la place dans la fenêtre « avant »).
+- **Biais corrigés en route** (16/11/2026) : clôtures brutes (dividende lu comme une perte, 0,1 point) ; médiane de l'univers actuel (survivants : tous les écarts tirés vers le bas) ; la médiane de toute la place tire au contraire les écarts vers le haut — d'où le témoin.
+
 ## 40.4 Job et commandes
 
 - **Job `sources_daily`** : 22:40 Paris **tous les jours** (lettres, podcasts et forums arrivent aussi le week-end ; une source muette doit se voir le lundi) : journal des 3 derniers jours → mesure → santé → alerte P3 éventuelle.
