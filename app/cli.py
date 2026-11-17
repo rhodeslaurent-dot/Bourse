@@ -2788,7 +2788,7 @@ def cmd_events_scoreboard(args: argparse.Namespace) -> int:
 
     since = date.fromisoformat(args.since) if args.since else None
     with db_session() as s:
-        rows = scoreboard(s, args.horizon, args.min_n, since)
+        rows = scoreboard(s, args.horizon, args.min_n, since, args.control_offset)
     for line in report_lines(rows, args.horizon):
         print(line)
     if args.context:
@@ -3074,6 +3074,8 @@ def main(argv: list[str] | None = None) -> int:
     es.add_argument("--min-n", dest="min_n", type=int, default=5, help="événements mesurés au moins (défaut : 5)")
     es.add_argument("--since", default=None, help="AAAA-MM-JJ : événements depuis cette date")
     es.add_argument("--context", type=int, default=0, help="détail par contexte des N premières lignes")
+    es.add_argument("--control-offset", dest="control_offset", type=int, default=None,
+                    help="un seul témoin : -60 (avant) ou 60 (après) ; défaut : les deux")  # fmt: skip
     es.set_defaults(fn=cmd_events_scoreboard)
     sk = sub.add_parser("sources-check", help="lit chaque flux configuré et affiche son état (docs/23)")
     sk.add_argument("--name", default=None)

@@ -122,3 +122,15 @@ def test_the_cli_measures_one_pass_at_a_time(db_engine, monkeypatch, capsys):
         assert {c.offset for c in s.scalars(select(EventControl))} == {-60}  # only that pass
         assert s.scalars(select(EventOutcome)).first() is None  # the events' pass was not run
     assert "témoin -60 séances" in capsys.readouterr().out
+
+
+def test_the_scoreboard_reads_one_control_window_at_a_time(db_engine):
+    """17/11/2026 — a run-up before the event sits in the −60 window: each window is read on its own too."""
+    with db_session() as s:
+        _market(s)
+        _letter(s, X, _paris(EVENT, 10), "e1")
+        _measure_all(s)
+        both = {r.kind: r for r in event_measure.scoreboard(s, 5, 1)}["lettre_achat"]
+        before = {r.kind: r for r in event_measure.scoreboard(s, 5, 1, control_offset=-60)}["lettre_achat"]
+        after = {r.kind: r for r in event_measure.scoreboard(s, 5, 1, control_offset=60)}["lettre_achat"]
+    assert both.control.n == 2 and before.control.n == 1 and after.control.n == 1

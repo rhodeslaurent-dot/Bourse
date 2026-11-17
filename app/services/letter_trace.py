@@ -8,7 +8,7 @@ the letters review and the proposal each one has. Reads only; the letter's text 
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import select
@@ -55,8 +55,10 @@ def llm_answer(s: Session, item: NewsletterItem, model: str, prompts_dir: Path) 
 
 
 def trace(s: Session, day: date, reader: tuple[str, Path] | None = None) -> list[str]:
-    start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS)
-    end = start + timedelta(days=1)
+    # bounds in UTC (17/11/2026): SQLite drops the offset of an aware bound — between 00:00 and 02:00 Paris a letter
+    # of the night fell outside its own day there (Postgres was right either way)
+    start = datetime.combine(day, datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
+    end = datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=PARIS).astimezone(UTC)
     items = list(
         s.scalars(
             select(NewsletterItem)

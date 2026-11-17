@@ -328,7 +328,8 @@ class ScoreRow:
     vs_control: Contrast = Contrast(0, 0, None, None)
 
 
-def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None = None) -> list[ScoreRow]:
+def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None = None,
+               control_offset: int | None = None) -> list[ScoreRow]:  # fmt: skip
     """Final measures grouped by (source, kind, direction): signed excess over the venue, by context."""
     from app.db.models import EventOutcome, MarketEvent
 
@@ -342,7 +343,7 @@ def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None 
     groups: dict[tuple[str, str, str, int | None], list[tuple[Any, Any]]] = defaultdict(list)
     for ev, o in s.execute(q):
         groups[(ev.source_key, ev.family, ev.kind, ev.direction)].append((ev, o))
-    controls = _control_values(s, horizon, since)
+    controls = _control_values(s, horizon, since, control_offset)
     out = []
     for (src, fam, kind, d), items in groups.items():
         if len(items) < min_n:
@@ -366,7 +367,7 @@ def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None 
 
 
 def _control_values(
-    s: Session, horizon: int, since: date | None
+    s: Session, horizon: int, since: date | None, offset: int | None = None
 ) -> dict[tuple[str, str, str, int | None], list[float]]:
     """Excess over the venue of every final control window, by (source, family, kind, direction) of its event."""
     from app.db.models import EventControl, MarketEvent
@@ -379,6 +380,8 @@ def _control_values(
     )  # fmt: skip
     if since is not None:
         q = q.where(MarketEvent.event_at >= datetime.combine(since, time.min, tzinfo=PARIS).astimezone(UTC))
+    if offset is not None:  # one control window only (17/11/2026: a run-up before the event sits in the −60 one)
+        q = q.where(EventControl.offset == offset)
     out: dict[tuple[str, str, str, int | None], list[float]] = defaultdict(list)
     for src, fam, kind, d, x in s.execute(q):
         out[(src, fam, kind, d)].append(float(x))
