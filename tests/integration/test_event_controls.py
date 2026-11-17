@@ -134,3 +134,28 @@ def test_the_scoreboard_reads_one_control_window_at_a_time(db_engine):
         before = {r.kind: r for r in event_measure.scoreboard(s, 5, 1, control_offset=-60)}["lettre_achat"]
         after = {r.kind: r for r in event_measure.scoreboard(s, 5, 1, control_offset=60)}["lettre_achat"]
     assert both.control.n == 2 and before.control.n == 1 and after.control.n == 1
+
+
+def test_events_build_completes_the_context_with_the_index_trend(db_engine, monkeypatch, capsys):
+    """17/11/2026 — the index of the venue (here: the European reference) and the VIX, as known before the day."""
+    from app import cli
+    from app.db.models import MacroPoint
+    from app.services.indices import index_specs
+
+    eu = index_specs(None)[0].id
+    with db_session() as s:
+        _market(s)
+        for k, d in enumerate(DAYS):
+            c = 100 + k  # a rising index: above its mean once 50 closes exist
+            s.add(PriceEod(isin=eu, day=d, open=c, high=c, low=c, close=c, adj_close=c, volume=0, source="eodhd",
+                           received_at=NOW))  # fmt: skip
+            s.add(MacroPoint(indicator="vix", day=d, value=15.0 + k % 3, source="test", symbol="^VIX",
+                             received_at=NOW, data_status="eod"))  # fmt: skip
+        _letter(s, X, _paris(EVENT, 10), "e1")
+    monkeypatch.setattr(cli, "load_params", lambda path: type("C", (), {"raw": {}, "params": None})())
+    assert cli.main(["events-build", "--from", "2026-01-01", "--complete-context"]) == 0
+    with db_session() as s:
+        ev = s.scalar(select(MarketEvent))
+        assert ev.context["indice_mm50"] == "au-dessus" and ev.context["indice_de"] == "EU"
+        assert ev.context["vix"] == 15.0 + (100 - 1) % 3  # the session before the event's day
+    assert "complété" in capsys.readouterr().out

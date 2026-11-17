@@ -124,3 +124,16 @@ def difference(event: GroupStats, control: GroupStats) -> Contrast:
         return Contrast(event.n, control.n, diff, None)
     se = sqrt(event.sd**2 / event.n + control.sd**2 / control.n)
     return Contrast(event.n, control.n, diff, diff / se if se > 0 else None)
+
+
+def trend_flags(closes: Sequence[float], window: int = 50) -> list[bool | None]:
+    """For each close, whether it is above the mean of the last ``window`` closes (itself included) — None while
+    fewer closes exist. The index's trend as context of an event (17/11/2026); read the day before the event."""
+    out: list[bool | None] = []
+    total = 0.0
+    for k, c in enumerate(closes):
+        total += c
+        if k >= window:
+            total -= closes[k - window]
+        out.append(c > total / window if k >= window - 1 else None)
+    return out

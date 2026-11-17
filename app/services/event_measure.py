@@ -324,6 +324,7 @@ class ScoreRow:
     by_vix: dict[str, GroupStats]
     by_macro: dict[str, GroupStats]
     sector: GroupStats
+    by_trend: dict[str, GroupStats] = field(default_factory=dict)  # index above / below its MM50 (17/11/2026)
     control: GroupStats = GroupStats(0, None, None, None, None)  # the same values away from the source's events
     vs_control: Contrast = Contrast(0, 0, None, None)
 
@@ -361,6 +362,7 @@ def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None 
             split(lambda c: "annonce macro proche" if c.get("annonce_macro") else "sans annonce macro"),
             group_stats([signed(o.excess_sector, d) for _, o in items if o.excess_sector is not None]),
         ))  # fmt: skip
+        out[-1].by_trend = split(lambda c: str(c.get("indice_mm50") or "inconnu"))
         ctl = group_stats([signed(x, d) for x in controls.get((src, fam, kind, d), [])])
         out[-1].control, out[-1].vs_control = ctl, difference(out[-1].stats, ctl)
     return sorted(out, key=lambda r: (-r.stats.n, r.source_key, r.kind))

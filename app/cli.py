@@ -2753,6 +2753,19 @@ def cmd_events_build(args: argparse.Namespace) -> int:
     with db_session() as s:
         rep = collect(s, cfg, since)
     print(rep.line())
+    if args.complete_context:  # 17/11/2026: missing VIX and the index's trend, as known before each event's day
+        from app.services.event_context import complete_batch, load_series
+
+        with db_session() as s:
+            series = load_series(s, cfg)
+        last, total, done = 0, 0, 0
+        while True:
+            with db_session() as s:
+                r = complete_batch(s, series, start, after_id=last)
+            total, done, last = total + r.events, done + r.completed, r.last_id
+            if r.events == 0:
+                break
+        print(f"contexte : {total} événement(s) relu(s), {done} complété(s) (VIX, tendance de l'indice)")
     return 0
 
 
@@ -2794,7 +2807,8 @@ def cmd_events_scoreboard(args: argparse.Namespace) -> int:
     if args.context:
         for r in rows[: args.context]:
             print(f"\n{r.source_key} · {r.kind}")
-            for title, part in (("régime", r.by_regime), ("VIX", r.by_vix), ("macro", r.by_macro)):
+            for title, part in (("régime", r.by_regime), ("indice / MM50", r.by_trend), ("VIX", r.by_vix),
+                                ("macro", r.by_macro)):  # fmt: skip
                 bits = ", ".join(f"{k} n {g.n} {pct(g.mean)}" for k, g in part.items())
                 print(f"  {title:<7} {bits}")
             print(f"  secteur n {r.sector.n} {pct(r.sector.mean)} (écart à la médiane du secteur sur la place)")
@@ -3059,6 +3073,8 @@ def main(argv: list[str] | None = None) -> int:
     sh.set_defaults(fn=cmd_sources_health)
     eb = sub.add_parser("events-build", help="journal des événements de toutes les sources depuis une date")
     eb.add_argument("--from", dest="from_date", default="2016-01-01", help="AAAA-MM-JJ (défaut : 2016-01-01)")
+    eb.add_argument("--complete-context", dest="complete_context", action="store_true",
+                    help="compléter le contexte des événements (VIX, tendance de l'indice de la place)")  # fmt: skip
     eb.set_defaults(fn=cmd_events_build)
     em = sub.add_parser("events-measure", help="mesure à 1, 5 et 20 séances de ce qui a suivi chaque événement")
     em.add_argument("--date", default=None, help="AAAA-MM-JJ : jour de la mesure (défaut : aujourd'hui)")

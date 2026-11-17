@@ -290,7 +290,8 @@ class _Context:
         reg = latest_regime(self.s, day, mic) if mic else None
         src = mic if reg is not None else "EU"
         reg = reg or latest_regime(self.s, day, "EU", 10)
-        vix = self.s.scalar(select(MacroPoint).where(MacroPoint.indicator == "vix", MacroPoint.day <= day)
+        # the VIX of the session before (17/11/2026): the day's own close (22:15 Paris) was not known at 10:00
+        vix = self.s.scalar(select(MacroPoint).where(MacroPoint.indicator == "vix", MacroPoint.day < day)
                             .order_by(MacroPoint.day.desc()))  # fmt: skip
         lo = datetime.combine(day - timedelta(days=1), time.min, tzinfo=PARIS).astimezone(UTC)
         hi = datetime.combine(day + timedelta(days=2), time.min, tzinfo=PARIS).astimezone(UTC)
@@ -313,6 +314,7 @@ def collect(s: Session, config: Any, since: datetime, now: datetime | None = Non
     now = now or datetime.now(UTC)
     rep = JournalReport()
     ctx = _Context(s)
+    series: Any = None
     gens: list[tuple[str, Iterator[EventDraft]]] = [
         ("lettres", _letters(s, since)), ("medias", _media(s, since)), ("actualites", _news(s, since)),
         ("dirigeants", _insiders(s, since)), ("communiques", _filings(s, since)),
@@ -345,11 +347,18 @@ def collect(s: Session, config: Any, since: datetime, now: datetime | None = Non
                     continue
                 have.add(key)
                 mic = ctx.mic(d.isin)
+                day = d.event_at.astimezone(PARIS).date()
+                if series is None:  # 17/11/2026: the index's trend (and a missing VIX), read before the day
+                    from app.services.event_context import load_series
+
+                    series = load_series(s, config)
+                from app.services.event_context import completed
+
+                c = ctx.of(mic, day)
                 s.add(MarketEvent(source_key=d.source_key[:48], family=d.family, kind=d.kind[:48], isin=d.isin, mic=mic,
                                   event_at=d.event_at, direction=d.direction, strength=d.strength,
                                   title=d.title or None, ref_table=d.ref_table, ref_id=d.ref_id,
-                                  context=ctx.of(mic, d.event_at.astimezone(PARIS).date()),
-                                  created_at=now))  # fmt: skip
+                                  context=completed(c, mic, day, series) or c, created_at=now))  # fmt: skip
                 n += 1
             s.flush()
             rep.added[name] = rep.added.get(name, 0) + n
