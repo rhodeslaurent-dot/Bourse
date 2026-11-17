@@ -293,3 +293,32 @@ class PositionContradictorOut(BaseModel):
     part_finale: Literal[0.25, 0.5] | None = None
     confiance: Literal["faible", "moyenne", "forte"]
     raison: Text(300) = ""
+
+
+# Step 2, option A (17/11/2026, docs/42, ADR-020) — the AI's own levels on an idea, attacked, then arbitrated against
+# Python's; every number is checked by Python against the stored prices and the quantity is always Python's
+class IdeaLevels(BaseModel):
+    entree: float | None = None  # a limit price, in the listing's currency
+    stop: float | None = None
+    objectifs: list[float] = Field(default_factory=list, max_length=3)
+
+
+class IdeaAnalystOut(BaseModel):
+    avis: Literal["acheter", "attendre", "ne_pas_acheter"]
+    niveaux: IdeaLevels = Field(default_factory=IdeaLevels)
+    motifs: Items(PositionArgument, 4) = Field(default_factory=list)
+    confiance: Literal["faible", "moyenne", "forte"]
+
+
+class IdeaContradictorOut(BaseModel):
+    objections: Items(PositionArgument, 4) = Field(default_factory=list)
+    avis_revu: Literal["acheter", "attendre", "ne_pas_acheter"]
+    niveaux_revus: IdeaLevels = Field(default_factory=IdeaLevels)
+    confiance: Literal["faible", "moyenne", "forte"]
+    raison: Text(300) = ""
+
+
+class IdeaArbiterOut(BaseModel):
+    choix: Literal["python", "analyste", "contradicteur", "aucun"]
+    raison: Text(300) = ""
+    confiance: Literal["faible", "moyenne", "forte"]

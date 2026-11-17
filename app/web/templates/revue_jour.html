@@ -59,6 +59,7 @@
     <p class="mt-1 text-sm"><b>Pourquoi :</b> {{ i.raison }}</p>
     <p class="mt-0.5 text-sm"><b>Que faire :</b> {{ i.que_faire }}</p>
     {% if i.prudence %}<p class="mt-1 text-sm text-amber-800 dark:text-amber-300"><b>Prudence :</b> {{ i.prudence }}</p>{% endif %}
+    {% if i.avis_ia %}<p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ i.avis_ia }}</p>{% endif %}
     <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Source : {{ i.source }}{% if i.niveaux_source %} — {{ i.niveaux_source|join(' · ') }}{% endif %}{% if i.pea is not none %} · {{ 'éligible PEA' if i.pea else 'hors PEA' }}{% endif %} · cours {{ num(i.cours) }}{% if i.cours_statut %} ({{ i.cours_statut }}){% endif %}</p>
     {% if i.citation %}<blockquote class="mt-1 border-l-2 border-slate-300 dark:border-slate-600 pl-2 text-xs italic text-slate-600 dark:text-slate-300">« {{ i.citation }} »</blockquote>{% endif %}
     {% if i.objectifs %}

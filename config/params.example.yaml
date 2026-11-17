@@ -224,6 +224,21 @@ event_journal:                           # étape 1 du plan (lots S1 à S3, 15/1
   consensus_min_change: 0.02            # variation de l'objectif moyen des analystes en dessous de laquelle ce n'est pas un événement
   short_volume_z: 3.0                   # lot S5 : part vendue à découvert (FINRA) à ≥ 3 écarts de sa base de 20 jours
 
+idea_ai:                                # étape 2, option A (décision du 17/11/2026, docs/42, ADR-020) — sur les meilleures idées du jour : niveaux de Python, d'un analyste IA et d'un contradicteur IA, arbitre IA sur les premières ; contrôle de vraisemblance et taille par Python ; en OBSERVATION, mesuré (Python reste l'auteur par défaut)
+  effective_from: "2026-11-17"
+  enabled: true
+  top_n: 10                             # idées analysées par jour (une par valeur, achat ou surveillance)
+  arbiter_top: 3                        # les premières seulement passent devant l'arbitre
+  daily_budget_usd: 0.9                 # plafond propre (dans llm.daily_budget_usd)
+  analyst_model: null                   # défaut : llm.write_model
+  contradictor_model: null
+  arbiter_model: claude-fable-5-2       # ADR-020 : l'arbitre sur le modèle le plus capable, 3 idées par jour
+  max_tokens: 1000
+  est_input_tokens: 6000
+  est_output_tokens: 800
+  level_band: 0.15                      # entrée à plus de 15 % du dernier cours : niveaux écartés
+  max_stop_pct: 0.25                    # stop à plus de 25 % sous l'entrée : niveaux écartés
+
 position_ai:                            # étape 2, option B (décision du 17/11/2026, docs/42) — revue du soir de chaque position par un analyste et un contradicteur IA, en OBSERVATION : avis stocké et mesuré, jamais appliqué ; Python contrôle les niveaux et calcule la quantité
   effective_from: "2026-11-17"
   enabled: true
@@ -883,6 +898,7 @@ llm:
     claude-haiku-5-5: {input: 0.10, output: 0.50}    # invites ≤ 100 000 jetons
     claude-sonnet-5-5: {input: 2.0, output: 10.0}
     claude-opus-5-5: {input: 4.0, output: 20.0}
+    claude-fable-5-2: {input: 8.0, output: 40.0}     # ADR-020 (tarif public relevé le 15/11/2026)
   model_options:                       # ADR-011 : la génération 5 refuse la température ; réflexion coupée ou réduite (jetons facturés en sortie)
     claude-haiku-5-5: {sampling: false, thinking: {type: "disabled"}, effort: "low"}
     claude-sonnet-5-5: {sampling: false, thinking: {type: "between_tools"}, effort: "medium"}
@@ -937,6 +953,7 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   forum_history: {cron: "*/30 0-5 * * *", misfire_grace_min: 20, market_days_only: false}   # docs/26 : historique du forum lu lentement la nuit, jusqu'à forum_from (décision du 26/10/2026)
   committee_review: {cron: "10 8 * * 1-5", misfire_grace_min: 90, market_days_only: true}   # docs/24 v2 : comité d'investissement en observation (verdicts mesurés, jamais appliqués)
   position_ai_review: {cron: "35 19 * * 1-5", misfire_grace_min: 120, market_days_only: true}   # étape 2, option B (docs/42) : revue IA du soir de chaque position, en observation
+  idea_ai_review: {cron: "25 8 * * 1-5", misfire_grace_min: 30, market_days_only: true}   # étape 2, option A (docs/42, ADR-020) : analyste, contradicteur et arbitre IA sur les idées du jour, en observation
   weak_signals: {cron: "40 6 * * 1-5", misfire_grace_min: 60, market_days_only: true}   # docs/26 : radar des signaux faibles publics (Wikipédia, volume, presse)
   fundamentals_refresh: {cron: "10 5 * * *", misfire_grace_min: 600, market_days_only: false}   # lot S4 (15/11/2026) : fondamentaux gratuits (Yahoo) chaque nuit par rotation (les moins récents d'abord) ; était hebdomadaire
   saxo_token_keepalive: {every_minutes: 20, window_local: ["00:00", "23:59"], days: "1-7", market_days_only: false}   # ADR-007 : le refresh token Saxo tourne et expire en < 1 h

@@ -68,6 +68,7 @@ from app.domain.risk import (
     gap_risk_multiplier,
     scale_size,
     size_position,
+    sizing_input_to_dict,
     stop_exec_for,
 )
 from app.domain.scoring import ScoreInput, missing_data, score
@@ -594,26 +595,26 @@ def evaluate(
                 adm_eur = admit_at(tgt, round_trip_fee_fraction(est_notional, replace(cp, fx_fee_pct=0.0)))
                 row["sans_change"] = {"p_max": adm_eur.p_max, "statut": adm_eur.status.value}
             if adm.p_max is not None and tgt is not None:
-                sz = size_position(
-                    SizingInput(
-                        capital_eur=capital,
-                        max_risk_pct=ref_pct,
-                        entry_level=adm.p_max,
-                        stop_initial=setup.stop,
-                        # both bound the price
-                        order_kind=EntryOrderKind.STOP_LIMIT if plage else EntryOrderKind.LIMIT,
-                        slippage_pct=float(risk.slippage_pct),
-                        fees=fees,
-                        max_position_pct_of_capital=float(risk.max_position_pct_of_capital),
-                        max_position_pct_of_adv=float(risk.max_position_pct_of_adv),
-                        ttf_rate=cp.ttf_rate,
-                        fx_rate=fx,
-                        fx_haircut=float(risk.fx_haircut) if inst.currency != "EUR" else 0.0,
-                        adv20_eur=inst.adv_eur_20,
-                        size_multiplier=min(common * (srd_factor if acc == "cto_srd" else 1.0), cap_pct / ref_pct),
-                    )
+                sz_in = SizingInput(
+                    capital_eur=capital,
+                    max_risk_pct=ref_pct,
+                    entry_level=adm.p_max,
+                    stop_initial=setup.stop,
+                    # both bound the price
+                    order_kind=EntryOrderKind.STOP_LIMIT if plage else EntryOrderKind.LIMIT,
+                    slippage_pct=float(risk.slippage_pct),
+                    fees=fees,
+                    max_position_pct_of_capital=float(risk.max_position_pct_of_capital),
+                    max_position_pct_of_adv=float(risk.max_position_pct_of_adv),
+                    ttf_rate=cp.ttf_rate,
+                    fx_rate=fx,
+                    fx_haircut=float(risk.fx_haircut) if inst.currency != "EUR" else 0.0,
+                    adv20_eur=inst.adv_eur_20,
+                    size_multiplier=min(common * (srd_factor if acc == "cto_srd" else 1.0), cap_pct / ref_pct),
                 )
+                sz = size_position(sz_in)
                 if sz.shares > 0:
+                    row["entree_taille"] = sizing_input_to_dict(sz_in)  # 17/11/2026: other authors' levels, rule 7
                     sized[acc] = (sz, cp, adm.p_max)
                     no = net_outcome(sz.shares, adm.p_max, tgt, sz.stop_exec, cp, fx)
                     row.update(

@@ -494,6 +494,7 @@ NEW_TOP_BLOCKS = [
     "event_journal",  # étape 1 du plan, lots S1 à S3 (15/11/2026) — journal des événements et mesure
     "insider_caution",  # étape 2, lot D1 (17/11/2026) — prudence après une vente de dirigeant
     "position_ai",  # étape 2, option B (17/11/2026) — revue IA du soir des positions, en observation
+    "idea_ai",  # étape 2, option A (17/11/2026) — analyse multi-agent des idées du jour, en observation
 ]
 # top-level groups present since the first params.yaml (never appended by params-init --update): every other group
 # of the example must be in NEW_TOP_BLOCKS (tests/unit/test_cli_setup.py), so that a new group is never forgotten
@@ -2238,7 +2239,27 @@ def cmd_llm_costs(args: argparse.Namespace) -> int:
                   f"{r.calls_month:>7} {cache:>6} {per:>8}")  # fmt: skip
         proj = f" · projection du mois {b.projected_month:.2f} $" if b.projected_month is not None else ""
         print(f"\ntotal : jour {b.today:.2f} $ · 7 jours {b.last_7d:.2f} $ · mois {b.month:.2f} ${proj}")
+        _print_author_measure(s)
     return 0
+
+
+def _print_author_measure(s: object) -> None:
+    """Step 2, option A — what each author's levels would have given (ADR-020: the measure designates the default)."""
+    from datetime import date as _date
+
+    from app.services.idea_ai import measure_authors
+
+    ms = measure_authors(s, _date.today())  # type: ignore[arg-type]
+    if not any(m.n for m in ms):
+        print("\nniveaux des idées (étape 2, option A) : aucune fenêtre terminée — mesure à venir")
+        return
+    print("\nniveaux des idées (étape 2, option A, observation) — R brut, entrée limite 3 séances, sortie 20 séances")
+    print(f"{'auteur':<14} {'jeux':>5} {'entrés':>7} {'R moyen':>8} {'gagnants':>9}")
+    for m in ms:
+        r = f"{m.mean_r:+.2f}" if m.mean_r is not None else "—"
+        h = f"{m.hit_rate:.0%}" if m.hit_rate is not None else "—"
+        print(f"{m.author:<14} {m.n:>5} {m.filled:>7} {r:>8} {h:>9}")
+    print("Python reste l'auteur par défaut tant que la mesure ne dit pas autre chose (ADR-020).")
 
 
 def cmd_radar_check(args: argparse.Namespace) -> int:

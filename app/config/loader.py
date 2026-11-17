@@ -59,6 +59,7 @@ OPTIONAL_FEATURES: dict[str, tuple[str, Any]] = {
     "pockets": ("Poches : cœur, partie active, crypto", None),
     "insider_caution": ("Prudence après une vente de dirigeant (étape 2, lot D1, docs/42)", None),
     "position_ai": ("Revue IA du soir des positions, en observation (étape 2, option B, docs/42)", None),
+    "idea_ai": ("Analyse multi-agent des idées du jour, en observation (étape 2, option A, ADR-020)", None),
 }
 
 

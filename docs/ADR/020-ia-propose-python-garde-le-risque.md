@@ -41,3 +41,8 @@
 - L'outil compare enfin, sur les mêmes idées, le jugement de l'IA et les règles Python ; l'utilisateur voit les deux et le choix de l'arbitre.
 - Le risque principal (une IA qui « invente » un niveau) est contenu par le contrôle de vraisemblance et par le recalcul Python de la quantité ; le risque d'un mauvais jugement est mesuré, pas présumé.
 - Coût : suivi par `llm_calls` et la page des coûts ; aucun dépassement du plafond.
+
+## Mise en œuvre (17/11/2026, docs/42)
+
+- **Positions** (option B) : `position_ai`, revue du soir à deux voix, avis final contrôlé par Python, quantité par Python.
+- **Idées du jour** (option A) : `idea_ai`, analyste, contradicteur et arbitre ; contrôle de vraisemblance, taille par Python sur les entrées stockées avec la proposition (`resize`), mesure par auteur (`measure_authors`). Les deux en **observation** : Python reste l'auteur par défaut tant que la mesure ne dit pas autre chose.

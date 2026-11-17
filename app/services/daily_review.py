@@ -447,10 +447,13 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
 
     now = now or datetime.now(UTC)
     ideas = _ideas(s, day)
+    from app.services.idea_ai import latest_for as idea_ai_for
+    from app.services.idea_ai import summary as idea_ai_summary
     from app.services.insider_caution import caution_for
 
     for i in ideas:  # step 2, lot D1: a manager's sale published recently — caution on the card, never a block
         i["prudence"] = caution_for(s, config, i["isin"], day)
+        i["avis_ia"] = idea_ai_summary(idea_ai_for(s, i["proposal_id"]))  # option A, observation
     ideas, info = split_unvalidated(ideas, config)
     market = _market(s, config, day)
     try:

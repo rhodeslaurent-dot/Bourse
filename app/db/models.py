@@ -1421,6 +1421,32 @@ class AiPositionReview(Base):
     __table_args__ = (UniqueConstraint("position_id", "day", name="uq_ai_position_reviews_position_day"),)
 
 
+class AiIdeaReview(Base):
+    """Step 2, option A (17/11/2026, docs/42, ADR-020) — three authors of levels on one of the day's ideas: Python, an
+    AI analyst and an AI contradictor, then an AI arbiter (the best-ranked ideas only). Each author's levels are
+    checked by Python and sized by Python (rule 7, the proposal's own sizing inputs); stored and measured, never
+    applied: Python stays the default author until the measure says otherwise."""
+
+    __tablename__ = "ai_idea_reviews"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    proposal_id: Mapped[int] = mapped_column(Integer, unique=True)
+    isin: Mapped[str] = mapped_column(String(12), index=True)
+    rank: Mapped[int] = mapped_column(Integer)
+    dossier_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(12))  # ok | budget | indisponible
+    python: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # levels, shares, check
+    analyst: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    contradictor: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    arbiter: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    chosen: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    dossier: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    rejected: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    models: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class EventControl(Base):
     """Step 1 control group (16/11/2026) — the same value over the same number of sessions, ``offset`` sessions before
     (negative) or after (positive) the event's reference close, excluding windows with another event of the same

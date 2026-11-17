@@ -12,6 +12,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
+from typing import Any
 
 # --- fees --------------------------------------------------------------------------------------
 
@@ -622,3 +623,60 @@ def twr_drawdown(equity: list[float], flows: list[float] | None = None) -> tuple
         peak = max(peak, v)
         max_dd = min(max_dd, v / peak - 1)
     return idx, idx[-1] / max(idx) - 1, max_dd
+
+
+def sizing_input_to_dict(inp: SizingInput) -> dict[str, object]:
+    """The sizing inputs as stored with a proposal (17/11/2026): another author's levels are then sized by the same
+    rule 7, with the same capital, risk, fees, caps and multipliers — only the entry and the stop change."""
+    return {
+        "capital_eur": inp.capital_eur,
+        "max_risk_pct": inp.max_risk_pct,
+        "entry_level": inp.entry_level,
+        "stop_initial": inp.stop_initial,
+        "order_kind": inp.order_kind.value,
+        "slippage_pct": inp.slippage_pct,
+        "fees": {
+            "broker": inp.fees.broker,
+            "commission_pct": inp.fees.commission_pct,
+            "commission_min_eur": inp.fees.commission_min_eur,
+            "commission_cap_pct": inp.fees.commission_cap_pct,
+            "bands": [list(b) for b in inp.fees.bands],
+        },
+        "max_position_pct_of_capital": inp.max_position_pct_of_capital,
+        "max_position_pct_of_adv": inp.max_position_pct_of_adv,
+        "ttf_rate": inp.ttf_rate,
+        "fx_rate": inp.fx_rate,
+        "fx_haircut": inp.fx_haircut,
+        "adv20_eur": inp.adv20_eur,
+        "size_multiplier": inp.size_multiplier,
+    }
+
+
+def resize(stored: dict[str, Any], entry_level: float, stop_initial: float) -> SizingResult:
+    """Rule 7 on other levels: the stored inputs with ``entry_level`` (a limit) and ``stop_initial`` replaced."""
+    f = dict(stored["fees"])
+    fees = FeeSchedule(
+        str(f["broker"]),
+        f.get("commission_pct"),
+        float(f.get("commission_min_eur") or 0.0),
+        f.get("commission_cap_pct"),
+        tuple(tuple(b) for b in f.get("bands") or ()),
+    )
+    return size_position(
+        SizingInput(
+            capital_eur=float(stored["capital_eur"]),
+            max_risk_pct=float(stored["max_risk_pct"]),
+            entry_level=entry_level,
+            stop_initial=stop_initial,
+            order_kind=EntryOrderKind.LIMIT,
+            slippage_pct=float(stored["slippage_pct"]),
+            fees=fees,
+            max_position_pct_of_capital=float(stored["max_position_pct_of_capital"]),
+            max_position_pct_of_adv=float(stored["max_position_pct_of_adv"]),
+            ttf_rate=float(stored.get("ttf_rate") or 0.0),
+            fx_rate=float(stored.get("fx_rate") or 1.0),
+            fx_haircut=float(stored.get("fx_haircut") or 0.0),
+            adv20_eur=stored.get("adv20_eur"),
+            size_multiplier=float(stored.get("size_multiplier") or 1.0),
+        )
+    )
