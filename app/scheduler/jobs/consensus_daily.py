@@ -60,4 +60,19 @@ def diagnosis(config, rows: list[SymbolRow], stored: int) -> str:  # type: ignor
     out = f" ; {matched} valeur(s) trouvée(s) dans le screener"
     if matched and not stored:
         out += " ; aucune valeur numérique dans les colonnes " + ", ".join(sorted(set(cols.values())))
+    out += coverage(rows)
     return out
+
+
+def coverage(rows: list[SymbolRow], top: int = 8) -> str:
+    """Per EODHD exchange, values found in the screener / values asked — the least covered first (17/11/2026: 1 754
+    found out of 4 799; the screener returns at most ``limit_per_request`` rows per market, by volume)."""
+    by: dict[str, list[int]] = {}
+    for r in rows:
+        c = by.setdefault(r.exchange, [0, 0])
+        c[0] += 1 if r.tv_ticker else 0
+        c[1] += 1
+    low = sorted((v[0] / v[1], ex, v) for ex, v in by.items() if v[1] and v[0] < v[1])
+    if not low:
+        return ""
+    return " ; couverture par place : " + ", ".join(f"{ex} {v[0]}/{v[1]}" for _, ex, v in low[:top])

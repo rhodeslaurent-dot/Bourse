@@ -129,3 +129,16 @@ def test_the_new_jobs_are_scheduled_and_the_old_defaults_are_moved_on_update(con
     assert cli.update_default_schedules(out) == (out, [])  # idempotent
     mine = old.replace('"0 9 * * 0"', '"0 7 * * 6"')  # a schedule the user chose is kept
     assert "fundamentals_refresh" not in cli.update_default_schedules(mine)[1]
+
+
+def test_the_consensus_note_gives_the_coverage_per_exchange():
+    from app.scheduler.jobs.consensus_daily import coverage
+    from app.services.universe import SymbolRow
+
+    rows = [SymbolRow(isin=f"X{k}", name="n", code=f"C{k}", exchange=ex, currency="EUR") for k, ex in
+            enumerate(["PA", "PA", "US", "US", "US", "XETRA"])]  # fmt: skip
+    rows[0].tv_ticker = rows[1].tv_ticker = rows[2].tv_ticker = "T"
+    assert coverage(rows) == " ; couverture par place : XETRA 0/1, US 1/3"  # least covered first; PA is complete
+    for r in rows:
+        r.tv_ticker = "T"
+    assert coverage(rows) == ""

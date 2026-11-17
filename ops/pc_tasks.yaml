@@ -441,3 +441,12 @@ tasks:
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli run-job position_ai_review"
       - "docker compose exec -T app python -m app.cli llm-costs"
+  # Avant le consensus de 22:20 : sa note donnera la couverture par place (1 754 valeurs trouvées sur 4 799), lue demain
+  # matin dans sources-health. Après la clôture et la revue des positions : reconstruction seule.
+  - id: "2026-11-17-15"
+    purpose: "Couverture du consensus par place dans la note du job (avant 22:20) : reconstruction"
+    stop_on_error: true
+    timeout_s: 1200
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
