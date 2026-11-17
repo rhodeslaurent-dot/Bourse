@@ -234,8 +234,10 @@ idea_ai:                                # étape 2, option A (décision du 17/11
   contradictor_model: null
   arbiter_model: claude-fable-5-2       # ADR-020 : l'arbitre sur le modèle le plus capable, 3 idées par jour
   max_tokens: 1000
+  arbiter_max_tokens: 4000              # la réflexion de l'arbitre compte dans sa sortie
   est_input_tokens: 6000
   est_output_tokens: 800
+  est_arbiter_output_tokens: 2000       # réservation avant l'appel : ≈ 0,13 $ par arbitrage
   level_band: 0.15                      # entrée à plus de 15 % du dernier cours : niveaux écartés
   max_stop_pct: 0.25                    # stop à plus de 25 % sous l'entrée : niveaux écartés
 
@@ -903,6 +905,7 @@ llm:
     claude-haiku-5-5: {sampling: false, thinking: {type: "disabled"}, effort: "low"}
     claude-sonnet-5-5: {sampling: false, thinking: {type: "between_tools"}, effort: "medium"}
     claude-opus-5-5: {sampling: false, effort: "low"}  # réflexion non désactivable : effort bas
+    claude-fable-5-2: {sampling: false, effort: "low"}  # arbitre (ADR-020) : réflexion toujours active, aucun réglage de réflexion accepté ; effort bas
   cache: true
   prompt_versions_dir: "app/llm/prompts"
   assistant_max_tokens: 800            # docs/17 §17.4 ; réponse ≤ 1 200 caractères, write_model, température 0

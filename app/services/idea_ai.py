@@ -39,8 +39,10 @@ class IdeaAiSettings:
     contradictor_model: str | None = None
     arbiter_model: str | None = None
     max_tokens: int = 1000
+    arbiter_max_tokens: int = 4000  # the arbiter's model always thinks: its thinking counts in the output
     est_input_tokens: int = 6000
     est_output_tokens: int = 800
+    est_arbiter_output_tokens: int = 2000
     level_band: float = 0.15  # an entry more than 15 % from the last close is not an entry
     max_stop_pct: float = 0.25  # a stop more than 25 % under the entry is not a stop
 
@@ -107,13 +109,14 @@ def spent_today(s: Session, now: datetime) -> float:
     return float(s.scalar(q) or 0.0)
 
 
-def _estimate(gateway: Any, st: IdeaAiSettings, models: list[str]) -> float | None:
+def _estimate(gateway: Any, st: IdeaAiSettings, calls: list[tuple[str, int]]) -> float | None:
+    """Cost of the calls (model, output tokens) before any is made; None when a price is unknown."""
     total = 0.0
-    for m in models:
+    for m, out_tokens in calls:
         price = gateway.settings.prices.get(m)
         if not price:
             return None
-        total += st.est_input_tokens * price["input"] / 1e6 + st.est_output_tokens * price["output"] / 1e6
+        total += st.est_input_tokens * price["input"] / 1e6 + out_tokens * price["output"] / 1e6
     return total
 
 
@@ -159,13 +162,19 @@ def deliberate(s: Session, config: LoadedConfig, gateway: Any, p: Proposal, rank
     m1 = st.analyst_model or gateway.settings.write_model
     m2 = st.contradictor_model or gateway.settings.write_model
     m3 = st.arbiter_model or gateway.settings.write_model
-    with_arbiter = rank <= st.arbiter_top
-    est = _estimate(gateway, st, [m1, m2, *([m3] if with_arbiter else [])])
-    if est is None or spent_today(s, now) + est > st.daily_budget_usd:
+    spent = spent_today(s, now)
+    est = _estimate(gateway, st, [(m1, st.est_output_tokens), (m2, st.est_output_tokens)])
+    if est is None or spent + est > st.daily_budget_usd:
         row.status = "budget"
         row.analyst = {"motif": f"plafond de l'analyse multi-agent ({st.daily_budget_usd} $ / jour) ou tarif inconnu"}
         s.flush()
         return row
+    with_arbiter = rank <= st.arbiter_top
+    if with_arbiter:  # the arbiter only when its own cost fits too; the two voices are kept either way
+        est3 = _estimate(gateway, st, [(m3, st.est_arbiter_output_tokens)])
+        if est3 is None or spent + est + est3 > st.daily_budget_usd:
+            with_arbiter = False
+            row.arbiter = {"motif": "arbitre non réuni : plafond du jour ou tarif inconnu"}
     rejected: list[dict[str, str]] = []
     user = "<faits>\n" + json.dumps(facts, ensure_ascii=False, indent=1) + "\n</faits>"
     cost, models = 0.0, [m1, m2]
@@ -184,11 +193,20 @@ def deliberate(s: Session, config: LoadedConfig, gateway: Any, p: Proposal, rank
             "objections": _check(c.objections, facts, "objection", rejected),
             **_author(c.niveaux_revus.model_dump(), last, st, p),
         }  # fmt: skip
-        if with_arbiter:
-            props = {"python": row.python, "analyste": row.analyst, "contradicteur": row.contradictor}
-            user3 = user + "\n<propositions>\n" + json.dumps(props, ensure_ascii=False, indent=1) + "\n</propositions>"
+    except LlmUnavailable as exc:
+        row.status, row.cost_usd = "indisponible", cost
+        row.analyst = {**(row.analyst or {}), "motif": f"IA indisponible : {exc}"}
+        s.flush()
+        return row
+    if with_arbiter:
+        props = {"python": row.python, "analyste": row.analyst, "contradicteur": row.contradictor}
+        user3 = user + "\n<propositions>\n" + json.dumps(props, ensure_ascii=False, indent=1) + "\n</propositions>"
+        try:
             b, u3 = gateway.parse(s, "idea_ai_arbiter", "idea_arbiter", user3, IdeaArbiterOut, model=m3,
-                                  max_tokens=st.max_tokens)  # fmt: skip
+                                  max_tokens=st.arbiter_max_tokens)  # fmt: skip
+        except LlmUnavailable as exc:  # the two voices stand: only the arbitration is missing
+            row.arbiter = {"motif": f"arbitre indisponible : {exc}"}
+        else:
             cost += u3.cost_usd
             models.append(m3)
             chosen = b.choix
@@ -198,11 +216,6 @@ def deliberate(s: Session, config: LoadedConfig, gateway: Any, p: Proposal, rank
             why = _clean(b.raison, facts, "raison arbitre", rejected)
             row.arbiter = {"choix": chosen, "confiance": b.confiance, "raison": why}
             row.chosen = chosen
-    except LlmUnavailable as exc:
-        row.status, row.cost_usd = "indisponible", cost
-        row.analyst = {**(row.analyst or {}), "motif": f"IA indisponible : {exc}"}
-        s.flush()
-        return row
     row.status, row.rejected, row.cost_usd, row.models = "ok", rejected, cost, models
     s.flush()
     return row
@@ -250,8 +263,10 @@ def summary(r: AiIdeaReview | None) -> str | None:
     txt = "Avis IA (observation, jamais appliqué) — " + " ; ".join(
         (one("analyste", r.analyst), one("contradicteur", r.contradictor))
     )
-    if r.arbiter:
+    if r.arbiter and r.arbiter.get("choix"):
         txt += f" ; arbitre : retient {r.arbiter.get('choix')}"
+    elif r.arbiter and r.arbiter.get("motif"):
+        txt += f" ; {r.arbiter['motif']}"
     return txt
 
 

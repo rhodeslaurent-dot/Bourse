@@ -150,3 +150,32 @@ def test_the_measure_counts_only_finished_windows_per_author(db_engine, config):
         assert by["python"].n == 1 and by["python"].filled == 1 and by["python"].mean_r > 0  # first target reached
         assert by["contradicteur"].n == 0  # a set aside is never measured
         assert by["arbitre"].n == 1 and by["arbitre"].mean_r == by["analyste"].mean_r  # the arbiter's pick
+
+
+def test_a_failed_arbiter_leaves_the_two_voices_standing(db_engine, config):
+    from app.llm.gateway import LlmUnavailable
+
+    class Refusing(Gw):
+        def parse(self, s, purpose, prompt, user, schema, model=None, max_tokens=0):
+            if purpose == "idea_ai_arbiter":
+                assert max_tokens == idea_ai.settings(config).arbiter_max_tokens  # its thinking counts in the output
+                raise LlmUnavailable("réponse refusée par le modèle")
+            return super().parse(s, purpose, prompt, user, schema, model, max_tokens)
+
+    with db_session() as s:
+        s.info["config"] = config
+        p = _idea(s)
+        gw = Refusing({"avis": "attendre", "confiance": "faible"}, {"avis_revu": "attendre", "confiance": "faible"})
+        (row,) = idea_ai.run_day(s, config, gw, _day(p), NOW)
+        assert row.status == "ok" and row.analyst["avis"] == "attendre" and row.chosen is None
+        assert "arbitre indisponible" in row.arbiter["motif"] and "arbitre indisponible" in idea_ai.summary(row)
+
+
+def test_the_arbiters_model_is_called_without_sampling_nor_thinking_setting(config):
+    """ADR-011 / ADR-020: the arbiter's model always thinks and refuses a temperature — effort only."""
+    from app.llm.gateway import request_options
+
+    model = idea_ai.settings(config).arbiter_model
+    opts = config.raw["llm"]["model_options"][model]
+    assert request_options(model, 0.0, opts) == {"output_config": {"effort": "low"}}
+    assert model in config.raw["llm"]["prices_usd_per_mtok"]

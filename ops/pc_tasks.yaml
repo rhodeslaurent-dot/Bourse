@@ -383,3 +383,16 @@ tasks:
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli check-config"
       - "docker compose exec -T app python -m app.cli llm-costs"
+  # Correctif avant le premier passage de l'option A (08:25) : l'arbitre sans température ni réglage de réflexion
+  # (llm.model_options), sortie plus large, échec isolé ; mesure de l'option B contre « ne rien faire ». La dernière
+  # commande vérifie la version (section « défense des positions »).
+  - id: "2026-11-17-10"
+    purpose: "Correctif de l'arbitre de l'option A avant 08:25 et mesure de l'option B : paramètres et reconstruction"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "uv run python -m app.cli params-init --update"
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli check-config"
+      - "docker compose exec -T app python -m app.cli llm-costs"
