@@ -340,3 +340,11 @@ tasks:
       - "docker compose up -d --build"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 300 --kind dirigeant_cession --kind dirigeant_autre --kind communique_resultats --context 3"
+  # 17/11/2026 (nuit) : lecture seule — les mêmes contextes contre le seul témoin « 60 séances après » (la hausse
+  # avant l'événement tombe dans le témoin « avant », plus forte en marché haussier).
+  - id: "2026-11-17-06"
+    purpose: "Lecture seule : écart par contexte contre le seul témoin d'après (3 sources)"
+    stop_on_error: false
+    timeout_s: 1200
+    commands:
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 300 --kind dirigeant_cession --kind dirigeant_autre --kind communique_resultats --context 3 --control-offset 60"
