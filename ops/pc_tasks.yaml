@@ -296,3 +296,17 @@ tasks:
     timeout_s: 1200
     commands:
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --min-n 1000"
+  # 17/11/2026 (nuit) : chaque témoin lu à part. Les dirigeants vendent souvent après une hausse : si elle tombe
+  # dans la fenêtre « 60 séances avant », l'écart au témoin est gonflé. Le résultat ne tient que s'il se voit aussi
+  # contre le seul témoin « 60 séances après ». Reconstruction (nouvelle option de lecture), puis quatre tableaux.
+  - id: "2026-11-17-02"
+    purpose: "Lecture du témoin avant et après séparément (5 et 20 séances, lignes d'au moins 1 000 cas)"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 1000 --control-offset -60"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 1000 --control-offset 60"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --min-n 1000 --control-offset -60"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 5 --min-n 1000 --control-offset 60"
