@@ -359,3 +359,14 @@ tasks:
       - "docker compose up -d --build"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli check-config"
+  # 17/11/2026 (nuit) : mise en service de l'option B (revue IA du soir des positions, en observation) — groupe
+  # position_ai et job ajoutés aux paramètres du PC depuis l'exemple, migration 0037 au démarrage.
+  - id: "2026-11-17-08"
+    purpose: "Mise en service de l'option B : revue IA du soir des positions (observation), paramètres et migration"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "uv run python -m app.cli params-init --update"
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli check-config"
