@@ -376,6 +376,12 @@ def init_params(
             text, children = merge_missing_children(example_text, text, parent)
             if children:
                 print(f"clés ajoutées sous {parent} : " + ", ".join(children))
+        empty = empty_placeholders(example_text, text)
+        if empty:  # 17/11/2026: « analyst_columns: {} » kept from an older example silently stored no consensus
+            print(
+                "réglages vides dans params.yaml, remplis dans l'exemple (jamais modifiés d'office ; "
+                "--set ou --reset pour les reprendre) : " + ", ".join(empty)
+            )
         text, feeds = merge_missing_feeds(example_text, text)
         if feeds:
             print("flux ajoutés à data.rss_feeds : " + ", ".join(feeds))
@@ -503,6 +509,32 @@ FIRST_TOP_GROUPS = frozenset(
     brokers data live_quotes notifications availability config_validation review llm backtest
     jobs subscriptions""".split()
 )
+
+
+def empty_placeholders(example: str, target: str) -> list[str]:
+    """Dotted paths that are an empty mapping or list in ``target`` but filled in ``example`` (a placeholder left
+    by an older example, e.g. ``analyst_columns: {}``): reported, never changed — an empty value may be a choice."""
+    import yaml
+
+    out: list[str] = []
+
+    def walk(ex: object, tg: object, path: str) -> None:
+        if not isinstance(ex, dict) or not isinstance(tg, dict):
+            return
+        for k, v in ex.items():
+            if k not in tg:
+                continue
+            p = f"{path}.{k}" if path else str(k)
+            if isinstance(v, dict | list) and v and tg[k] in ({}, []):
+                out.append(p)
+            else:
+                walk(v, tg[k], p)
+
+    try:
+        walk(yaml.safe_load(example), yaml.safe_load(target), "")
+    except yaml.YAMLError:
+        return []
+    return out
 
 
 def mapping_paths(example: str) -> list[str]:

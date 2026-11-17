@@ -380,3 +380,14 @@ def test_every_new_group_of_the_example_is_added_by_params_update(tmp_path):
     assert "allocation:" not in old.read_text(encoding="utf-8")
     init_params(str(example), str(old), "1", "x@example.org", update=True)
     assert yaml.safe_load(old.read_text(encoding="utf-8"))["allocation"]["core_cost_pct"] == 0.005
+
+
+def test_an_empty_placeholder_left_by_an_older_example_is_reported_never_changed():
+    """17/11/2026: « analyst_columns: {} » stayed in the PC's params.yaml; no consensus was ever stored."""
+    example = "data:\n  tv:\n    analyst_columns:\n      note: recommendation_mark\n    feeds: [a]\n  other: {x: 1}\n"
+    target = "data:\n  tv:\n    analyst_columns: {}\n    feeds: []\n  other: {}\n"
+    assert cli.empty_placeholders(example, target) == [
+        "data.tv.analyst_columns", "data.tv.feeds", "data.other"
+    ]  # fmt: skip
+    assert cli.empty_placeholders(example, example) == []
+    assert cli.empty_placeholders(example, "data: [") == []  # unreadable: nothing claimed
