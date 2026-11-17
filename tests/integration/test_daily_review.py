@@ -178,3 +178,34 @@ def test_a_block_outside_the_euro_says_its_currency(config, db_engine):
         r = daily_review.build(s, config, datetime.now(PARIS).date())
     blk = next(i for i in r["fiches"] if i["isin"] == "DK0000000DK1")
     assert blk["nom"].endswith("(cours en DKK)") and "(cours en DKK)" in daily_review.as_text(r)
+
+
+def test_a_recent_manager_sale_puts_a_caution_on_the_card_and_on_the_position(config, db_engine):
+    """Step 2, lot D1 (17/11/2026): the only source the step 1 measure kept — caution, never a block; the role only."""
+    from app.db.models import InsiderDeclaration
+    from app.services.insider_caution import caution_for
+
+    _seed()
+    now = datetime.now(UTC)
+    with db_session() as s:
+        for isin, nature, days in ((BUYV, "cession", 3), (PUB, "acquisition", 2), (STALE, "cession", 40),
+                                   (STALE, "cession", 1)):  # fmt: skip
+            s.add(InsiderDeclaration(source="amf_bdif", doc_id=f"2026DD{isin[-4:]}{days}", market_timestamp=now -
+                                     timedelta(days=days), nature=nature, isin=isin, role="directeur général",
+                                     received_at=now, processed_at=now, issuer_name="Émetteur"))  # fmt: skip
+        s.flush()
+        day = datetime.now(PARIS).date()
+        r = daily_review.build(s, config, day)
+        by = {i["isin"]: i for i in r["fiches"]}
+        assert (
+            by[BUYV]["prudence"].startswith("Vente de dirigeant publiée le")
+            and "(directeur général)" in (by[BUYV]["prudence"])
+        )
+        assert "-1,7 point" in by[BUYV]["prudence"] and "pas un ordre" in by[BUYV]["prudence"]
+        assert by[BUYV]["decision"] == "acheter"  # a caution, never a block
+        assert by[PUB]["prudence"] is None  # a purchase is not a caution
+        assert "prudence : Vente de dirigeant" in daily_review.as_text(r)
+        held = {p["isin"]: p for p in r["portefeuille"]}
+        assert held[STALE]["prudence"] and "et 1 autre" not in held[STALE]["prudence"]  # 40 days ago: out of it
+        config.raw.pop("insider_caution")
+        assert caution_for(s, config, BUYV, day) is None  # rule 8: no group, no feature

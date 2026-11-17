@@ -492,6 +492,7 @@ NEW_TOP_BLOCKS = [
     "verdict",  # docs/37 lot L0 — échelle de verdict, livrée désactivée (enabled: false)
     "allocation",  # docs/39 lots M1-M2 (02/11/2026) — cœur et partie active ; oublié le 02/11, ajouté le 03/11
     "event_journal",  # étape 1 du plan, lots S1 à S3 (15/11/2026) — journal des événements et mesure
+    "insider_caution",  # étape 2, lot D1 (17/11/2026) — prudence après une vente de dirigeant
 ]
 # top-level groups present since the first params.yaml (never appended by params-init --update): every other group
 # of the example must be in NEW_TOP_BLOCKS (tests/unit/test_cli_setup.py), so that a new group is never forgotten

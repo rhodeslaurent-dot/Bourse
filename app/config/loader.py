@@ -57,6 +57,7 @@ OPTIONAL_FEATURES: dict[str, tuple[str, Any]] = {
     "zones": ("Zones de support et de résistance", None),
     "ranking": ("Classement des propositions", None),
     "pockets": ("Poches : cœur, partie active, crypto", None),
+    "insider_caution": ("Prudence après une vente de dirigeant (étape 2, lot D1, docs/42)", None),
 }
 
 

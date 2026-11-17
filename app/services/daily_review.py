@@ -444,6 +444,10 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
 
     now = now or datetime.now(UTC)
     ideas = _ideas(s, day)
+    from app.services.insider_caution import caution_for
+
+    for i in ideas:  # step 2, lot D1: a manager's sale published recently — caution on the card, never a block
+        i["prudence"] = caution_for(s, config, i["isin"], day)
     ideas, info = split_unvalidated(ideas, config)
     market = _market(s, config, day)
     try:
@@ -585,6 +589,8 @@ def as_text(r: dict[str, Any]) -> str:
             f"    source : {i['source']}" + (f" ({', '.join(i['niveaux_source'])})" if i["niveaux_source"] else "")
         )
         out.append(f"    que faire : {i['que_faire']}")
+        if i.get("prudence"):
+            out.append(f"    prudence : {i['prudence']}")
     if not r["fiches"]:
         out.append("  aucune idée aujourd'hui")
     if r.get("fiches_information"):

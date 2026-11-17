@@ -96,6 +96,14 @@ def _media_sells(s: Session, isin: str, now: datetime) -> list[str]:
     ][:3]
 
 
+def _insider_caution(s: Session, config: LoadedConfig, isin: str, day: date) -> list[str]:
+    """Step 2, lot D1: a manager's sale published in the window — caution, never an order."""
+    from app.services.insider_caution import caution_for
+
+    c = caution_for(s, config, isin, day)
+    return [c] if c else []
+
+
 def review_lines(s: Session, config: LoadedConfig, day: date, now: datetime) -> list[dict[str, Any]]:
     from app.services.engine import MACRO_KEYWORDS_DEFAULT
 
@@ -119,6 +127,8 @@ def review_lines(s: Session, config: LoadedConfig, day: date, now: datetime) -> 
             "stop": pos.stop_current,
             "protection": pos.protection_state,
         }
+        caution = _insider_caution(s, config, pos.isin, day)  # step 2, lot D1 — shown whatever the branch below
+        line["prudence"] = caution[0] if caution else None
         if pos.isin in dca:
             line.update(
                 {"poche": "dca", "verdict": "SANCTUARISÉE", "signaux": ["poche d'investissement progressif (R17)"]}
@@ -206,7 +216,7 @@ def review_lines(s: Session, config: LoadedConfig, day: date, now: datetime) -> 
                     "stop_propose": round(rv.stop.stop, 4) if rv.stop else None,
                     "stop_change": bool(rv.stop and rv.stop.changed),
                     "stop_raison": rv.stop.reason if rv.stop else None,
-                    "signaux": rv.signals + _media_sells(s, pos.isin, now),
+                    "signaux": rv.signals + _media_sells(s, pos.isin, now) + caution,
                     "notes": rv.notes + (rv.stop.notes if rv.stop else []),
                     "objectifs": targets,
                     "seances": held,

@@ -58,6 +58,7 @@
     </div>
     <p class="mt-1 text-sm"><b>Pourquoi :</b> {{ i.raison }}</p>
     <p class="mt-0.5 text-sm"><b>Que faire :</b> {{ i.que_faire }}</p>
+    {% if i.prudence %}<p class="mt-1 text-sm text-amber-800 dark:text-amber-300"><b>Prudence :</b> {{ i.prudence }}</p>{% endif %}
     <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Source : {{ i.source }}{% if i.niveaux_source %} — {{ i.niveaux_source|join(' · ') }}{% endif %}{% if i.pea is not none %} · {{ 'éligible PEA' if i.pea else 'hors PEA' }}{% endif %} · cours {{ num(i.cours) }}{% if i.cours_statut %} ({{ i.cours_statut }}){% endif %}</p>
     {% if i.citation %}<blockquote class="mt-1 border-l-2 border-slate-300 dark:border-slate-600 pl-2 text-xs italic text-slate-600 dark:text-slate-300">« {{ i.citation }} »</blockquote>{% endif %}
     {% if i.objectifs %}
@@ -102,7 +103,7 @@
     <table class="w-full text-sm tabular">
       <thead class="text-xs text-slate-500 dark:text-slate-400"><tr><th class="text-left py-1">Valeur</th><th class="text-right">Titres</th><th class="text-right">Cours</th><th class="text-right">Stop</th><th class="text-left pl-2">Verdict</th></tr></thead>
       <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-        {% for p in r.portefeuille %}<tr><td class="py-1">{{ p.nom }} <span class="text-[11px] text-slate-400">{{ p.compte }}</span></td><td class="text-right">{{ p.quantite }}</td><td class="text-right">{{ p.cours if p.cours is defined and p.cours is not none else '—' }} <span class="text-[11px] {{ 'text-rose-600' if p.cours_perime else 'text-slate-400' }}">{{ p.dernier_cours_jour.strftime('%d/%m') if p.dernier_cours_jour else 'jamais' }}</span></td><td class="text-right">{{ p.stop or '—' }}</td><td class="pl-2">{{ p.verdict or '—' }}</td></tr>{% endfor %}
+        {% for p in r.portefeuille %}<tr><td class="py-1">{{ p.nom }} <span class="text-[11px] text-slate-400">{{ p.compte }}</span></td><td class="text-right">{{ p.quantite }}</td><td class="text-right">{{ p.cours if p.cours is defined and p.cours is not none else '—' }} <span class="text-[11px] {{ 'text-rose-600' if p.cours_perime else 'text-slate-400' }}">{{ p.dernier_cours_jour.strftime('%d/%m') if p.dernier_cours_jour else 'jamais' }}</span></td><td class="text-right">{{ p.stop or '—' }}</td><td class="pl-2">{{ p.verdict or '—' }}</td></tr>{% if p.prudence %}<tr><td colspan="5" class="pb-1 text-xs text-amber-800 dark:text-amber-300"><b>Prudence :</b> {{ p.prudence }}</td></tr>{% endif %}{% endfor %}
       </tbody>
     </table>
   </div>

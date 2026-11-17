@@ -224,6 +224,14 @@ event_journal:                           # étape 1 du plan (lots S1 à S3, 15/1
   consensus_min_change: 0.02            # variation de l'objectif moyen des analystes en dessous de laquelle ce n'est pas un événement
   short_volume_z: 3.0                   # lot S5 : part vendue à découvert (FINRA) à ≥ 3 écarts de sa base de 20 jours
 
+insider_caution:                        # étape 2, lot D1 (décision de l'utilisateur du 17/11/2026) — mention de prudence après une vente de dirigeant (docs/40 §40.3 bis, docs/42) : information, jamais un ordre ni un blocage
+  effective_from: "2026-11-17"
+  enabled: true
+  window_days: 28                       # ventes publiées dans les 28 jours (≈ 20 séances) avant le jour
+  measured_gap_20d: -0.017              # écart mesuré à 20 séances contre le seul témoin « après » (sous-performance)
+  measured_on: "17/11/2026"             # date de la mesure citée sur la mention
+  t_stat: 3.5                           # t de la mesure citée
+
 weak_signals:                           # docs/26 — radar des signaux faibles PUBLICS : agrégats seulement, jamais un déclencheur
   effective_from: "2026-10-25"
   enabled: true

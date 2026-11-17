@@ -30,7 +30,9 @@ Conséquence : l'ADR-020 prévoyait qu'une IA analyste, un contradicteur et un a
 - **D2 — revue IA du soir des positions** : analyste (Sonnet 5.5) et contradicteur sur chaque position ouverte ; proposition de stop ou d'allègement passée au contrôle de vraisemblance, quantité recalculée par Python (règle 7), instantané de décision (règle 10) ; suivi contre « ne rien faire ».
 - **C1 — banc de sortie** : plan pré-enregistré (règles, période, seuils de lecture) avant tout rejeu ; rejeu au coût complet ; verdict selon la règle.
 
-## 42.5 À décider par l'utilisateur
+## 42.5 Décision de l'utilisateur (17/11/2026)
 
-1. Option : A, B, C, ou B + C (recommandé).
-2. La vente de dirigeant comme simple mention de prudence (D1) : oui ou non.
+« **A et B, oui** » : l'étape 2 telle que prévue (A, ADR-020) **et** la revue « défense » des positions (B), avec la mention de prudence après une vente de dirigeant (D1). Le banc de sortie (C) n'est pas retenu pour l'instant.
+
+- **D1 livré le 17/11/2026** : `insider_caution` (params.yaml) — mention « Prudence » sur la fiche du jour, sous la position concernée dans la revue, dans l'e-mail ; ventes publiées dans les 28 jours ; le rôle seulement, jamais le nom ; jamais un ordre ni un blocage.
+- **B puis A** : en observation, mesurés ; la proposition de Python reste celle par défaut tant que la mesure ne désigne pas un autre auteur (ADR-020).
