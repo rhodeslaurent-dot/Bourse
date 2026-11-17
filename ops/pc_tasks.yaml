@@ -450,3 +450,14 @@ tasks:
     commands:
       - "docker compose up -d --build"
       - "wait-app 600"
+  # Avant le consensus de 22:20 : la coupure de la source par place est signalée (« source lue a/b lignes ») et
+  # sources-health montre les notes entières (600 caractères). Nouvelle clé max_pages_per_market ajoutée à 1 page
+  # (comportement inchangé) ; elle ne sera relevée qu'après lecture de la couverture.
+  - id: "2026-11-17-16"
+    purpose: "Coupure du screener signalée par place, notes entières dans sources-health : paramètres et reconstruction"
+    stop_on_error: true
+    timeout_s: 1200
+    commands:
+      - "uv run python -m app.cli params-init --update"
+      - "docker compose up -d --build"
+      - "wait-app 600"
