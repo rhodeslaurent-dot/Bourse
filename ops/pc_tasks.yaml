@@ -318,3 +318,15 @@ tasks:
     timeout_s: 1200
     commands:
       - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 1500 --control-offset 60"
+  # 17/11/2026 (nuit) : contexte historique des événements (VIX depuis 2016, tendance de l'indice de chaque place
+  # lue la veille), puis le tableau à 20 séances avec le détail par contexte des premières lignes.
+  - id: "2026-11-17-04"
+    purpose: "Contexte historique des événements (VIX depuis 2016, tendance de l'indice), puis tableau par contexte"
+    stop_on_error: true
+    timeout_s: 7200
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli macro-backfill --from 2016-01-01 --indicator vix"
+      - "docker compose exec -T app python -m app.cli events-build --from 2016-01-01 --complete-context"
+      - "docker compose exec -T app python -m app.cli events-scoreboard --horizon 20 --min-n 4000 --context 4"
