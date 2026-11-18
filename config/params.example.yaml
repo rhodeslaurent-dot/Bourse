@@ -507,8 +507,8 @@ detectors:
     stop_lookback: 60                 # stop sous le plus bas des 60 dernières séances (moins le tampon ATR de risk.stop)
     max_stop_pct: 0.15                # stop à plus de 15 % sous le prix maximal → signalé (« stop trop large »)
     recommendations_ok: ["strong_buy", "buy"]   # recommandation publiée (Yahoo) : « achat fort » ou « achat » ; inconnue → non utilisée
-    rating_best: null                 # échelle de la note des analystes (TradingView) : 1 si 1 = « achat fort », 5 si 5 = « achat fort » ; null = note affichée, jamais utilisée
-    rating_max: null                  # note la moins favorable admise (ex. 2 avec rating_best: 1) ; utilisée seulement avec rating_best
+    rating_best: 1                    # échelle de la note des analystes (TradingView) : 1 = « achat fort » — vérifié le 18/11/2026 (tâche PC 18-11 : trois valeurs notées 1,1 à 1,7 que Yahoo dit « buy ») ; null = note affichée, jamais utilisée
+    rating_max: 2.0                   # note la moins favorable admise : 2 = côté achat (au-delà : neutre, puis vente)
   d7_trend_quality:                  # docs/22 §22.4 B — swing « tendance + qualité » (quelques semaines)
     enabled: true
     rs_rank_min: 80

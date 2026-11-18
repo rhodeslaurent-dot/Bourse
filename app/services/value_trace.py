@@ -41,6 +41,15 @@ def find(s: Session, query: str) -> list[Instrument]:
     return list(s.scalars(select(Instrument).where(func.upper(Instrument.name).like(f"%{t}%")).limit(5)))
 
 
+def _note(x: Any) -> str:
+    """TradingView's analysts' rating, 1 = strong buy to 5 = strong sell (checked on 18/11/2026 against Yahoo)."""
+    return f"{x:.2f} sur 5 (1 = achat fort, 5 = vente forte)".replace(".", ",") if isinstance(x, int | float) else "—"
+
+
+def _rank(x: float | None) -> str:
+    return f"{x:.0f}" if x is not None else "—"
+
+
 def _eur(x: float | None) -> str:
     return f"{x / 1e9:.1f} Md€" if x and x >= 1e9 else (f"{x / 1e6:.0f} M€" if x else "inconnue")
 
@@ -81,7 +90,7 @@ def trace(s: Session, config: Any, query: str, today: date) -> list[str]:
                 above.append("au-dessus de la MM50" if last[1] > f.mm50 else "sous la MM50")
             if f.mm200 and last:
                 above.append("au-dessus de la MM200" if last[1] > f.mm200 else "sous la MM200")
-            out.append(f"  force relative : rang {f.rs_rank if f.rs_rank is not None else '—'} / 100 le {f.day:%d/%m}"
+            out.append(f"  force relative : rang {_rank(f.rs_rank)} / 100 le {f.day:%d/%m}"
                        + (f" · {', '.join(above)}" if above else ""))  # fmt: skip
         else:
             out.append("  force relative : non calculée (valeur hors univers ou historique insuffisant)")
@@ -95,7 +104,7 @@ def trace(s: Session, config: Any, query: str, today: date) -> list[str]:
             when = shown.get("jour") or tv.get("jour") or "?"
             line = (f"  consensus : {n} analyste(s), objectif moyen {mean} (source {shown.get('source')}, du {when}) · "
                     f"TradingView : moyen {tv.get('objectif_moyen', '—')}, bas {tv.get('objectif_bas', '—')}, "
-                    f"haut {tv.get('objectif_haut', '—')}, note {tv.get('note', '—')} (échelle à vérifier) · "
+                    f"haut {tv.get('objectif_haut', '—')}, note {_note(tv.get('note'))} · "
                     f"recommandation Yahoo {shown.get('recommandation') or '—'}")  # fmt: skip
             out.append(line + (" · sources divergentes : objectif écarté" if shown.get("sources_divergentes") else ""))
         else:
@@ -109,7 +118,7 @@ def trace(s: Session, config: Any, query: str, today: date) -> list[str]:
             floor = s.scalar(select(func.min(WatchlistRow.rs_rank)).where(WatchlistRow.reason == "momentum",
                                                                         WatchlistRow.active.is_(True)))  # fmt: skip
             out.append(f"  liste de surveillance : NON — elle prend d'office les {wl_max} plus fortes de l'univers "
-                       f"(rang ≥ {rs_min}, au-dessus des moyennes ; la dernière admise a le rang {floor or '—'}), "
+                       f"(rang ≥ {rs_min}, au-dessus des moyennes ; la dernière admise a le rang {_rank(floor)}), "
                        "les valeurs des lettres, celles ajoutées à la main et, depuis le 18/11/2026, les "
                        "catalyseurs (résultats salués : hausse nette et volume inhabituel ; radar)")  # fmt: skip
         q_sig = select(Signal).where(Signal.isin == inst.isin, Signal.ts >= since, Signal.deleted_at.is_(None))
