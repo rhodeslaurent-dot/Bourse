@@ -555,3 +555,18 @@ tasks:
       - "docker compose exec -T app python -m app.cli saxo-check --fix-names --apply"
       - "docker compose exec -T app python -m app.cli run-job portfolio_sync"
       - "docker compose exec -T app python -m app.cli saxo-check --fix-names"
+  # 18/11 (ADR-025) : scan d'ouverture D1 (écart + catalyseur) — jobs open_scan_eu (09:05–10:55 Paris) et open_scan_us
+  # (09:35–10:55 New York), fiche + alerte Telegram, en mode « disponible » seulement. Paramètres ajoutés (D1, jobs),
+  # reconstruction, contrôle de la configuration, puis chaque job lancé une fois à la main : hors mode « disponible »
+  # (lancement manuel) il ne fait rien et le dit — c'est le contrôle attendu du branchement.
+  - id: "2026-11-18-10"
+    purpose: "Scan d'ouverture D1 (écart + catalyseur, ADR-025) : paramètres, reconstruction, contrôle des jobs"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "uv run python -m app.cli params-init --update"
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli check-config"
+      - "docker compose exec -T app python -m app.cli run-job open_scan_eu"
+      - "docker compose exec -T app python -m app.cli run-job open_scan_us"
