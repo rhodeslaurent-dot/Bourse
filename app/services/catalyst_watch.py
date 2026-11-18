@@ -89,8 +89,10 @@ def refresh(s: Session, config: Any, calendars: Any, today: date, now: datetime 
         ).all()
         r = results_reaction(pub.replace(tzinfo=None), venue.close_time, [DayBar(d, c, v or 0) for d, c, v in rows])
         if welcomed(r, float(st.min_move_pct), float(st.min_rel_volume)) and r is not None:
-            levels = {"fait": f"résultats publiés le {pub:%d/%m} ({f.diffuser}), {r.move:+.1%} le {r.day:%d/%m}, "
-                              f"volume ×{r.rel_volume:.1f}", "expire_le": expire}  # fmt: skip
+            move = f"{r.move:+.1%}".replace(".", ",")
+            vol = f"{r.rel_volume:.1f}".replace(".", ",")
+            levels = {"fait": f"résultats publiés le {pub:%d/%m}, salués par le marché : {move} le {r.day:%d/%m} "
+                              f"avec {vol} fois le volume habituel", "expire_le": expire}  # fmt: skip
             added += _put(s, isin, "resultats", levels, now)
     labels = list(st.radar_labels or [])
     if labels:
@@ -98,7 +100,10 @@ def refresh(s: Session, config: Any, calendars: Any, today: date, now: datetime 
                                          WeakSignalHit.label.in_(labels))  # fmt: skip
         for h in s.scalars(q2):
             if h.isin in universe and h.isin not in latest:
-                levels = {"fait": f"radar du {h.day:%d/%m} : {h.label.replace('_', ' ')}", "expire_le": expire}
+                levels = {
+                    "fait": f"le {h.day:%d/%m}, attention inhabituelle du public appuyée par des nouvelles",
+                    "expire_le": expire,
+                }
                 added += _put(s, h.isin, "radar", levels, now)
     gone = 0
     for row in s.scalars(

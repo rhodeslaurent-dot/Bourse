@@ -20,6 +20,8 @@ router = APIRouter()
 
 @router.get("/watchlist", response_class=HTMLResponse)
 def watchlist_page(request: Request) -> HTMLResponse:
+    from app.services.watch_text import why
+
     with db_session() as s:
         rows = list(
             s.scalars(
@@ -53,6 +55,8 @@ def watchlist_page(request: Request) -> HTMLResponse:
                 "levels": r.levels or {},
                 "feat": feats.get(r.isin),
                 "added_at": r.added_at,
+                # 18/11/2026: « incomprehensible descriptions » — one or two plain sentences
+                "why": why(r.reason, r.source, r.levels, r.rs_rank, feats.get(r.isin), r.added_at),
             }
             for r in rows
         ]

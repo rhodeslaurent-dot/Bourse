@@ -42,7 +42,9 @@ def test_results_welcomed_by_the_market_enter_the_watchlist(db_engine, config, c
     assert added == 1 and gone == 0 and [r.isin for r in rows] == [ISIN]
     (r,) = rows
     assert r.reason == "catalyseur" and r.source == "resultats"
-    assert r.levels["fait"] == "résultats publiés le 17/11 (AMF), +6.0% le 18/11, volume ×3.0"
+    assert r.levels["fait"] == (
+        "résultats publiés le 17/11, salués par le marché : +6,0% le 18/11 avec 3,0 fois le volume habituel"
+    )
     assert r.levels["expire_le"] == "2026-12-03"
 
 
@@ -57,7 +59,7 @@ def test_a_value_already_watched_is_left_and_a_catalyst_expires(db_engine, confi
         added, _ = catalyst_watch.refresh(s, config, calendars, DAY, NOW)
         rows = {r.isin: r for r in s.scalars(select(WatchlistRow).where(WatchlistRow.active.is_(True)))}
         assert added == 1 and rows[ISIN].reason == "manual"  # never replaced
-        assert rows[OTHER].source == "radar" and "attention corroboree" in rows[OTHER].levels["fait"]
+        assert rows[OTHER].source == "radar" and "attention inhabituelle" in rows[OTHER].levels["fait"]
         _, gone = catalyst_watch.refresh(s, config, calendars, DAY + timedelta(days=30), NOW + timedelta(days=30))
         assert gone == 1 and not rows[OTHER].active
 
@@ -81,4 +83,5 @@ def test_the_watchlist_page_says_the_fact_and_that_it_is_never_an_order(db_engin
     with TestClient(app) as c:
         html = c.get("/watchlist").text
     assert "Catalyseur (résultats salués, actualité)" in html
-    assert "résultats publiés le 17/11 (AMF), +6.0% le 18/11, volume ×3.0" in html and "jamais un ordre" in html
+    assert "salués par le marché : +6,0% le 18/11 avec 3,0 fois le volume habituel" in html
+    assert "À suivre de près" in html and "signal d&#39;achat en soi" in html
