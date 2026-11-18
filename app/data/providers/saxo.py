@@ -390,6 +390,7 @@ class BrokerPositionDto:
     currency: str
     account_key: str
     srd: bool
+    description: str = ""  # Saxo's own name of the instrument (18/11/2026: to check the referential's tie)
 
 
 @dataclass
@@ -516,6 +517,7 @@ class SaxoPortfolio:
                     currency=disp.get("Currency", "EUR"),
                     account_key=str(base.get("AccountKey", "")),
                     srd=bool(base.get("IsMarketOpen", True)) and str(base.get("AssetType", "")).lower() == "srdstock",
+                    description=str(disp.get("Description") or ""),
                 )
             )
         return out

@@ -397,6 +397,20 @@ def _core_asks(s: Session, config: LoadedConfig, day: date) -> list[dict[str, An
     return out
 
 
+def _unmapped_asks(s: Session) -> list[dict[str, Any]]:
+    """18/11/2026: positions bought at Saxo that the tool does not recognise — no stop, no risk counted — first."""
+    from app.db.models import BrokerSyncRun
+
+    run = s.scalar(select(BrokerSyncRun).where(BrokerSyncRun.broker == "saxo").order_by(BrokerSyncRun.id.desc()))
+    out = []
+    for line in ((run.diffs or {}).get("unmapped") or []) if run is not None else []:
+        if str(line).upper().startswith("LOCK-"):
+            continue  # a line Saxo itself blocks (corporate action): said on the positions page, not every morning
+        out.append({"urgence": 1, "texte": f"Ligne Saxo non reconnue par l'outil : {line} — ni son stop ni son "
+                    "risque ne sont suivis ; dis-moi son nom pour la rattacher", "lien": "/positions"})  # fmt: skip
+    return out
+
+
 def _cap(s: Session, config: LoadedConfig, day: date) -> str | None:
     """docs/39, ADR-018: the active part against the same money placed in the core, in one sentence (display only);
     None when the ``allocation`` group is absent or disabled."""
@@ -492,6 +506,7 @@ def build(s: Session, config: LoadedConfig, day: date, now: datetime | None = No
                 }
             )
     asks += _core_asks(s, config, day)
+    asks += _unmapped_asks(s)
     for i in ideas:
         if i["decision"] == "acheter":
             asks.append({"urgence": 2, "texte": f"{i['nom']} : {i['que_faire']}", "lien": "/opportunites"})

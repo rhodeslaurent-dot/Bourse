@@ -55,6 +55,16 @@ def name_of(isin: str) -> str:
     return _load().get(isin, {}).get("name", isin)
 
 
+# 18/11/2026: US lines bought at Saxo never appeared — Saxo writes « TICKER:xnas » (Nasdaq) while the referential
+# files every US value under XNYS (EODHD's single « US » exchange). The US venues are one listing here.
+US_MICS = frozenset({"XNYS", "XNAS", "XNGS", "XNMS", "XNCM", "XASE", "ARCX", "BATS", "XCBO", "IEXG"})
+
+
+def same_listing_venues(mic: str) -> set[str]:
+    """The MICs the referential may file the same listing under (the US venues are one EODHD exchange)."""
+    return set(US_MICS) if mic in US_MICS else {mic}
+
+
 def resolve_broker_isin(provider: str, uic: str, symbol: str) -> str | None:
     """Saxo ``Uic`` + ``Symbol`` (``VK:xpar``) → ISIN, in this order: persisted alias
     ``instrument_aliases(provider="<provider>_uic", alias=uic)``, ``instruments.ticker_saxo``, ticker + MIC
@@ -80,9 +90,12 @@ def resolve_broker_isin(provider: str, uic: str, symbol: str) -> str | None:
             inst = s.scalar(select(Instrument).where(Instrument.ticker_saxo == symbol)) if symbol else None
             if inst is None and parsed is not None:
                 ticker, mic = parsed
+                venues = same_listing_venues(mic)
                 cands = list(
-                    s.scalars(select(Instrument).where(Instrument.ticker_local == ticker, Instrument.mic == mic))
+                    s.scalars(select(Instrument).where(Instrument.ticker_local == ticker, Instrument.mic.in_(venues)))
                 )
+                if not cands and mic in US_MICS:  # 18/11/2026: a US value may carry only its EODHD ticker
+                    cands = list(s.scalars(select(Instrument).where(Instrument.ticker_eodhd == f"{ticker}.US")))
                 inst = cands[0] if len(cands) == 1 else None  # ambiguity → unresolved, never a guess
             if inst is None:
                 isin = _isin_from_map(symbol, parsed, uic)
@@ -107,10 +120,12 @@ def _isin_from_map(symbol: str, parsed: tuple[str, str] | None, uic: str = "") -
             return isin
     if parsed is not None:
         ticker, mic = parsed
+        venues = same_listing_venues(mic)
         hits = [
             isin
             for isin, entry in m.items()
-            if str(entry.get("mic", "")).upper() == mic and str(entry.get("eodhd", "")).split(".")[0].upper() == ticker
+            if str(entry.get("mic", "")).upper() in venues
+            and str(entry.get("eodhd", "")).split(".")[0].upper() == ticker
         ]
         if len(hits) == 1:
             return hits[0]

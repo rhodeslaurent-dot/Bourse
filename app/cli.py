@@ -941,6 +941,13 @@ def cmd_saxo_check(args: argparse.Namespace) -> int:
     from app.data.base import ProviderError
     from app.data.providers.saxo import SaxoClient, SaxoPortfolio, TokenStore
 
+    if getattr(args, "remap", None):  # 18/11/2026: a Saxo symbol tied to the wrong ISIN of another company
+        from app.db.session import db_session
+        from app.services.broker_remap import remap
+
+        with db_session() as s:
+            print("\n".join(remap(s, args.remap[0], args.remap[1], bool(args.apply))))
+        return 0
     live = not args.sim
     store = TokenStore(live=live)
     legacy = Path("data/saxo_token.enc")
@@ -965,9 +972,25 @@ def cmd_saxo_check(args: argparse.Namespace) -> int:
         f"cash : {cash if cash is not None else 'indisponible'} · positions : {len(positions)} · ordres en attente : {len(orders)}"  # noqa: E501
     )
     for p in positions[:10]:
-        print(f"  {p.symbol:14} {p.isin or 'non suivie':12} qty {p.qty:>6} @ {p.open_price:<10.4g} {p.currency}")
+        name = f"  « {p.description} » chez Saxo" if getattr(p, "description", "") else ""
+        print(f"  {p.symbol:14} {p.isin or 'non suivie':12} qty {p.qty:>6} @ {p.open_price:<10.4g} {p.currency}{name}")
     for o in orders[:10]:
         print(f"  ordre {o.order_id} {o.side} {o.qty} {o.isin or o.uic} {o.order_type} {o.price or ''} {o.status}")
+    if getattr(args, "fix_names", False):  # 18/11/2026: the referential's name against Saxo's, line by line
+        from app.db.session import db_session
+        from app.services.broker_remap import remap, suggest
+
+        with db_session() as s:
+            for p in positions:
+                if not getattr(p, "description", ""):
+                    continue
+                right, why = suggest(s, p.symbol, p.description, p.isin)
+                if right is None:
+                    if why != "nom conforme":
+                        print(f"  {p.symbol} : {why}")
+                    continue
+                print(f"  {p.symbol} : {why}")
+                print("\n".join(remap(s, p.symbol, right, bool(args.apply))))
     for uic, why in pf.isin_errors.items():
         print(f"  non suivie (Uic {uic}) : {why}")
     if pf.isin_errors:
@@ -3545,6 +3568,14 @@ def main(argv: list[str] | None = None) -> int:
     es.set_defaults(fn=cmd_env_setup)
     sc = sub.add_parser("saxo-check", help="lecture seule : clients/me, cash, positions, ordres")
     sc.add_argument("--sim", action="store_true")
+    sc.add_argument("--remap", nargs=2, metavar=("SYMBOLE", "ISIN"), help="rattacher un symbole Saxo au bon ISIN")
+    sc.add_argument("--apply", action="store_true", help="avec --remap ou --fix-names : écrire (sinon simulation)")
+    sc.add_argument(
+        "--fix-names",
+        dest="fix_names",
+        action="store_true",
+        help="comparer le nom de chaque ligne chez Saxo à celui du référentiel et proposer le bon ISIN",
+    )
     sc.set_defaults(fn=cmd_saxo_check)
     sa = sub.add_parser("saxo-auth")
     sa.add_argument("--sim", action="store_true", help="environnement de simulation (aucune donnée de marché)")

@@ -174,7 +174,7 @@ def sync_saxo(
                 alerts.emit(
                     s,
                     Event(
-                        "P3",
+                        "P2",  # 18/11/2026: a real position the tool does not follow has no stop and no risk counted
                         "broker_unmapped",
                         f"{len(unmapped)} position(s) Saxo non suivie(s) : ISIN inconnu",
                         [f"{symbol} (Uic {uic}) : {why[:90]}" for symbol, uic, why in unmapped][:8],
