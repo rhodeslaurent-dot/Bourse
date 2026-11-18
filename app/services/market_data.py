@@ -4,6 +4,7 @@ venue calendar are reported (``gap_in_data``) and re-fetched, never interpolated
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
@@ -209,11 +210,34 @@ def fx_to_eur(s: Session, currency: str, day: date | None = None) -> float | Non
     if currency in ("GBX", "GBp"):
         gbp = fx_to_eur(s, "GBP", day)
         return gbp / 100 if gbp is not None else None
-    q = select(FxRate).where(FxRate.pair == f"EUR{currency}")
+    q = select(FxRate.rate).where(FxRate.pair == f"EUR{currency}")
     if day:
         q = q.where(FxRate.day <= day)
-    row = s.scalar(q.order_by(FxRate.day.desc()))
-    return (1.0 / row.rate) if row and row.rate else None
+    rate = s.scalar(q.order_by(FxRate.day.desc()).limit(1))  # 18/11/2026: one row, not the pair's whole history
+    return (1.0 / rate) if rate else None
+
+
+def fx_lookup(s: Session, currency: str, end: date | None = None) -> Callable[[date], float | None]:
+    """``fx_to_eur`` for many days from one query: EUR per unit on each day or the last day before it (18/11/2026:
+    one query per day of the core's history made the home page take 46 s)."""
+    from bisect import bisect_right
+
+    if currency == "EUR":
+        return lambda d: 1.0
+    if currency in ("GBX", "GBp"):
+        gbp = fx_lookup(s, "GBP", end)
+        return lambda d: (v / 100) if (v := gbp(d)) is not None else None
+    q = select(FxRate.day, FxRate.rate).where(FxRate.pair == f"EUR{currency}")
+    if end is not None:
+        q = q.where(FxRate.day <= end)
+    rows = [(d, r) for d, r in s.execute(q.order_by(FxRate.day)) if r]
+    days = [d for d, _ in rows]
+
+    def at(day: date) -> float | None:
+        i = bisect_right(days, day)
+        return 1.0 / rows[i - 1][1] if i else None
+
+    return at
 
 
 def instruments_in_universe(s: Session) -> list[Instrument]:

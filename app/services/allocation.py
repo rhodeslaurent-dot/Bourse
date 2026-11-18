@@ -66,11 +66,12 @@ def _tax_rate(config: LoadedConfig) -> float:
 
 def _proxy_prices(s: Session, name: str, end: date) -> dict[date, float]:
     """The declared proxy (``allocation.proxy_series``, URTH in USD) converted with the stored EUR/USD rate."""
-    from app.services.market_data import fx_to_eur
+    from app.services.market_data import fx_lookup
 
     prices: dict[date, float] = {}
+    usd = fx_lookup(s, "USD", end)  # one query for all the days (18/11/2026)
     for p in s.scalars(select(MacroPoint).where(MacroPoint.indicator == name, MacroPoint.day <= end)):
-        fx = fx_to_eur(s, "USD", p.day)  # URTH is quoted in USD
+        fx = usd(p.day)  # URTH is quoted in USD
         if fx is not None:
             prices[p.day] = p.value * fx
     return prices
@@ -81,7 +82,7 @@ def core_series(s: Session, config: LoadedConfig, end: date) -> CoreSeries | Non
     (an ETF younger than the first order), the declared proxy's returns chained to it —
     said on the line; without the ETF, the declared proxy alone."""
     from app.domain.allocation import price_on_or_before
-    from app.services.market_data import fx_to_eur
+    from app.services.market_data import fx_lookup
 
     g = allocation_params(config) or {}
     core, _ = _pockets(config)
@@ -90,15 +91,16 @@ def core_series(s: Session, config: LoadedConfig, end: date) -> CoreSeries | Non
     plabel = f"série {name} (en USD converti en EUR, hors dividendes)"
     for isin in core:
         inst = s.get(Instrument, isin)
-        rows = list(s.scalars(select(PriceEod).where(PriceEod.isin == isin, PriceEod.day <= end)))
+        rows = s.execute(select(PriceEod.day, PriceEod.close).where(PriceEod.isin == isin, PriceEod.day <= end)).all()
         if inst is None or not rows:
             continue
         cur = inst.currency or "EUR"
         etf = {}
-        for r in rows:
-            fx = fx_to_eur(s, cur, r.day)
-            if fx is not None:
-                etf[r.day] = r.close * fx
+        rate = fx_lookup(s, cur, end)  # one query for the whole history (18/11/2026)
+        for day_, close in rows:
+            fx = rate(day_)
+            if fx is not None and close is not None:
+                etf[day_] = close * fx
         if not etf:
             continue
         label = f"ETF du cœur {inst.name or isin} ({isin}), clôtures"

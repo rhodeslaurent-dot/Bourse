@@ -472,3 +472,14 @@ tasks:
       - "docker compose up -d --build"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli sources-health --pages"
+  # 18/11 : la mesure (tâche 18-01) a trouvé la page d'accueil à 46,9 s, dont 46,1 s pour la ligne « partie active
+  # contre le cœur » (un taux de change cherché par jour, chaque fois tout l'historique de la paire). Correctif et
+  # nouvelle mesure.
+  - id: "2026-11-18-02"
+    purpose: "Page d'accueil : taux de change lus en une requête (46 s → ?) ; reconstruction et nouvelle mesure"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli sources-health --pages"

@@ -187,3 +187,35 @@ def test_a_line_without_closes_uses_a_recent_broker_price_or_says_how_to_load_it
         row.last_price_at = datetime(2026, 10, 1, 16, tzinfo=UTC)  # 29 days old: not used
         s.flush()
         assert not allocation.compare(s, _cfg(config), END)[0].ok
+
+
+def test_the_core_series_costs_a_few_queries_whatever_its_length(config, db_engine):
+    """18/11/2026: one exchange-rate query per day of history made the home page take 46 s (« _cap »)."""
+    from datetime import timedelta
+
+    from sqlalchemy import event
+
+    from app.db.session import get_engine
+    from app.services.market_data import fx_lookup, fx_to_eur
+
+    with db_session() as s:
+        s.add(Instrument(isin=CORE, name="ETF Monde fictif", mic="XAMS", currency="USD", kind="etf"))
+        d, n = D1 - timedelta(days=600), 0
+        while d <= END:
+            s.add(_bar(CORE, d, 100.0 + n * 0.1))
+            s.add(FxRate(pair="EURUSD", day=d, rate=1.10 + (n % 7) * 0.01, source="ecb"))
+            d, n = d + timedelta(days=1), n + 1
+        s.flush()
+        statements: list[str] = []
+        listener = lambda *a, **k: statements.append(a[2])  # noqa: E731
+        event.listen(get_engine(), "before_cursor_execute", listener)
+        try:
+            series = allocation.core_series(s, _cfg(config), END)
+        finally:
+            event.remove(get_engine(), "before_cursor_execute", listener)
+        assert series is not None and len(series.prices) == n
+        assert len(statements) < 10  # was one per day (about 840 here)
+        rate = fx_lookup(s, "USD", END)
+        for day in (D1, END, D1 - timedelta(days=600), date(2026, 6, 15)):  # same answer as the one-day lookup
+            assert rate(day) == pytest.approx(fx_to_eur(s, "USD", day))
+        assert rate(D1 - timedelta(days=601)) is None and fx_lookup(s, "EUR")(D1) == 1.0
