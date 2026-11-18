@@ -612,3 +612,15 @@ tasks:
       - "docker compose exec -T app python -m app.cli gates-coverage --value MSFT"
       - "docker compose exec -T app python -m app.cli run-job position_ai_review"
       - "docker compose exec -T app python -m app.cli llm-costs"
+  # 18-13 : toutes les propositions de la semaine portent « coupe-circuit — mesure indisponible » (aucune entrée sans
+  # ce contrôle, décision du 04/11) — l'instantané d'équité d'avant la semaine et d'avant le mois manque ou est
+  # incomplet. Diagnostic en lecture seule : quels instantanés, pourquoi incomplets (liquidités inconnues, ligne sans
+  # cours), ce qui manque maintenant. Aucun montant affiché.
+  - id: "2026-11-18-14"
+    purpose: "Coupe-circuit : pourquoi sa mesure manque (instantanés d'équité incomplets), lecture seule"
+    stop_on_error: true
+    timeout_s: 1200
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli gates-coverage --circuit"
