@@ -46,3 +46,15 @@ def test_sources_health_pages_prints_the_four_sections(db_engine, monkeypatch, t
     assert "sources_daily" in out and "(12 min)" in out
     assert "Requêtes SQL en cours depuis plus de 5 s" in out and "Page d'accueil (Revue du jour) construite en" in out
     assert "Page Sources construite en" in out and "scoreboard" in out
+
+
+def test_sources_health_job_prints_only_the_named_jobs_whole(db_engine, capsys):
+    """18/11/2026: the consensus line fell in the part of the relay report that is cut."""
+    with db_session() as s:
+        s.add(JobRun(job="consensus_daily", started_at=datetime.now(UTC) - timedelta(hours=2), status="ok",
+                     rows=1819, note="couverture par place : " + "x" * 900))  # fmt: skip
+        s.add(JobRun(job="news_scan", started_at=datetime.now(UTC), status="ok", note="autre"))
+    args = argparse.Namespace(date=None, no_jobs=False, pages=False, job=["consensus_daily"])
+    assert cli.cmd_sources_health(args) == 0
+    out = capsys.readouterr().out
+    assert "consensus_daily" in out and "x" * 900 in out and "news_scan" not in out and "Cours de clôture" not in out

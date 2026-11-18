@@ -2813,6 +2813,13 @@ def cmd_sources_health(args: argparse.Namespace) -> int:
     day = date.fromisoformat(args.date) if args.date else date.today()
     if args.pages:  # 18/11/2026: « several minutes to load » — measured, not guessed
         return _print_page_timings(day)
+    if getattr(args, "job", None):  # 18/11/2026: only the named jobs, whole (the relay report cuts long outputs)
+        from app.services.source_health import job_line, job_states
+
+        with db_session() as s:
+            for js in job_states(s, list(args.job), clip=2000):
+                print(job_line(js))
+        return 0
     with db_session() as s:
         states = snapshot(s, day)
     fam = None
@@ -3216,6 +3223,7 @@ def main(argv: list[str] | None = None) -> int:
     sh.add_argument("--date", default=None, help="AAAA-MM-JJ (défaut : aujourd'hui)")
     sh.add_argument("--no-jobs", dest="no_jobs", action="store_true", help="sans les passages des jobs")
     sh.add_argument("--pages", action="store_true", help="lenteur des pages : requêtes lentes, jobs, SQL, accueil")
+    sh.add_argument("--job", action="append", default=[], help="seulement ce job, note entière (répétable)")
     sh.set_defaults(fn=cmd_sources_health)
     eb = sub.add_parser("events-build", help="journal des événements de toutes les sources depuis une date")
     eb.add_argument("--from", dest="from_date", default="2016-01-01", help="AAAA-MM-JJ (défaut : 2016-01-01)")
