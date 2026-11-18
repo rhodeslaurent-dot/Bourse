@@ -544,3 +544,14 @@ tasks:
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli run-job portfolio_sync"
       - "docker compose exec -T app python -m app.cli saxo-check --fix-names"
+  # 18-08 : les lignes américaines sont reconnues ; la simulation du contrôle des noms propose de rattacher la ligne
+  # Saxo signalée par l'utilisateur à la société que Saxo nomme (l'utilisateur a confirmé laquelle). Correction réelle
+  # (comptes Saxo seulement, références d'exécution conservées), resynchronisation, puis contrôle (doit dire « conforme »).
+  - id: "2026-11-18-09"
+    purpose: "Ligne Saxo mal rattachée : correction après la simulation 18-08, resynchronisation et contrôle"
+    stop_on_error: true
+    timeout_s: 900
+    commands:
+      - "docker compose exec -T app python -m app.cli saxo-check --fix-names --apply"
+      - "docker compose exec -T app python -m app.cli run-job portfolio_sync"
+      - "docker compose exec -T app python -m app.cli saxo-check --fix-names"
