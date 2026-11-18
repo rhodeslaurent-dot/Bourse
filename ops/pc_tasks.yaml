@@ -503,3 +503,12 @@ tasks:
       - "docker compose up -d --build"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli sources-health --pages"
+  # Contrôle du matin du 18/11 (lecture seule) : chaîne du matin, 2e passage de l'analyse des idées (08:25), consensus
+  # de 22:20 (nombre et couverture par place, note entière), jobs du soir, coûts.
+  - id: "2026-11-18-05"
+    purpose: "Contrôle du matin : jobs, couverture du consensus par place, 2e passage de l'analyse des idées, coûts"
+    stop_on_error: false
+    timeout_s: 900
+    commands:
+      - "docker compose exec -T app python -m app.cli sources-health"
+      - "docker compose exec -T app python -m app.cli llm-costs"
