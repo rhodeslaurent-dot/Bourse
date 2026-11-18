@@ -624,3 +624,17 @@ tasks:
       - "docker compose up -d --build"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli gates-coverage --circuit"
+  # 18-14 : les 15 instantanés depuis le 22/10 sont incomplets à cause des seules liquidités du PEA jamais déclarées ;
+  # le coupe-circuit lit désormais le résultat seul (ADR-027, migration 0039 au démarrage). Reconstruction, instantané
+  # du jour réécrit avec le nouvel indicateur (idempotent), puis diagnostic : résultat jour par jour en R (sans
+  # montant), pour juger d'un rebasage (décision de l'utilisateur, non appliquée ici).
+  - id: "2026-11-18-15"
+    purpose: "Coupe-circuit sur le résultat (ADR-027) : reconstruction, instantané du jour réécrit, diagnostic en R"
+    stop_on_error: true
+    timeout_s: 1200
+    commands:
+      - "uv run python -m app.cli params-init --update"
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli run-job kpi_snapshot"
+      - "docker compose exec -T app python -m app.cli gates-coverage --circuit"
