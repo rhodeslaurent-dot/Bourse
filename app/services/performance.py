@@ -208,16 +208,21 @@ def snapshot_equity(s: Session, config: LoadedConfig, day: date, now: datetime |
     total_pos = 0.0
     total_lat = 0.0
     any_incomplete = bool(view.incomplete)
+    any_unpriced = bool(view.incomplete)  # a price or a rate missing: the P&L itself is partial
     counted: set[tuple[Any, ...]] = set()  # one broker balance shared by two accounts (Saxo: cash and SRD)
     for acc in s.scalars(select(Account).order_by(Account.id)):
         lines = [ln for ln in view.open_lines if ln.account == acc.type]
         pos_value = sum(ln.qty * ln.last_price for ln in lines if ln.mode != "srd" and ln.last_price is not None)
         lat = sum(ln.latent for ln in lines if ln.latent is not None)
         srd_lat = sum(ln.latent for ln in lines if ln.mode == "srd" and ln.latent is not None)
-        incomplete = any(ln.last_price is None for ln in lines) or acc.cash is None
+        unpriced = any(ln.last_price is None for ln in lines)
+        incomplete = unpriced or acc.cash is None
         equity = None if acc.cash is None else acc.cash + pos_value + srd_lat
         realized = sum(t.pnl for t in view.closed if t.account == acc.type)
-        rows.append(_upsert_kpi(s, day, acc.id, equity, acc.cash, pos_value, lat, realized, incomplete, now))
+        row = _upsert_kpi(s, day, acc.id, equity, acc.cash, pos_value, lat, realized, incomplete, now)
+        row.pnl_incomplete = unpriced  # 18/11/2026: unknown cash leaves the P&L whole
+        rows.append(row)
+        any_unpriced = any_unpriced or unpriced
         any_incomplete = any_incomplete or incomplete
         # 04/11/2026: the Saxo sync writes the same balance on cto_cash and cto_srd (one cash account at the
         # broker) — the consolidated counts it once, never twice
@@ -235,6 +240,7 @@ def snapshot_equity(s: Session, config: LoadedConfig, day: date, now: datetime |
         s, day, None, total_equity, total_cash, total_pos, total_lat, view.realized_total, any_incomplete, now
     )
     cons.core_latent_pnl, cons.core_realized_pnl_cum = view.core_latent, view.core_realized  # R17 (circuit)
+    cons.pnl_incomplete = any_unpriced
     rows.append(cons)
     s.flush()
     return rows

@@ -68,6 +68,7 @@ risk:
     peak_reduce_multiplier: 0.75
     missing_baseline_blocks: true     # décision du 04/11/2026 : sans instantané d'équité récent et complet, la mesure manque → BLOQUÉ, aucune entrée
     missing_baseline_multiplier: 0.75 # seulement si missing_baseline_blocks = false : niveau × 0,75 jusqu'au prochain instantané
+    baseline_from: null               # ADR-027 — décision de l'utilisateur seulement : jour à partir duquel le coupe-circuit lit les instantanés (ceux d'avant ignorés, ex. une ligne valorisée au cours d'une autre société) ; une période commencée avant est mesurée depuis le premier instantané complet de ce jour ; null = tous lus
   risk_dial:                          # docs/28 — niveau de risque du jour, conseillé chaque matin, appliqué par défaut, modifiable sur /risque
     effective_from: "2026-10-25"
     min_level: 0.5                    # jamais en dessous : la dilution sur plusieurs lignes reste la protection

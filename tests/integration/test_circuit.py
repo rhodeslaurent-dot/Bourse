@@ -117,28 +117,59 @@ def test_a_missing_measure_blocks_every_new_entry(db_engine, config, monkeypatch
         assert old.unavailable and old.size_multiplier == 0.75 and "indisponible" in old.reason
 
 
-def test_the_trace_says_which_baseline_is_missing_and_why(db_engine, config):
-    """18/11/2026: every proposal said « mesure indisponible » — the trace names the snapshot and its cause."""
-
+def _pea_rows(s, days, *, pnl_flag):  # type: ignore[no-untyped-def]
     from app.db.models import Account
 
+    pea = Account(broker="boursobank", type="pea", label="PEA")  # cash never declared
+    s.add(pea)
+    s.add(Trade(account_id=1, isin=ISIN, side="buy", qty=1, price=10, ts=datetime(2026, 9, 1, tzinfo=UTC),
+                kind="confirmed", source="saxo"))  # fmt: skip
+    s.flush()
+    for d in days:
+        s.add(KpiDaily(day=d, account_id=None, equity=None, realized_pnl_cum=0, latent_pnl=0, incomplete=True,
+                       pnl_incomplete=pnl_flag, computed_at=NOW_WED))  # fmt: skip
+        s.add(KpiDaily(day=d, account_id=pea.id, cash=None, incomplete=True, pnl_incomplete=pnl_flag,
+                       computed_at=NOW_WED))  # fmt: skip
+    s.flush()
+
+
+def test_the_trace_says_which_baseline_is_missing_and_why(db_engine, config):
+    """18/11/2026: every proposal said « mesure indisponible » — the trace names the snapshot and its cause."""
     with db_session() as s:
-        pea = Account(broker="boursobank", type="pea", label="PEA")  # cash never declared
-        s.add(pea)
-        s.add(Trade(account_id=1, isin=ISIN, side="buy", qty=1, price=10, ts=datetime(2026, 9, 1, tzinfo=UTC),
-                    kind="confirmed", source="saxo"))  # fmt: skip
-        s.flush()
-        for d in (date(2026, 9, 30), date(2026, 10, 16)):
-            s.add(KpiDaily(day=d, account_id=None, equity=None, realized_pnl_cum=0, latent_pnl=0, incomplete=True,
-                           computed_at=NOW_WED))  # fmt: skip
-            s.add(KpiDaily(day=d, account_id=pea.id, cash=None, incomplete=True, computed_at=NOW_WED))
-        s.add(KpiDaily(day=date(2026, 10, 20), account_id=None, equity=1, realized_pnl_cum=0, latent_pnl=0,
+        _pea_rows(s, (date(2026, 9, 30), date(2026, 10, 16)), pnl_flag=None)  # written before migration 0039
+        s.add(KpiDaily(day=date(2026, 10, 20), account_id=None, equity=1, realized_pnl_cum=0, latent_pnl=-600,
                        computed_at=NOW_WED))  # fmt: skip
         s.flush()
         out = circuit_mod.trace(s, config, NOW_WED)
     text = "\n".join(out)
     assert out[0].startswith("coupe-circuit au 21/10 : BLOQUANT — mesure indisponible")
-    assert "référence semaine (avant le 19/10) : 16/10 INCOMPLET (pea : liquidités inconnues)" in text
-    assert "référence mois (avant le 01/10) : 30/09 INCOMPLET (pea : liquidités inconnues)" in text
+    assert ("référence semaine (avant le 19/10) : 16/10 : résultat INCOMPLET (instantané d'avant le 18/11/2026 : lu "
+            "comme l'équité), équité partielle (pea : liquidités inconnues)") in text  # fmt: skip
+    assert "référence mois (avant le 01/10) : 30/09 : résultat INCOMPLET" in text
     assert "premier complet : 20/10" in text and "liquidités jamais renseignées : pea" in text
+    assert "en R depuis le 30/09 : 30/09 +0.0 · 16/10 +0.0 · 20/10 -2.0" in text  # 600 € = 2 R of 300 €
     assert "40000" not in text and "€" not in text  # no amount printed
+
+
+def test_unknown_cash_no_longer_hides_the_measure(db_engine, config):
+    """A declarative PEA whose cash was never declared leaves the gains and losses whole: the measure is there."""
+    with db_session() as s:
+        _pea_rows(s, (date(2026, 9, 30), date(2026, 10, 16)), pnl_flag=False)
+        v = circuit_state(s, config, NOW_WED, current=(0.0, -150.0))
+    assert not v.unavailable and v.week_r == -0.5 and v.month_r == -0.5
+
+
+def test_a_rebase_reads_only_the_snapshots_from_its_day(db_engine, config, raw):
+    """A line valued with another company's prices until 20/10 (a wrong tie): the user's rebase from 20/10."""
+    from app.config import validate_params
+
+    with db_session() as s:
+        _pea_rows(s, (date(2026, 9, 30), date(2026, 10, 16)), pnl_flag=None)
+        s.add(KpiDaily(day=date(2026, 10, 20), account_id=None, equity=1, realized_pnl_cum=0, latent_pnl=-4800,
+                       pnl_incomplete=False, computed_at=NOW_WED))  # fmt: skip
+        s.flush()
+        assert circuit_state(s, config, NOW_WED, current=(0.0, -4800.0)).unavailable  # no decision: still blocked
+        raw["risk"]["circuit_breaker"]["baseline_from"] = "2026-10-20"
+        v = circuit_state(s, validate_params(raw), NOW_WED, current=(0.0, -4800.0))
+    assert not v.unavailable and v.week_r == 0.0 and v.month_r == 0.0 and not v.tripped
+    assert any("mesure rebasée au 20/10" in n for n in v.notes)

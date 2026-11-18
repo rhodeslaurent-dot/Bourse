@@ -858,6 +858,8 @@ class KpiDaily(Base):
     latent_pnl: Mapped[float | None] = mapped_column(nullable=True)
     realized_pnl_cum: Mapped[float | None] = mapped_column(nullable=True)
     incomplete: Mapped[bool] = mapped_column(Boolean, default=False)  # a position without price was excluded
+    # 18/11/2026 (migration 0039): the P&L itself partial (a line without price or rate) — unknown cash is not
+    pnl_incomplete: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     # consolidated row only (docs/39, R17): the core pocket's share, left out of the circuit breaker's measure
     core_latent_pnl: Mapped[float | None] = mapped_column(nullable=True)

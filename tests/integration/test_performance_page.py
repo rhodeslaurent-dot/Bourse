@@ -72,6 +72,7 @@ def test_snapshot_equity_flags_unknown_cash_and_is_idempotent(db_engine, config)
         assert len(rows) == len(accounts) + 1  # one per account + consolidated
         cons = next(r for r in rows if r.account_id is None)
         assert cons.incomplete is True  # cto_srd cash unknown → never estimated
+        assert cons.pnl_incomplete is False  # 18/11/2026: the gains and losses stay whole (the circuit breaker's)
         cto = next(r for r in rows if r.account_id == next(a.id for a in accounts if a.type == "cto_cash"))
         assert cto.equity == pytest.approx(2000.0 + 100 * 56.5) and cto.incomplete is False
 
