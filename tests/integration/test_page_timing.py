@@ -58,3 +58,18 @@ def test_sources_health_job_prints_only_the_named_jobs_whole(db_engine, capsys):
     assert cli.cmd_sources_health(args) == 0
     out = capsys.readouterr().out
     assert "consensus_daily" in out and "x" * 900 in out and "news_scan" not in out and "Cours de clôture" not in out
+
+
+def test_the_social_note_says_why_reddit_and_bluesky_gave_nothing(db_engine, config, monkeypatch):
+    """18/11/2026: « Reddit 0 (1 échec(s)) ; Bluesky 0 (1 échec(s)) » every day, the cause unsaid."""
+    import httpx
+
+    from app.services import social
+
+    for k in ("REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(social, "collect_forum", lambda *a: (0, []))
+    with db_session() as s:
+        notes = social.collect_all(s, config, httpx.Client(), date(2026, 11, 18))
+    assert "Reddit 0 (1 échec(s) : identifiants Reddit absents (env-setup reddit))" in notes
+    assert "Bluesky 0 (1 échec(s) : identifiants Bluesky absents (env-setup bluesky))" in notes

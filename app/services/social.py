@@ -262,7 +262,8 @@ def collect_all(s: Session, config: LoadedConfig, client: httpx.Client, day: dat
             with s.begin_nested():
                 n, errors = fn(s, config, client, day)
             if n or errors:
-                notes.append(f"{name} {n}" + (f" ({len(errors)} échec(s))" if errors else ""))
+                # 18/11/2026: « Reddit 0 (1 échec(s)) » every day said nothing of the cause: the first one is shown
+                notes.append(f"{name} {n}" + (f" ({len(errors)} échec(s) : {errors[0][:90]})" if errors else ""))
         except Exception as exc:  # noqa: BLE001 — a network failing never stops the radar
             log.warning("%s : %s", name, exc.__class__.__name__)
             notes.append(f"{name} en échec ({exc.__class__.__name__})")
