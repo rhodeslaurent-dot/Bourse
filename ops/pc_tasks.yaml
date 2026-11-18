@@ -493,3 +493,13 @@ tasks:
       - "docker compose up -d --build"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli sources-health --pages"
+  # 18/11 : page Sources mesurée à 27,1 s, dont 27,0 s pour le tableau des mesures (un million de fenêtres relues à
+  # chaque visite) → gardé en mémoire tant que les mesures ne changent pas, préparé au démarrage et après la nuit.
+  - id: "2026-11-18-04"
+    purpose: "Page Sources : tableau des mesures gardé en mémoire (27 s par visite avant) ; reconstruction et mesure"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli sources-health --pages"

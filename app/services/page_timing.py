@@ -118,8 +118,11 @@ def time_sources(s: Session, config: Any) -> tuple[float, list[tuple[str, float,
         source_health.history(s, day)
     out.append(("history", time.monotonic() - t0, 1))
     t0 = time.monotonic()
-    event_measure.scoreboard(s, h, 5)
-    out.append(("scoreboard", time.monotonic() - t0, 1))
+    event_measure.cached_scoreboard(s, h, 5)  # empty cache in this process: the full computation
+    out.append(("scoreboard (1er calcul)", time.monotonic() - t0, 1))
+    t0 = time.monotonic()
+    event_measure.cached_scoreboard(s, h, 5)  # what the page's next visits cost
+    out.append(("scoreboard (en mémoire)", time.monotonic() - t0, 1))
     t0 = time.monotonic()
     source_health.job_states(s, source_health.feeders())
     out.append(("job_states", time.monotonic() - t0, 1))

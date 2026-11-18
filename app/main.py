@@ -179,6 +179,12 @@ def create_app(
             )
             app.state.scheduler.start()
             schedule_catch_up(app.state.scheduler, config)  # runs missed while the application was down
+            import threading
+
+            from app.services.event_measure import warm_boards
+
+            # 18/11/2026: the Sources page's tables computed in the background, not on the first visit
+            threading.Thread(target=warm_boards, args=(config,), daemon=True, name="warm-boards").start()
         for f in config.disabled_features:
             log.warning("fonctionnalité désactivée : %s — %s", f.label, f.reason)
         yield

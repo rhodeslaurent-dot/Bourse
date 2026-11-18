@@ -52,4 +52,5 @@ def run(ctx: JobContext) -> int:
             ev = Event("P3", "source_silent", f"{len(late)} source(s) muette(s) depuis trop longtemps", lines)
             ctx.alerts.emit(s, ev, ctx.mode, False)
     ctx.note = " ; ".join(notes)
+    event_measure.warm_boards(ctx.config)  # the Sources page's tables ready before the next visit (18/11/2026)
     return len(states)

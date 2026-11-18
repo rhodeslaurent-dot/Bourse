@@ -11,12 +11,13 @@ direction, and splits them by the context stored with each event (regime of the 
 from __future__ import annotations
 
 import os
+import threading
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.domain.event_stats import (
@@ -329,6 +330,50 @@ class ScoreRow:
     vix_vs_control: dict[str, Contrast] = field(default_factory=dict)
     control: GroupStats = GroupStats(0, None, None, None, None)  # the same values away from the source's events
     vs_control: Contrast = Contrast(0, 0, None, None)
+
+
+_BOARDS: dict[tuple[int, int], tuple[tuple[Any, ...], list[ScoreRow]]] = {}
+_BOARDS_LOCK = threading.Lock()
+
+
+def board_stamp(s: Session) -> tuple[Any, ...]:
+    """What the measures look like now: a new, redone or completed window changes it."""
+    from app.db.models import EventControl, EventOutcome
+
+    return tuple(
+        s.scalar(select(f))
+        for f in (func.max(EventOutcome.id), func.max(EventOutcome.computed_at), func.max(EventControl.id),
+                  func.max(EventControl.computed_at))
+    )  # fmt: skip
+
+
+def cached_scoreboard(s: Session, horizon: int = 5, min_n: int = 5) -> list[ScoreRow]:
+    """The Sources page's table — 27 s on the PC on 18/11/2026 — computed once per state of the measures (the night's
+    job prepares it); a second visitor during a computation waits for it instead of starting another."""
+    key, stamp = (horizon, min_n), board_stamp(s)
+    hit = _BOARDS.get(key)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    with _BOARDS_LOCK:
+        hit = _BOARDS.get(key)
+        if hit is not None and hit[0] == stamp:
+            return hit[1]
+        rows = scoreboard(s, horizon, min_n)
+        _BOARDS[key] = (stamp, rows)
+        return rows
+
+
+def warm_boards(config: Any) -> None:
+    """Compute the page's tables ahead (after the night's measure, at start-up). Never raises."""
+    from app.db.session import db_session
+
+    try:
+        st = settings(config)
+        with db_session() as s:
+            for h in st.horizons:
+                cached_scoreboard(s, h, 5)
+    except Exception:  # noqa: BLE001 — a page computed on its first visit instead
+        pass
 
 
 def scoreboard(s: Session, horizon: int = 5, min_n: int = 1, since: date | None = None,

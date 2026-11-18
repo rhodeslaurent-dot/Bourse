@@ -252,7 +252,7 @@ def home(request: Request) -> HTMLResponse:
 @router.get("/sources", response_class=HTMLResponse)
 def sources_page(request: Request, h: int = 5) -> HTMLResponse:
     """Step 1 of the user's plan (lots S1 to S3) — every source's health, day by day, and what followed its events."""
-    from app.services.event_measure import scoreboard, settings
+    from app.services.event_measure import cached_scoreboard, settings
     from app.services.source_health import FAMILIES, history, latest
 
     st = settings(request.app.state.config)
@@ -260,7 +260,7 @@ def sources_page(request: Request, h: int = 5) -> HTMLResponse:
     with db_session() as s:
         day, rows = latest(s)
         strip = history(s, day) if day else {}
-        board = scoreboard(s, h, 5)
+        board = cached_scoreboard(s, h, 5)  # 18/11/2026: 27 s per visit before; once per state of the measures
         from app.services.source_health import feeders, job_line, job_states
 
         jobs = [job_line(x).strip() for x in job_states(s, feeders())]

@@ -173,3 +173,27 @@ def test_the_gap_to_the_control_is_read_inside_each_context_bucket(db_engine):
     assert set(row.trend_vs_control) == {"au-dessus"} and row.trend_vs_control["au-dessus"].n_down == 2
     assert row.trend_vs_control["au-dessus"].diff == pytest.approx(1.01**5 - 1)
     assert set(row.vix_vs_control) == {"VIX < 20"}
+
+
+def test_the_sources_table_is_computed_once_per_state_of_the_measures(db_engine, monkeypatch):
+    """18/11/2026: the Sources page's table took 27 s at every visit on the PC."""
+    from app.services import event_measure
+
+    calls = []
+    real = event_measure.scoreboard
+
+    def counting(*a, **k):
+        calls.append(a[1:])
+        return real(*a, **k)
+
+    monkeypatch.setattr(event_measure, "scoreboard", counting)
+    monkeypatch.setattr(event_measure, "_BOARDS", {})
+    with db_session() as s:
+        first = event_measure.cached_scoreboard(s, 5, 5)
+        again = event_measure.cached_scoreboard(s, 5, 5)
+        assert again is first and len(calls) == 1  # the same state: from memory
+        event_measure.cached_scoreboard(s, 20, 5)
+        assert len(calls) == 2  # another horizon: its own table
+        monkeypatch.setattr(event_measure, "board_stamp", lambda s: ("changed",))
+        event_measure.cached_scoreboard(s, 5, 5)
+        assert len(calls) == 3  # the measures changed: computed again
