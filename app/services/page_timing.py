@@ -102,6 +102,30 @@ def time_home(s: Session, config: Any, day: date) -> tuple[float, list[tuple[str
     return total, rows
 
 
+def time_sources(s: Session, config: Any) -> tuple[float, list[tuple[str, float, int]]]:
+    """The « Sources » page's parts, each timed once, slowest first (same calls as the page)."""
+    from app.services import event_measure, source_health
+
+    st = event_measure.settings(config)
+    h = 5 if 5 in st.horizons else st.horizons[0]
+    out: list[tuple[str, float, int]] = []
+    t_all = time.monotonic()
+    t0 = time.monotonic()
+    day, _ = source_health.latest(s)
+    out.append(("latest", time.monotonic() - t0, 1))
+    t0 = time.monotonic()
+    if day:
+        source_health.history(s, day)
+    out.append(("history", time.monotonic() - t0, 1))
+    t0 = time.monotonic()
+    event_measure.scoreboard(s, h, 5)
+    out.append(("scoreboard", time.monotonic() - t0, 1))
+    t0 = time.monotonic()
+    source_health.job_states(s, source_health.feeders())
+    out.append(("job_states", time.monotonic() - t0, 1))
+    return time.monotonic() - t_all, sorted(out, key=lambda x: -x[1])
+
+
 def running_jobs(s: Session) -> list[tuple[str, datetime]]:
     from app.db.models import JobRun
     from app.domain.timeutil import from_store

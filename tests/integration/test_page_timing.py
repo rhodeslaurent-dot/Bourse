@@ -45,3 +45,4 @@ def test_sources_health_pages_prints_the_four_sections(db_engine, monkeypatch, t
     assert "18/11 09:00:00     95.0 s  GET /" in out  # Réunion time
     assert "sources_daily" in out and "(12 min)" in out
     assert "Requêtes SQL en cours depuis plus de 5 s" in out and "Page d'accueil (Revue du jour) construite en" in out
+    assert "Page Sources construite en" in out and "scoreboard" in out

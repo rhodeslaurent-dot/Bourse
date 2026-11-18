@@ -2867,6 +2867,13 @@ def _print_page_timings(day: date) -> int:
     print(f"\nPage d'accueil (Revue du jour) construite en {total:.1f} s, hors affichage :")
     for name, sec, n in parts:
         print(f"  {name:<20} {sec:>7.2f} s  ({n} appel(s))")
+    from app.services.page_timing import time_sources
+
+    with db_session() as s:
+        total, parts = time_sources(s, cfg)
+    print(f"\nPage Sources construite en {total:.1f} s, hors affichage :")
+    for name, sec, _ in parts:
+        print(f"  {name:<20} {sec:>7.2f} s")
     return 0
 
 

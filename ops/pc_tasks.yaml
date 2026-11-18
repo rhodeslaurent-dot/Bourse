@@ -483,3 +483,13 @@ tasks:
       - "docker compose up -d --build"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli sources-health --pages"
+  # 18/11 : page d'accueil mesurée à 0,7 s après le correctif (46,9 s avant). Le diagnostic chronomètre aussi la page
+  # Sources (tableau des mesures sur un million de fenêtres) : reconstruction et mesure.
+  - id: "2026-11-18-03"
+    purpose: "Mesure de la page Sources (après la page d'accueil, passée de 46,9 s à 0,7 s) : reconstruction et mesure"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli sources-health --pages"
