@@ -595,3 +595,20 @@ tasks:
       - "docker compose up -d --build"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli check-config"
+  # Point du soir 18/11 : reconstruction (catalyseur = sujet de l'article), trace des deux valeurs de la question de
+  # l'utilisateur (ni proposées ni surveillées), consensus relu avec le filtre par place et 5 pages (comparer aux
+  # 1 819 du matin ; couverture par place ; fraîcheur des valeurs américaines), relecture de la revue IA du soir
+  # (cache, sans nouvel appel), coûts.
+  - id: "2026-11-18-13"
+    purpose: "Point du soir : reconstruction, trace de deux valeurs, consensus filtré par place, revue IA, coûts"
+    stop_on_error: false
+    timeout_s: 3600
+    commands:
+      - "uv run python -m app.cli params-init --update"
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli gates-coverage --value NVDA --value TTWO"
+      - "docker compose exec -T app python -m app.cli run-job consensus_daily"
+      - "docker compose exec -T app python -m app.cli gates-coverage --value MSFT"
+      - "docker compose exec -T app python -m app.cli run-job position_ai_review"
+      - "docker compose exec -T app python -m app.cli llm-costs"
