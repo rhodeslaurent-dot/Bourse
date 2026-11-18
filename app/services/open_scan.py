@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Instrument, NewsItem, OfficialFiling, PriceEod, Proposal, Signal
 from app.domain.detectors import GapSnapshot
 from app.domain.timeutil import PARIS, REUNION, from_store
+from app.services.news import about
 
 DETECTOR = "d1_gap_catalyst"
 US = frozenset({"XNYS", "XNAS", "XASE", "ARCX", "BATS"})
@@ -59,10 +60,11 @@ def settings(config: Any) -> OpenScanSettings:
 def candidates(s: Session, now: datetime, mics: set[str], st: OpenScanSettings) -> dict[str, str]:
     """{isin: the catalyst, as a plain fact} for the universe values of ``mics``."""
     since = now - timedelta(hours=st.catalyst_hours)
-    q_univ = select(Instrument.isin).where(
+    q_univ = select(Instrument.isin, Instrument.name).where(
         Instrument.in_universe.is_(True), Instrument.active.is_(True), Instrument.mic.in_(mics)
     )
-    universe = set(s.scalars(q_univ))
+    names: dict[str, str] = {str(i): str(nm) for i, nm in s.execute(q_univ)}
+    universe = set(names)
     out: dict[str, str] = {}
     q = select(OfficialFiling).where(OfficialFiling.family == "resultats", OfficialFiling.market_timestamp >= since)
     for f in s.scalars(q.order_by(OfficialFiling.market_timestamp)):
@@ -74,7 +76,7 @@ def candidates(s: Session, now: datetime, mics: set[str], st: OpenScanSettings) 
         if c.get("direction") != "positif" or c.get("magnitude") not in st.news_magnitudes:
             continue
         for isin in n.isins or []:
-            if isin in universe and isin not in out:
+            if isin in universe and isin not in out and about(n, isin, names.get(isin)):
                 out[isin] = f"actualité positive ({c.get('magnitude')}) : {n.title[:90]}"
     return dict(list(out.items())[: st.max_candidates])
 

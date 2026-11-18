@@ -11,7 +11,7 @@ from app.db.models import DecisionSnapshot, Instrument, NewsItem, OfficialFiling
 from app.db.session import db_session
 from app.scheduler.jobs import open_scan as job
 from app.scheduler.runner import JobContext
-from app.services import open_scan
+from app.services import engine, open_scan
 from tests.integration.test_engine import ISIN, _seed
 from tests.unit.test_d1_gap import bars
 
@@ -123,3 +123,26 @@ class _NoDb:
 
     def __exit__(self, *a):
         return False
+
+
+def test_an_article_about_another_company_is_not_a_catalyst(db_engine, config, calendars):
+    """18/11/2026: an article classified positive is positive for its subject, not for each company it cites."""
+    from app.services.news import about
+
+    _seed_value(news=False)
+    with db_session() as s:
+        s.query(OfficialFiling).delete()
+        c = {"direction": "positif", "magnitude": "forte", "type": "autre"}
+        n = NewsItem(source="test", guid="n2", dedup_hash="n2", title="Spécial Valley : l'analyse exclusive d'Acme",
+                     body="Acme, puis TotalEnergies et d'autres.", fetched_at=NOW - timedelta(hours=3),
+                     isins=["US0000000AC1", ISIN], classification=c)  # fmt: skip
+        s.add(n)
+        s.flush()
+        assert not about(n, ISIN, "TotalEnergies") and about(n, "US0000000AC1", "Acme Corp")
+        assert about(NewsItem(title="Résultats", isins=[ISIN]), ISIN, "TotalEnergies")  # the only value named
+        assert about(
+            NewsItem(title="TotalEnergies et Acme signent", isins=["US0000000AC1", ISIN]), ISIN, "TotalEnergies"
+        )
+        n_, note = open_scan.run(s, config, calendars, NOW, {"XPAR"}, Alerts(), "disponible", Provider())
+        assert n_ == 0 and note == "aucune valeur avec catalyseur depuis la clôture précédente"
+        assert engine._catalyst(s, ISIN, NOW) == (None, False, None)  # nor in the score's catalyst block

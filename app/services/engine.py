@@ -194,11 +194,14 @@ def _insider_buy_days(s: Session, isin: str, now: datetime, window_days: int) ->
 
 
 def _catalyst(s: Session, isin: str, now: datetime) -> tuple[str | None, bool, int | None]:
+    from app.services.news import about
+
     best: tuple[str | None, bool, int | None] = (None, False, None)
     order = {"forte": 3, "moyenne": 2, "faible": 1}
+    inst = s.get(Instrument, isin)
     for n in s.scalars(select(NewsItem).where(NewsItem.fetched_at >= now - timedelta(days=5))):
-        if isin not in (n.isins or []):
-            continue
+        if not about(n, isin, inst.name if inst is not None else None):
+            continue  # 18/11/2026: an article about another company that cites this one is not its catalyst
         c = n.classification or {}
         if c.get("direction") != "positif" or c.get("type") in REGULATORY_TYPES:
             continue  # a manager's purchase scores on its own (docs/23 §23.3), a buyback is a fact, not a catalyst

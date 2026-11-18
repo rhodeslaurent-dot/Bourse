@@ -83,6 +83,21 @@ def attach_instruments(text: str, aliases: dict[str, str]) -> list[str]:
     return found
 
 
+def about(n: NewsItem, isin: str, name: str | None) -> bool:
+    """18/11/2026 — a news item is a catalyst of a value only when it is about it: the only value it names, or a value
+    its title names. Its classification (positive, strong…) is the article's, not each company's: an article on one
+    company that cites ten others is not a positive catalyst for the ten (a German « Valley » special on one American
+    value was attached to another one cited in its body)."""
+    isins = n.isins or []
+    if isin not in isins:
+        return False
+    if len(isins) == 1:
+        return True
+    title = n.title or ""
+    keys = {k: isin for k in name_keys(name or "") if mention_safe(k)}
+    return isin in ISIN_RE.findall(title) or bool(keys and find_mentions(title, keys))
+
+
 def classify_item(
     s: Session, item: NewsItem, gateway: ClaudeGateway | None
 ) -> tuple[NewsClassification, str, str | None, float]:
