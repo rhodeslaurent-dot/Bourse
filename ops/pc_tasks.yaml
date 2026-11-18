@@ -512,3 +512,11 @@ tasks:
     commands:
       - "docker compose exec -T app python -m app.cli sources-health"
       - "docker compose exec -T app python -m app.cli llm-costs"
+  # La ligne de consensus_daily est tombée dans la partie coupée du compte rendu 18-05 : le job relancé seul imprime sa
+  # note entière (nombre enregistré, couverture par place, coupure de la source). Quelques requêtes au screener.
+  - id: "2026-11-18-06"
+    purpose: "Couverture du consensus par place : le job relancé seul pour lire sa note entière"
+    stop_on_error: false
+    timeout_s: 900
+    commands:
+      - "docker compose exec -T app python -m app.cli run-job consensus_daily"
