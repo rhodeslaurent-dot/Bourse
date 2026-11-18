@@ -923,7 +923,9 @@ def cmd_saxo_auth(args: argparse.Namespace) -> int:
         print(f"échec : {r.status_code} {r.text[:200]}")
         return 1
     data = r.json()
-    TokenStore(live=not args.sim).save(data["refresh_token"], data.get("refresh_token_expires_in"))
+    TokenStore(live=not args.sim).save(
+        data["refresh_token"], data.get("refresh_token_expires_in"), data.get("access_token"), data.get("expires_in")
+    )
     print("refresh token chiffré et enregistré ; accès en lecture seule uniquement.")
     print(f"→ vérifier la lecture du compte : uv run python -m app.cli saxo-check{' --sim' if args.sim else ''}")
     return 0
@@ -2809,6 +2811,8 @@ def cmd_sources_health(args: argparse.Namespace) -> int:
     from app.services.source_health import FAMILIES, STATUS_LABELS, snapshot, summary_line
 
     day = date.fromisoformat(args.date) if args.date else date.today()
+    if args.pages:  # 18/11/2026: « several minutes to load » — measured, not guessed
+        return _print_page_timings(day)
     with db_session() as s:
         states = snapshot(s, day)
     fam = None
@@ -2828,6 +2832,41 @@ def cmd_sources_health(args: argparse.Namespace) -> int:
         with db_session() as s:
             for js in job_states(s, feeders(), clip=600):
                 print(job_line(js))
+    return 0
+
+
+def _print_page_timings(day: date) -> int:
+    from app.db.session import db_session
+    from app.domain.timeutil import REUNION
+    from app.services.page_timing import long_queries, recent_slow, running_jobs, time_home
+
+    cfg = load_params(None)  # PARAMS_PATH or config/params.yaml, as the application
+    print("Requêtes lentes récentes (plus de 5 s, heure de La Réunion)")
+    slow = recent_slow(20)
+    for r in slow:
+        at = datetime.fromisoformat(r["at"]).astimezone(REUNION)
+        print(f"  {at:%d/%m %H:%M:%S}  {r['s']:>7.1f} s  {r['method']} {r['path']}  (code {r['code']})")
+    if not slow:
+        print("  aucune enregistrée")
+    with db_session() as s:
+        jobs = running_jobs(s)
+        print("\nJobs en cours")
+        now = datetime.now(UTC)
+        for j, t in jobs:
+            print(f"  {j:<26} depuis {t.astimezone(REUNION):%d/%m %H:%M} ({(now - t).total_seconds() / 60:.0f} min)")
+        if not jobs:
+            print("  aucun")
+        qs = long_queries(s)
+        print("\nRequêtes SQL en cours depuis plus de 5 s")
+        for sec, state, q in qs:
+            print(f"  {sec:>7.0f} s  {state:<8} {q}")
+        if not qs:
+            print("  aucune")
+    with db_session() as s:
+        total, parts = time_home(s, cfg, day)
+    print(f"\nPage d'accueil (Revue du jour) construite en {total:.1f} s, hors affichage :")
+    for name, sec, n in parts:
+        print(f"  {name:<20} {sec:>7.2f} s  ({n} appel(s))")
     return 0
 
 
@@ -3169,6 +3208,7 @@ def main(argv: list[str] | None = None) -> int:
     sh = sub.add_parser("sources-health", help="état de chaque source : éléments du jour, 7 jours, historique, retard")
     sh.add_argument("--date", default=None, help="AAAA-MM-JJ (défaut : aujourd'hui)")
     sh.add_argument("--no-jobs", dest="no_jobs", action="store_true", help="sans les passages des jobs")
+    sh.add_argument("--pages", action="store_true", help="lenteur des pages : requêtes lentes, jobs, SQL, accueil")
     sh.set_defaults(fn=cmd_sources_health)
     eb = sub.add_parser("events-build", help="journal des événements de toutes les sources depuis une date")
     eb.add_argument("--from", dest="from_date", default="2016-01-01", help="AAAA-MM-JJ (défaut : 2016-01-01)")

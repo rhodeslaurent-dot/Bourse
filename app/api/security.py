@@ -147,4 +147,7 @@ class SlowRequestLog(BaseHTTPMiddleware):
             logging.getLogger("bourse.web").warning(
                 "requête lente : %s %s %.1f s (code %s)", request.method, request.url.path, took, response.status_code
             )
+            from app.services.page_timing import record_slow  # 18/11/2026: kept, read by `sources-health --pages`
+
+            record_slow(request.method, request.url.path, took, response.status_code)
         return response

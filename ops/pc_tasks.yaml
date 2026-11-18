@@ -461,3 +461,14 @@ tasks:
       - "uv run python -m app.cli params-init --update"
       - "docker compose up -d --build"
       - "wait-app 600"
+  # 18/11 (avant la chaîne du matin) : constats de l'utilisateur. Saxo : un renouvellement du jeton à la fois et jeton
+  # d'accès partagé (ADR-007, complément). Lenteur des pages : requêtes lentes conservées et mesure de la page
+  # d'accueil partie par partie, des jobs en cours et des requêtes SQL longues (lecture seule).
+  - id: "2026-11-18-01"
+    purpose: "Saxo : un renouvellement du jeton à la fois ; mesure de la lenteur des pages (reconstruction, mesure)"
+    stop_on_error: true
+    timeout_s: 1800
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli sources-health --pages"

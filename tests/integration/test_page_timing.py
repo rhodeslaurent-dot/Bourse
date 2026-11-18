@@ -1,0 +1,47 @@
+"""18/11/2026 — « the Cloudflare link takes several minutes to load »: slow requests kept, the home page timed part
+by part, the running jobs and long SQL statements listed (`sources-health --pages`)."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import UTC, date, datetime, timedelta
+
+from app import cli
+from app.db.models import JobRun
+from app.db.session import db_session
+from app.services import page_timing
+
+
+def test_slow_requests_are_kept_and_cut_back(monkeypatch, tmp_path):
+    monkeypatch.setenv("SLOW_REQUESTS_PATH", str(tmp_path / "d" / "slow.jsonl"))
+    monkeypatch.setattr(page_timing, "KEEP", 3)
+    for k in range(7):
+        page_timing.record_slow("GET", f"/p{k}", 6.0 + k, 200)
+    kept = page_timing.recent_slow(10)
+    assert [r["path"] for r in kept] == ["/p4", "/p5", "/p6"] and kept[-1]["s"] == 12.0
+    monkeypatch.setenv("SLOW_REQUESTS_PATH", str(tmp_path / "none.jsonl"))
+    assert page_timing.recent_slow() == []
+
+
+def test_the_home_page_is_timed_part_by_part_and_nothing_stays_patched(db_engine, config):
+    from app.services import daily_review
+
+    before = daily_review._ideas
+    with db_session() as s:
+        total, parts = page_timing.time_home(s, config, date(2026, 11, 18))
+    names = {n for n, _, _ in parts}
+    assert total >= 0 and {"_ideas", "_portfolio", "_sources", "build_risk_view"} <= names
+    assert daily_review._ideas is before  # the wrappers are removed afterwards
+
+
+def test_sources_health_pages_prints_the_four_sections(db_engine, monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("PARAMS_PATH", "config/params.example.yaml")
+    monkeypatch.setenv("SLOW_REQUESTS_PATH", str(tmp_path / "slow.jsonl"))
+    page_timing.record_slow("GET", "/", 95.0, 200, datetime(2026, 11, 18, 5, 0, tzinfo=UTC))
+    with db_session() as s:
+        s.add(JobRun(job="sources_daily", started_at=datetime.now(UTC) - timedelta(minutes=12), status="running"))
+    assert cli.cmd_sources_health(argparse.Namespace(date="2026-11-18", no_jobs=False, pages=True)) == 0
+    out = capsys.readouterr().out
+    assert "18/11 09:00:00     95.0 s  GET /" in out  # Réunion time
+    assert "sources_daily" in out and "(12 min)" in out
+    assert "Requêtes SQL en cours depuis plus de 5 s" in out and "Page d'accueil (Revue du jour) construite en" in out

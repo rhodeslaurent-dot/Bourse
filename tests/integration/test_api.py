@@ -150,9 +150,14 @@ def test_cloudflare_keys_are_not_read_again_on_every_request_after_a_failure(mon
     assert jw.get("team.cloudflareaccess.com") == {"keys": [{"kid": "k"}]} and len(calls) == 2
 
 
-def test_a_slow_request_is_named_in_the_log(config, calendars, db_engine, monkeypatch, caplog):
+def test_a_slow_request_is_named_in_the_log(config, calendars, db_engine, monkeypatch, caplog, tmp_path):
     monkeypatch.setenv("SLOW_REQUEST_S", "0")
+    monkeypatch.setenv("SLOW_REQUESTS_PATH", str(tmp_path / "slow.jsonl"))
     app = create_app(config=config, calendars=calendars, start_scheduler=False, start_telegram=False)
     with TestClient(app) as c, caplog.at_level("WARNING", logger="bourse.web"):
         assert c.get("/health").status_code == 200
     assert any("requête lente : GET /health" in r.getMessage() for r in caplog.records)
+    from app.services.page_timing import recent_slow
+
+    (kept,) = recent_slow()  # 18/11/2026: kept for `sources-health --pages`, path and duration only
+    assert kept["path"] == "/health" and kept["method"] == "GET" and kept["code"] == 200

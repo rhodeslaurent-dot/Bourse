@@ -12,8 +12,10 @@ from __future__ import annotations
 import logging
 import os
 import posixpath
+import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
@@ -63,6 +65,39 @@ class SaxoAuthExpired(ProviderError):
     """The refresh token is invalid or expired: a new ``saxo-auth`` (browser) is required."""
 
 
+_REFRESH_LOCK = threading.RLock()
+
+
+@contextmanager
+def exclusive_refresh(path: str) -> Iterator[None]:
+    """One token refresh at a time (18/11/2026). Saxo rotates the refresh token at every refresh: two refreshes
+    with the same token at the same moment (the keepalive, the portfolio sync, the 15-s quotes, the start-up
+    catch-up, a ``saxo-check``) made one of them fail, and could cost the whole authorisation. Threads of the app
+    take a lock; processes sharing the token file take a file lock where the file system allows it."""
+    with _REFRESH_LOCK:
+        fh: Any = None
+        flock: Any = None
+        try:
+            import fcntl
+
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            fh = open(path + ".lock", "a")  # noqa: SIM115 — held for the whole block
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            flock = fcntl
+        except (ImportError, OSError):  # Windows, or a mount without locks: the thread lock still holds
+            pass
+        try:
+            yield
+        finally:
+            if fh is not None:
+                if flock is not None:
+                    try:
+                        flock.flock(fh, flock.LOCK_UN)
+                    except OSError:
+                        pass
+                fh.close()
+
+
 class TokenStore:
     """Encrypted refresh-token persistence (``SAXO_TOKEN_KEY`` = Fernet key); one file per environment.
 
@@ -83,7 +118,10 @@ class TokenStore:
             raise ProviderError("SAXO_TOKEN_KEY absent (clé Fernet pour chiffrer le refresh token)")
         return Fernet(self.key.encode())
 
-    def save(self, refresh_token: str, refresh_expires_in: int | None = None) -> None:
+    def save(self, refresh_token: str, refresh_expires_in: int | None = None, access_token: str | None = None,
+             access_expires_in: int | None = None) -> None:  # fmt: skip
+        """The refresh token, and the access token that came with it (18/11/2026: shared by every client, so a new
+        client does not refresh again while it is valid)."""
         import json
         import tempfile
 
@@ -91,6 +129,8 @@ class TokenStore:
             "refresh_token": refresh_token,
             "saved_at": time.time(),
             "refresh_expires_at": (time.time() + int(refresh_expires_in)) if refresh_expires_in else None,
+            "access_token": access_token,
+            "access_expires_at": (time.time() + int(access_expires_in)) if access_token and access_expires_in else None,
         }
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(self.path) or ".", prefix=".saxo_token.")
@@ -114,6 +154,12 @@ class TokenStore:
     def load(self) -> str | None:
         data = self._read()
         return str(data["refresh_token"]) if data else None
+
+    def access(self) -> tuple[str, float] | None:
+        """The shared access token and its expiry (epoch seconds), when stored."""
+        data = self._read()
+        tok, exp = (data or {}).get("access_token"), (data or {}).get("access_expires_at")
+        return (str(tok), float(exp)) if tok and exp else None
 
     def info(self) -> dict[str, Any] | None:
         """``{saved_at, refresh_expires_at, expired}`` without the token itself (status pages, logs)."""
@@ -165,17 +211,38 @@ class SaxoClient:
     def _ensure_token(self) -> None:
         if self.access_token and (self.token_expiry == 0.0 or time.time() < self.token_expiry - 60):
             return
-        refresh = self.store.load()
-        if not refresh:
-            raise ProviderError("aucun jeton Saxo : lancer `python -m app.cli saxo-auth` (Authorization Code)")
-        self.refresh(refresh)
+        with exclusive_refresh(self.store.path):
+            if self._use_shared():  # another client refreshed meanwhile: its access token is valid
+                return
+            refresh = self.store.load()
+            if not refresh:
+                raise ProviderError("aucun jeton Saxo : lancer `python -m app.cli saxo-auth` (Authorization Code)")
+            self.refresh(refresh)
 
-    def refresh(self, refresh_token: str) -> None:
-        r = self.client.post(
+    def _use_shared(self) -> bool:
+        shared = self.store.access()
+        if shared and time.time() < shared[1] - 60:
+            self.access_token, self.token_expiry = shared
+            return True
+        return False
+
+    def _post_refresh(self, refresh_token: str) -> httpx.Response:
+        return self.client.post(
             f"{self.auth_base}/token",
             data={"grant_type": "refresh_token", "refresh_token": refresh_token},
             auth=(os.environ.get("SAXO_APP_KEY", ""), os.environ.get("SAXO_APP_SECRET", "")),
         )
+
+    def refresh(self, refresh_token: str) -> None:
+        r = self._post_refresh(refresh_token)
+        if r.status_code in (400, 401):
+            # 18/11/2026: refused because another process sharing the file rotated the token meanwhile? Then its
+            # result is used (or the new token tried once) — never a false « expired »
+            current = self.store.load()
+            if current and current != refresh_token:
+                if self._use_shared():
+                    return
+                r = self._post_refresh(current)
         if r.status_code in (400, 401):
             raise SaxoAuthExpired(
                 f"autorisation Saxo expirée ou révoquée (refresh {r.status_code}) : relancer "
@@ -187,14 +254,16 @@ class SaxoClient:
         self.access_token = data["access_token"]
         self.token_expiry = time.time() + int(data.get("expires_in", 1200))
         if data.get("refresh_token"):
-            self.store.save(data["refresh_token"], data.get("refresh_token_expires_in"))
+            self.store.save(data["refresh_token"], data.get("refresh_token_expires_in"), self.access_token,
+                            int(data.get("expires_in", 1200)))  # fmt: skip
 
     def keepalive(self) -> dict[str, Any]:
-        """Force a refresh so the rotating refresh token never expires while the app runs."""
-        refresh = self.store.load()
-        if not refresh:
-            raise ProviderError("aucun jeton Saxo : lancer `python -m app.cli saxo-auth` (Authorization Code)")
-        self.refresh(refresh)
+        """Force a refresh so the rotating refresh token never expires while the app runs (one at a time)."""
+        with exclusive_refresh(self.store.path):
+            refresh = self.store.load()
+            if not refresh:
+                raise ProviderError("aucun jeton Saxo : lancer `python -m app.cli saxo-auth` (Authorization Code)")
+            self.refresh(refresh)
         return self.store.info() or {}
 
     # --- portfolio (read) -------------------------------------------------------------------

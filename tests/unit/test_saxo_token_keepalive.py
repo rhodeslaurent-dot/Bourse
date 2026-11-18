@@ -115,3 +115,75 @@ def test_keepalive_is_scheduled_every_day(config):
     jobs = {j.name: j for j in build_schedule(config.params)}
     assert "saxo_token_keepalive" in jobs and not jobs["saxo_token_keepalive"].spec.market_days_only
     assert "sun" in str(jobs["saxo_token_keepalive"].trigger) and "*/20" in str(jobs["saxo_token_keepalive"].trigger)
+
+
+@respx.mock
+def test_a_new_client_reuses_the_shared_access_token_instead_of_refreshing(store):
+    """18/11/2026: every new client (portfolio sync, keepalive, quotes) refreshed again — needless rotations."""
+    store.save("rt-1")
+    token = respx.post(f"{LIVE_AUTH}/token").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "access_token": "at-1",
+                "expires_in": 1200,
+                "refresh_token": "rt-2",
+                "refresh_token_expires_in": 3600,
+            },
+        )
+    )
+    me = respx.get(f"{LIVE_BASE}/port/v1/clients/me").mock(return_value=httpx.Response(200, json={"ClientKey": "c"}))
+    SaxoClient(client=httpx.Client(), live=True).me()
+    SaxoClient(client=httpx.Client(), live=True).me()
+    assert token.call_count == 1 and store.load() == "rt-2"
+    assert all(c.request.headers["Authorization"] == "Bearer at-1" for c in me.calls)
+
+
+@respx.mock
+def test_simultaneous_clients_refresh_only_once(store):
+    import threading
+
+    store.save("rt-1")
+    used: list[str] = []
+
+    def answer(request):
+        time.sleep(0.05)  # a slow answer: the others wait for it instead of reusing rt-1
+        rt = request.content.decode().split("refresh_token=")[-1]
+        used.append(rt)
+        if used.count(rt) > 1:
+            return httpx.Response(401, json={"error": "invalid_grant"})  # a rotated token used twice
+        return httpx.Response(200, json={"access_token": f"at-{rt}", "expires_in": 1200, "refresh_token": rt + "x"})
+
+    respx.post(f"{LIVE_AUTH}/token").mock(side_effect=answer)
+    respx.get(f"{LIVE_BASE}/port/v1/clients/me").mock(return_value=httpx.Response(200, json={"ClientKey": "c"}))
+    errors: list[Exception] = []
+
+    def one():
+        try:
+            SaxoClient(client=httpx.Client(), live=True).me()
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=one) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and used == ["rt-1"]
+
+
+@respx.mock
+def test_a_token_rotated_meanwhile_by_another_process_is_not_an_expiry(store):
+    """The CLI in the container refreshed between our read and our call: its result is used, never « expirée »."""
+    store.save("rt-2")  # what the other process saved
+
+    def answer(request):
+        rt = request.content.decode().split("refresh_token=")[-1]
+        if rt == "rt-1":
+            return httpx.Response(401, json={"error": "invalid_grant"})
+        return httpx.Response(200, json={"access_token": "at-3", "expires_in": 1200, "refresh_token": "rt-3"})
+
+    respx.post(f"{LIVE_AUTH}/token").mock(side_effect=answer)
+    c = SaxoClient(client=httpx.Client(), live=True)
+    c.refresh("rt-1")  # stale token read before the other process rotated it
+    assert c.access_token == "at-3" and store.load() == "rt-3"
