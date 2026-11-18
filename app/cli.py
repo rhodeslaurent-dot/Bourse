@@ -1929,6 +1929,15 @@ def cmd_gates_coverage(args: argparse.Namespace) -> int:
     from app.db.session import db_session
     from app.services import gates_coverage
 
+    if getattr(args, "value", None):  # 18/11/2026: one value through each gate (« why is it not proposed? »)
+        from app.services.value_trace import trace
+
+        cfg = load_params(None)
+        with db_session() as s:
+            for q in args.value:
+                print("\n".join(trace(s, cfg, q, date.today())) + "\n")
+        return 0
+
     cfg = load_params(args.params)
     end = date.fromisoformat(args.to) if args.to else date.today()
     start = date.fromisoformat(args.from_date) if args.from_date else end - timedelta(days=30)
@@ -3322,6 +3331,9 @@ def main(argv: list[str] | None = None) -> int:
     gc.add_argument("--from", dest="from_date", default=None, help="début (défaut : 30 jours avant la fin)")
     gc.add_argument("--to", default=None, help="fin (défaut : aujourd'hui)")
     gc.add_argument("--json", action="store_true")
+    gc.add_argument(
+        "--value", action="append", default=[], help="une valeur (ISIN, ticker ou nom) suivie porte par porte"
+    )
     gc.set_defaults(fn=cmd_gates_coverage)
     vpv = sub.add_parser(
         "verdict-preview", help="niveau de verdict gradué des propositions d'un jour (docs/37, lecture seule)"
