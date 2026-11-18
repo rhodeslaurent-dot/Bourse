@@ -195,9 +195,11 @@ def opportunities_page(
                 if information_only(it, far)
                 else 1
             )
+            if it["sig"] is not None and it["sig"].detector == MEDIUM_TERM:  # ADR-026: their own section
+                it["groupe"] = MEDIUM_TERM_GROUP
             it["pourquoi"] = [x for x in dict.fromkeys(plain_reason(b) for b in blocked) if x]
         level_groups = _verdict_groups(cfg, items)  # docs/37 L0: only when the day's proposals carry a level
-        items.sort(key=lambda it: (it["groupe"], sort_key(it)))
+        items.sort(key=lambda it: (GROUP_ORDER.get(it["groupe"], it["groupe"]), sort_key(it)))
         counts = {a: sum(1 for it in items if it["p"].action == a) for a in ("BUY", "WATCH", "NO_TRADE")}
         places: dict[str, int] = {}
         for it in items:
@@ -222,6 +224,10 @@ def opportunities_page(
             ),
         },
     )
+
+
+MEDIUM_TERM, MEDIUM_TERM_GROUP = "m1_consensus_trend", 5
+GROUP_ORDER = {0: 0, MEDIUM_TERM_GROUP: 0.5}  # the medium-term ideas right after what can be acted on today
 
 
 def _verdict_groups(cfg: Any, items: list[dict]) -> dict[int, tuple[str, str]] | None:

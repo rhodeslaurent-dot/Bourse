@@ -85,6 +85,21 @@ def trace(s: Session, config: Any, query: str, today: date) -> list[str]:
                        + (f" · {', '.join(above)}" if above else ""))  # fmt: skip
         else:
             out.append("  force relative : non calculée (valeur hors univers ou historique insuffisant)")
+        from app.services.fundamentals import facts as fundamental_facts
+
+        _ff, shown = fundamental_facts(s, inst)
+        tv = shown.get("tradingview") or {}
+        if shown.get("objectif_analystes") is not None or tv:
+            n = shown.get("nb_analystes") or tv.get("nb_analystes") or "?"
+            mean = shown.get("objectif_analystes") or tv.get("objectif_moyen") or "—"
+            when = shown.get("jour") or tv.get("jour") or "?"
+            line = (f"  consensus : {n} analyste(s), objectif moyen {mean} (source {shown.get('source')}, du {when}) · "
+                    f"TradingView : moyen {tv.get('objectif_moyen', '—')}, bas {tv.get('objectif_bas', '—')}, "
+                    f"haut {tv.get('objectif_haut', '—')}, note {tv.get('note', '—')} (échelle à vérifier) · "
+                    f"recommandation Yahoo {shown.get('recommandation') or '—'}")  # fmt: skip
+            out.append(line + (" · sources divergentes : objectif écarté" if shown.get("sources_divergentes") else ""))
+        else:
+            out.append("  consensus : aucun enregistré (consensus_daily, fundamentals_refresh)")
         u = config.params.universe or {}
         rs_min, wl_max = u.get("momentum_watchlist_rs_rank_min", 80), u.get("momentum_watchlist_max", 100)
         wl = list(s.scalars(select(WatchlistRow).where(WatchlistRow.isin == inst.isin, WatchlistRow.active.is_(True))))

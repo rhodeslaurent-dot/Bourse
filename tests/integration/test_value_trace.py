@@ -41,6 +41,7 @@ def test_a_value_is_followed_gate_by_gate(db_engine, config):
     assert "propositions (30 j) : aucune — une proposition naît d'un signal, jamais d'une actualité seule" in ttwo
     assert "univers : OUI" in nvda and "4100.0 Md€" in nvda and "3 séance(s) stockée(s), dernière 16/11/2026" in nvda
     assert "liste de surveillance : NON" in nvda and "aucun détecteur" in nvda
+    assert "consensus : aucun enregistré" in nvda  # 18/11/2026: the consensus line (scale of the rating to verify)
     assert "aucune valeur connue" in unknown[0]
 
 

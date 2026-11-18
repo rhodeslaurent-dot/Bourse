@@ -141,6 +141,8 @@ LABELS: dict[str, dict[str, str]] = {
         "d5": "D5 · relais",
         "d6": "D6 · catalyseur",
         "external": "Source externe",
+        "d1_gap_catalyst": "Écart d'ouverture + catalyseur",
+        "m1_consensus_trend": "Moyen terme · analystes + tendance",
     },
 }
 

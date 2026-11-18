@@ -37,6 +37,21 @@ class GapSnapshot:
 
 
 @dataclass(frozen=True)
+class ConsensusFacts:
+    """The analysts' consensus as stored and cross-checked by the engine (docs/23 S4: Yahoo and TradingView, a target
+    dropped when the sources diverge or its currency is not the quote's) — facts as published, never interpreted."""
+
+    target: float  # average target, in the quote currency
+    n_analysts: int
+    low: float | None = None
+    high: float | None = None
+    rating: float | None = None  # as published (TradingView's scale): used only once its scale is declared
+    recommendation: str | None = None  # Yahoo's published key (strong_buy, buy, hold, underperform, sell)
+    day: str | None = None
+    source: str = ""
+
+
+@dataclass(frozen=True)
 class DetectorContext:
     rs_rank: float | None  # cross-sectional rank 0–100 (features_daily)
     zones: list[DetectedZone]
@@ -45,6 +60,8 @@ class DetectorContext:
     extra_targets: list[float] = field(default_factory=list)  # published targets (letters), if any
     buzz: bool = False  # docs/26 S3: the radar saw retail chatter accelerate before any publication
     gap: GapSnapshot | None = None  # docs/06 D1 (18/11/2026): today's session so far, set only by the opening scans
+    consensus: ConsensusFacts | None = None  # ADR-026 (18/11/2026): the analysts' consensus, set by the engine
+    welcomed: str | None = None  # ADR-024: results welcomed by the market lately (the watchlist's fact), if any
 
 
 @dataclass
@@ -418,14 +435,76 @@ class D1GapCatalyst:
                       str(p.get("horizon", "days")), evidence, warn)]  # fmt: skip
 
 
+class M1ConsensusTrend:
+    """Medium-term idea (ADR-026, user's request of 18/11/2026: « medium-term investments too when there are fine
+    opportunities »; choice « analysts + trend »). Enough analysts (``min_analysts``) whose average target stands at
+    least ``min_upside`` above the price, a published recommendation (Yahoo) among ``recommendations_ok`` when known,
+    and a long trend not broken (close above the 200-day average, 50 above 200) — or results lately welcomed by the
+    market (ADR-024). Not chased: the close at most ``max_above_mm50`` above the 50-day average. Entry: limit at the
+    close, up to ``entry_max_pct`` above; stop under the low of the last ``stop_lookback`` sessions minus the ATR
+    buffer (docs/07 §7.2), flagged beyond ``max_stop_pct``; target: the consensus average (a published level, as a
+    letter's). TradingView's numeric rating is used only when its scale is declared (``rating_best``,
+    ``rating_max``): never guessed. Not measured: the card says so."""
+
+    name = "m1_consensus_trend"
+
+    def __init__(self, params: dict[str, Any]) -> None:
+        self.params = params
+
+    def detect(self, bars: list[Bar], ctx: DetectorContext) -> list[Setup]:
+        p, c = self.params, ctx.consensus
+        if c is None or len(bars) < 210 or c.n_analysts < int(p.get("min_analysts", 10)):
+            return []
+        f = compute_daily_features(bars)
+        last = bars[-1]
+        if not (f.mm50 and f.mm200 and f.atr14) or last.close <= 0:
+            return []
+        upside = c.target / last.close - 1
+        if upside < float(p.get("min_upside", 0.15)):
+            return []
+        ok_recos = p.get("recommendations_ok") or []
+        if c.recommendation and ok_recos and c.recommendation not in ok_recos:
+            return []  # the analysts do not lean to buying (Yahoo's published recommendation)
+        best, worst_ok = p.get("rating_best"), p.get("rating_max")
+        if best is not None and worst_ok is not None and c.rating is not None:
+            ok = c.rating <= float(worst_ok) if float(best) <= 1 else c.rating >= float(worst_ok)
+            if not ok:
+                return []
+        trend = last.close > f.mm200 and f.mm50 > f.mm200
+        if not trend and not ctx.welcomed:
+            return []
+        if last.close > f.mm50 * (1 + float(p.get("max_above_mm50", 0.08))):
+            return []  # well above its 50-day average: not chased, a pullback is awaited
+        entry = last.close
+        p_max = last.close * (1 + float(p.get("entry_max_pct", 0.01)))
+        lb = int(p.get("stop_lookback", 60))
+        low = min(b.low for b in bars[-lb:])
+        stop = low - ctx.stop_buffer_atr_mult * f.atr14
+        warn = []
+        if (p_max - stop) / p_max > float(p.get("max_stop_pct", 0.15)):
+            warn.append(f"stop trop large ({(p_max - stop) / p_max:.1%} sous le prix maximal)")
+        targets = [c.target] if c.target > p_max * 1.005 else []
+        evidence = {"objectif_moyen_analystes": c.target, "nb_analystes": c.n_analysts, "objectif_bas": c.low,
+                    "objectif_haut": c.high, "potentiel": round(upside, 4), "note_analystes": c.rating,
+                    "recommandation_analystes": c.recommendation,
+                    "consensus_du": c.day, "source_consensus": c.source, "mm50": f.mm50, "mm200": f.mm200,
+                    "tendance": "longue tendance haussière intacte (cours > MM200, MM50 > MM200)" if trend
+                    else f"tendance longue non haussière, résultats salués : {ctx.welcomed}",
+                    "plus_bas_seances": lb, "mesure": "non mesuré (idée moyen terme, ADR-026)"}  # fmt: skip
+        return [Setup(self.name, SetupKind.PULLBACK, entry, p_max, stop, "structure", low, targets, "moyen_terme",
+                      evidence, warn)]  # fmt: skip
+
+
 DETECTORS = {c.name: c for c in (D2Breakout, D3RangeExpansion, D4Pullback, D7TrendQuality, D8BuzzEarly)}
-# detectors that need today's session so far (the opening scans): never replayed on daily bars (backtests, studies)
-LIVE_DETECTORS = {D1GapCatalyst.name: D1GapCatalyst}
+# detectors that need facts of the day the daily bars do not hold — today's session so far (D1, opening scans), the
+# analysts' consensus as stored since 11/2026 (M1): never replayed on past bars (backtests, studies)
+LIVE_DETECTORS: dict[str, Any] = {D1GapCatalyst.name: D1GapCatalyst, M1ConsensusTrend.name: M1ConsensusTrend}
 
 
 def run_detectors(params: dict[str, Any], bars: list[Bar], ctx: DetectorContext) -> list[Setup]:
     out: list[Setup] = []
-    for name, cls in {**DETECTORS, **(LIVE_DETECTORS if ctx.gap is not None else {})}.items():
+    live = LIVE_DETECTORS if ctx.gap is not None or ctx.consensus is not None else {}
+    for name, cls in {**DETECTORS, **live}.items():
         p = params.get(name) or {}
         if p.get("enabled", False):
             out.extend(cls(p).detect(bars, ctx))

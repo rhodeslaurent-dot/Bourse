@@ -46,7 +46,7 @@ from app.domain.costs import (
     net_outcome,
     round_trip_fee_fraction,
 )
-from app.domain.detectors import DetectorContext, Setup, run_detectors
+from app.domain.detectors import ConsensusFacts, DetectorContext, Setup, run_detectors
 from app.domain.events import EventParams, event_exposure
 from app.domain.heat import (
     HeatLine,
@@ -208,6 +208,41 @@ def _catalyst(s: Session, isin: str, now: datetime) -> tuple[str | None, bool, i
             ts = ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
             best = (mag, True, (now - ts).days)
     return best
+
+
+def _welcomed(s: Session) -> dict[str, str]:
+    """ADR-024: the values in the watchlist for results the market welcomed lately — their fact, in plain words."""
+    from app.db.models import WatchlistRow
+
+    rows = s.scalars(select(WatchlistRow).where(WatchlistRow.reason == "catalyseur", WatchlistRow.active.is_(True)))
+    return {w.isin: str((w.levels or {}).get("fait") or "résultats salués par le marché") for w in rows}
+
+
+def _consensus(shown: dict[str, Any], m1: dict[str, Any], currency: str, day: date) -> ConsensusFacts | None:
+    """ADR-026: the analysts' consensus of a value for the medium-term detector — the engine's cross-checked target
+    (sources divergent or currency not the quote's → none), from at least ``min_analysts`` analysts, a TradingView
+    reading at most ``max_age_days`` old; the low, high and rating as published."""
+    from app.services.fundamentals import analyst_target
+
+    target = analyst_target(shown, int(m1.get("min_analysts", 10)), currency)
+    if target is None:
+        return None
+    tv = shown.get("tradingview") or {}
+    jour = tv.get("jour") or shown.get("jour")
+    if shown.get("source") == "tradingview" and jour:
+        if (day - date.fromisoformat(str(jour))).days > int(m1.get("max_age_days", 7)):
+            return None  # a consensus not read for days: never a target of today
+
+    def num(k: str) -> float | None:  # the low and high of the source that gave the target
+        src = tv if shown.get("source") == "tradingview" else shown
+        v = src.get(k)
+        return float(v) if isinstance(v, int | float) and not src.get("devise_incertaine") else None
+
+    note = tv.get("note")
+    reco = shown.get("recommandation")
+    return ConsensusFacts(target, int(shown.get("nb_analystes") or 0), num("objectif_bas"), num("objectif_haut"),
+                          float(note) if isinstance(note, int | float) else None, str(reco) if reco else None,
+                          str(jour) if jour else None, str(shown.get("source") or ""))  # fmt: skip
 
 
 @dataclass
@@ -1986,6 +2021,8 @@ def _scan(
 
     lp = letter_params(config)
     cands = _candidates(s, isins, core)
+    m1p = (p.detectors or {}).get("m1_consensus_trend") or {}
+    welcomed = _welcomed(s) if m1p.get("enabled") else {}  # ADR-026: results welcomed lately (ADR-024 watchlist)
     # docs/20 §20.10: every value a letter recommends gets a proposal of the day — « non analysable » when the
     # scan cannot reach it or the tool cannot compute it, with the reason (never silence)
     letter_na = _missing_letter_values(s, day, set(isins) - {i.isin for i in cands}) if isins else []
@@ -2033,6 +2070,8 @@ def _scan(
                 [at] if at else [],
                 buzz=bool(buzz_isins and inst.isin in buzz_isins),
                 gap=(gaps or {}).get(inst.isin),
+                consensus=_consensus(shown, m1p, inst.currency, day) if m1p.get("enabled") and shown else None,
+                welcomed=welcomed.get(inst.isin),
             )
             found = [
                 (x, "radar" if x.detector == "d8_buzz_precoce" else "moteur")

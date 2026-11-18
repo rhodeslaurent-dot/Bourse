@@ -497,6 +497,18 @@ detectors:
     stop_max_adr_mult: 2.5
     horizon: "days"                   # quelques séances
     time_stop_sessions: 10
+  m1_consensus_trend:                # ADR-026 (18/11/2026, demande de l'utilisateur) — idée moyen terme « analystes + tendance », non mesurée
+    enabled: true
+    min_analysts: 10                  # au moins 10 analystes publient un objectif (objectif recoupé Yahoo / TradingView par le moteur)
+    min_upside: 0.15                  # objectif moyen au moins 15 % au-dessus du cours
+    max_age_days: 7                   # consensus TradingView lu il y a au plus 7 jours
+    max_above_mm50: 0.08              # pas de course : clôture au plus 8 % au-dessus de la moyenne 50 jours
+    entry_max_pct: 0.01               # limite : clôture + 1 %
+    stop_lookback: 60                 # stop sous le plus bas des 60 dernières séances (moins le tampon ATR de risk.stop)
+    max_stop_pct: 0.15                # stop à plus de 15 % sous le prix maximal → signalé (« stop trop large »)
+    recommendations_ok: ["strong_buy", "buy"]   # recommandation publiée (Yahoo) : « achat fort » ou « achat » ; inconnue → non utilisée
+    rating_best: null                 # échelle de la note des analystes (TradingView) : 1 si 1 = « achat fort », 5 si 5 = « achat fort » ; null = note affichée, jamais utilisée
+    rating_max: null                  # note la moins favorable admise (ex. 2 avec rating_best: 1) ; utilisée seulement avec rating_best
   d7_trend_quality:                  # docs/22 §22.4 B — swing « tendance + qualité » (quelques semaines)
     enabled: true
     rs_rank_min: 80
@@ -536,6 +548,7 @@ scoring:
     d4_pullback: ["T", "R", "M"]
     d7_trend_quality: ["T", "F", "R", "M"]
     d8_buzz_precoce: ["R", "M"]          # l'opportunité vient du radar : ni tendance ni catalyseur publié exigés
+    m1_consensus_trend: ["T", "F", "R", "M"]   # ADR-026 : idée moyen terme, mêmes blocs qu'une tendance (d7)
     external: ["T", "R", "M"]
   f_min_available_subcriteria: 2
   insider_window_days: 30              # docs/23 §23.3 : achat d'un dirigeant (MAR art. 19) pris en compte pendant 30 jours

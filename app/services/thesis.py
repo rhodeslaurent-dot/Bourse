@@ -44,6 +44,10 @@ def facts_for(s: Session, p: Proposal, now: datetime | None = None) -> list[dict
         "d2_breakout": "cassure du pivot 60 séances",
         "d3_range_expansion": "expansion de range",
         "d4_pullback": "repli sur leader",
+        "d7_trend_quality": "tendance et qualité, repli sur la moyenne 50 jours",
+        "d8_buzz_precoce": "échanges du public qui s'emballent avant publication",
+        "d1_gap_catalyst": "écart d'ouverture après un catalyseur (ADR-025)",
+        "m1_consensus_trend": "idée moyen terme : objectif des analystes et tendance (ADR-026)",
         "external": "configuration publiée par une lettre",
     }
     facts.append(f"Configuration : {det.get(_detector(s, p), _detector(s, p))}, horizon {p.horizon}")
