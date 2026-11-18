@@ -520,3 +520,14 @@ tasks:
     timeout_s: 900
     commands:
       - "docker compose exec -T app python -m app.cli run-job consensus_daily"
+  # Couverture du consensus (18-06) : america 1500/11899, germany 1500/37727, uk 1500/3640 lignes lues — ces marchés
+  # mêlent toutes les places du pays. Avant de filtrer par place, vérifier (lecture seule, 2 requêtes par marché) que
+  # le champ « exchange » répond et ce qu'il contient.
+  - id: "2026-11-18-07"
+    purpose: "Consensus : le champ « exchange » du screener (Allemagne, États-Unis, Londres) avant un filtre par place"
+    stop_on_error: false
+    timeout_s: 600
+    commands:
+      - "docker compose exec -T app python -m app.cli tv-columns-check --market germany --columns exchange,type"
+      - "docker compose exec -T app python -m app.cli tv-columns-check --market america --columns exchange,type"
+      - "docker compose exec -T app python -m app.cli tv-columns-check --market uk --columns exchange,type"
