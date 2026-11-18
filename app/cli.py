@@ -504,6 +504,7 @@ NEW_TOP_BLOCKS = [
     "insider_caution",  # étape 2, lot D1 (17/11/2026) — prudence après une vente de dirigeant
     "position_ai",  # étape 2, option B (17/11/2026) — revue IA du soir des positions, en observation
     "idea_ai",  # étape 2, option A (17/11/2026) — analyse multi-agent des idées du jour, en observation
+    "watchlist_catalyst",  # 18/11/2026 — seconde entrée dans la liste de surveillance (résultats salués, radar)
 ]
 # top-level groups present since the first params.yaml (never appended by params-init --update): every other group
 # of the example must be in NEW_TOP_BLOCKS (tests/unit/test_cli_setup.py), so that a new group is never forgotten

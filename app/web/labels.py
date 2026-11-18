@@ -123,6 +123,7 @@ LABELS: dict[str, dict[str, str]] = {
         "external": "Lettre / analyste",
         "manual": "Ajout manuel",
         "a_l_affut": "À l’affût (repli)",
+        "catalyseur": "Catalyseur (résultats salués, actualité)",
     },
     # docs/37 §37.2 (lot L0, verdict.enabled): the graduated verdict, a closed list computed in Python
     "verdict_niveau": {

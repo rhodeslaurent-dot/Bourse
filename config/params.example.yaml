@@ -224,6 +224,16 @@ event_journal:                           # étape 1 du plan (lots S1 à S3, 15/1
   consensus_min_change: 0.02            # variation de l'objectif moyen des analystes en dessous de laquelle ce n'est pas un événement
   short_volume_z: 3.0                   # lot S5 : part vendue à découvert (FINRA) à ≥ 3 écarts de sa base de 20 jours
 
+watchlist_catalyst:                     # 18/11/2026 (remarque de l'utilisateur sur NVIDIA : −25 % sur des mois, très bons résultats, forte actualité, absente de la liste) — seconde entrée dans la liste de surveillance, à côté du momentum : faits stockés seulement, quelle que soit la tendance passée ; à suivre, jamais un ordre
+  effective_from: "2026-11-18"
+  enabled: true
+  lookback_days: 5                      # publication de résultats (communiqué AMF, 8-K 2.02) des 5 derniers jours
+  min_move_pct: 0.03                    # hausse d'au moins 3 % de la dernière clôture avant la publication à la première après
+  min_rel_volume: 1.5                   # volume de cette séance ≥ 1,5 × la moyenne des 20 séances d'avant
+  keep_days: 14                         # sortie de la liste après 14 jours (sauf nouveau fait)
+  radar_labels: [attention_corroboree]  # étiquettes du radar (attention inhabituelle appuyée par des nouvelles)
+  radar_days: 2
+
 idea_ai:                                # étape 2, option A (décision du 17/11/2026, docs/42, ADR-020) — sur les meilleures idées du jour : niveaux de Python, d'un analyste IA et d'un contradicteur IA, arbitre IA sur les premières ; contrôle de vraisemblance et taille par Python ; en OBSERVATION, mesuré (Python reste l'auteur par défaut)
   effective_from: "2026-11-17"
   enabled: true

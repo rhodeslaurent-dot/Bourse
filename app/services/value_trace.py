@@ -95,7 +95,8 @@ def trace(s: Session, config: Any, query: str, today: date) -> list[str]:
                                                                         WatchlistRow.active.is_(True)))  # fmt: skip
             out.append(f"  liste de surveillance : NON — elle prend d'office les {wl_max} plus fortes de l'univers "
                        f"(rang ≥ {rs_min}, au-dessus des moyennes ; la dernière admise a le rang {floor or '—'}), "
-                       "les valeurs des lettres et celles ajoutées à la main")  # fmt: skip
+                       "les valeurs des lettres, celles ajoutées à la main et, depuis le 18/11/2026, les "
+                       "catalyseurs (résultats salués : hausse nette et volume inhabituel ; radar)")  # fmt: skip
         q_sig = select(Signal).where(Signal.isin == inst.isin, Signal.ts >= since, Signal.deleted_at.is_(None))
         sigs = list(s.scalars(q_sig.order_by(Signal.ts.desc())))
         out.append(f"  signaux (30 j) : {len(sigs)}" + (" — " + ", ".join(
