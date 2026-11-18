@@ -63,7 +63,7 @@ TV_EXCHANGE = {
     "poland": "GPW",
     "uk": "LSE",
     "switzerland": "SIX",
-    "america": "NASDAQ|NYSE",  # several venues: every prefix is tried
+    "america": "NASDAQ|NYSE|AMEX",  # several venues: every prefix is tried (AMEX = NYSE American, 18/11/2026)
 }
 
 
@@ -93,10 +93,18 @@ class TradingViewScreener:
         self._last_scan_at = 0.0
         self.requests_made = 0
         self.truncated: dict[str, tuple[int, int]] = {}  # market → (rows read, rows the screener has)
+        self.filter_refused: set[str] = set()  # markets where the exchange filter was refused (read without it)
 
     def scan(
-        self, markets: list[str], columns: list[str] | None = None, filters: list[dict] | None = None
+        self,
+        markets: list[str],
+        columns: list[str] | None = None,
+        filters: list[dict] | None = None,
+        exchanges: dict[str, list[str]] | None = None,
     ) -> list[ScreenerRow]:
+        """``exchanges`` (18/11/2026): per market, the venues to keep — a country's market mixes all its venues
+        (germany 37 727 rows, america 11 899 with the OTC), so the venue the tool follows was cut by ``limit``. A
+        refused filter (HTTP 400) is dropped for that market, said in ``filter_refused``, never a failure."""
         if not self.enabled:
             raise ProviderError("tradingview_screener désactivé par paramètre")
         if len(markets) > self.max_requests:
@@ -109,18 +117,28 @@ class TradingViewScreener:
         rows: list[ScreenerRow] = []
         for market in markets:
             read, total = 0, None
+            base = list(filters or [{"left": "type", "operation": "equal", "right": "stock"}])
+            venues = (exchanges or {}).get(market)
+            flt = base + ([{"left": "exchange", "operation": "in_range", "right": venues}] if venues else [])
             for page in range(self.max_pages):  # 17/11/2026: one page of ``limit`` rows by volume per market at most
                 if page:
                     time.sleep(self.page_pause)  # polite: the extra pages of a market are spaced
                 payload = {
                     "columns": cols,
-                    "filter": filters or [{"left": "type", "operation": "equal", "right": "stock"}],
+                    "filter": flt,
                     "range": [page * self.limit, (page + 1) * self.limit],
                     "sort": {"sortBy": "volume", "sortOrder": "desc"},
                     "markets": [market],
                 }
                 self.requests_made += 1
                 r = self.client.post(f"/{market}/scan", json=payload)
+                if r.status_code == 400 and venues and flt is not base and page == 0:
+                    log.warning("filtre par place refusé par le screener sur %s : lecture sans filtre", market)
+                    self.filter_refused.add(market)
+                    flt = base
+                    payload["filter"] = flt
+                    self.requests_made += 1
+                    r = self.client.post(f"/{market}/scan", json=payload)
                 if r.status_code >= 400:
                     raise ProviderError(f"tradingview {r.status_code} on {market}: {r.text[:120]}")
                 received = datetime.now(UTC)

@@ -26,7 +26,9 @@ def symbol_rows(insts: list) -> list[SymbolRow]:  # type: ignore[type-arg]
         if "." not in t:
             continue
         code, ex = t.rsplit(".", 1)
-        out.append(SymbolRow(isin=i.isin, name=i.name, code=code, exchange=ex, currency=i.currency or "EUR"))
+        row = SymbolRow(isin=i.isin, name=i.name, code=code, exchange=ex, currency=i.currency or "EUR")
+        row.extra["kind"] = i.kind or "stock"  # 18/11/2026: the type of the values the screener did not find
+        out.append(row)
     return out
 
 
@@ -81,4 +83,16 @@ def coverage(rows: list[SymbolRow], top: int = 8) -> str:
         c = cut.get(ex)
         return f"{ex} {v[0]}/{v[1]}" + (f" (source lue {c[0]}/{c[1]} lignes)" if c else "")
 
-    return " ; couverture par place : " + ", ".join(one(ex, v) for _, ex, v in low[:top])
+    out = " ; couverture par place : " + ", ".join(one(ex, v) for _, ex, v in low[:top])
+    # 18/11/2026: for a venue the source read whole, some values the screener does not find — which, and of what type
+    for _, ex, _v in low[:top]:
+        if ex in cut:
+            continue
+        missed = [r for r in rows if r.exchange == ex and not r.tv_ticker]
+        kinds: dict[str, int] = {}
+        for r in missed:
+            k = str(r.extra.get("kind") or "?")
+            kinds[k] = kinds.get(k, 0) + 1
+        sample = ", ".join(r.code for r in missed[:6])
+        out += f" ; {ex} non trouvées ({', '.join(f'{k} {n}' for k, n in sorted(kinds.items()))}) : {sample}"
+    return out

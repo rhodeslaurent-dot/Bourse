@@ -289,10 +289,15 @@ def enrich_with_screener(  # type: ignore[no-untyped-def]
         analyst_cols = {k: str(v) for k, v in (tv_cfg.get("analyst_columns") or {}).items() if v}  # docs/23 S4
         cols = DEFAULT_COLUMNS + [c for c in analyst_cols.values() if c not in DEFAULT_COLUMNS]
         scan = []
+        venues = (  # 18/11/2026: only the venues the tool follows (a country's market mixes all of them)
+            {m: (TV_EXCHANGE.get(m) or "").split("|") for m in markets if TV_EXCHANGE.get(m)}
+            if tv_cfg.get("filter_by_exchange", True)
+            else None
+        )
         for i in range(0, len(markets), tv.max_requests):  # all markets, in polite batches (docs/04 §4.7)
             if i:
                 time.sleep(tv.min_interval)
-            scan += tv.scan(markets[i : i + tv.max_requests], columns=cols)
+            scan += tv.scan(markets[i : i + tv.max_requests], columns=cols, exchanges=venues)
     except Exception as exc:  # noqa: BLE001
         log.warning("screener indisponible, univers sans capitalisation/secteur : %s", exc)
         for r in rows:

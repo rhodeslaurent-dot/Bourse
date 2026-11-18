@@ -138,7 +138,12 @@ def test_the_consensus_note_gives_the_coverage_per_exchange():
     rows = [SymbolRow(isin=f"X{k}", name="n", code=f"C{k}", exchange=ex, currency="EUR") for k, ex in
             enumerate(["PA", "PA", "US", "US", "US", "XETRA"])]  # fmt: skip
     rows[0].tv_ticker = rows[1].tv_ticker = rows[2].tv_ticker = "T"
-    assert coverage(rows) == " ; couverture par place : XETRA 0/1, US 1/3"  # least covered first; PA is complete
+    for r in rows:
+        r.extra["kind"] = "etf" if r.code == "C4" else "stock"
+    assert coverage(rows) == (
+        " ; couverture par place : XETRA 0/1, US 1/3"  # least covered first; PA is complete
+        " ; XETRA non trouvées (stock 1) : C5 ; US non trouvées (etf 1, stock 1) : C3, C4"
+    )
     for r in rows:
         r.tv_ticker = "T"
     assert coverage(rows) == ""

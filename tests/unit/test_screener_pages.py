@@ -41,3 +41,23 @@ def test_extra_pages_when_configured_until_the_market_is_read():
     tv2 = TradingViewScreener(client=_client(25, asked), min_interval_seconds=0, limit_per_request=10,
                               max_pages_per_market=2, page_pause_seconds=0)  # fmt: skip
     assert len(tv2.scan(["france"], columns=COLS)) == 20 and tv2.truncated == {"france": (20, 25)}
+
+
+def test_only_the_followed_venues_are_asked_and_a_refused_filter_is_dropped():
+    """18/11/2026: « germany » mixes 37 727 rows of every German venue; the tool follows Xetra only."""
+    sent: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        sent.append(body)
+        if any(f["left"] == "exchange" for f in body["filter"]) and body["markets"] == ["uk"]:
+            return httpx.Response(400, json={"error": "unknown field"})
+        return httpx.Response(200, json={"totalCount": 1, "data": [{"s": "XETR:SAP", "d": ["SAP", 1.0]}]})
+
+    client = httpx.Client(base_url="https://scanner.example", transport=httpx.MockTransport(handler))
+    tv = TradingViewScreener(client=client, min_interval_seconds=0, limit_per_request=10)
+    tv.scan(["germany", "uk"], columns=COLS, exchanges={"germany": ["XETR"], "uk": ["LSE"]})
+    assert {"left": "exchange", "operation": "in_range", "right": ["XETR"]} in sent[0]["filter"]
+    assert {"left": "type", "operation": "equal", "right": "stock"} in sent[0]["filter"]
+    assert all(f["left"] != "exchange" for f in sent[-1]["filter"])  # uk: refused, read without the filter
+    assert tv.filter_refused == {"uk"}

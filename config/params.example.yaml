@@ -715,6 +715,7 @@ data:
     min_interval_seconds: 60
     max_requests_per_scan: 6
     limit_per_request: 1500
+    filter_by_exchange: true              # 18/11/2026 : seules les places suivies sont demandées (le marché « germany » mêle 37 727 lignes de toutes les bourses allemandes, « america » 11 899 avec le hors-cote) ; filtre refusé → lecture sans filtre, signalée
     max_pages_per_market: 1               # 17/11/2026 : pages de limit_per_request lignes (par volume) lues par place, espacées ; 1 = une seule page (comportement d'origine) — à relever après la mesure de la couverture (note de consensus_daily)
     fallback: "eodhd_rest_delayed"
     # docs/23 S4 : consensus des analystes en recoupement de Yahoo ; colonnes acceptées par `tv-columns-check` le 25/10/2026
