@@ -119,7 +119,6 @@ def test_a_missing_measure_blocks_every_new_entry(db_engine, config, monkeypatch
 
 def test_the_trace_says_which_baseline_is_missing_and_why(db_engine, config):
     """18/11/2026: every proposal said « mesure indisponible » — the trace names the snapshot and its cause."""
-    from datetime import timedelta
 
     from app.db.models import Account
 

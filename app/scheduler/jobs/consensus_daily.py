@@ -62,6 +62,10 @@ def diagnosis(config, rows: list[SymbolRow], stored: int) -> str:  # type: ignor
     out = f" ; {matched} valeur(s) trouvée(s) dans le screener"
     if matched and not stored:
         out += " ; aucune valeur numérique dans les colonnes " + ", ".join(sorted(set(cols.values())))
+    empty = [r for r in rows if r.tv_ticker and not r.extra.get("analystes_tv")]
+    if empty:  # 18/11/2026: found, but no analyst published — which (a large value missing here is a bug)
+        ranked = sorted(empty, key=lambda r: (str(r.extra.get("kind") or "?") != "stock", r.code))
+        out += f" ; trouvées sans consensus ({len(empty)}) : " + ", ".join(f"{r.code}.{r.exchange}" for r in ranked[:8])
     out += coverage(rows)
     return out
 
@@ -93,6 +97,7 @@ def coverage(rows: list[SymbolRow], top: int = 8) -> str:
         for r in missed:
             k = str(r.extra.get("kind") or "?")
             kinds[k] = kinds.get(k, 0) + 1
+        missed.sort(key=lambda r: str(r.extra.get("kind") or "?") != "stock")  # the stocks first: ETFs have none
         sample = ", ".join(r.code for r in missed[:6])
         out += f" ; {ex} non trouvées ({', '.join(f'{k} {n}' for k, n in sorted(kinds.items()))}) : {sample}"
     return out

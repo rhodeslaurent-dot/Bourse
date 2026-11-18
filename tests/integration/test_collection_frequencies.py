@@ -158,3 +158,18 @@ def test_the_coverage_says_when_the_screener_was_cut():
     for r in rows:
         r.extra["screener_tronque"] = (1500, 6200)
     assert coverage(rows) == " ; couverture par place : US 1/2 (source lue 1500/6200 lignes)"
+
+
+def test_the_note_names_stocks_first_and_values_found_without_consensus(config):
+    """18/11/2026: a large American value's consensus stayed 23 days old — the note names the stocks the screener
+    missed before the ETFs (which have no analysts), and the values found without any analyst figure."""
+    from app.scheduler.jobs.consensus_daily import coverage, diagnosis
+    from app.services.universe import SymbolRow
+
+    rows = [SymbolRow(isin=f"X{k}", name="n", code=f"C{k}", exchange="US", currency="USD") for k in range(4)]
+    rows[0].extra["kind"], rows[1].extra["kind"], rows[2].extra["kind"] = "etf", "stock", "stock"
+    rows[3].extra["kind"] = "stock"
+    rows[2].tv_ticker = rows[3].tv_ticker = "T"
+    rows[3].extra["analystes_tv"] = {"objectif_moyen": 10.0}
+    assert coverage(rows).endswith("US non trouvées (etf 1, stock 1) : C1, C0")
+    assert "trouvées sans consensus (1) : C2.US" in diagnosis(config, rows, 1)
