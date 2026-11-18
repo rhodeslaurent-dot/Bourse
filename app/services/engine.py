@@ -844,6 +844,15 @@ def evaluate(
         if sc.confidence < int(sp.get("buy_min_confidence", 3)):
             action = "WATCH"
             ev.blocked.append(f"WATCH : confiance {sc.confidence}/5 < {sp.get('buy_min_confidence', 3)}")
+        if setup.detector == "d1_gap_catalyst":  # docs/06 §6.5: the catalyst block is required for D1 only
+            need_c, c_pts = float(sp.get("d1_min_c", 12)), float(sc.blocks.get("C") or 0)
+            if c_pts < need_c:
+                action = "WATCH"
+                ev.blocked.append(f"WATCH : catalyseur classé {c_pts:g} pt < {need_c:g} exigés pour un écart "
+                                  "d'ouverture (une actualité positive forte, ou moyenne confirmée ; "
+                                  "scoring.d1_min_c)")  # fmt: skip
+            else:
+                ev.passed.append(f"catalyseur classé {c_pts:g} pt ≥ {need_c:g} (D1)")
         if sc.risk == "eleve" and str(sp.get("high_risk_policy", "watch")) == "half_size":
             # docs/07 §7.2: size × 0.5 with a stop ≤ 1.5 ADR (user decision pending; docs/06 §6.5 says WATCH)
             mult = float(sp.get("high_risk_size_multiplier", 0.5))
@@ -1895,14 +1904,16 @@ def scan(
     now: datetime | None = None,
     quotes: dict[str, Any] | None = None,
     buzz_isins: set[str] | None = None,
+    gaps: dict[str, Any] | None = None,
 ) -> ScanReport:
-    """The day's scan (see :func:`_scan`). A full scan loads once the values the letters cited, so that each of the
+    """The day's scan (see :func:`_scan`). ``gaps`` (docs/06 D1, 18/11/2026): today's session so far of each value,
+    given by the opening scans only. A full scan loads once the values the letters cited, so that each of the
     ~1 300 values does not query the letters twice (review of 30/10/2026, m11)."""
     if isins is None:
         first = min(day, (now or datetime.now(UTC)).date()) - timedelta(days=7)
         s.info[_LETTER_ISINS] = (first, _letter_isins(s, first))
     try:
-        return _scan(s, config, day, isins, now, quotes, buzz_isins)
+        return _scan(s, config, day, isins, now, quotes, buzz_isins, gaps)
     finally:
         s.info.pop(_LETTER_ISINS, None)
 
@@ -1915,6 +1926,7 @@ def _scan(
     now: datetime | None = None,
     quotes: dict[str, Any] | None = None,
     buzz_isins: set[str] | None = None,
+    gaps: dict[str, Any] | None = None,
 ) -> ScanReport:
     from app.services.letters_review import published_gate
     from app.services.macro import market_context
@@ -2020,6 +2032,7 @@ def _scan(
                 float(stop_p.buffer_atr_mult),
                 [at] if at else [],
                 buzz=bool(buzz_isins and inst.isin in buzz_isins),
+                gap=(gaps or {}).get(inst.isin),
             )
             found = [
                 (x, "radar" if x.detector == "d8_buzz_precoce" else "moteur")

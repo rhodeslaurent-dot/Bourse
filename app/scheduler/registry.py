@@ -56,6 +56,8 @@ IMPLEMENTED_JOBS: dict[str, str] = {
     "us_filings": "app.scheduler.jobs.us_filings:run",
     "position_ai_review": "app.scheduler.jobs.position_ai_review:run",
     "idea_ai_review": "app.scheduler.jobs.idea_ai_review:run",
+    "open_scan_eu": "app.scheduler.jobs.open_scan:run_eu",
+    "open_scan_us": "app.scheduler.jobs.open_scan:run_us",
 }
 
 

@@ -436,16 +436,22 @@ regime:
     XNYS: {id: "IDX.GSPC", eodhd: "GSPC.INDX", nom: "S&P 500"}
 
 detectors:
-  d1_gap_catalyst:   # [phase 3]
+  d1_gap_catalyst:   # docs/06 D1, construit le 18/11/2026 (jobs open_scan_eu / open_scan_us) ; non mesuré
     enabled: true
-    scan_times_local: ["09:05", "09:15", "09:30", "10:00", "10:30"]
+    scan_times_local: ["09:05", "09:15", "09:30", "10:00", "10:30"]   # [obsolète] l'horaire est celui des jobs open_scan_eu / open_scan_us (18/11/2026)
+    catalyst_hours: 20                # catalyseur depuis la clôture précédente : résultats publiés ou actualité positive classée, sur 20 h
+    news_magnitudes: ["forte", "moyenne"]   # actualités positives retenues comme catalyseur candidat (le moteur exige ensuite scoring.d1_min_c)
+    max_candidates: 80                # valeurs interrogées par passage (1 appel EODHD par valeur)
+    opening_volume_share: 0.08        # part habituelle du volume du jour échangée dans les 15 premières minutes (enchère comprise) : le rythme de volume n'est jamais calculé sur moins
+    hold_max_below_high_pct: 0.02     # écart tenu : dernier cours au plus 2 % sous le plus haut du jour et au-dessus de l'ouverture
+    horizon: "days"
     gap_min_large_adv_eur: 5000000
     gap_min_large: 0.03
     gap_min_other: 0.05
-    rvol15_min: 2.0
+    rvol15_min: 2.0                   # rythme de volume : volume du jour / (volume moyen 20 séances × max(part de séance écoulée, opening_volume_share)) — approximation du volume relatif des 15 premières minutes
     gap_high_risk: 0.15
     entry_max_pct_above_or_high: 0.01
-    stop_fallback_atr_mult: 1.0       # utilisé seulement si day_low indisponible
+    stop_fallback_atr_mult: 1.0       # [obsolète] le plus bas du jour est toujours fourni par le cours du jour (18/11/2026)
     stop_max_adr_mult: 1.5
     expire_minutes_after_scan: 30
     expire_latest_local: "11:00"
@@ -521,7 +527,7 @@ scoring:
   buy_min_ratio_orange: 0.80
   pinned_price_max_atr_pct: 0.006     # 31/10/2026 : ATR14 sous 0,6 % du cours = cours encadré (offre publique, retrait de cote probable) → aucune entrée, quelle que soit la source
   watch_only_detectors: ["d2_breakout", "d7_trend_quality"]   # ADR-013 (26/10/2026) : espérance négative au coût complet → surveillance seulement, sans ordre ; d3 et d4 désactivés par l'ADR-014 (detectors.*.enabled)
-  d1_min_c: 12                        # [phase 3] catalyseur requis pour D1 seulement
+  d1_min_c: 12                        # catalyseur requis pour D1 seulement (appliqué par le moteur depuis le 18/11/2026) : actualité positive forte (15) ou moyenne confirmée
   c_bonus_cap: 5                      # D2/D3/D4 : min(C, 5) ajouté au numérateur du ratio d'admission, pas au dénominateur
   admission_blocks:                   # blocs au dénominateur du ratio d'admission (F ajouté si >= 2 sous-critères disponibles)
     d1_gap_catalyst: ["C", "T", "R", "M"]   # [phase 3]
@@ -944,7 +950,9 @@ jobs:                                    # heure de Paris sauf mention tz ; mark
   zonebourse_lists_daily: {cron: "30 8 * * 1-5", enabled: false, market_days_only: true}   # [non codé] activer si Zonebourse Premium
   brief_premarket: {cron: "45 8 * * 1-5", misfire_grace_min: 20, market_days_only: true}
   intraday_watch_start: {cron: "55 8 * * 1-5", misfire_grace_min: 10, market_days_only: true, enabled: false}   # [phase 3] phase 3
-  open_scan: {times_from: "detectors.d1_gap_catalyst.scan_times_local", misfire_grace_min: 10, market_days_only: true, enabled: false}   # [phase 3] phase 3 ; modes : availability.d1_allowed_modes
+  open_scan: {times_from: "detectors.d1_gap_catalyst.scan_times_local", misfire_grace_min: 10, market_days_only: true, enabled: false}   # [phase 3] remplacé le 18/11/2026 par open_scan_eu / open_scan_us (times_from n'est pas lu par le planificateur) ; modes : availability.d1_allowed_modes
+  open_scan_eu: {cron: "5-55/10 9-10 * * 1-5", misfire_grace_min: 5, market_days_only: true}   # docs/06 D1 (18/11/2026, demande de l'utilisateur) : écart d'ouverture + catalyseur depuis la veille, places européennes, toutes les 10 min de 09:05 à 10:55 (Paris) ; fiche + alerte Telegram, seulement dans les modes availability.d1_allowed_modes
+  open_scan_us: {cron: "5-55/10 9-10 * * 1-5", tz: "America/New_York", misfire_grace_min: 5, market_days_only: false}   # idem, New York de 09:35 à 10:55 (heure de New York ; avant 09:30 le service ne fait rien) ; calendrier XNYS vérifié par le service
   position_monitor: {every_seconds: 60, window_local: ["09:00", "17:40"], half_day_end: "14:10", market_days_only: true}
   intraday_reeval: {every_seconds: 15, window_local: ["09:00", "21:59"], misfire_grace_min: 1, market_days_only: true}   # décision du 28/10/2026 : propositions du jour réévaluées avec le cours frais (Saxo 15 s, EODHD 15 min) ; séance vérifiée place par place (New York jusqu'à 22:00 Paris)
   portfolio_sync_intraday: {every_minutes_from: "accounts.cto.sync_intraday_minutes", window_local: ["09:00", "17:40"], also_after: ["declaration", "before_proposal"], market_days_only: true}

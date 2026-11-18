@@ -21,6 +21,22 @@ from app.domain.zones import DetectedZone, exploitable_targets, supports_below
 
 
 @dataclass(frozen=True)
+class GapSnapshot:
+    """Today's session of one value so far (docs/06 D1), from a quote of the day — delayed or not, its status kept."""
+
+    prev_close: float
+    open: float
+    high: float
+    low: float
+    last: float
+    volume: float | None  # cumulated today
+    adv_shares: float | None  # average daily volume of the 20 sessions before, in shares
+    elapsed: float  # fraction of the session elapsed at the quote's market time (0–1]
+    adv_eur: float | None
+    catalyst: str | None  # the fact since the previous close (« résultats publiés le 17/11 à 22:05 »)
+
+
+@dataclass(frozen=True)
 class DetectorContext:
     rs_rank: float | None  # cross-sectional rank 0–100 (features_daily)
     zones: list[DetectedZone]
@@ -28,6 +44,7 @@ class DetectorContext:
     stop_buffer_atr_mult: float  # risk.stop.buffer_atr_mult
     extra_targets: list[float] = field(default_factory=list)  # published targets (letters), if any
     buzz: bool = False  # docs/26 S3: the radar saw retail chatter accelerate before any publication
+    gap: GapSnapshot | None = None  # docs/06 D1 (18/11/2026): today's session so far, set only by the opening scans
 
 
 @dataclass
@@ -344,12 +361,71 @@ class D8BuzzEarly:
         ]
 
 
+class D1GapCatalyst:
+    """docs/06 D1 « episodic pivot » (built 18/11/2026 at the user's request: « a large value up 7 % at the open after
+    very good results: an opportunity on a move, I judge the bias »; ADR-025). Fires only from the opening scans
+    (``ctx.gap``): an opening gap of at least ``gap_min_large`` (large caps, ADV ≥ ``gap_min_large_adv_eur``) or
+    ``gap_min_other``, a volume pace of at least ``rvol15_min`` times the usual one, the gap held (price near the day's
+    high, above the open) and a catalyst since the previous close. Entry: break of the day's high, up to
+    ``entry_max_pct_above_or_high`` above; stop under the day's low (``risk.stop.buffer_atr_mult`` ATR), refused beyond
+    ``stop_max_adr_mult`` ADR; targets the next exploitable levels (R4: resistances, 60-session and 52-week highs, never
+    an R multiple). The usual admission, sizing (rule 7), caps and data-freshness rule (rule 2: on a delayed quote,
+    « à vérifier », no order sheet) decide."""
+
+    name = "d1_gap_catalyst"
+
+    def __init__(self, params: dict[str, Any]) -> None:
+        self.params = params
+
+    def detect(self, bars: list[Bar], ctx: DetectorContext) -> list[Setup]:
+        p, g = self.params, ctx.gap
+        if g is None or len(bars) < 30 or g.prev_close <= 0 or not g.catalyst:
+            return []
+        f = compute_daily_features(bars)
+        if not (f.atr14 and f.adr20):
+            return []
+        gap = g.open / g.prev_close - 1
+        large = g.adv_eur is not None and g.adv_eur >= float(p.get("gap_min_large_adv_eur", 5_000_000))
+        if gap < float(p.get("gap_min_large", 0.03) if large else p.get("gap_min_other", 0.05)):
+            return []
+        # the usual share of a day's volume traded so far: the open (auction and first minutes) weighs far more than its
+        # share of the session's time, so never less than ``opening_volume_share`` (≈ the usual first 15 minutes)
+        usual = max(g.elapsed, float(p.get("opening_volume_share", 0.08)))
+        pace = (g.volume / (g.adv_shares * usual)) if g.volume and g.adv_shares else None
+        if pace is None or pace < float(p.get("rvol15_min", 2.0)):
+            return []
+        if g.last < g.open or g.last < g.high * (1 - float(p.get("hold_max_below_high_pct", 0.02))):
+            return []  # the gap is being given back: not an entry (a later scan may see it again)
+        entry = g.high
+        p_max = g.high * (1 + float(p.get("entry_max_pct_above_or_high", 0.01)))
+        stop = g.low - ctx.stop_buffer_atr_mult * f.atr14  # docs/07 §7.2: under the day's low, risk.stop buffer
+        warn = []
+        if p_max - stop > float(p.get("stop_max_adr_mult", 1.5)) * f.adr20 * p_max:
+            warn.append(f"stop trop large ({(p_max - stop) / p_max:.1%} sous le prix maximal)")
+        high60 = max(b.high for b in bars[-60:])
+        extra = [x for x in (high60, f.high_52w) if x and x > p_max]
+        targets = _targets(p_max, ctx, extra)
+        high_risk = gap >= float(p.get("gap_high_risk", 0.15))
+        evidence = {"ecart_ouverture": round(gap, 4), "rythme_volume": round(pace, 2), "catalyseur": g.catalyst,
+                    "cloture_veille": g.prev_close, "ouverture": g.open, "dernier": g.last,
+                    "plus_haut_du_jour": g.high, "plus_bas_du_jour": g.low, "volume_du_jour": g.volume,
+                    "volume_moyen_20s": g.adv_shares, "part_seance": round(g.elapsed, 3),
+                    "risque": "élevé" if high_risk else None,
+                    "approximation": "plus haut du jour au moment du scan pour le plus haut d'ouverture ; volume "
+                                     "rapporté au volume moyen × part habituelle déjà échangée (au moins celle "
+                                     "de l'ouverture)"}  # fmt: skip
+        return [Setup(self.name, SetupKind.BREAKOUT, entry, p_max, stop, "structure", g.low, targets,
+                      str(p.get("horizon", "days")), evidence, warn)]  # fmt: skip
+
+
 DETECTORS = {c.name: c for c in (D2Breakout, D3RangeExpansion, D4Pullback, D7TrendQuality, D8BuzzEarly)}
+# detectors that need today's session so far (the opening scans): never replayed on daily bars (backtests, studies)
+LIVE_DETECTORS = {D1GapCatalyst.name: D1GapCatalyst}
 
 
 def run_detectors(params: dict[str, Any], bars: list[Bar], ctx: DetectorContext) -> list[Setup]:
     out: list[Setup] = []
-    for name, cls in DETECTORS.items():
+    for name, cls in {**DETECTORS, **(LIVE_DETECTORS if ctx.gap is not None else {})}.items():
         p = params.get(name) or {}
         if p.get("enabled", False):
             out.extend(cls(p).detect(bars, ctx))

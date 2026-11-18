@@ -13,6 +13,7 @@ import logging
 import os
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 import httpx
 
@@ -194,6 +195,30 @@ class EodhdProvider(MarketDataProvider):
                     declared_delay_minutes=self.declared_delay_minutes,
                 )
             )
+        return out
+
+    def day_quotes(self, symbols: Sequence[str], chunk: int = 15) -> list[dict[str, Any]]:
+        """docs/06 D1 (18/11/2026): today's session so far — open, high, low, last, previous close, volume — with the
+        quote's market time and its status (delayed whatever the download time, rule 2). Unreadable rows are skipped."""
+        out: list[dict[str, Any]] = []
+
+        def num(v: Any) -> float | None:
+            return float(v) if v not in (None, "NA", "") else None
+
+        for i in range(0, len(symbols), chunk):
+            part = list(symbols[i : i + chunk])
+            params: dict[str, object] = {"s": ",".join(part[1:])} if len(part) > 1 else {}
+            data = self._get(f"/real-time/{part[0]}", **params)
+            now = datetime.now(UTC)
+            for r in data if isinstance(data, list) else [data]:
+                ts = r.get("timestamp")
+                mts = datetime.fromtimestamp(int(ts), tz=UTC) if ts not in (None, "NA") else None
+                row = {k: num(r.get(k)) for k in ("open", "high", "low", "close", "previousClose", "volume")}
+                if None in (row["open"], row["high"], row["low"], row["close"], row["previousClose"]) or mts is None:
+                    continue
+                out.append({"symbol": str(r.get("code", part[0])), "market_timestamp": mts, "received_at": now,
+                            "data_status": classify_status(mts, now, self.declared_delay_minutes, self.stale_after),
+                            **row})  # fmt: skip
         return out
 
     def supports_streaming(self) -> bool:
