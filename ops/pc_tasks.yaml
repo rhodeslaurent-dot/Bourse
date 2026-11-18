@@ -583,3 +583,15 @@ tasks:
       - "docker compose up -d --build"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli gates-coverage --value TSLA --value MSFT --value LVMH"
+  # 18-11 : la note TradingView des analystes va de 1 (achat fort) à 5 (vente forte) — vérifié sur trois grandes
+  # valeurs que Yahoo dit « buy ». Échelle déclarée dans config/params.yaml du PC (les clés existent, à null),
+  # reconstruction et contrôle de la configuration.
+  - id: "2026-11-18-12"
+    purpose: "Idées moyen terme : échelle de la note des analystes déclarée (1 = achat fort), reconstruction"
+    stop_on_error: true
+    timeout_s: 1200
+    commands:
+      - "uv run python -m app.cli params-init --update --set \"detectors.m1_consensus_trend.rating_best=1\" --set \"detectors.m1_consensus_trend.rating_max=2.0\""
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli check-config"
