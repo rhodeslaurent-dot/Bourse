@@ -1953,6 +1953,12 @@ def cmd_gates_coverage(args: argparse.Namespace) -> int:
     from app.db.session import db_session
     from app.services import gates_coverage
 
+    if getattr(args, "circuit", False):  # 18/11/2026: why the circuit breaker's measure is missing
+        from app.services.circuit import trace as circuit_trace
+
+        with db_session() as s:
+            print("\n".join(circuit_trace(s, load_params(None))))
+        return 0
     if getattr(args, "value", None):  # 18/11/2026: one value through each gate (« why is it not proposed? »)
         from app.services.value_trace import trace
 
@@ -3358,6 +3364,7 @@ def main(argv: list[str] | None = None) -> int:
     gc.add_argument(
         "--value", action="append", default=[], help="une valeur (ISIN, ticker ou nom) suivie porte par porte"
     )
+    gc.add_argument("--circuit", action="store_true", help="pourquoi la mesure du coupe-circuit manque (lecture seule)")
     gc.set_defaults(fn=cmd_gates_coverage)
     vpv = sub.add_parser(
         "verdict-preview", help="niveau de verdict gradué des propositions d'un jour (docs/37, lecture seule)"

@@ -167,3 +167,60 @@ def circuit_state(
             view.size_multiplier = miss
             view.reason = f"mesure du coupe-circuit indisponible : tailles × {miss:g} jusqu'au prochain instantané"
     return view
+
+
+def trace(s: Session, config: LoadedConfig, now: datetime | None = None) -> list[str]:
+    """18/11/2026 — every proposal of the week said « mesure indisponible » (the decision of 04/11/2026: a missing
+    measure blocks every new entry). Why the measure is missing, from stored facts only: the baseline snapshots it
+    needs (the last session before the week and before the month, complete, at most 4 days old), each consolidated
+    snapshot since and what made it incomplete, and what is missing now. No amount is printed. Read only."""
+    from app.db.models import Account
+    from app.services.performance import build_performance
+
+    today = (now or datetime.now(UTC)).astimezone(PARIS).date()
+    week0 = today - timedelta(days=today.weekday())
+    month0 = today.replace(day=1)
+    view = circuit_state(s, config, now)
+    blocking = "BLOQUANT — " if view.unavailable and view.blocks_when_unavailable else ""
+    out = [f"coupe-circuit au {today:%d/%m} : {blocking}" + ("; ".join(view.notes) or "mesure disponible")]
+    out.append(f"  semaine : {'—' if view.week_r is None else f'{view.week_r:+.2f} R'} · mois : "
+               f"{'—' if view.month_r is None else f'{view.month_r:+.2f} R'} · déclenché : "
+               f"{'oui — ' + view.reason if view.tripped else 'non'}")  # fmt: skip
+    accounts = {a.id: a for a in s.scalars(select(Account))}
+
+    def why(day: date) -> str:
+        parts = []
+        for r in s.scalars(select(KpiDaily).where(KpiDaily.day == day, KpiDaily.account_id.is_not(None))):
+            a = accounts.get(int(r.account_id or 0))
+            name = a.type if a is not None else f"compte {r.account_id}"
+            if r.incomplete:
+                parts.append(f"{name} : " + ("liquidités inconnues" if r.cash is None else "position sans cours"))
+        return ", ".join(parts) or "latent partiel (taux de change ou cours d'une ligne)"
+
+    for label, start in (("semaine", week0), ("mois", month0)):
+        b = _baseline(s, start)
+        if b is None:
+            state = "aucun instantané avant" + ("" if _trades_before(s, start) else " (rien détenu : base zéro)")
+        else:
+            age = (start - b.day).days
+            ok = not b.incomplete and b.latent_pnl is not None
+            state = f"{b.day:%d/%m} " + ("complet" if ok else f"INCOMPLET ({why(b.day)})")
+            state += f", trop ancien ({age} j > 4)" if age > 4 else ""
+        out.append(f"  référence {label} (avant le {start:%d/%m}) : {state}")
+    since = min(week0, month0) - timedelta(days=10)
+    rows = list(s.scalars(select(KpiDaily).where(KpiDaily.account_id.is_(None), KpiDaily.day >= since)
+                          .order_by(KpiDaily.day)))  # fmt: skip
+    bad = [r for r in rows if r.incomplete or r.latent_pnl is None]
+    first_ok = next((f"{r.day:%d/%m}" for r in rows if r not in bad), "aucun")
+    out.append(f"  instantanés consolidés depuis le {since:%d/%m} : {len(rows)}, dont {len(bad)} incomplet(s) — "
+               f"premier complet : {first_ok}")  # fmt: skip
+    for r in bad[-12:]:
+        out.append(f"    {r.day:%d/%m} : {why(r.day)}")
+    v = build_performance(s, config)["v"]
+    out.append("  maintenant : " + ("; ".join(v.incomplete[:6]) or "aucun cours ni taux manquant"))
+    nocash = [a.type for a in accounts.values() if a.cash is None]
+    if nocash:
+        out.append(
+            "  liquidités jamais renseignées : " + ", ".join(nocash) + " (l'instantané du compte reste incomplet)"
+        )
+    return out

@@ -115,3 +115,31 @@ def test_a_missing_measure_blocks_every_new_entry(db_engine, config, monkeypatch
         c.params.risk.circuit_breaker.model_extra["missing_baseline_blocks"] = False
         old = circuit_state(s, c, NOW_WED, current=(0.0, 0.0))
         assert old.unavailable and old.size_multiplier == 0.75 and "indisponible" in old.reason
+
+
+def test_the_trace_says_which_baseline_is_missing_and_why(db_engine, config):
+    """18/11/2026: every proposal said « mesure indisponible » — the trace names the snapshot and its cause."""
+    from datetime import timedelta
+
+    from app.db.models import Account
+
+    with db_session() as s:
+        pea = Account(broker="boursobank", type="pea", label="PEA")  # cash never declared
+        s.add(pea)
+        s.add(Trade(account_id=1, isin=ISIN, side="buy", qty=1, price=10, ts=datetime(2026, 9, 1, tzinfo=UTC),
+                    kind="confirmed", source="saxo"))  # fmt: skip
+        s.flush()
+        for d in (date(2026, 9, 30), date(2026, 10, 16)):
+            s.add(KpiDaily(day=d, account_id=None, equity=None, realized_pnl_cum=0, latent_pnl=0, incomplete=True,
+                           computed_at=NOW_WED))  # fmt: skip
+            s.add(KpiDaily(day=d, account_id=pea.id, cash=None, incomplete=True, computed_at=NOW_WED))
+        s.add(KpiDaily(day=date(2026, 10, 20), account_id=None, equity=1, realized_pnl_cum=0, latent_pnl=0,
+                       computed_at=NOW_WED))  # fmt: skip
+        s.flush()
+        out = circuit_mod.trace(s, config, NOW_WED)
+    text = "\n".join(out)
+    assert out[0].startswith("coupe-circuit au 21/10 : BLOQUANT — mesure indisponible")
+    assert "référence semaine (avant le 19/10) : 16/10 INCOMPLET (pea : liquidités inconnues)" in text
+    assert "référence mois (avant le 01/10) : 30/09 INCOMPLET (pea : liquidités inconnues)" in text
+    assert "premier complet : 20/10" in text and "liquidités jamais renseignées : pea" in text
+    assert "40000" not in text and "€" not in text  # no amount printed
