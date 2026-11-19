@@ -2599,6 +2599,8 @@ def _persist(
         key = (e.isin, e.detector)
         if key in existing:
             rep.skipped_existing += 1
+            per = rep.by_detector.setdefault(e.detector, {})
+            per["déjà"] = per.get("déjà", 0) + 1  # proposed earlier today, kept as it was
             continue
         try:
             with s.begin_nested():  # savepoint: a row the database rejects never aborts the others

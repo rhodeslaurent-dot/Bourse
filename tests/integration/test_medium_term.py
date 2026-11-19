@@ -32,6 +32,8 @@ def test_a_consensus_far_above_a_rising_value_gives_a_sized_medium_term_card(db_
         rep = engine.scan(s, config, DAY, isins=[ISIN], now=NOW)
         ((p, sig),) = _m1(s)
         assert "par détecteur : " in rep.note() and f"m1_consensus_trend {p.action} 1" in rep.note()
+        again = engine.scan(s, config, DAY, isins=[ISIN], now=NOW + timedelta(minutes=5))
+        assert "m1_consensus_trend déjà 1" in again.note()  # a rescan still says how many ideas the day holds
         assert p.horizon == "moyen_terme" and p.targets == [LAST * 1.3]
         assert sig.evidence["nb_analystes"] == 24 and sig.evidence["source_consensus"] == "tradingview"
         assert sig.evidence["note_analystes"] == 1.5  # shown as published, never used without a declared scale
