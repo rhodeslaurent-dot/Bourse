@@ -661,3 +661,12 @@ tasks:
       - "docker compose exec -T app python -m app.cli gates-coverage --value NVDA --value TTWO"
       - "docker compose exec -T app python -m app.cli sources-health --job watchlist_refresh --job consensus_daily"
       - "docker compose exec -T app python -m app.cli gates-coverage --circuit"
+  # Matin du 19/11, 2e passage (lecture seule) : le scan de 07:50, premier depuis le rebasage du coupe-circuit
+  # (achats possibles ?), les idées moyen terme (ADR-026), l'analyse IA des idées (08:25) ; motifs de blocage du jour.
+  - id: "2026-11-19-03"
+    purpose: "Matin : scan de 07:50 après rebasage, idées moyen terme, analyse IA des idées, motifs de blocage"
+    stop_on_error: false
+    timeout_s: 900
+    commands:
+      - "docker compose exec -T app python -m app.cli sources-health --job opportunity_scan --job idea_ai_review --job watchlist_refresh"
+      - "docker compose exec -T app python -m app.cli gates-coverage --from 2026-11-19"
