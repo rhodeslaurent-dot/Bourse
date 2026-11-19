@@ -65,7 +65,8 @@ def diagnosis(config, rows: list[SymbolRow], stored: int) -> str:  # type: ignor
     empty = [r for r in rows if r.tv_ticker and not r.extra.get("analystes_tv")]
     if empty:  # 18/11/2026: found, but no analyst published — which (a large value missing here is a bug)
         ranked = sorted(empty, key=lambda r: (str(r.extra.get("kind") or "?") != "stock", r.code))
-        out += f" ; trouvées sans consensus ({len(empty)}) : " + ", ".join(f"{r.code}.{r.exchange}" for r in ranked[:8])
+        shown = ", ".join(f"{r.code}.{r.exchange}" for r in ranked[:20])  # 19/11: 8 hid the ones looked for
+        out += f" ; trouvées sans consensus ({len(empty)}) : {shown}" + (" …" if len(empty) > 20 else "")
     out += coverage(rows)
     return out
 
