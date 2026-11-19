@@ -1599,6 +1599,8 @@ class ScanReport:
     errors: list[str] = field(default_factory=list)
     by_market: dict[str, list[int]] = field(default_factory=dict)  # MIC → [scanned, setups, proposals]
     letters_na: int = 0  # letter values recorded « non analysable » (docs/20 §20.10)
+    # 19/11/2026: proposals per detector and action (« how many medium-term ideas this morning, any buy? »)
+    by_detector: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def count(self, mic: str | None, k: int) -> None:
         self.by_market.setdefault(mic or "?", [0, 0, 0])[k] += 1
@@ -1615,8 +1617,13 @@ class ScanReport:
             if self.skipped_existing
             else ""
         )  # 04/11/2026: « 0 propositions » after the morning scan read as a failure
+        dets = " ; ".join(
+            f"{d} " + ", ".join(f"{a} {n}" for a, n in sorted(v.items()))
+            for d, v in sorted(self.by_detector.items(), key=lambda kv: -sum(kv[1].values()))
+        )
         return (
             f"{self.scanned} valeurs, {self.setups} configurations, {self.created} propositions ({acts}){kept}{err}"
+            + (f" · par détecteur : {dets}" if dets else "")
             + (f" · par place (valeurs/configurations/propositions) : {places}" if places else "")
         )
 
@@ -2690,6 +2697,8 @@ def _persist(
                                     "verdict_gradue": v.as_dict()}  # fmt: skip
                 rep.created += 1
                 rep.by_action[prop.action] = rep.by_action.get(prop.action, 0) + 1
+                per = rep.by_detector.setdefault(e.detector, {})
+                per[prop.action] = per.get(prop.action, 0) + 1
                 inst_e = s.get(Instrument, e.isin)
                 rep.count(inst_e.mic if inst_e else None, 2)
         except Exception as exc:  # noqa: BLE001
