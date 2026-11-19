@@ -226,7 +226,11 @@ def trace(s: Session, config: LoadedConfig, now: datetime | None = None) -> list
     rebase = _rebase(config)
     for label, start in (("semaine", week0), ("mois", month0)):
         b = _baseline(s, start, rebase)
-        if b is None:
+        first = _first_after_rebase(s, rebase) if rebase is not None and start <= rebase else None
+        if b is None and rebase is not None and start <= rebase:  # the period began before the rebase
+            state = (f"{first.day:%d/%m} : premier instantané complet du rebasage" if first is not None
+                     else "rebasage sans instantané complet encore")  # fmt: skip
+        elif b is None:
             state = "aucun instantané avant" + ("" if _trades_before(s, start) else " (rien détenu : base zéro)")
         else:
             age = (start - b.day).days

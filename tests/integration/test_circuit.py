@@ -173,3 +173,7 @@ def test_a_rebase_reads_only_the_snapshots_from_its_day(db_engine, config, raw):
         v = circuit_state(s, validate_params(raw), NOW_WED, current=(0.0, -4800.0))
     assert not v.unavailable and v.week_r == 0.0 and v.month_r == 0.0 and not v.tripped
     assert any("mesure rebasée au 20/10" in n for n in v.notes)
+    with db_session() as s:
+        text = "\n".join(circuit_mod.trace(s, validate_params(raw), NOW_WED))
+    assert "référence semaine (avant le 19/10) : 20/10 : premier instantané complet du rebasage" in text
+    assert "rebasage : instantanés d'avant le 20/10 ignorés" in text
