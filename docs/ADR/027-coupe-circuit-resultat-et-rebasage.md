@@ -1,6 +1,6 @@
 # ADR-027 — Coupe-circuit : mesure sur le résultat, pas sur l'équité ; rebasage sur décision
 
-- **Statut** : point 1 accepté le 18/11/2026 (correctif) ; point 2 **en attente de la décision de l'utilisateur**.
+- **Statut** : point 1 accepté le 18/11/2026 (correctif) ; point 2 **décidé par l'utilisateur le 19/11/2026 : rebasage au 18/11** (`baseline_from: 2026-11-18` dans le `config/params.yaml` du PC).
 - **Contexte** : toutes les propositions de la semaine portaient « BLOQUÉ : coupe-circuit — mesure indisponible ». Le diagnostic du 18/11 (`gates-coverage --circuit`, tâche PC 18-14) montre deux causes :
   1. **Les 15 instantanés consolidés depuis le 22/10 sont tous incomplets**, pour une seule raison : les liquidités du PEA n'ont jamais été déclarées. Le PEA est déclaratif (BoursoBank, sans API). Or la mesure du coupe-circuit porte sur le résultat (réalisé + latent), qui ne dépend pas des liquidités. Depuis la décision du 04/11 (une mesure manquante bloque toute entrée), plus aucune entrée n'était possible.
   2. **La fenêtre glissante voyait −16,4 R en 5 séances.** Jusqu'au 18/11, une ligne Saxo était rattachée à l'ISIN d'une autre société et valorisée à ses cours ; une fois rattachée à la bonne (correction du 18/11), son latent a « chuté » d'un coup. C'est un changement de valorisation, pas une perte de marché ; il reste dans les instantanés d'avant le 18/11.
@@ -18,6 +18,8 @@
   - fenêtre glissante : −16 R tant que les instantanés d'avant le 18/11 y figurent, soit jusqu'au 25/11 environ.
   - En attendant, toute entrée reste bloquée.
 - **Avec un rebasage au 18/11** : la mesure reprend dès le nouvel instantané du 18/11 (relu après la migration). Les pertes réelles éventuelles entre le 01/11 et le 18/11 ne sont plus comptées dans le mois. `gates-coverage --circuit` montre le résultat jour par jour, en R, pour juger de ce qui serait oublié.
+- **Mesure du 18/11** (tâche PC 18-15), résultat de la partie active en R depuis le 30/10 : 0,0 le 30/10, puis environ +16,6 du 03/11 au 17/11 (la ligne synchronisée le 03/11 et valorisée au cours de l'autre société), et +0,1 le 18/11. Le résultat réel du mois est donc à peu près nul : le rebasage n'oublie aucune perte réelle. Sans lui, le pic fictif aurait bloqué les entrées jusqu'à mi-décembre environ (recul depuis le plus haut des 21 séances).
+- **Décision de l'utilisateur (19/11/2026)** : rebaser au 18/11.
 - **Recommandation** : déclarer les liquidités du PEA, pour que l'équité soit complète.
 - `gates-coverage --circuit` : instantanés de référence, causes (liquidités inconnues ou ligne sans cours), résultat en R jour par jour, rebasage. Aucun montant affiché.
 - Tests : `tests/integration/test_circuit.py`, `tests/integration/test_performance_page.py`.

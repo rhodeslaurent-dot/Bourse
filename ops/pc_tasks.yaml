@@ -638,3 +638,15 @@ tasks:
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli run-job kpi_snapshot"
       - "docker compose exec -T app python -m app.cli gates-coverage --circuit"
+  # Décision de l'utilisateur du 19/11 (ADR-027) : rebaser le coupe-circuit au 18/11 — les instantanés d'avant étaient
+  # valorisés avec une ligne au cours d'une autre société (+16,6 R fictifs du 03/11 au 17/11, +0,1 R réel le 18/11).
+  # Paramètre posé dans config/params.yaml du PC, redémarrage (lecture des paramètres), contrôle : « mesure disponible ».
+  - id: "2026-11-19-01"
+    purpose: "Coupe-circuit rebasé au 18/11 (décision de l'utilisateur, ADR-027) : paramètre, redémarrage, contrôle"
+    stop_on_error: true
+    timeout_s: 900
+    commands:
+      - "uv run python -m app.cli params-init --update --set \"risk.circuit_breaker.baseline_from=2026-11-18\""
+      - "docker compose restart app"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli gates-coverage --circuit"
