@@ -650,3 +650,14 @@ tasks:
       - "docker compose restart app"
       - "wait-app 600"
       - "docker compose exec -T app python -m app.cli gates-coverage --circuit"
+  # Matin du 19/11 (lecture seule) : les deux valeurs de la question du 18/11 — entrées dans la liste par catalyseur
+  # à 07:15 (réaction du 18/11 à des résultats) ? Notes entières de la liste et du consensus de 22:20 (actions
+  # manquées, trouvées sans consensus), et coupe-circuit après rebasage.
+  - id: "2026-11-19-02"
+    purpose: "Matin : liste par catalyseur (deux valeurs), notes de la liste et du consensus, coupe-circuit"
+    stop_on_error: false
+    timeout_s: 900
+    commands:
+      - "docker compose exec -T app python -m app.cli gates-coverage --value NVDA --value TTWO"
+      - "docker compose exec -T app python -m app.cli sources-health --job watchlist_refresh --job consensus_daily"
+      - "docker compose exec -T app python -m app.cli gates-coverage --circuit"
