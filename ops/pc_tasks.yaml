@@ -670,3 +670,17 @@ tasks:
     commands:
       - "docker compose exec -T app python -m app.cli sources-health --job opportunity_scan --job idea_ai_review --job watchlist_refresh"
       - "docker compose exec -T app python -m app.cli gates-coverage --from 2026-11-19"
+  # 19-03 : scan de 07:50, premier depuis le rebasage du coupe-circuit : 232 propositions, aucun achat (portail de marché
+  # « restreint + » sur 206, ratio d'admission sous le seuil sur 207 ; régimes rouges à New York et Francfort).
+  # Reconstruction (note du scan par détecteur, note du consensus), aperçu de l'échelle de verdict graduée (docs/37,
+  # inactive tant que l'utilisateur n'a pas décidé) sur les propositions du jour, et relance du scan pour sa note
+  # par détecteur (les propositions du jour existantes sont gardées, une par valeur et détecteur).
+  - id: "2026-11-19-04"
+    purpose: "Scan du jour : note par détecteur, aperçu de l'échelle de verdict graduée (décision en attente)"
+    stop_on_error: false
+    timeout_s: 2400
+    commands:
+      - "docker compose up -d --build"
+      - "wait-app 600"
+      - "docker compose exec -T app python -m app.cli verdict-preview --date 2026-11-19"
+      - "docker compose exec -T app python -m app.cli run-job opportunity_scan"
